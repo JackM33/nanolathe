@@ -806,11 +806,16 @@ func decodeZlib(source io.Reader, expected uint64) ([]byte, error) {
 	}
 	// The stream must be exhausted: more bytes than the header declared is a
 	// malformed chunk, not a truncation this reader may silently accept.
+	// io.ErrUnexpectedEOF after every declared byte was produced means the
+	// stream simply stops without a final deflate block or Adler-32 trailer.
+	// Third-party packers write such chunks, and the retail read compares
+	// only the produced length with the declared one, so that tail is
+	// accepted [fmt hpi].
 	var extra [1]byte
 	switch n, err := reader.Read(extra[:]); {
 	case n != 0:
 		return nil, fmt.Errorf("zlib produced more than %d bytes", expected)
-	case err != nil && err != io.EOF:
+	case err != nil && err != io.EOF && err != io.ErrUnexpectedEOF:
 		return nil, err
 	}
 	return data, nil

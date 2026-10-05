@@ -242,6 +242,15 @@ normal.
 The payload is a standard zlib stream (RFC 1950, `78 ...` header). Inflate
 it; the output must be exactly `decompressed_size` bytes.
 
+Some third-party packers end the stream without its final deflate block and
+Adler-32 trailer once the declared bytes are out. **Established — corpus
+observation:** every chunk of the community "V maps.ufo" pack is written this
+way, and each still inflates to exactly `decompressed_size` bytes, the length
+the retail read compares ("How the engine validates it"). **Supported
+inference:** retail accepts the missing tail, since the pack is made for and
+played with the retail game. A reader should accept such a chunk once every
+declared byte is produced, and still reject one that produces fewer or more.
+
 ### Trailing copyright
 
 Retail archives end with an unencrypted plaintext string, e.g.
