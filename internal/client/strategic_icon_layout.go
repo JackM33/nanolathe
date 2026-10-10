@@ -278,7 +278,8 @@ func (c *Client) StrategicIconsActive() bool {
 
 // PickPresentedUnit keeps the retail hull picker at normal zoom and during the
 // fade. In the strategic view it uses the same admission, projection, ordering
-// and bounds as the icon recorder. Generic contacts never expose a UnitView.
+// and bounds as the icon recorder, except that a contact dot stays in place
+// through its damage blink. Generic contacts never expose a UnitView.
 func (c *Client) PickPresentedUnit(f *frame.Frame, x, y int32, viewer uint8) (pool.Handle, frame.UnitView, bool) {
 	if c == nil {
 		return 0, frame.UnitView{}, false
