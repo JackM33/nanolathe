@@ -45,6 +45,22 @@ func TestPausedWorldIgnoresUIEpochAndStationaryCameraFraction(t *testing.T) {
 	}
 }
 
+// The host composes a new selection onto the same committed frame while
+// paused; the world layer draws its selection boxes, so the retained raster
+// must not survive the new epoch (issue #109).
+func TestPausedWorldRedrawsComposedSelection(t *testing.T) {
+	c := pausedClient(t)
+	before, ok := c.PausedWorldDigest()
+	if !ok {
+		t.Fatal("paused fixture is ineligible")
+	}
+	c.committedFrame().Selection.Composed++
+	after, _ := c.PausedWorldDigest()
+	if before == after {
+		t.Fatal("a newly composed selection reused the old raster")
+	}
+}
+
 func TestPausedWorldInvalidationAndRandomProjectileFallback(t *testing.T) {
 	c := pausedClient(t)
 	before, _ := c.PausedWorldDigest()

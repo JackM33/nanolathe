@@ -45,10 +45,15 @@ func (c *Client) PresentationPaused() bool {
 // are freshly recorded in the foreground. Camera coordinates are the actual
 // projected origin, so a stationary camera does not invalidate on each fraction.
 // Assets are immutable after binding; world binding setters advance revision.
-// Unit selection and group labels come from the committed frame, never input.
+// The host composes its local selection, page bits and logo overrides onto the
+// committed frame in place, so the same frame and tick can carry a new
+// selection while paused; composed names that local-state epoch
+// (frame.SelectionView.Composed), and the selection boxes and labels the world
+// layer draws from it redraw when it changes.
 type PausedWorldInputs struct {
 	committed               *frame.Frame
 	tick                    uint32
+	composed                uint64
 	fraction                int32
 	interpolation, enhanced bool
 	revision                uint64
@@ -93,7 +98,7 @@ func (c *Client) PausedWorldDigest() (PausedWorldInputs, bool) {
 		}
 	}
 	d := PausedWorldInputs{
-		committed: cur, tick: cur.Tick, fraction: c.tickFraction16,
+		committed: cur, tick: cur.Tick, composed: cur.Selection.Composed, fraction: c.tickFraction16,
 		interpolation: c.interpolation, enhanced: c.enhanced,
 		revision: c.pausedWorldRevision, width: c.width, height: c.height,
 		camX: c.cam.X, camZ: c.cam.Z, viewW: c.cam.ViewW, viewH: c.cam.ViewH,

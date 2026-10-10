@@ -2311,15 +2311,19 @@ new tick. Battle attach/restore installs the scheduler's truth after binding the
 snapshot; replacing the snapshot clears this mirror. Unpause and executor
 switches discard the retained image; resizing replaces its allocation.
 
-`PausedWorldInputs` compares the committed frame identity and tick, frozen tick
+`PausedWorldInputs` compares the committed frame identity and tick, the frame's
+composed local-state epoch, frozen tick
 fraction, interpolation and Enhanced switches, actual blended camera origin,
 viewport and map extents, chrome insets, scale and smooth zoom factor, dimensions,
 world/asset binding revision, terrain, detail art, font, palette and display colours, the
 shadow, shading, antialias, fog and damage-bar options, and the effect selection
 (§30). The actual origin uses §13.5's integer blend and teleport snap, so a
 stationary camera can reuse across changing camera fractions while pan, follow
-and zoom redraw at their existing cadence. Unit flags, selection and group
-labels, fog, features and model-texture animation remain owned by committed
+and zoom redraw at their existing cadence. The local selection, page bits and
+logo overrides are composed onto the committed frame in place
+(`frame.SelectionView.Composed`), so a selection made while paused changes that
+epoch and redraws the world's selection boxes and labels. Published unit flags,
+group numbers, fog, features and model-texture animation remain owned by committed
 publication and the stopped phase-7 service. The host mutation epoch is
 deliberately absent: input changes it covers are rendered freshly in the
 foreground.
