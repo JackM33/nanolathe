@@ -2322,7 +2322,8 @@ stationary camera can reuse across changing camera fractions while pan, follow
 and zoom redraw at their existing cadence. The local selection, page bits and
 logo overrides are composed onto the committed frame in place
 (`frame.SelectionView.Composed`), so a selection made while paused changes that
-epoch and redraws the world's selection boxes and labels. Published unit flags,
+epoch, which both the world key and the frozen pose blend's key carry, and
+redraws the world's selection boxes and labels. Published unit flags,
 group numbers, fog, features and model-texture animation remain owned by committed
 publication and the stopped phase-7 service. The host mutation epoch is
 deliberately absent: input changes it covers are rendered freshly in the

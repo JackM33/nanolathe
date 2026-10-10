@@ -46,18 +46,27 @@ func TestPausedWorldIgnoresUIEpochAndStationaryCameraFraction(t *testing.T) {
 }
 
 // The host composes a new selection onto the same committed frame while
-// paused; the world layer draws its selection boxes, so the retained raster
-// must not survive the new epoch (issue #109).
+// paused; the world layer draws its selection boxes from the frozen blend, so
+// neither the retained raster nor the blended unit copies may survive the new
+// epoch (issue #109).
 func TestPausedWorldRedrawsComposedSelection(t *testing.T) {
 	c := pausedClient(t)
 	before, ok := c.PausedWorldDigest()
 	if !ok {
 		t.Fatal("paused fixture is ineligible")
 	}
-	c.committedFrame().Selection.Composed++
+	if c.presentationFrame() == c.committedFrame() {
+		t.Fatal("paused fixture does not blend")
+	}
+	cur := c.committedFrame()
+	cur.Units[0].Flags |= 0x10 // the selected bit ComposeSelection writes
+	cur.Selection.Composed++
 	after, _ := c.PausedWorldDigest()
 	if before == after {
 		t.Fatal("a newly composed selection reused the old raster")
+	}
+	if c.presentationFrame().Units[0].Flags&0x10 == 0 {
+		t.Fatal("the frozen blend kept the unselected unit")
 	}
 }
 

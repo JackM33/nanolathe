@@ -176,7 +176,7 @@ func (c *Client) presentationFrame() *frame.Frame {
 		return cur
 	}
 	fraction := c.sampleTickFraction()
-	key := blendInputs{prev, cur, prev.Tick, cur.Tick, fraction}
+	key := blendInputs{prev, cur, prev.Tick, cur.Tick, cur.Selection.Composed, fraction}
 	// The blend is a function of this key, and nothing writes the view, so
 	// every repeat reuses it: while paused, and when several recorders read
 	// one presented frame (effects, light sources, foreground, projections).
@@ -349,10 +349,14 @@ func (c *Client) endCameraBlend(applied bool) {
 }
 
 // blendInputs identifies a committed pose blend: the frozen one while
-// paused, or the presented frame's.
+// paused, or the presented frame's. The blend copies the current frame's unit
+// views, and the host composes its local selection onto that frame in place,
+// so composed (frame.SelectionView.Composed) keeps a selection made while
+// paused from reusing the old copies.
 type blendInputs struct {
 	previous, current         *frame.Frame
 	previousTick, currentTick uint32
+	composed                  uint64
 	fraction                  int64
 }
 
