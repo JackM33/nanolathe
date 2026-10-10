@@ -29,8 +29,10 @@ const (
 	// growing from nothing to full.
 	strategicMarkerOn = camera.ZoomUnit*5/8 + 0 // 0.625x
 	// strategicMarkerSize is one marker's side in FRAMEBUFFER pixels. Markers do
-	// not scale with the world; that is the whole point of them.
-	strategicMarkerSize = 4
+	// not scale with the world; that is the whole point of them. It is a little
+	// larger than the minimap's 4x4 `radlogo` blip so a sensor dot reads against
+	// the main view's units and terrain.
+	strategicMarkerSize = 6
 )
 
 // refreshRecordExtent recomputes the record-space extent one frame is recorded

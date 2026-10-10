@@ -3808,7 +3808,8 @@ and cell counts grow with 1/factor², which is the cost of the view.
 This generic-marker contract is superseded by §18 for identified units and
 Enhanced team colour; it remains the contract for unidentified contacts. Below
 `strategicMarkerOn` (0.625×) such a contact becomes one filled square of
-`strategicMarkerSize` (4) **framebuffer** pixels.
+`strategicMarkerSize` (6) **framebuffer** pixels, a little larger than the
+minimap's 4×4 `radlogo` blip so it reads against the world.
 
 * **Its records and its gate are the minimap's own.** The markers come from the
   committed radar contact list and pass exactly `render.MinimapBlipAdmitted`, the
@@ -4055,7 +4056,7 @@ doubled lane, which is the native raster at the subject's half-pixel position.
 
 ### 18.1 Scope and visual direction
 
-For **identified** units in the modern strategic view, §16.11's four-pixel contact
+For **identified** units in the modern strategic view, §16.11's contact
 squares become a small generated symbol vocabulary. Enhanced presentation under
 I6/I11, not recovered retail behavior: unidentified contacts keep §16.11's square,
 and classic, the simulation and unit definitions are unchanged. The organization —

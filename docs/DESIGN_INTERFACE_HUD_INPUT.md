@@ -5815,8 +5815,8 @@ accuracy, AI observations, save data, sensor timing or either RNG stream.
 
 **Main-view boundary.** No dots removes only sensor-only main-view markers.
 Visible dots draws them through the existing committed minimap blip gate,
-including blink, at the existing fixed screen size and projection at every
-Enhanced zoom. Attackable dots uses those same bounds, clipping and reverse draw
+including blink, at the strategic marker's fixed six-pixel size and projection
+at every Enhanced zoom. Attackable dots uses those same bounds, clipping and reverse draw
 ordering for a separate contact-handle picker. The picker keeps an admitted
 contact through its damage blink's off phase, as the minimap's hover list does
 `[03 §3.9]` "HOT list", so a flashing dot is a steady target. Visible
