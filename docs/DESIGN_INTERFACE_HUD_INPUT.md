@@ -5816,21 +5816,23 @@ accuracy, AI observations, save data, sensor timing or either RNG stream.
 **Main-view boundary.** No dots removes only sensor-only main-view markers.
 Visible dots draws them through the existing committed minimap blip gate,
 including blink, at the existing fixed screen size and projection at every
-Enhanced zoom. Attackable dots uses those same bounds, clipping and reverse
-draw ordering for a separate contact-handle picker. Visible models/icons keep
-priority. A contact hit never becomes an identified `UnitView` hit: it cannot
-reveal a name, model, health, build state, weapon rings, unit-info panel or
-selection target, nor offer repair, reclaim, capture, guard or load. Only a
-hostile contact may supply a target for a contextual order or an armed Attack
-click. The existing cursor weapon admission and ordinary typed command path
-remain authoritative; left-click follows the configured interface convention,
-and Shift retains normal queued-order behavior. An attackable contact prevents
-the Shift resource-construction shortcut and idle right-click move drag from
-treating the dot as empty ground. A contextual right press attacks immediately,
-so pointer movement before release cannot turn it into a Move order; explicit
-Alt-left movement keeps its existing gesture.
-Losing contact admission,
-changing the viewer, or reusing a slot cannot preserve a cached target.
+Enhanced zoom. Attackable dots uses those same bounds, clipping and reverse draw
+ordering for a separate contact-handle picker. The picker keeps an admitted
+contact through its damage blink's off phase, as the minimap's hover list does
+`[03 §3.9]` "HOT list", so a flashing dot is a steady target. Visible
+models/icons keep priority. A contact hit never becomes an identified `UnitView`
+hit: it cannot reveal a name, model, health, build state, weapon rings,
+unit-info panel or selection target, nor offer repair, reclaim, capture, guard
+or load. Only a hostile contact may supply a target for a contextual order or an
+armed Attack click. The existing cursor weapon admission and ordinary typed
+command path remain authoritative; left-click follows the configured interface
+convention, and Shift retains normal queued-order behavior. An attackable
+contact prevents the Shift resource-construction shortcut and idle right-click
+move drag from treating the dot as empty ground. A contextual right press
+attacks immediately, so pointer movement before release cannot turn it into a
+Move order; explicit Alt-left movement keeps its existing gesture. Losing
+contact admission, changing the viewer, or reusing a slot cannot preserve a
+cached target.
 
 **State and effects.** The preference is host state; the rule objects remain
 stateless. Merely drawing, picking or changing styles changes no resources,
@@ -5840,9 +5842,10 @@ There is no new simulation mechanic or extra targeting accuracy.
 
 **Verification.** Lock all three styles, the Modern/Strict/Community answers,
 committed rule publication and rebind behavior, normal/fade/strategic zoom,
-projection/clip/overlap boundaries, lost admission and blink, and the absence of
-identified hover metadata. Command tests lock contextual/armed/queued attacks
-and the rejection of non-attack contact actions, including contextual right
-presses followed by pointer movement, with unchanged RNG/resource
-state before command application. Settings tests lock omitted/default/invalid
-values, persisted No dots and Attackable dots, mod layers and settings Apply.
+projection/clip/overlap boundaries, lost admission, a blink that hides the dot
+but keeps its target, and the absence of identified hover metadata. Command
+tests lock contextual/armed/queued attacks and the rejection of non-attack
+contact actions, including contextual right presses followed by pointer
+movement, with unchanged RNG/resource state before command application. Settings
+tests lock omitted/default/invalid values, persisted No dots and Attackable
+dots, mod layers and settings Apply.

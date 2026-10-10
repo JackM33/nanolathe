@@ -54,12 +54,20 @@ func TestRadarDotStylesAndAttackBounds(t *testing.T) {
 			if c.PickRadarDot(f, m.X, m.Y, 1) != 0 {
 				t.Fatal("another viewer picked the contact")
 			}
+			// The damage blink hides the drawn dot on its off phase, but the
+			// target holds steady through it, as the minimap's hover list
+			// does [03 §3.9] "HOT list" (issue #110).
 			p.BlinkSuppress = 1
-			if c.PickRadarDot(f, m.X, m.Y, 0) != 0 {
-				t.Fatal("off-phase blink remained pickable")
+			c.drawStrategicMarkers(f)
+			if len(c.markerArena) != 0 {
+				t.Fatal("off-phase blink drew the dot")
+			}
+			if c.PickRadarDot(f, m.X, m.Y, 0) != u.Slot {
+				t.Fatal("off-phase blink lost the attack target")
 			}
 			f.Radar.BlinkPhase = 1
-			if c.PickRadarDot(f, m.X, m.Y, 0) != u.Slot {
+			c.drawStrategicMarkers(f)
+			if len(c.markerArena) != 1 || c.PickRadarDot(f, m.X, m.Y, 0) != u.Slot {
 				t.Fatal("on-phase blink lost contact")
 			}
 			p.Visible = false

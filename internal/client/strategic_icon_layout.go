@@ -175,7 +175,15 @@ func (c *Client) layoutStrategicMarkers(f *frame.Frame, viewer uint8, dst *strat
 				contactAlpha = 255
 			}
 			contact := render.MinimapContact{Owner: p.Owner, Status: p.Status, BlinkSuppress: p.BlinkSuppress, Visible: p.Visible, LocalPlayer: viewer, Options: c.radarOptions, MinimapMode: f.Radar.MappingLOS}
-			if !render.MinimapBlipAdmitted(contact, blink) {
+			// The damage blink hides only the drawn dot. Picking keeps an
+			// admitted contact through the off phase, as the minimap's hover
+			// list does [03 §3.9] "HOT list", so a flashing dot stays a steady
+			// target (DESIGN_INTERFACE_HUD_INPUT "Modern radar dots").
+			admitted := render.MinimapContactGate(contact)
+			if !picking {
+				admitted = render.MinimapBlipAdmitted(contact, blink)
+			}
+			if !admitted {
 				continue
 			}
 			index, ok := c.strategicBlipColor(p.Palette)
@@ -353,9 +361,10 @@ func markerContains(m drawlist.Marker, x, y int32) bool {
 }
 
 // PickRadarDot supplies only a contact handle to the battle's attack adapter.
-// It shares the drawn bounds, admission, blink and ordering, at every zoom;
-// it never promotes concealed metadata into an identified hover hit
-// (DESIGN_INTERFACE_HUD_INPUT "Modern radar dots").
+// It shares the drawn bounds, admission and ordering, at every zoom, and holds
+// a damage-blinking dot through its off phase; it never promotes concealed
+// metadata into an identified hover hit (DESIGN_INTERFACE_HUD_INPUT "Modern
+// radar dots").
 func (c *Client) PickRadarDot(f *frame.Frame, x, y int32, viewer uint8) pool.Handle {
 	if c == nil || !c.enhanced || c.radarDots != 2 || f == nil || !f.MainViewRadarDots || viewer != f.ViewingPlayer {
 		return 0
