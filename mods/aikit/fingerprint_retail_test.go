@@ -45,8 +45,8 @@ import (
 // build is a lockstep defect, never a reason to update.
 const (
 	lockModernAITicks     = onlineModernSpan
-	lockModernAIRun       = "275c2bf3df93a8f5e69b11ce18f3811d3360c776e5049db5c763f5ae1eb6ffa1"
-	lockModernAIRehearsal = "5f1ec52dd0ed30cff894055942c4f59f759aaa58468e5bcef49f0186b3e2c7bf"
+	lockModernAIRun       = "9f30eba54f198302c7f27ff3902ccf959104641a38ac184a2ec5752519016554"
+	lockModernAIRehearsal = "15b9dfe98d242faf6a8811e701d35b1d1478a78a284f51f7d6ad7d565edc2dbc"
 )
 
 func TestOnlineModernAIFingerprintIsLocked(t *testing.T) {
