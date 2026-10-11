@@ -15,6 +15,74 @@ func queueTestProject(x, y, z numeric.Fixed) QueuePoint {
 	return QueuePoint{X: int32(x >> 16), Y: int32(z >> 16)}
 }
 
+// Modern's structure pass remains Shift/privilege gated while handling idle
+// towers independently of their order descriptors (GPU design §20).
+func TestStationaryWeaponRanges(t *testing.T) {
+	f := &frame.Frame{Units: []frame.UnitView{
+		{Slot: 1, Owner: 0, Health: 100},
+		{Slot: 2, Owner: 1, Health: 100},
+		{Slot: 3, Owner: 0, Health: 100},
+	}}
+	opt := QueueOverlayOptions{ShiftHeld: true, ShowRanges: true, StationaryWeaponRanges: true,
+		Project: queueTestProject, GroundHeight: func(numeric.Fixed, numeric.Fixed) numeric.Fixed { return 0 },
+		Range: func(u frame.UnitView) (RangeSet, bool) {
+			return RangeSet{HasMover: u.Slot == 3, Weapons: [3]RangeWeapon{
+				{Enabled: true, Range: 32}, {Enabled: false, Range: 40}, {Enabled: true, Range: 48},
+			}}, true
+		}}
+	labels := func() []string {
+		var got []string
+		for _, op := range QueueOverlay(f, opt) {
+			if op.Kind == QueuePrimitiveLabel {
+				got = append(got, op.Text)
+			}
+		}
+		return got
+	}
+	want := []string{"weapon1 range", "weapon3 range"}
+	for _, source := range []string{"selected", "hovered", "tracked", "page"} {
+		f.Selection.Handles = nil
+		opt.HoveredUnit, opt.TrackedUnit, opt.PageUnit = 0, 0, 0
+		switch source {
+		case "selected":
+			f.Selection.Handles = []pool.Handle{1, 2, 3}
+		case "hovered":
+			opt.HoveredUnit = 1
+		case "tracked":
+			opt.TrackedUnit = 1
+		case "page":
+			opt.PageUnit = 1
+		}
+		for _, kind := range []string{"", "Standby", "HelpBuild"} {
+			f.OrderQueues = nil
+			if kind != "" {
+				f.OrderQueues = []frame.OrderQueueView{{Unit: 1, Primary: []frame.OrderView{{Unit: 1, Kind: kind}}}}
+			}
+			if got := labels(); !reflect.DeepEqual(got, want) {
+				t.Fatalf("%s, order %q: %q, want one label per enabled weapon %q", source, kind, got, want)
+			}
+		}
+	}
+	f.OrderQueues = nil
+	opt.PageUnit = 0
+	if got := labels(); len(got) != 0 {
+		t.Fatalf("unprivileged tower: %q", got)
+	}
+	opt.HoveredUnit = 1
+	opt.ShiftHeld = false
+	if got := labels(); len(got) != 0 {
+		t.Fatalf("Shift released: %q", got)
+	}
+	opt.ShiftHeld, opt.ShowRanges = true, false
+	if got := labels(); len(got) != 0 {
+		t.Fatalf("ranges off: %q", got)
+	}
+	opt.ShowRanges, opt.StationaryWeaponRanges = true, false
+	if got := labels(); len(got) != 0 {
+		t.Fatalf("Classic without a descriptor: %q", got)
+	}
+}
+
 func queueTestRect(o frame.OrderView) (QueueRect, bool) {
 	return QueueRect{Left: int32(o.GoalX >> 16), Top: int32(o.GoalZ >> 16), Right: int32(o.GoalX>>16) + 16, Bottom: int32(o.GoalZ>>16) + 16}, true
 }

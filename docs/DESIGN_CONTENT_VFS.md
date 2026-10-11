@@ -926,8 +926,9 @@ may also include:
 ```
 
 Omitting these fields gives the values above. `show_ranges` seeds the existing
-process-only `+showranges` toggle; the player can toggle it thereafter without
-writing settings. `placement_weapon_ranges` controls the Modern renderer's
+`+showranges` toggle; Modern's saved `presentation.showRanges` choice takes
+precedence once set, while Classic keeps the process-only toggle.
+`placement_weapon_ranges` controls the Modern renderer's
 automatic weapon guide during building placement. It does not disable explicit
 Shift + `+showranges` guides. These fields reach presentation only, never a tick
 or the catalog hash. See DESIGN_GPU_RENDERER §20 for the display contract.

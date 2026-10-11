@@ -1,6 +1,9 @@
 package main
 
 import (
+	"encoding/json"
+	"fmt"
+	"path/filepath"
 	"reflect"
 	"testing"
 
@@ -8,6 +11,7 @@ import (
 	"github.com/nanolathe-gg/nanolathe/internal/client"
 	"github.com/nanolathe-gg/nanolathe/internal/content"
 	"github.com/nanolathe-gg/nanolathe/internal/hud"
+	"github.com/nanolathe-gg/nanolathe/internal/modlibrary"
 	"github.com/nanolathe-gg/nanolathe/internal/settings"
 	"github.com/nanolathe-gg/nanolathe/internal/sim/numeric"
 	"github.com/nanolathe-gg/nanolathe/internal/ui"
@@ -15,6 +19,7 @@ import (
 )
 
 func TestPlacementRangeUsesShowRangesPrimitives(t *testing.T) {
+	t.Setenv(settings.EnvPath, filepath.Join(t.TempDir(), "settings.json"))
 	cl, err := client.New(client.Options{Width: 640, Height: 480})
 	if err != nil {
 		t.Fatal(err)
@@ -88,7 +93,7 @@ func TestPlacementRangeUsesShowRangesPrimitives(t *testing.T) {
 	noGuide()
 }
 
-// The command remains process-only and survives entering the next battle.
+// Classic retains the process-only command across battles [07 R-P0-11 §3].
 func TestShowRangesShellLifetime(t *testing.T) {
 	shell := &gameShell{}
 	first := &battleSession{shell: shell}
@@ -100,5 +105,80 @@ func TestShowRangesShellLifetime(t *testing.T) {
 	next.dispatchLocalCommand("+showranges")
 	if first.rangesShown() {
 		t.Fatal("second command did not disable ranges")
+	}
+}
+
+func TestModernShowRangesPersists(t *testing.T) {
+	for _, direct := range []bool{false, true} {
+		t.Run(fmt.Sprint("direct=", direct), func(t *testing.T) {
+			t.Setenv(settings.EnvPath, filepath.Join(t.TempDir(), "settings.json"))
+			s := settings.Defaults()
+			g := &gameShell{}
+			g.applySettings(s)
+			g.settingsWritable = true
+			b := &battleSession{shell: g}
+			if direct {
+				b.shell = nil
+				b.hostPresentation = &s.Presentation
+			}
+			for _, enabled := range []bool{true, false} {
+				b.dispatchLocalCommand("+showranges")
+				loaded, err := settings.Load()
+				if err != nil {
+					t.Fatal(err)
+				}
+				if loaded.Presentation.ShowRanges != boolInt(enabled) || b.rangesShown() != enabled {
+					t.Fatalf("toggle=%v: saved=%d, live=%v", enabled, loaded.Presentation.ShowRanges, b.rangesShown())
+				}
+				// A new shell and a new direct battle both use the explicit
+				// preference even when the content default says the opposite.
+				restarted := &gameShell{showRanges: !enabled}
+				restarted.applySettings(loaded)
+				if (&battleSession{shell: restarted}).rangesShown() != enabled ||
+					(&battleSession{hostPresentation: &loaded.Presentation, showRanges: !enabled}).rangesShown() != enabled {
+					t.Fatal("restart lost the explicit range preference")
+				}
+			}
+		})
+	}
+}
+
+func TestShowRangesInheritsContentUntilModernChoice(t *testing.T) {
+	p := settings.DefaultPresentation()
+	b := &battleSession{hostPresentation: &p, showRanges: true}
+	if !b.rangesShown() {
+		t.Fatal("unset preference suppressed the content default")
+	}
+	p.ShowRanges = 0
+	if b.rangesShown() {
+		t.Fatal("explicit off did not override the content default")
+	}
+	p.Renderer = "classic"
+	if !b.rangesShown() {
+		t.Fatal("Classic read the Modern preference")
+	}
+}
+
+func TestDirectModShowRangesPersistsInModLayer(t *testing.T) {
+	t.Setenv(settings.EnvPath, filepath.Join(t.TempDir(), "settings.json"))
+	s := settings.Defaults()
+	s.ModSettings = map[string]json.RawMessage{"probe": json.RawMessage(`{"presentation":{"showRanges":0,"placementWeaponRanges":0}}`)}
+	if err := s.Save(); err != nil {
+		t.Fatal(err)
+	}
+	g := &gameShell{cs: &contentSet{mod: &modlibrary.Mod{ID: "probe"}}}
+	loaded := g.effectiveSettings(s)
+	b := &battleSession{cs: g.cs, hostPresentation: &loaded.Presentation}
+	b.dispatchLocalCommand("+showranges")
+	saved, err := settings.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	effective := g.effectiveSettings(saved)
+	if saved.Presentation.ShowRanges != -1 || effective.Presentation.ShowRanges != 1 || effective.Presentation.PlacementWeaponRanges != 0 {
+		t.Fatal("direct mod toggle changed the base or failed to preserve the mod layer")
+	}
+	if !(&battleSession{cs: g.cs, hostPresentation: &effective.Presentation}).rangesShown() {
+		t.Fatal("direct mod restart lost the toggle")
 	}
 }

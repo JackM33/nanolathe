@@ -10,10 +10,20 @@ func (b *battleSession) rangesShown() bool {
 	if b == nil {
 		return false
 	}
+	if p := b.hostPreferences(); b.modernRangePresentation() && p.ShowRanges >= 0 {
+		return p.ShowRanges != 0
+	}
 	if b.shell != nil {
 		return b.shell.showRanges
 	}
 	return b.showRanges
+}
+
+func (b *battleSession) modernRangePresentation() bool {
+	if b.cl != nil {
+		return b.cl.Enhanced()
+	}
+	return b.hostPreferences().Renderer == "modern"
 }
 
 // snapshotRanges combines immutable authored radii with the published slot
@@ -44,6 +54,9 @@ func (b *battleSession) snapshotRanges(v frame.UnitView) (hud.RangeSet, bool) {
 			r.Weapons[i] = hud.RangeWeapon{
 				Enabled: v.EnabledWeaponSlots[i], Range: w.Range, Coverage: w.Coverage,
 				AreaOfEffect: int32(uint16(w.AreaOfEffect)),
+			}
+			if !r.HasMover && b.modernRangePresentation() && content.IsWeaponInactive(w) {
+				r.Weapons[i].Enabled = false
 			}
 		}
 	}

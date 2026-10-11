@@ -156,6 +156,10 @@ type QueueOverlayOptions struct {
 	// ShowRanges selects the labelled range branch and the extra attack-icon
 	// rings. It does not bypass Shift or the descriptor's range/icon bits.
 	ShowRanges bool
+	// StationaryWeaponRanges lets Modern presentation show a privileged
+	// structure's weapons independently of its orders (GPU design §20).
+	// Shift and ShowRanges still gate it; the retail walker remains the default.
+	StationaryWeaponRanges bool
 	// Range resolves the immutable authored inputs for one committed unit. A
 	// false result suppresses range helpers for that unit rather than inventing
 	// definition data.
@@ -228,6 +232,32 @@ func QueueOverlay(f *frame.Frame, opt QueueOverlayOptions) []QueuePrimitive {
 	}
 
 	var out []QueuePrimitive
+	if opt.ShowRanges && opt.StationaryWeaponRanges && opt.Range != nil {
+		// Walk the committed slice for stable output, including idle towers
+		// with no published queue. Only the normal privileged sources qualify.
+		for _, u := range f.Units {
+			if _, ok := units[u.Slot]; !ok {
+				continue
+			}
+			eligible := selected[u.Slot]
+			for _, h := range privileged {
+				eligible = eligible || h != 0 && h == u.Slot
+			}
+			if !eligible {
+				continue
+			}
+			set, ok := opt.Range(u)
+			if !ok || set.HasMover {
+				continue
+			}
+			base := QueuePrimitive{Unit: u.Slot, Selected: selected[u.Slot], Center: opt.Project(u.X, u.Y, u.Z)}
+			for slot, weapon := range set.Weapons {
+				if weapon.Enabled && weapon.Range != 0 {
+					out = appendWeaponRange(out, base, QueueWorldPoint{X: u.X, Y: u.Y, Z: u.Z}, weapon.Range, slot, opt)
+				}
+			}
+		}
+	}
 	for _, q := range f.OrderQueues {
 		_, ok := units[q.Unit]
 		if !ok {
@@ -418,6 +448,10 @@ func appendUnitRanges(out []QueuePrimitive, base QueuePrimitive, center QueueWor
 	}
 
 	for slot := range set.Weapons {
+		if opt.StationaryWeaponRanges && !set.HasMover {
+			// The order-independent pass already emitted these weapons once.
+			continue
+		}
 		enabled := set.Weapons[slot].Enabled
 		if slot == 2 {
 			// Retail's third authored-range branch tests slot one's enabled bit,

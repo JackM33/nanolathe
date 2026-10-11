@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"strings"
@@ -253,6 +254,39 @@ func (b *battleSession) dispatchLocalCommand(text string) {
 		b.showRanges = !b.rangesShown()
 		if b.shell != nil {
 			b.shell.showRanges = b.showRanges
+		}
+		// This is a renderer preference, never an authoritative rule or save
+		// field. Classic keeps the process-only command [07 R-P0-11 §3];
+		// Modern retains the player's choice (GPU design §20).
+		if b.modernRangePresentation() {
+			value := boolInt(b.showRanges)
+			if b.shell != nil {
+				b.shell.presentation.ShowRanges = value
+				b.shell.saveSettings()
+			} else {
+				p := b.hostPreferences()
+				p.ShowRanges = value
+				b.hostPresentation = &p
+				b.saveDirectChatSetting(func(s *settings.Settings) {
+					if b.cs == nil || b.cs.mod == nil {
+						s.Presentation.ShowRanges = value
+						return
+					}
+					// Direct entries load the same per-mod layers as the shell.
+					// Save only this choice into that layer so a previous mod
+					// override cannot restore the old toggle on the next entry.
+					key := modSettingsKey(b.cs.mod)
+					patch, err := settings.Merge(s.ModSettings[key], []byte(fmt.Sprintf(`{"presentation":{"showRanges":%d}}`, value)))
+					if err != nil {
+						fmt.Fprintf(os.Stderr, "nanolathe: settings for %s: %v\n", key, err)
+						return
+					}
+					if s.ModSettings == nil {
+						s.ModSettings = make(map[string]json.RawMessage)
+					}
+					s.ModSettings[key] = patch
+				})
+			}
 		}
 	case "sound3d":
 		audio.ToggleOutput3D()

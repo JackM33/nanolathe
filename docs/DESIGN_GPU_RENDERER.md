@@ -4624,10 +4624,31 @@ strength.
 
 ### 20.1 Presentation policy
 
-General range rings start **off**. `+showranges` toggles the existing process-only
-switch. Its Shift-gated queue overlay is the single general range display in
-both renderers [07 R-P0-11 §3]. The former Enhanced overlay, category colours,
+General range rings start **off** unless the content profile opts in. Their
+Shift-gated queue overlay is the single general range display in both renderers
+[07 R-P0-11 §3]. The former Enhanced overlay, category colours,
 dashes, legend and separate selection/hover walk have been removed.
+
+**Nanolathe Modern presentation policy (user-authorized 2026-10-11):**
+`+showranges` saves its on/off choice immediately as `presentation.showRanges`,
+retaining it across matches, content reloads and app restarts. The unset value
+`-1` inherits the content profile's initial toggle; an explicit `0` or `1`
+overrides it through the ordinary settings layers, including per-mod choices.
+Classic keeps retail's process-only toggle and does not read or write this
+Modern preference. This is renderer policy, independent of gameplay mode,
+including Strict 3.1; neither RNG, resources nor simulation state changes.
+
+With Shift and `+showranges` enabled, Modern also draws weapon rings for local
+stationary structures (`BMCode != 1`) selected, hovered, tracked or named by
+the command page, even without an order carrying the range bit or any queue.
+Each active authored weapon uses its own published enabled bit and range;
+NOWEAPON is omitted. No weapon ring is duplicated by the ordinary queue walk.
+Other units and unit-field rings retain the descriptor walk, and Classic
+retains retail's descriptor gates and third-slot asymmetry. These rings share
+the existing terrain chords, labels and tick colours; releasing Shift or
+disabling `+showranges` suppresses the additional structure rings. Tests cover
+shell/direct persistence, inherited and explicit defaults, selection/hover,
+absent and idle queues, no duplication, enabled slots and Classic suppression.
 
 **Nanolathe Modern presentation policy:** an armed build product shows its
 weapon ranges at the snapped site without requiring Shift or `+showranges`,
@@ -4641,8 +4662,8 @@ Placement shows no sensor, jammer, build-distance or interception-coverage rings
 The Effects page's **Placement weapon rings** switch stores
 `presentation.placementWeaponRanges` (default on), through ordinary host settings,
 mod recommendations and presets. A mod config's `content.presentation.show_ranges`
-(default false) seeds the shell or direct battle once; subsequent command toggles
-survive battles within that shell without settings writes. The older
+(default false) seeds the shell or direct battle when no explicit Modern
+`presentation.showRanges` preference is stored. The older
 `content.presentation.placement_weapon_ranges` remains a recommendation only when
 `settings.presentation.placementWeaponRanges` is absent. The player's effective
 presentation preference controls the automatic exception; Shift with explicit `+showranges` still shows

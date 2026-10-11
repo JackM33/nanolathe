@@ -245,7 +245,7 @@ type gameShell struct {
 	fpsVisible bool
 	// netVisible retains the online network overlay (+net) the same way.
 	netVisible bool
-	showRanges bool // process-only Shift overlay detail switch [07 R-CAM-01 §6]
+	showRanges bool // process fallback for the Shift overlay [07 R-CAM-01 §6]
 
 	campaigns       []mission.Campaign
 	campaignOptions []mission.Campaign

@@ -689,6 +689,9 @@ type Presentation struct {
 	// PlacementWeaponRanges shows authored weapon ranges at a prospective
 	// building site (GPU design §20).
 	PlacementWeaponRanges int `json:"placementWeaponRanges"`
+	// ShowRanges retains the Modern renderer's +showranges choice; -1 uses
+	// the content profile's initial value (GPU design §20).
+	ShowRanges int `json:"showRanges"`
 	// BuildMenuPageSize selects a fixed number of product cells, or zero for
 	// Free flow. Negative one inherits the content recommendation; every
 	// explicit choice, including zero, overrides it (interface design §3.3).
@@ -811,7 +814,7 @@ type Presentation struct {
 // Enhanced effect on.
 func DefaultPresentation() Presentation {
 	return Presentation{
-		Renderer: "modern", FPS: 60, ExpandedSidebar: 1, SidebarOrders: 1, BuildMenuPageSize: -1, GroupNumbers: 1, Arrival: 1, PlacementWeaponRanges: 1,
+		Renderer: "modern", FPS: 60, ExpandedSidebar: 1, SidebarOrders: 1, BuildMenuPageSize: -1, GroupNumbers: 1, Arrival: 1, PlacementWeaponRanges: 1, ShowRanges: -1,
 		ZoomStyle: ZoomSmooth, ZoomLockPercent: ZoomLockDefaultPercent, StrategicIconStyle: StrategicIconsModern,
 		RadarDots:     RadarDotsVisible,
 		MexSnapRadius: -1, WreckSnapRadius: -1, BuildRotateKey: "/", ClickSnapOverrideKey: "alt", BuildRotationOverlay: 1, BuildDrag: 1,
@@ -898,6 +901,11 @@ func (p *Presentation) Normalize() {
 		} else {
 			*value &= 1
 		}
+	}
+	if p.ShowRanges < 0 {
+		p.ShowRanges = -1
+	} else {
+		p.ShowRanges &= 1
 	}
 	for _, value := range p.effectSwitches() {
 		if *value < 0 {

@@ -121,15 +121,16 @@ func drawQueueOverlay(c *client.Client, b *battleSession, f *frame.Frame, tick u
 		return hud.QueuePoint{X: sx - camera.OriginX, Y: sy - camera.OriginY}
 	}
 	opts := hud.QueueOverlayOptions{
-		Tick:         tick,
-		ShiftHeld:    show,
-		LocalOwner:   localOwner,
-		TrackedUnit:  tracked,
-		HoveredUnit:  hovered,
-		Project:      project,
-		ShowRanges:   b.rangesShown(),
-		Range:        b.snapshotRanges,
-		GroundHeight: c.GroundHeightAt,
+		Tick:                   tick,
+		ShiftHeld:              show,
+		LocalOwner:             localOwner,
+		TrackedUnit:            tracked,
+		HoveredUnit:            hovered,
+		Project:                project,
+		ShowRanges:             b.rangesShown(),
+		StationaryWeaponRanges: c.Enhanced() && b.battleState().Input.ShiftHeld,
+		Range:                  b.snapshotRanges,
+		GroundHeight:           c.GroundHeightAt,
 		// TODO(I10): bind the separate target-circle radius and replace
 		// its old flat approximation with the established sixteen-segment
 		// world projection. The target model radius needs a presentation

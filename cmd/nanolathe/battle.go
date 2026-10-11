@@ -240,8 +240,8 @@ type battleSession struct {
 	// clock draw site for a direct battle. A shell-backed battle reads its live
 	// text-line setting because MAXLINES may change it while battle is running.
 	clockUsePrimaryFont bool
-	// showRanges is a process-lifetime presentation toggle, retained by the
-	// shell across battles and never written to settings [07 R-CAM-01 §6].
+	// showRanges retains the process toggle [07 R-CAM-01 §6]; Modern's explicit
+	// presentation preference takes precedence (GPU design §20).
 	showRanges bool
 	// Placement guides are presentation preferences only (GPU design §20).
 	// modBuildPageSize is the running content's build page lock: the mod's

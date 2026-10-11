@@ -3051,7 +3051,7 @@ as local chat. The implemented handlers are:
 | `AntiAlias`, `Shading`, `Shadow` | toggle the independent live display bit and persist immediately |
 | `Gamma n` | apply the command factor to the shared output palette and persist the signed integer; startup and slider callbacks use their distinct factor conversion |
 | `Clock` | toggle and persist the stand-alone battle-clock bit; draw the committed unsigned tick in the late HUD layer |
-| `ShowRanges` | toggle detailed terrain-following range rings and labels inside the existing Shift-held queue overlay; Modern placement reuses its weapon-ring renderer (DESIGN_GPU_RENDERER §20); initially off unless the content profile opts in, retained by the shell across battles, without settings or simulation writes |
+| `ShowRanges` | toggle detailed terrain-following range rings and labels inside the existing Shift-held overlay; Modern saves the preference and adds stationary weapon rings independent of orders; Classic retains its process-only descriptor walk; initially off unless the content profile opts in; placement shares its weapon-ring renderer (DESIGN_GPU_RENDERER §20); no simulation writes |
 | `FPS` | toggle the process-local modern battle FPS counter (DESIGN_GPU_RENDERER §13.5); initially off, retained across battles, with no settings or simulation writes |
 | `Dither` | toggle the live current-fog pattern selector and persist `0` or `1` immediately |
 | `TShadow`, `FShadow` | toggle vehicle or feature shadows independently; persist on the next settings write |
@@ -3073,7 +3073,8 @@ as local chat. The implemented handlers are:
 `ShowRanges` reads authored radii from the catalog and live weapon-enabled
 bits from `UnitView`; no visibility-derived radius cache or live unit access is
 needed. The existing queue walker emits range chords and labels in descriptor
-order. Radii producing fewer than one chord are rejected before division, a
+order, with Modern's order-independent structure weapon pass defined in
+DESIGN_GPU_RENDERER §20. Radii producing fewer than one chord are rejected before division, a
 narrow malformed-input bounds departure under I11; no substitute radius is
 invented `[07 R-P0-11 §3]` `[I6]`. The separate bit-4 target-circle
 helper still needs its model-radius binding and replacement of the old flat
