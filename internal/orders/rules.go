@@ -294,7 +294,8 @@ func (StrictRules) PreserveAutomaticTarget(*units.Unit, int) bool { return false
 // TargetClearDropsAim is retail's answer: the release, inhibit and stop verbs
 // reset the target words and raise `TargetCleared` but leave the asynchronous
 // Aim state alone [04 R-ORD-01 §7][06 R-WPN-05 §3].
-func (StrictRules) TargetClearDropsAim(*units.Unit) bool               { return false }
+func (StrictRules) TargetClearDropsAim(*units.Unit) bool { return false }
+
 func (StrictRules) GuardTarget(*units.Unit, *Node) (pool.Handle, bool) { return 0, false }
 
 func (StrictRules) MarkAutomaticAttack(*Node) {}
