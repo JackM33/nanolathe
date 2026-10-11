@@ -6250,7 +6250,8 @@ checksum, which stops the match.
   that frame, a battle menu open included.
 - **Relays and drivers.** Real loopback connections carrying both seats'
   commands, a cancellation before its stream position is assigned, race
-  tests, and a closed driver that cannot execute a buffered grant. Hosted
+  tests (CI runs the multiplayer packages under `-race`), and a closed
+  driver that cannot execute a buffered grant. Hosted
   socket contracts: TLS trust and refusal, identity mismatch, room
   isolation, full, expiry and close, bounded input and slow readers, a
   delayed checksum mismatch and final-grant handling; WebSocket framing and
