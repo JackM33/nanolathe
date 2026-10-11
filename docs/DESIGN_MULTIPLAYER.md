@@ -863,7 +863,9 @@ only in the sending interface `[08 "Packet framing and dispatch"]`.
   The developer phrase and developer commands cannot widen the stream
   classes or bypass the permission. An invalid command has the same
   rejection and no partial effect on every honest replica; diagnostics are
-  drained outside the tick.
+  drained outside the tick. A payload no replica decodes is skipped by
+  every replica and every playback, so it cannot end the battle; only a
+  broken relay stamp does.
 - **The session validates the actors.** Phase 1 admits only units the
   entry's seat owns, inside the tick on identical state, so a forged or
   stale command is refused identically everywhere.

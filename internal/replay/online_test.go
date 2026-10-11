@@ -378,6 +378,20 @@ func TestOnlineRecordingPlaysBack(t *testing.T) {
 		t.Fatalf("dropped command: %v", err)
 	}
 
+	// A payload no replica decodes is skipped, as the live battle skipped
+	// it, so playback runs on and diverges where dropping that command does,
+	// never failing at the entry (DESIGN_MULTIPLAYER §7.2).
+	garbled := rewrite(t, rec.data, func(e *replay.Entry) bool {
+		if e.Kind == replay.EntryCommand && e.Tick == 40 {
+			e.Payload = bytes.Repeat([]byte{0xff}, 9)
+		}
+		return true
+	})
+	p, _, _, err = play(t, fs, garbled, 45)
+	if !errors.As(err, &m) || m.Tick != 60 || p.Tick() < 60 {
+		t.Fatalf("undecodable command: %v", err)
+	}
+
 	// A battle composed to another opening state is refused before a tick.
 	opening := rewriteHeader(t, rec.data, func(h *replay.Header) { h.InitialChecksum[0] ^= 1 }, func(*replay.Entry) bool { return true })
 	r0, err := replay.NewReader(opening)
@@ -523,6 +537,13 @@ func TestOnlineRecorderUnderThePacedDriver(t *testing.T) {
 				Position: orders.ResolvePos{X: commander.X + numeric.Fixed(16+tick)<<16, Y: commander.Y, Z: commander.Z}}}
 			if _, err := driver.Submit(move); err != nil {
 				t.Fatal(err)
+			}
+			if tick == 20 {
+				// Bytes no replica decodes, as a modified client could
+				// send: the driver skips the entry and plays on (§7.2).
+				if _, err := fake.Submit([]byte{0xff, 0xff}); err != nil {
+					t.Fatal(err)
+				}
 			}
 		}
 		time.Sleep(2 * time.Millisecond)

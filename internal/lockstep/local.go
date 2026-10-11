@@ -189,8 +189,12 @@ func (d *LocalDriver) step() (bool, error) {
 		if g.Tick != d.sess.Clock.GlobalTick+1 || g.Position < d.position {
 			return false, d.fail(localError("grant", "the next tick and a monotonic sealed stream"))
 		}
-		// Decode the complete grant before queueing any prefix of it.
+		// Decode the complete grant before queueing any prefix of it. The
+		// stamp is the relay's, so a broken one fails the battle. The payload
+		// is the seat's: one this build cannot decode is skipped on every
+		// replica alike, as an invalid command is rejected (§7.2).
 		commands := make([]session.SeatCommand, len(g.Commands))
+		decoded := make([]bool, len(g.Commands))
 		pos := d.position
 		for i, c := range g.Commands {
 			if c.Seat >= relay.HostedMaxSeats || c.Sequence == 0 || c.Position != pos+1 || c.Position > g.Position {
@@ -198,15 +202,16 @@ func (d *LocalDriver) step() (bool, error) {
 			}
 			var err error
 			commands[i], err = session.DecodeSeatCommand(session.OnlineCommand, c.Payload)
-			if err != nil {
-				return false, d.fail(err)
-			}
+			decoded[i] = err == nil
 			pos = c.Position
 		}
 		if pos != g.Position {
 			return false, d.fail(localError("grant seal", "the complete sealed command prefix"))
 		}
 		for i, c := range g.Commands {
+			if !decoded[i] {
+				continue
+			}
 			if err := d.sess.EnqueueSeatCommand(session.CommandStamp{Seat: c.Seat, Tick: g.Tick, Position: c.Position}, commands[i]); err != nil {
 				return false, d.fail(err)
 			}

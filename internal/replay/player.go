@@ -258,6 +258,10 @@ func (p *Player) readChecksums() {
 // with its recorded stamp.
 func (p *Player) enqueue(e Entry) error {
 	c, err := session.DecodeSeatCommandVersion(p.schema, p.ctx, e.Payload)
+	if err != nil && p.online {
+		// The live battle skipped a payload no replica decodes (§7.2).
+		return nil
+	}
 	if err != nil {
 		return fmt.Errorf("%w: %w", formatError(fmt.Sprintf("command at tick %d position %d", e.Tick, e.Position), "a command this build decodes"), err)
 	}
