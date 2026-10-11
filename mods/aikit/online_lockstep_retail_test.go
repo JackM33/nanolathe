@@ -36,33 +36,49 @@ import (
 // in the first two minutes, a small army and its first losses within six.
 const onlineModernMap = "the pass"
 
-// onlineModernSetup is two humans on teams 1 and 2, then the host's
-// computers in stored order: a Modern computer on each human's team (medium
-// on team 1, hard on team 2, so two personas with different reaction windows
-// and think cadences), extra further Modern computers alternating between the
-// two teams, and, when classic is set, a Classic computer on team 3.
-func onlineModernSetup(cat *content.Catalog, extra int, classic bool) session.OnlineMatchSetup {
-	setup := session.OnlineMatchSetup{
+// onlineRulesSetup is a room under rules ("" for Modern, or
+// session.StrictRuleSetName or session.CommunityRuleSetName): two humans on
+// teams 1 and 2, then the host's computers in stored order. The map, seeds,
+// sides and colours are the same under every set, so the sets' battles
+// differ only by their rules and their computers.
+func onlineRulesSetup(cat *content.Catalog, rules string, computers []session.OnlineComputer) session.OnlineMatchSetup {
+	return session.OnlineMatchSetup{
+		Rules:   rules,
 		MapName: onlineModernMap, SimSeed: 7, CRTSeed: 11, SideCount: len(session.OnlineSides(cat)),
-		Seats: []session.OnlineSeat{{Team: 1, Side: 0, Color: 0}, {Team: 2, Side: 1, Color: 1}},
+		Seats:     []session.OnlineSeat{{Team: 1, Side: 0, Color: 0}, {Team: 2, Side: 1, Color: 1}},
+		Computers: computers,
 	}
+}
+
+// onlineModernComputers is the host's computers of the Modern composition: a
+// Modern computer on each human's team (medium on team 1, hard on team 2, so
+// two personas with different reaction windows and think cadences), extra
+// further Modern computers alternating between the two teams, and, when
+// classic is set, a Classic computer on team 3.
+func onlineModernComputers(extra int, classic bool) []session.OnlineComputer {
+	var computers []session.OnlineComputer
 	for i := range 2 + extra {
-		setup.Computers = append(setup.Computers, session.OnlineComputer{
+		computers = append(computers, session.OnlineComputer{
 			Team: uint8(1 + i%2), Side: uint8((i + 1) % 2), Color: uint8(2 + i),
 			Kind: ai.ControllerModern, Difficulty: uint8(1 + i%2),
 		})
 	}
 	if classic {
-		setup.Computers = append(setup.Computers, session.OnlineComputer{
+		computers = append(computers, session.OnlineComputer{
 			Team: 3, Side: 0, Color: uint8(4 + extra), Kind: ai.ControllerClassic, Difficulty: 1,
 		})
 	}
-	return setup
+	return computers
 }
 
-// onlineModernRoom resolves and freezes setup the way the host seat does at
-// Ready (DESIGN_MULTIPLAYER §16.6), with the room values the session's own
-// online tests use.
+// onlineModernSetup is the Modern composition under Modern rules.
+func onlineModernSetup(cat *content.Catalog, extra int, classic bool) session.OnlineMatchSetup {
+	return onlineRulesSetup(cat, "", onlineModernComputers(extra, classic))
+}
+
+// onlineModernRoom resolves and freezes setup, under the rule set it names,
+// the way the host seat does at Ready (DESIGN_MULTIPLAYER §16.6), with the
+// room values the session's own online tests use.
 func onlineModernRoom(t *testing.T, setup session.OnlineMatchSetup) (*content.SimulationInputs, session.EffectiveMatchConfig) {
 	t.Helper()
 	cat, fs := retailcat.Shared(t)
@@ -391,6 +407,14 @@ func finishOnlineRun(t *testing.T, s *session.Session, setup session.OnlineMatch
 // part. A battle that ends early stops every replica at the same tick.
 func runOnlineLockstep(t *testing.T, replicas []*session.Session, setup session.OnlineMatchSetup, ticks uint32) []onlineModernOutcome {
 	t.Helper()
+	return runOnlineLockstepObserved(t, replicas, setup, ticks, nil)
+}
+
+// runOnlineLockstepObserved is runOnlineLockstep calling observe, when it is
+// not nil, after every 30-tick comparison, with the tick every replica has
+// just completed. observe only reads the replicas.
+func runOnlineLockstepObserved(t *testing.T, replicas []*session.Session, setup session.OnlineMatchSetup, ticks uint32, observe func(tick uint32)) []onlineModernOutcome {
+	t.Helper()
 	script := newOnlineScript(replicas[0], len(setup.Seats))
 	digests := make([]*onlineRunDigest, len(replicas))
 	for i := range digests {
@@ -431,6 +455,9 @@ func runOnlineLockstep(t *testing.T, replicas []*session.Session, setup session.
 		}
 		if tick%30 == 0 {
 			compare(tick)
+			if observe != nil {
+				observe(tick)
+			}
 		}
 		for i, s := range replicas[1:] {
 			if s.OnlineBattleEnded() != replicas[0].OnlineBattleEnded() {

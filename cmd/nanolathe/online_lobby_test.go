@@ -302,7 +302,7 @@ func TestOnlineSeatsAndFinalSetup(t *testing.T) {
 	base := onlineTestBase(t, "Test Map", session.MatchMod{}, content.Mutators{Health: content.Factor{Num: 2, Den: 1}})
 	settings := onlineSettingsOf(base.Request())
 	settings.commanderDeath, settings.mapping = 0, 1
-	final, err := onlineConfig(nil, onlineTestCatalog(), settings, []session.OnlineSeat{{}, {Side: 1, Color: 1}}, onlineFrozenOf(base.Request()))
+	final, err := onlineConfig(nil, onlineTestCatalog(), settings, []session.OnlineSeat{{}, {Side: 1, Color: 1}}, onlineFrozenOf(nil, base.Request()))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -316,7 +316,7 @@ func TestOnlineSeatsAndFinalSetup(t *testing.T) {
 	}
 	// Survival's options reach the setup.
 	settings.survival, settings.pace, settings.noAir = true, 2, true
-	_, _ = onlineConfig(nil, onlineTestCatalog(), settings, []session.OnlineSeat{{}, {Color: 1}}, onlineFrozenOf(base.Request()))
+	_, _ = onlineConfig(nil, onlineTestCatalog(), settings, []session.OnlineSeat{{}, {Color: 1}}, onlineFrozenOf(nil, base.Request()))
 	last = (*setups)[len(*setups)-1]
 	if !last.Survival || !last.SurvivalOptions.Enabled || last.SurvivalOptions.Pace != 2 || !last.SurvivalOptions.NoAir {
 		t.Fatalf("Survival setup %+v", last)

@@ -16,7 +16,6 @@ import (
 
 	"github.com/nanolathe-gg/nanolathe/internal/client"
 	"github.com/nanolathe-gg/nanolathe/internal/content"
-	"github.com/nanolathe-gg/nanolathe/internal/gameplay"
 	"github.com/nanolathe-gg/nanolathe/internal/lockstep"
 	"github.com/nanolathe-gg/nanolathe/internal/netproto"
 	"github.com/nanolathe-gg/nanolathe/internal/platform/ebitenapp"
@@ -49,6 +48,14 @@ type onlineLobby interface {
 	// rehearsal digests; not ready carries zero digests (§16.6.1, §16.7).
 	SetReady(ready bool, identity, rehearsal [32]byte) error
 	Start() error
+	// SendChat sends a chat line to the seats recipients names, bit n naming
+	// seat n (relay.HostedLobby.SendChat); relay.ErrHostedChatRate refuses a
+	// line beyond the sender's rate.
+	SendChat(recipients uint16, text string) error
+	// DrainChat appends the lines received since the last call. The battle
+	// client Battle returns shares the inbox, so a line the lobby has not
+	// drained when the room starts reaches the battle.
+	DrainChat(dst []relay.HostedChatLine) []relay.HostedChatLine
 	// Battle is the grant stream once Started, nil before.
 	Battle() lockstep.Client
 	Close() error
@@ -175,15 +182,19 @@ func (g *gameShell) onlineServerChoice() (string, relay.HostedDialOptions, bool)
 		g.onlineIdleStatus(onlineRefusalText(err) + " Choose Server to change it.")
 		return "", options, false
 	}
+	// The hello carries the player's display name to the room's seats.
+	options.Name = g.online.name
 	g.online.detail = "Server " + address
 	return address, options, true
 }
 
 // onlineHello is a lobby hello. The relay compares only the protocol before
 // Ready, when the identity digest compares the rest; a joiner asks for any
-// seat. The rule name is the one every room plays, for the hello's encoding.
-func onlineHello(seat uint8) relay.LocalHello {
-	return relay.LocalHello{Seat: seat, Identity: netproto.Identity{Protocol: netproto.CommandSchemaVersion, Rules: netproto.RuleIdentity{Name: string(gameplay.Modern)}}}
+// seat. The rule name is the room's rule set as the hello knows it — the
+// host's choice when it creates the room, the described base's when a seat
+// joins — for the hello's encoding.
+func onlineHello(seat uint8, rules string) relay.LocalHello {
+	return relay.LocalHello{Seat: seat, Identity: netproto.Identity{Protocol: netproto.CommandSchemaVersion, Rules: netproto.RuleIdentity{Name: onlineRulesName(rules)}}}
 }
 
 // startOnlineCreate opens a ten-seat room at once with the host's defaults: a
@@ -217,7 +228,7 @@ func (g *gameShell) startOnlineCreate() {
 		g.onlineFail(err)
 		return
 	}
-	settings := onlineSettingsFromSetup(g.setup)
+	settings := onlineSettingsFromSetup(g.setup, onlineRoomRules(g.gameplay, g.cs))
 	cs, mutators, restrictions := g.cs, g.opts.Mutators, g.opts.Restrictions
 	s.phase, s.status = onlineConnecting, "Opening a room on "+g.onlineServerLabel()+"..."
 	s.run(func(ctx context.Context) onlineJobResult {
@@ -239,7 +250,7 @@ func (g *gameShell) startOnlineCreate() {
 		}
 		dial, cancel := context.WithTimeout(ctx, onlineOpenTimeout)
 		defer cancel()
-		lobby, err := onlineRelayService.Open(dial, address, "", onlineHello(0), encoded, relay.HostedMaxSeats, options)
+		lobby, err := onlineRelayService.Open(dial, address, "", onlineHello(0, settings.rules), encoded, relay.HostedMaxSeats, options)
 		if err != nil {
 			return onlineJobResult{err: err}
 		}
@@ -335,6 +346,9 @@ func (g *gameShell) adoptOnlineRoom(room onlineRoom, remounted bool) {
 	if !remounted {
 		s.status = "Joining game " + room.code + "..."
 	}
+	// The name the player has now, which a content reload carried through.
+	options := room.options
+	options.Name = s.name
 	s.run(func(ctx context.Context) onlineJobResult {
 		cat, err := cs.compileCatalog(nil)
 		if err != nil {
@@ -342,7 +356,7 @@ func (g *gameShell) adoptOnlineRoom(room onlineRoom, remounted bool) {
 		}
 		dial, cancel := context.WithTimeout(ctx, onlineOpenTimeout)
 		defer cancel()
-		lobby, err := onlineRelayService.Open(dial, room.address, room.code, onlineHello(1), nil, 0, room.options)
+		lobby, err := onlineRelayService.Open(dial, room.address, room.code, onlineHello(1, base.Request().RuleName), nil, 0, options)
 		if err != nil {
 			return onlineJobResult{err: err}
 		}
@@ -516,11 +530,11 @@ func (g *gameShell) setOnlineReady(ready bool) {
 }
 
 // composeOnlineReady composes the final configuration — the base plus the
-// present seats as slots with their teams and sides, then the base's
-// computers — prepares this seat's battle at its slot and rehearses it
+// present seats as slots with their teams, sides, colours and names, then the
+// base's computers — prepares this seat's battle at its slot and rehearses it
 // (§16.6, §16.7).
 func composeOnlineReady(ctx context.Context, cs *contentSet, cat *content.Catalog, opts Options, base session.EffectiveMatchConfig, settings onlineSettings, seats []session.OnlineSeat, slot uint8, key onlineRoomKey) onlineReadyResult {
-	config, err := onlineConfig(cs, cat, settings, seats, onlineFrozenOf(base.Request()))
+	config, err := onlineConfig(cs, cat, settings, seats, onlineFrozenOf(cs, base.Request()))
 	if err != nil {
 		return onlineReadyResult{err: err}
 	}
@@ -601,6 +615,9 @@ func (g *gameShell) startOnlineBattle(state relay.HostedLobbyState) {
 		g.leaveOnlineLobby("The game could not start: " + noticeReason(err))
 		return
 	}
+	// The battle's chat addresses relay seats, which keep their numbers; a
+	// seat vacated before Start leaves slots and seats apart.
+	g.battle.adoptOnlineChatSeats(state)
 	// The battle owns the connection now, and the lobby's Close does nothing.
 	// The lobby window stays under the battle until it returns to the menu.
 	g.online = nil
@@ -652,8 +669,21 @@ func (g *gameShell) enterOnlineBattle(p *onlinePrepared, conn lockstep.Client, c
 		clPtr.PrepareBattlePresentation()
 		battle.beginBattleArrival(g.opts, clPtr, false)
 	}
-	battle.onlineNotice(fmt.Sprintf("Online game %s: you are player %d of %d", code, sess.LocalOwner+1, humans))
+	battle.onlineNotice(onlineEntryNotice(code, p.config.Request(), sess.LocalOwner, humans))
 	return nil
+}
+
+// onlineEntryNotice is the battle's first message: the room, and which of the
+// human players this seat is, by its display name when it has one.
+func onlineEntryNotice(code string, r session.MatchConfigRequest, slot uint8, humans int) string {
+	name := ""
+	if int(slot) < len(r.Seats) {
+		name = r.Seats[slot].Nickname
+	}
+	if name == "" || name == onlineDefaultName(int(slot)) {
+		return fmt.Sprintf("Online game %s: you are player %d of %d", code, slot+1, humans)
+	}
+	return fmt.Sprintf("Online game %s: you are %s, player %d of %d", code, name, slot+1, humans)
 }
 
 // returnFromOnlineBattle leaves an online battle, or its result, for the

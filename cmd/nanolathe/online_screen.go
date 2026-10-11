@@ -3,15 +3,16 @@ package main
 // The MULTI entry (DESIGN_MULTIPLAYER §16.6.2, DESIGN_INTERFACE_HUD_INPUT
 // "Online games"): a chooser over MAINMENU that says what online play is and
 // offers Create Game and Join Game, the room-code popup Join opens, and the
-// server popup off the main path. The chooser is the authored message window's
-// frame; both popups are retail's address window (TCP.GUI), recaptioned. The
-// lobby is in online_lobby.go; the network and composition work in
-// online_flow.go.
+// name and server popups off the main path. The chooser is the authored
+// message window's frame; the popups are retail's address window (TCP.GUI),
+// recaptioned. The lobby is in online_lobby.go; the network and composition
+// work in online_flow.go.
 
 import (
 	"errors"
 	"fmt"
 	"net"
+	"os"
 	"strings"
 
 	"github.com/nanolathe-gg/nanolathe/internal/client"
@@ -19,6 +20,8 @@ import (
 	"github.com/nanolathe-gg/nanolathe/internal/gui"
 	"github.com/nanolathe-gg/nanolathe/internal/platform/ebitenapp"
 	"github.com/nanolathe-gg/nanolathe/internal/relay"
+	"github.com/nanolathe-gg/nanolathe/internal/session"
+	"github.com/nanolathe-gg/nanolathe/internal/settings"
 	"github.com/nanolathe-gg/nanolathe/internal/ui"
 )
 
@@ -45,6 +48,7 @@ const (
 	onlineChooser     onlineView = iota // Create Game or Join Game
 	onlineCodeEntry                     // the room code Join asks for
 	onlineServerEntry                   // the server address
+	onlineNameEntry                     // the player's display name
 )
 
 // onlineScreen is a shell's online entry and, once a room is open, its lobby
@@ -58,6 +62,10 @@ type onlineScreen struct {
 	phase          onlinePhase
 	status, detail string
 	job            *onlineJob
+	// name is the player's display name, "" for none: the settings key
+	// `nickname`, read when the screen opens and written when the player
+	// changes it (settings.StoreNickname).
+	name string
 
 	room onlineRoomState
 }
@@ -190,6 +198,8 @@ const (
 	onlineIntro      = "Play online with friends: create a game and send them its code, or join with the code a friend sent you."
 	onlineCodePrompt = "Enter the room code your friend sent you"
 	onlineHostPrompt = "Enter the server address"
+	onlineNamePrompt = "Enter the name other players see"
+	onlineNameHint   = "Up to 16 letters, digits, spaces and punctuation. Leave it empty to play as Player 1, Player 2 and so on."
 )
 
 // onlinePopupTemplate loads an authored popup window from the mounted
@@ -217,7 +227,8 @@ func onlineLabel(name, text string, x, y, w, h int32, attribs uint32) gui.Gadget
 
 // buildOnlineChooser shapes the authored message window's frame into the
 // chooser: the sentence, the two prominent buttons cloned from the message
-// window's OK, a status line, and Server and Cancel below.
+// window's OK, a status line, and below them Name and Server, each with what
+// it holds beside it, and Cancel.
 func buildOnlineChooser(window *gui.Window) {
 	ok := gui.Gadget{Kind: gui.KindButton, Active: 1, ColorF: 15, Attribs: 2}
 	if i := window.GadgetIndex("OK"); i >= 0 {
@@ -229,17 +240,19 @@ func buildOnlineChooser(window *gui.Window) {
 		b.Rect = gui.Rect{X: x, Y: y, W: w, H: h}
 		return b
 	}
-	onlinePlace(window, 420, 210)
+	onlinePlace(window, 420, 236)
 	window.Header.CrDefault, window.Header.EscDefault, window.Header.DefaultFocus = "", "PREVMENU", "CREATE"
 	window.Gadgets = []gui.Gadget{
 		window.Gadgets[0],
 		onlineLabel("PROMPT", onlineIntro, 20, 16, 380, 48, 1),
 		button("CREATE", "Create Game", 90, 76, 96, 31),
 		button("JOIN", "Join Game", 234, 76, 96, 31),
-		onlineLabel("STATUS", "", 20, 130, 380, 32, 1),
-		button("SERVER", "Server", 20, 176, 96, 20),
-		onlineLabel("SERVERNAME", "", 124, 179, 172, 16, 1),
-		button("PREVMENU", "Cancel", 304, 176, 96, 20),
+		onlineLabel("STATUS", "", 20, 124, 380, 32, 1),
+		button("NAME", "Name", 20, 174, 96, 20),
+		onlineLabel("NAMELABEL", "", 124, 177, 172, 16, 1),
+		button("SERVER", "Server", 20, 202, 96, 20),
+		onlineLabel("SERVERNAME", "", 124, 205, 172, 16, 1),
+		button("PREVMENU", "Cancel", 304, 202, 96, 20),
 	}
 }
 
@@ -278,7 +291,7 @@ func (g *gameShell) openOnlineScreen() error {
 	if g.online != nil {
 		g.closeOnlineScreen()
 	}
-	g.online = &onlineScreen{assets: &retailPanelAssets{}}
+	g.online = &onlineScreen{assets: &retailPanelAssets{}, name: storedOnlineName()}
 	if err := g.showOnlineView(onlineChooser); err != nil {
 		g.online = nil
 		return err
@@ -302,6 +315,8 @@ func (g *gameShell) showOnlineView(view onlineView) error {
 		buildOnlineChooser(window)
 	case onlineCodeEntry:
 		buildOnlineAddressWindow(window, onlineCodePrompt, "Join", onlineCodeMax)
+	case onlineNameEntry:
+		buildOnlineAddressWindow(window, onlineNamePrompt, "OK", session.OnlineNameMaxBytes)
 	default:
 		buildOnlineAddressWindow(window, onlineHostPrompt, "OK", onlineServerMax)
 	}
@@ -327,6 +342,9 @@ func (g *gameShell) showOnlineView(view onlineView) error {
 			server = defaultOnlineServer
 		}
 		panel.SetText("ADDRESS", server)
+		panel.FocusEditor(panel.Index("ADDRESS"))
+	case onlineNameEntry:
+		panel.SetText("ADDRESS", s.name)
 		panel.FocusEditor(panel.Index("ADDRESS"))
 	}
 	g.refreshOnlinePanel()
@@ -378,17 +396,81 @@ func (g *gameShell) refreshOnlinePanel() {
 	switch s.view {
 	case onlineChooser:
 		p.SetText("STATUS", g.fitDetail(s.status, 380, 2))
-		p.SetText("SERVERNAME", g.fitDetail("Server: "+g.onlineServerLabel(), 172, 1))
+		p.SetText("NAMELABEL", g.fitOnlineLine(onlineNameLabel(s.name), 172))
+		p.SetText("SERVERNAME", g.fitOnlineLine("Server: "+g.onlineServerLabel(), 172))
 		retailGreyGadget(p.Window, "CREATE", busy)
 		retailGreyGadget(p.Window, "JOIN", busy)
+		retailGreyGadget(p.Window, "NAME", busy)
 		retailGreyGadget(p.Window, "SERVER", busy)
 	default:
 		status := s.status
-		if status == "" && s.view == onlineCodeEntry {
+		switch {
+		case status != "":
+		case s.view == onlineCodeEntry:
 			status = "Paste or type the six letters and digits, then choose Join."
+		case s.view == onlineNameEntry:
+			status = onlineNameHint
 		}
 		p.SetText("STATUS", g.fitDetail(status, 295, 3))
 		retailGreyGadget(p.Window, "OK", busy)
+	}
+}
+
+// fitOnlineLine is text on one line of width in the label face, cut short
+// with "..." where it does not fit: a server address has no spaces to break
+// at, so it loses its end rather than all of itself.
+func (g *gameShell) fitOnlineLine(text string, width int) string {
+	measure, _, ok := g.retailLabelTextMetrics()
+	if !ok {
+		measure = g.retailTextWidth
+	}
+	return onlineFitCaption(text, "", measure, width)
+}
+
+// onlineNameLabel is what the chooser shows beside Name.
+func onlineNameLabel(name string) string {
+	if name == "" {
+		return "Name: none chosen"
+	}
+	return "Name: " + name
+}
+
+// storedOnlineName is the settings key `nickname`, the display name the player
+// chose last; "" for none or an unreadable file.
+func storedOnlineName() string {
+	s, err := settings.Load()
+	if err != nil {
+		return ""
+	}
+	return s.Nickname
+}
+
+// onlineNameRefusal says in plain words why typed cannot be a display name,
+// or "" when it can (session.ValidateOnlineName). Spaces at either end are
+// trimmed first, and an empty name chooses none.
+func onlineNameRefusal(typed string) string {
+	name := strings.TrimSpace(typed)
+	switch {
+	case name == "":
+		return ""
+	case len(name) > session.OnlineNameMaxBytes:
+		return fmt.Sprintf("A name can be at most %d characters long.", session.OnlineNameMaxBytes)
+	case session.ValidateOnlineName(name) != nil:
+		return "A name can use letters, digits, spaces and punctuation, but not < or >."
+	}
+	return ""
+}
+
+// rememberOnlineName keeps typed, trimmed, as the player's display name for
+// this visit and the next.
+func (g *gameShell) rememberOnlineName(typed string) {
+	name := strings.TrimSpace(typed)
+	if name == g.online.name {
+		return
+	}
+	g.online.name = name
+	if err := settings.StoreNickname(name); err != nil {
+		fmt.Fprintf(os.Stderr, "nanolathe: %v\n", err)
 	}
 }
 
@@ -412,7 +494,7 @@ func (g *gameShell) syncOnlineCodeField() {
 
 // drawOnlineExtras paints what the online windows add to the authored
 // painters: an empty, uncaptured field's background, which the text-box
-// painter skips with its text, and the lobby's room code.
+// painter skips with its text, and the lobby's room code and chat.
 func (g *gameShell) drawOnlineExtras(c *client.Client, p *ui.Panel) {
 	s := g.online
 	if s == nil || p == nil || p.Window == nil {
@@ -427,6 +509,7 @@ func (g *gameShell) drawOnlineExtras(c *client.Client, p *ui.Panel) {
 	}
 	if p == s.room.panel && s.room.lobby != nil {
 		g.drawOnlineRoomCode(c, p)
+		g.drawOnlineChat(c, p)
 	}
 }
 
@@ -482,6 +565,9 @@ func (g *gameShell) activateOnlineScreenGadget(name string) bool {
 		case "SERVER":
 			s.status = ""
 			g.showOnlineViewReporting(onlineServerEntry)
+		case "NAME":
+			s.status = ""
+			g.showOnlineViewReporting(onlineNameEntry)
 		case "PREVMENU":
 			// Cancel stops a room still opening; otherwise it leaves.
 			if s.job != nil {
@@ -519,6 +605,25 @@ func (g *gameShell) activateOnlineScreenGadget(name string) bool {
 				return true
 			}
 			g.rememberOnlineServer(typed)
+			s.status = ""
+			g.showOnlineViewReporting(onlineChooser)
+		case "PREV":
+			s.status = ""
+			g.showOnlineViewReporting(onlineChooser)
+		}
+	case onlineNameEntry:
+		switch name {
+		case "OK", "ADDRESS":
+			// Enter in the field is OK; an emptied field chooses no name.
+			// Escape is the window's Cancel, which keeps the old one.
+			typed := s.panel.TextOf("ADDRESS")
+			if refusal := onlineNameRefusal(typed); refusal != "" {
+				s.status = refusal
+				g.refreshOnlinePanel()
+				s.panel.FocusEditor(s.panel.Index("ADDRESS"))
+				return true
+			}
+			g.rememberOnlineName(typed)
 			s.status = ""
 			g.showOnlineViewReporting(onlineChooser)
 		case "PREV":

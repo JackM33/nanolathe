@@ -23,7 +23,7 @@ func TestOnlineRoomBuilderDefaults(t *testing.T) {
 			t.Fatal(err)
 		}
 		assertOnlineHumanBuilderDefaults(t, c)
-		rebuilt, err := onlineConfig(cs, onlineTestCatalog(), settings, seats, onlineFrozenOf(c.Request()))
+		rebuilt, err := onlineConfig(cs, onlineTestCatalog(), settings, seats, onlineFrozenOf(cs, c.Request()))
 		if err != nil {
 			t.Fatal(err)
 		}

@@ -811,6 +811,7 @@ func (s *Session) publishFrame(tick uint32, paused bool) {
 		published.Economy = published.Economy[:0]
 	}
 	publishPlayerRows(s, published)
+	s.publishOnlineSharing(published)
 	// The tick's local-interface facts; none at the paused-input boundary,
 	// which runs no sweep (interface_facts.go).
 	s.publishInterfaceFacts(published)

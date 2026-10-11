@@ -846,3 +846,43 @@ func TestTheRetiredModernAISelectionLoadsAsModernWithModernRows(t *testing.T) {
 		t.Fatalf("the saved file keeps the retired selection:\n%s", data)
 	}
 }
+
+// The display name is written by StoreNickname alone: a whole-block write
+// that names none keeps the stored one, a cleared name is cleared, and a name
+// the online lobby would refuse is neither stored nor loaded
+// (DESIGN_MULTIPLAYER §16.6.2).
+func TestNicknameStoredAndKept(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "settings.json")
+	t.Setenv(EnvPath, path)
+	if err := StoreNickname("Daniel"); err != nil {
+		t.Fatal(err)
+	}
+	if s, err := Load(); err != nil || s.Nickname != "Daniel" {
+		t.Fatalf("stored %q: %v", s.Nickname, err)
+	}
+	block := Defaults()
+	block.OnlineServer = "relay.example.test"
+	if err := block.Save(); err != nil {
+		t.Fatal(err)
+	}
+	if s, _ := Load(); s.Nickname != "Daniel" || s.OnlineServer != "relay.example.test" {
+		t.Fatalf("after a whole-block write: nickname %q, server %q", s.Nickname, s.OnlineServer)
+	}
+	for _, bad := range []string{"Commander Keen991", "Big<Bad>", " Dan", "tab\there"} {
+		if err := StoreNickname(bad); err == nil {
+			t.Fatalf("stored %q", bad)
+		}
+	}
+	if err := StoreNickname(""); err != nil {
+		t.Fatal(err)
+	}
+	if s, _ := Load(); s.Nickname != "" {
+		t.Fatalf("cleared nickname reads %q", s.Nickname)
+	}
+	if err := os.WriteFile(path, []byte(`{"version":`+strconv.Itoa(FileVersion)+`,"nickname":"<Dan>"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if s, err := Load(); err != nil || s.Nickname != "" {
+		t.Fatalf("a hand-edited bad name loads as %q: %v", s.Nickname, err)
+	}
+}

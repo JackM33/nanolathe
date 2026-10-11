@@ -144,7 +144,7 @@ func TestMatchJoinReportsEveryCategorySeparately(t *testing.T) {
 		kind error
 		edit func(*netproto.Identity)
 	}{
-		{ErrMatchProtocolMismatch, func(id *netproto.Identity) { id.Protocol = 2 }},
+		{ErrMatchProtocolMismatch, func(id *netproto.Identity) { id.Protocol = netproto.CommandSchemaVersion + 1 }},
 		{ErrMatchBuildMismatch, func(id *netproto.Identity) { id.Build = other }},
 		{ErrMatchContentMismatch, func(id *netproto.Identity) { id.Content = other }},
 		{ErrMatchMapMismatch, func(id *netproto.Identity) { id.Map = other }},

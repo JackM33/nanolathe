@@ -19,7 +19,9 @@ type hostedOutput struct {
 type hostedPeer struct {
 	conn          net.Conn
 	hello         LocalHello
-	version       uint16 // the protocol its hello spoke, answered in kind
+	version       uint16         // the protocol its hello spoke, answered in kind
+	name          string         // version 8: the display name its hello carried
+	chatRate      hostedChatRate // owned by the room goroutine
 	room          *hostedRoom
 	seat          uint8 // assigned at admission
 	slot          uint8 // assigned at Start
@@ -105,6 +107,31 @@ func (p *hostedPeer) report(body []byte) bool {
 	p.bytes += n - old
 	p.pending = body
 	return true
+}
+
+// offer queues a frame the room can do without, a chat line. It is dropped,
+// and never fails the room, once the peer already holds 16 queued frames or
+// would hold more than 64 KiB, so it neither waits for a slow reader nor
+// takes the queue space grants need (§12.2).
+func (p *hostedPeer) offer(body []byte) bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	n := frameCharge(body)
+	if len(p.out) >= hostedOfferFrames || n > hostedOfferBytes-p.bytes {
+		return false
+	}
+	select {
+	case <-p.written:
+		return false
+	default:
+	}
+	select {
+	case p.out <- hostedOutput{body: body}:
+		p.bytes += n
+		return true
+	default:
+		return false
+	}
 }
 
 // frameCharge is what a queued body costs the peer's byte budget.

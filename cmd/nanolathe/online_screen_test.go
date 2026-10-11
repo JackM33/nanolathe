@@ -150,17 +150,20 @@ func onlineTestBase(t *testing.T, mapName string, mod session.MatchMod, mutators
 type fakeOnlineRelay struct {
 	mu        sync.Mutex
 	describes []string
-	opens     []relay.LocalHello
-	sizes     []int
-	configs   [][]byte
-	describe  func(room string) (relay.HostedRoomDescription, error)
-	open      func(room string, hello relay.LocalHello, config []byte) (onlineLobby, error)
-	copied    []string
+	// options are the dial options of every describe and open, in order.
+	options  []relay.HostedDialOptions
+	opens    []relay.LocalHello
+	sizes    []int
+	configs  [][]byte
+	describe func(room string) (relay.HostedRoomDescription, error)
+	open     func(room string, hello relay.LocalHello, config []byte) (onlineLobby, error)
+	copied   []string
 }
 
-func (r *fakeOnlineRelay) Describe(_ context.Context, address, room string, _ relay.HostedDialOptions) (relay.HostedRoomDescription, error) {
+func (r *fakeOnlineRelay) Describe(_ context.Context, address, room string, options relay.HostedDialOptions) (relay.HostedRoomDescription, error) {
 	r.mu.Lock()
 	r.describes = append(r.describes, address+" "+room)
+	r.options = append(r.options, options)
 	r.mu.Unlock()
 	if r.describe == nil {
 		return relay.HostedRoomDescription{}, errors.New("no describe")
@@ -168,9 +171,10 @@ func (r *fakeOnlineRelay) Describe(_ context.Context, address, room string, _ re
 	return r.describe(room)
 }
 
-func (r *fakeOnlineRelay) Open(_ context.Context, _, room string, hello relay.LocalHello, config []byte, size int, _ relay.HostedDialOptions) (onlineLobby, error) {
+func (r *fakeOnlineRelay) Open(_ context.Context, _, room string, hello relay.LocalHello, config []byte, size int, options relay.HostedDialOptions) (onlineLobby, error) {
 	r.mu.Lock()
 	r.opens = append(r.opens, hello)
+	r.options = append(r.options, options)
 	r.sizes = append(r.sizes, size)
 	r.configs = append(r.configs, config)
 	r.mu.Unlock()
@@ -197,6 +201,16 @@ type fakeOnlineLobby struct {
 	starts     int
 	closes     int
 	battle     lockstep.Client
+	// chats are the lines sent, with their recipients; inbox the lines
+	// waiting for DrainChat; chatErr refuses the next send.
+	chats   []fakeChatLine
+	inbox   []relay.HostedChatLine
+	chatErr error
+}
+
+type fakeChatLine struct {
+	recipients uint16
+	text       string
 }
 
 func newFakeOnlineLobby(seat uint8, present ...int) *fakeOnlineLobby {
@@ -265,6 +279,22 @@ func (l *fakeOnlineLobby) SetReady(ready bool, identity, rehearsal [32]byte) err
 	return nil
 }
 func (l *fakeOnlineLobby) Start() error { l.starts++; return nil }
+func (l *fakeOnlineLobby) SendChat(recipients uint16, text string) error {
+	if err := l.chatErr; err != nil {
+		l.chatErr = nil
+		return err
+	}
+	if err := relay.ValidHostedChat(text); err != nil {
+		return err
+	}
+	l.chats = append(l.chats, fakeChatLine{recipients, text})
+	return nil
+}
+func (l *fakeOnlineLobby) DrainChat(dst []relay.HostedChatLine) []relay.HostedChatLine {
+	dst = append(dst, l.inbox...)
+	l.inbox = nil
+	return dst
+}
 func (l *fakeOnlineLobby) Battle() lockstep.Client {
 	if !l.state.Started {
 		return nil

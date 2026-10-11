@@ -13,7 +13,7 @@ import (
 	"github.com/nanolathe-gg/nanolathe/internal/sim/numeric"
 )
 
-// The wire form of command schema version 1 (docs/DESIGN_MULTIPLAYER.md
+// The wire form of command schema versions 1 and 2 (docs/DESIGN_MULTIPLAYER.md
 // §7.4.1–§7.4.4, contracts M2-C4, M2-C5 and M2-C11). A payload is one kind
 // byte and that kind's fields in the order of the §7.4.2 table, written in
 // the shared primitives of internal/netproto: u8 and bool one byte; u16, u32
@@ -26,6 +26,11 @@ import (
 // records. The schema version is negotiated outside the payload, and the
 // context is the admitted session's or replay header's, never a payload
 // field.
+//
+// Version 2 adds the payloads of the sharing and alliance kinds 35..44, in
+// the online context only. Every version-1 payload is the same bytes, with
+// the same meaning, under version 2; kinds 35..44 decode only under version 2,
+// and ShootAll (45) stays reserved in both.
 //
 // Decoding establishes schema validity before any gameplay code runs: a
 // payload over 4 MiB is refused before it is parsed; every count is checked
@@ -56,21 +61,34 @@ import (
 //     amount: not finite, not whole, negative zero, or outside ±2^31
 //     (§7.4.1, §15 Q28). Whether a zero or negative whole gift needs the
 //     room's cheat permission is the receiver's question.
-//   - Deferred (D) kinds encode in both contexts, so M2 can test their codec;
-//     the receiver refuses their online application until M5. The
-//     single-player replay kinds NoShake, SetLogo, DeveloperSpawn and Gameplay
-//     are refused by the online codec, local interface kinds and the reserved numbers 35..45
-//     by both.
+//   - Deferred (D) kinds encode in both contexts where their local operation
+//     exists, so M2 can test their codec; the receiver refuses their online
+//     application until M5. The single-player replay kinds NoShake, SetLogo,
+//     DeveloperSpawn and Gameplay are refused by the online codec; the
+//     sharing and alliance kinds by the replay codec, because retail runs
+//     them only in a networked session [07 R-CAM-01 §6] [05 R-SHARE-01 §5];
+//     local interface kinds and the reserved ShootAll by both.
+//   - A sharing payload is bounded only where the wire must be: seats 0..9,
+//     the `actors` ceiling and exact booleans. Every signed 32-bit amount and
+//     threshold is representable; which of them, and which targets, the
+//     issuing seat may use is the receiver's question (§15 Q8).
 //   - A Gameplay record encodes its mode exactly as given and only when the
 //     mode is a rule set this build registered; a word the applier would
 //     normalize to Modern must be normalized by its producer first.
 //   - A decoded empty list is nil.
 
 // ErrSeatCommandNoWireForm reports a reference or actor list the local
-// adapter can produce but command schema version 1 cannot carry: a
-// reference captured from a freed slot, whose allocation serial is zero, or
-// a repeated actor. See seatWireReference for the gap and its proposal.
-var ErrSeatCommandNoWireForm = errors.New("nanolathe: seat command has no version-1 wire form")
+// adapter can produce but no command schema version can carry: a reference
+// captured from a freed slot, whose allocation serial is zero, or a repeated
+// actor. See seatWireReference for the gap and its proposal.
+var ErrSeatCommandNoWireForm = errors.New("nanolathe: seat command has no wire form")
+
+// The command schema versions this build encodes and decodes (§7.4.1).
+// netproto.CommandSchemaVersion is the newest and the one this build speaks.
+const (
+	seatSchemaV1 uint16 = 1
+	seatSchemaV2 uint16 = 2
+)
 
 // seatAreaEntryMinBytes and seatActorMinBytes are the smallest encodings of
 // an area entry (a null ref and a one-byte-per-field position) and of a
@@ -80,12 +98,28 @@ const (
 	seatActorMinBytes     = 2
 )
 
-// EncodeSeatCommand returns the canonical version-1 payload of c in a
-// context. It refuses every value DecodeSeatCommand would refuse in that
-// context, so a payload it returns always decodes back to c (with an online
-// negative-zero amount spelled as zero).
+// EncodeSeatCommand returns the canonical payload of c in a context, in the
+// command schema version this build speaks (netproto.CommandSchemaVersion).
+// It refuses every value DecodeSeatCommand would refuse in that context, so a
+// payload it returns always decodes back to c (with an online negative-zero
+// amount spelled as zero).
 func EncodeSeatCommand(context CommandContext, c SeatCommand) ([]byte, error) {
-	if err := seatCodecContext(context); err != nil {
+	return EncodeSeatCommandVersion(netproto.CommandSchemaVersion, context, c)
+}
+
+// DecodeSeatCommand reads a payload in the context the admitted session or
+// replay header supplies, in the command schema version this build speaks.
+// It returns no partially valid value.
+func DecodeSeatCommand(context CommandContext, payload []byte) (SeatCommand, error) {
+	return DecodeSeatCommandVersion(netproto.CommandSchemaVersion, context, payload)
+}
+
+// EncodeSeatCommandVersion is EncodeSeatCommand in a negotiated command
+// schema version, 1 through netproto.CommandSchemaVersion. A kind with no
+// payload in that version is refused.
+func EncodeSeatCommandVersion(version uint16, context CommandContext, c SeatCommand) ([]byte, error) {
+	sc, err := newSeatCodec(version, context)
+	if err != nil {
 		return nil, err
 	}
 	if context == OnlineCommand {
@@ -96,7 +130,7 @@ func EncodeSeatCommand(context CommandContext, c SeatCommand) ([]byte, error) {
 			c.Give.Amount = canonicalOnlineAmount(c.Give.Amount)
 		}
 	}
-	if err := checkSeatWire(context, &c); err != nil {
+	if err := checkSeatWire(sc, &c); err != nil {
 		return nil, err
 	}
 	var w netproto.Writer
@@ -104,55 +138,70 @@ func EncodeSeatCommand(context CommandContext, c SeatCommand) ([]byte, error) {
 	return w.Bytes(), nil
 }
 
-// DecodeSeatCommand reads a version-1 payload in the context the admitted
-// session or replay header supplies. It returns no partially valid value.
-func DecodeSeatCommand(context CommandContext, payload []byte) (SeatCommand, error) {
-	if err := seatCodecContext(context); err != nil {
+// DecodeSeatCommandVersion is DecodeSeatCommand in a negotiated command
+// schema version, 1 through netproto.CommandSchemaVersion. A kind with no
+// payload in that version is refused.
+func DecodeSeatCommandVersion(version uint16, context CommandContext, payload []byte) (SeatCommand, error) {
+	sc, err := newSeatCodec(version, context)
+	if err != nil {
 		return SeatCommand{}, err
 	}
 	if len(payload) > netproto.MaxCommandBytes {
-		return SeatCommand{}, seatCodecError(context, "payload", fmt.Sprintf("at most %d bytes, got %d", netproto.MaxCommandBytes, len(payload)))
+		return SeatCommand{}, seatCodecError(sc, "payload", fmt.Sprintf("at most %d bytes, got %d", netproto.MaxCommandBytes, len(payload)))
 	}
-	r := netproto.NewReader(payload, func(path, expected string) error { return seatCodecError(context, path, expected) })
-	c := readSeatCommand(r, context)
+	r := netproto.NewReader(payload, func(path, expected string) error { return seatCodecError(sc, path, expected) })
+	c := readSeatCommand(r, sc)
 	if err := r.End(); err != nil {
 		return SeatCommand{}, err
 	}
-	if err := checkSeatWire(context, &c); err != nil {
+	if err := checkSeatWire(sc, &c); err != nil {
 		return SeatCommand{}, err
 	}
 	var w netproto.Writer
 	writeSeatCommand(&w, context, &c)
 	if !bytes.Equal(w.Bytes(), payload) {
-		return SeatCommand{}, seatCodecError(context, "payload", "the canonical encoding of the command it decodes to")
+		return SeatCommand{}, seatCodecError(sc, "payload", "the canonical encoding of the command it decodes to")
 	}
 	return c, nil
 }
 
-func seatCodecContext(context CommandContext) error {
+// seatCodec is what a payload is decided in: the negotiated command schema
+// version and the context the admitted session or replay header supplies.
+// Neither is a payload field.
+type seatCodec struct {
+	version uint16
+	context CommandContext
+}
+
+func newSeatCodec(version uint16, context CommandContext) (seatCodec, error) {
+	sc := seatCodec{version: version, context: context}
+	if version < seatSchemaV1 || version > netproto.CommandSchemaVersion {
+		return sc, seatCodecError(sc, "version", fmt.Sprintf("a command schema version %d..%d, negotiated outside the payload", seatSchemaV1, netproto.CommandSchemaVersion))
+	}
 	if context != OnlineCommand && context != SinglePlayerReplay {
-		return seatCodecError(context, "context", "OnlineCommand or SinglePlayerReplay, supplied by the admitted session or replay header")
+		return sc, seatCodecError(sc, "context", "OnlineCommand or SinglePlayerReplay, supplied by the admitted session or replay header")
 	}
-	return nil
+	return sc, nil
 }
 
-// seatCodecProvider names the schema and context a refusal was decided in.
-func seatCodecProvider(context CommandContext) string {
-	switch context {
+// seatCodecProvider names the schema version and context a refusal was
+// decided in.
+func seatCodecProvider(sc seatCodec) string {
+	switch sc.context {
 	case OnlineCommand:
-		return "command schema v1 online"
+		return fmt.Sprintf("command schema v%d online", sc.version)
 	case SinglePlayerReplay:
-		return "command schema v1 single-player replay"
+		return fmt.Sprintf("command schema v%d single-player replay", sc.version)
 	}
-	return fmt.Sprintf("command schema v1 context %d", context)
+	return fmt.Sprintf("command schema v%d context %d", sc.version, sc.context)
 }
 
-func seatCodecError(context CommandContext, path, expected string) error {
-	return fmt.Errorf("nanolathe: seat command payload rejected: logical path %s, providers searched [%s], expected %s", path, seatCodecProvider(context), expected)
+func seatCodecError(sc seatCodec, path, expected string) error {
+	return fmt.Errorf("nanolathe: seat command payload rejected: logical path %s, providers searched [%s], expected %s", path, seatCodecProvider(sc), expected)
 }
 
-func seatNoWireForm(context CommandContext, path, expected string) error {
-	return fmt.Errorf("%w: logical path %s, providers searched [%s], expected %s", ErrSeatCommandNoWireForm, path, seatCodecProvider(context), expected)
+func seatNoWireForm(sc seatCodec, path, expected string) error {
+	return fmt.Errorf("%w: logical path %s, providers searched [%s], expected %s", ErrSeatCommandNoWireForm, path, seatCodecProvider(sc), expected)
 }
 
 func canonicalOnlineAmount(a float32) float32 {
@@ -160,8 +209,9 @@ func canonicalOnlineAmount(a float32) float32 {
 }
 
 // seatCodecKind is the codec's class column (§7.4.2): why a kind has no
-// payload in a context, or "".
-func seatCodecKind(context CommandContext, k SeatCommandKind) string {
+// payload in a schema version and context, or "".
+func seatCodecKind(sc seatCodec, k SeatCommandKind) string {
+	context := sc.context
 	switch k {
 	case SeatOrder, SeatStop, SeatActivation, SeatMobileBuild, SeatFactoryBuild, SeatCancelProduction, SeatStockpile,
 		SeatGroupAssign, SeatStance, SeatCloak, SeatSelfDestruct, SeatATM, SeatSetResource, SeatView, SeatGive,
@@ -176,36 +226,44 @@ func seatCodecKind(context CommandContext, k SeatCommandKind) string {
 	case SeatSelectionReplace, SeatSelectionToggle, SeatSelectionClear, SeatBuildPage, SeatGroupRecall, SeatBigBrother, SeatShiftState:
 		return "a kind with a payload; local interface kinds are reserved and never encoded"
 	case SeatShareMetal, SeatShareEnergy, SeatShareMapping, SeatShareRadar, SeatShareAll, SeatSetShareMetal,
-		SeatSetShareEnergy, SeatShareGift, SeatDeclareAlliance, SeatSharedVictory, SeatShootAll:
-		return "a kind with a version-1 payload; this number is reserved for a later schema"
+		SeatSetShareEnergy, SeatShareGift, SeatDeclareAlliance, SeatSharedVictory:
+		switch {
+		case sc.version < seatSchemaV2:
+			return "a kind with a version-1 payload; the sharing and alliance kinds 35..44 have payloads from command schema version 2"
+		case context != OnlineCommand:
+			return "a kind with a single-player replay payload; sharing and alliance commands act only in a networked session"
+		}
+		return ""
+	case SeatShootAll:
+		return fmt.Sprintf("a kind with a version-%d payload; this number is reserved for a later schema", sc.version)
 	}
-	return "a kind number listed in command schema version 1"
+	return fmt.Sprintf("a kind number listed in command schema version %d", sc.version)
 }
 
 // checkSeatWire is every context-only rule of §7.4.1–§7.4.2. The encoder and
 // the decoder both run it, so they accept one set of values.
-func checkSeatWire(context CommandContext, c *SeatCommand) error {
-	fail := func(path, expected string) error { return seatCodecError(context, path, expected) }
-	if why := seatCodecKind(context, c.Kind); why != "" {
+func checkSeatWire(sc seatCodec, c *SeatCommand) error {
+	fail := func(path, expected string) error { return seatCodecError(sc, path, expected) }
+	if why := seatCodecKind(sc, c.Kind); why != "" {
 		return fail("kind", why)
 	}
 	// An unselected amount must be zero in its bits too: negative zero
 	// compares equal to zero, but it is data the encoding would discard.
-	if !c.unselectedZero() || c.Kind != SeatSetResource && math.Float32bits(c.SetResource.Amount) != 0 ||
+	if !c.unselectedZero() || !c.unselectedSharingZero() || c.Kind != SeatSetResource && math.Float32bits(c.SetResource.Amount) != 0 ||
 		c.Kind != SeatGive && math.Float32bits(c.Give.Amount) != 0 {
 		return fail("payload", "every payload record but the kind's own to be zero")
 	}
-	online := context == OnlineCommand
+	online := sc.context == OnlineCommand
 	switch c.Kind {
 	case SeatOrder:
 		p := &c.Order
-		if err := checkWireActors(context, "order.actors", p.Actors, len(p.Targets) == 0); err != nil {
+		if err := checkWireActors(sc, "order.actors", p.Actors, len(p.Targets) == 0); err != nil {
 			return err
 		}
 		if p.Code < 1 || p.Code > 14 {
 			return fail("order.code", "an order code 1..14")
 		}
-		if err := checkWireRef(context, "order.target", p.Target, true); err != nil {
+		if err := checkWireRef(sc, "order.target", p.Target, true); err != nil {
 			return err
 		}
 		if p.Position.InterfaceType > 1 {
@@ -218,7 +276,7 @@ func checkSeatWire(context CommandContext, c *SeatCommand) error {
 			// Paths are formatted only on failure: an area list holds up to
 			// 65535 entries.
 			if t := &p.Targets[i]; !wireRefValid(t.Target, true) {
-				return checkWireRef(context, fmt.Sprintf("order.targets[%d].target", i), t.Target, true)
+				return checkWireRef(sc, fmt.Sprintf("order.targets[%d].target", i), t.Target, true)
 			} else if t.Position.InterfaceType > 1 {
 				return fail(fmt.Sprintf("order.targets[%d].position.interfaceType", i), "an interface type 0 left or 1 right")
 			}
@@ -234,12 +292,12 @@ func checkSeatWire(context CommandContext, c *SeatCommand) error {
 			return fail("order.target", "a null outer target beside an area list")
 		}
 	case SeatStop:
-		return checkWireActors(context, "stop.actors", c.Stop.Actors, false)
+		return checkWireActors(sc, "stop.actors", c.Stop.Actors, false)
 	case SeatActivation:
-		return checkWireRef(context, "activation.unit", c.Activation.Unit, false)
+		return checkWireRef(sc, "activation.unit", c.Activation.Unit, false)
 	case SeatMobileBuild:
 		p := &c.MobileBuild
-		if err := checkWireRef(context, "mobileBuild.builder", p.Builder, false); err != nil {
+		if err := checkWireRef(sc, "mobileBuild.builder", p.Builder, false); err != nil {
 			return err
 		}
 		if why := validKey(p.Product, false); why != "" {
@@ -250,7 +308,7 @@ func checkSeatWire(context CommandContext, c *SeatCommand) error {
 		}
 	case SeatFactoryBuild:
 		p := &c.FactoryBuild
-		if err := checkWireRef(context, "factoryBuild.builder", p.Builder, false); err != nil {
+		if err := checkWireRef(sc, "factoryBuild.builder", p.Builder, false); err != nil {
 			return err
 		}
 		if why := validKey(p.Product, false); why != "" {
@@ -260,9 +318,9 @@ func checkSeatWire(context CommandContext, c *SeatCommand) error {
 			return fail("factoryBuild.count", why)
 		}
 	case SeatCancelProduction:
-		return checkWireRef(context, "cancelProduction.unit", c.CancelProduction.Unit, false)
+		return checkWireRef(sc, "cancelProduction.unit", c.CancelProduction.Unit, false)
 	case SeatStockpile:
-		if err := checkWireRef(context, "stockpile.unit", c.Stockpile.Unit, false); err != nil {
+		if err := checkWireRef(sc, "stockpile.unit", c.Stockpile.Unit, false); err != nil {
 			return err
 		}
 		if why := validCount(c.Stockpile.Count, online); why != "" {
@@ -272,16 +330,16 @@ func checkSeatWire(context CommandContext, c *SeatCommand) error {
 		if c.GroupAssign.Group < 1 || c.GroupAssign.Group > 9 {
 			return fail("groupAssign.group", "a group 1..9")
 		}
-		return checkWireActors(context, "groupAssign.members", c.GroupAssign.Members, false)
+		return checkWireActors(sc, "groupAssign.members", c.GroupAssign.Members, false)
 	case SeatStance:
 		if c.Stance.Value > 2 {
 			return fail("stance.value", "a stance value 0..2")
 		}
-		return checkWireActors(context, "stance.actors", c.Stance.Actors, false)
+		return checkWireActors(sc, "stance.actors", c.Stance.Actors, false)
 	case SeatCloak:
-		return checkWireActors(context, "cloak.actors", c.Cloak.Actors, false)
+		return checkWireActors(sc, "cloak.actors", c.Cloak.Actors, false)
 	case SeatSelfDestruct:
-		return checkWireActors(context, "selfDestruct.actors", c.SelfDestruct.Actors, false)
+		return checkWireActors(sc, "selfDestruct.actors", c.SelfDestruct.Actors, false)
 	case SeatSetResource:
 		p := &c.SetResource
 		if online && p.Player != 0 {
@@ -327,7 +385,7 @@ func checkSeatWire(context CommandContext, c *SeatCommand) error {
 		if c.CancelQueuedMove.Sequence == 0 {
 			return fail("cancelQueuedMove.sequence", "a tracked-move sequence of at least 1")
 		}
-		return checkWireActors(context, "cancelQueuedMove.actors", c.CancelQueuedMove.Actors, false)
+		return checkWireActors(sc, "cancelQueuedMove.actors", c.CancelQueuedMove.Actors, false)
 	case SeatDeveloperSpawn:
 		if why := validKey(c.DeveloperSpawn.Pattern, false); why != "" {
 			return fail("developerSpawn.pattern", why)
@@ -351,7 +409,7 @@ func checkSeatWire(context CommandContext, c *SeatCommand) error {
 		}
 	case SeatCommunityOrderDrag:
 		p := &c.CommunityOrderDrag
-		if err := checkWireRef(context, "communityOrderDrag.unit", p.Unit, false); err != nil {
+		if err := checkWireRef(sc, "communityOrderDrag.unit", p.Unit, false); err != nil {
 			return err
 		}
 		if p.Target != (pool.UnitRef{}) {
@@ -364,7 +422,16 @@ func checkSeatWire(context CommandContext, c *SeatCommand) error {
 			return fail("communityOrderDrag.buildFacing", "a build facing 0..3")
 		}
 	case SeatCommunityKickout:
-		return checkWireRef(context, "communityKickout.unit", c.CommunityKickout.Unit, false)
+		return checkWireRef(sc, "communityKickout.unit", c.CommunityKickout.Unit, false)
+	case SeatShareGift:
+		if c.ShareGift.Target > 9 {
+			return fail("shareGift.target", "a target seat 0..9")
+		}
+		return checkWireActors(sc, "shareGift.actors", c.ShareGift.Actors, false)
+	case SeatDeclareAlliance:
+		if c.DeclareAlliance.Target > 9 {
+			return fail("declareAlliance.target", "a target seat 0..9")
+		}
 	case SeatGameplay:
 		name := string(c.Gameplay.Mode)
 		if why := validKey(name, false); why != "" {
@@ -377,19 +444,55 @@ func checkSeatWire(context CommandContext, c *SeatCommand) error {
 	return nil
 }
 
+// unselectedSharingZero is unselectedZero for the version-2 records: every
+// sharing and alliance record but the kind's own is zero, so none can ride
+// along unread (§7.4.4).
+func (c *SeatCommand) unselectedSharingZero() bool {
+	d := *c
+	switch c.Kind {
+	case SeatShareMetal:
+		d.ShareMetal = ShareMetalPayload{}
+	case SeatShareEnergy:
+		d.ShareEnergy = ShareEnergyPayload{}
+	case SeatShareMapping:
+		d.ShareMapping = ShareMappingPayload{}
+	case SeatShareRadar:
+		d.ShareRadar = ShareRadarPayload{}
+	case SeatShareAll:
+		d.ShareAll = ShareAllPayload{}
+	case SeatSetShareMetal:
+		d.SetShareMetal = SetShareMetalPayload{}
+	case SeatSetShareEnergy:
+		d.SetShareEnergy = SetShareEnergyPayload{}
+	case SeatShareGift:
+		d.ShareGift = ShareGiftPayload{}
+	case SeatDeclareAlliance:
+		d.DeclareAlliance = DeclareAlliancePayload{}
+	case SeatSharedVictory:
+		d.SharedVictory = SharedVictoryPayload{}
+	}
+	g := &d.ShareGift
+	return d.ShareMetal == (ShareMetalPayload{}) && d.ShareEnergy == (ShareEnergyPayload{}) &&
+		d.ShareMapping == (ShareMappingPayload{}) && d.ShareRadar == (ShareRadarPayload{}) &&
+		d.ShareAll == (ShareAllPayload{}) &&
+		d.SetShareMetal == (SetShareMetalPayload{}) && d.SetShareEnergy == (SetShareEnergyPayload{}) &&
+		g.Target == 0 && g.Metal == 0 && g.Energy == 0 && len(g.Actors) == 0 && !g.MapInfo &&
+		d.DeclareAlliance == (DeclareAlliancePayload{}) && d.SharedVictory == (SharedVictoryPayload{})
+}
+
 // checkWireRef is the `ref` primitive: null (both halves zero) where the
 // field is nullable, otherwise a handle and a serial that are both nonzero.
-func checkWireRef(context CommandContext, path string, r pool.UnitRef, nullable bool) error {
+func checkWireRef(sc seatCodec, path string, r pool.UnitRef, nullable bool) error {
 	switch {
 	case r.Handle == 0 && r.Serial == 0:
 		if nullable {
 			return nil
 		}
-		return seatCodecError(context, path, "a non-null actor reference")
+		return seatCodecError(sc, path, "a non-null actor reference")
 	case r.Handle == 0:
-		return seatCodecError(context, path, "a reference whose handle and serial are both zero or both nonzero")
+		return seatCodecError(sc, path, "a reference whose handle and serial are both zero or both nonzero")
 	case r.Serial == 0:
-		return seatWireReference(context, path)
+		return seatWireReference(sc, path)
 	}
 	return nil
 }
@@ -399,13 +502,13 @@ func checkWireRef(context CommandContext, path string, r pool.UnitRef, nullable 
 // Design reading (U2's open question, §16.2): the local adapter captures a
 // handle whose slot was already freed as a reference with serial 0
 // (Session.captureRef), and version 1's `ref` has no form for it, since
-// exactly one zero half is invalid (§7.4.1). Online the receiver would refuse
-// it anyway. In the single-player replay context the encoder cannot preserve
-// it either, so it refuses with ErrSeatCommandNoWireForm rather than write a
-// different command: dropping a stale actor would apply identically, but
-// rewriting an ordinary order's stale target would not, because the
-// single-player result keeps the dead handle in the ground order's node
-// (§7.4.3).
+// exactly one zero half is invalid (§7.4.1); version 2 adds none. Online the
+// receiver would refuse it anyway. In the single-player replay context the
+// encoder cannot preserve it either, so it refuses with
+// ErrSeatCommandNoWireForm rather than write a different command: dropping a
+// stale actor would apply identically, but rewriting an ordinary order's
+// stale target would not, because the single-player result keeps the dead
+// handle in the ground order's node (§7.4.3).
 //
 // The single-player recorder needs no form for either (replay_convert.go): it
 // converts at the instant phase 1 applies the command, where a zero-serial
@@ -421,8 +524,8 @@ func checkWireRef(context CommandContext, path string, r pool.UnitRef, nullable 
 // validation (seatSchema) widens to match, and the online context keeps the
 // refusal. Settle by approving or replacing that proposal in
 // DESIGN_MULTIPLAYER §7.4.1.
-func seatWireReference(context CommandContext, path string) error {
-	return seatNoWireForm(context, path, "a reference with an allocation serial; a handle captured from a freed slot (serial 0) has no version-1 form")
+func seatWireReference(sc seatCodec, path string) error {
+	return seatNoWireForm(sc, path, "a reference with an allocation serial; a handle captured from a freed slot (serial 0) has no wire form")
 }
 
 // checkWireActors is the `actors` primitive: at most 3276 non-null
@@ -433,22 +536,22 @@ func seatWireReference(context CommandContext, path string) error {
 // in both contexts. The local adapter keeps repeats in a Stop, SelfDestruct,
 // CancelQueuedMove or area-order list and applies each, so dropping one
 // would change the replayed result; see seatWireReference's proposal.
-func checkWireActors(context CommandContext, path string, rs []pool.UnitRef, ascending bool) error {
+func checkWireActors(sc seatCodec, path string, rs []pool.UnitRef, ascending bool) error {
 	if len(rs) > seatMaxActors {
-		return seatCodecError(context, path, fmt.Sprintf("at most %d actors", seatMaxActors))
+		return seatCodecError(sc, path, fmt.Sprintf("at most %d actors", seatMaxActors))
 	}
 	var seen [1 << 16 / 64]uint64
 	for i, r := range rs {
 		at := func() string { return fmt.Sprintf("%s[%d]", path, i) }
 		if !wireRefValid(r, false) {
-			return checkWireRef(context, at(), r, false)
+			return checkWireRef(sc, at(), r, false)
 		}
 		if seen[r.Handle/64]&(1<<(r.Handle%64)) != 0 {
-			return seatNoWireForm(context, at(), "actors without a repeated handle; a repeated actor has no version-1 form")
+			return seatNoWireForm(sc, at(), "actors without a repeated handle; a repeated actor has no wire form")
 		}
 		seen[r.Handle/64] |= 1 << (r.Handle % 64)
 		if ascending && i > 0 && r.Handle < rs[i-1].Handle {
-			return seatCodecError(context, at(), "an ordinary order's actors in strictly ascending handle order")
+			return seatCodecError(sc, at(), "an ordinary order's actors in strictly ascending handle order")
 		}
 	}
 	return nil
@@ -589,6 +692,36 @@ func writeSeatCommand(w *netproto.Writer, context CommandContext, c *SeatCommand
 	case SeatCommunityKickout:
 		writeWireRef(w, c.CommunityKickout.Unit)
 		writeWirePoint(w, c.CommunityKickout.Destination)
+	case SeatShareMetal:
+		w.Bool(c.ShareMetal.On)
+	case SeatShareEnergy:
+		w.Bool(c.ShareEnergy.On)
+	case SeatShareMapping:
+		w.Bool(c.ShareMapping.On)
+	case SeatShareRadar:
+		w.Bool(c.ShareRadar.On)
+	case SeatShareAll:
+		p := &c.ShareAll
+		w.Bool(p.Metal)
+		w.Bool(p.Energy)
+		w.Bool(p.Mapping)
+		w.Bool(p.Radar)
+	case SeatSetShareMetal:
+		w.S32(c.SetShareMetal.Amount)
+	case SeatSetShareEnergy:
+		w.S32(c.SetShareEnergy.Amount)
+	case SeatShareGift:
+		p := &c.ShareGift
+		w.U8(p.Target)
+		w.S32(p.Metal)
+		w.S32(p.Energy)
+		writeWireActors(w, p.Actors)
+		w.Bool(p.MapInfo)
+	case SeatDeclareAlliance:
+		w.U8(c.DeclareAlliance.Target)
+		w.Bool(c.DeclareAlliance.Value)
+	case SeatSharedVictory:
+		w.Bool(c.SharedVictory.On)
 	case SeatGameplay:
 		w.Key(string(c.Gameplay.Mode))
 	}
@@ -619,20 +752,20 @@ func writeWirePosition(w *netproto.Writer, p CommandPosition) {
 }
 
 // readSeatCommand reads the kind byte, refuses a kind with no payload in the
-// context before reading further, then reads that kind's fields. Field
-// domains are checkSeatWire's, except the resource byte, which has no Go
-// value outside its mapping.
-func readSeatCommand(r *netproto.Reader, context CommandContext) SeatCommand {
+// schema version and context before reading further, then reads that kind's
+// fields. Field domains are checkSeatWire's, except the resource byte, which
+// has no Go value outside its mapping.
+func readSeatCommand(r *netproto.Reader, sc seatCodec) SeatCommand {
 	var c SeatCommand
 	c.Kind = SeatCommandKind(r.U8())
 	if r.Err() != nil {
 		return SeatCommand{}
 	}
-	if why := seatCodecKind(context, c.Kind); why != "" {
+	if why := seatCodecKind(sc, c.Kind); why != "" {
 		r.FailAt(0, why)
 		return SeatCommand{}
 	}
-	replay := context == SinglePlayerReplay
+	replay := sc.context == SinglePlayerReplay
 	switch c.Kind {
 	case SeatOrder:
 		p := &c.Order
@@ -743,6 +876,36 @@ func readSeatCommand(r *netproto.Reader, context CommandContext) SeatCommand {
 	case SeatCommunityKickout:
 		c.CommunityKickout.Unit = readWireRef(r)
 		c.CommunityKickout.Destination = readWirePoint(r)
+	case SeatShareMetal:
+		c.ShareMetal.On = r.Bool()
+	case SeatShareEnergy:
+		c.ShareEnergy.On = r.Bool()
+	case SeatShareMapping:
+		c.ShareMapping.On = r.Bool()
+	case SeatShareRadar:
+		c.ShareRadar.On = r.Bool()
+	case SeatShareAll:
+		p := &c.ShareAll
+		p.Metal = r.Bool()
+		p.Energy = r.Bool()
+		p.Mapping = r.Bool()
+		p.Radar = r.Bool()
+	case SeatSetShareMetal:
+		c.SetShareMetal.Amount = r.S32()
+	case SeatSetShareEnergy:
+		c.SetShareEnergy.Amount = r.S32()
+	case SeatShareGift:
+		p := &c.ShareGift
+		p.Target = r.U8()
+		p.Metal = r.S32()
+		p.Energy = r.S32()
+		p.Actors = readWireActors(r)
+		p.MapInfo = r.Bool()
+	case SeatDeclareAlliance:
+		c.DeclareAlliance.Target = r.U8()
+		c.DeclareAlliance.Value = r.Bool()
+	case SeatSharedVictory:
+		c.SharedVictory.On = r.Bool()
 	case SeatGameplay:
 		c.Gameplay.Mode = gameplay.Mode(r.Key())
 	}

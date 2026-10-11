@@ -133,6 +133,9 @@ func setOnlineSeatCommands(s *Session, cfg EffectiveMatchConfig) error {
 	s.humanMu.Lock()
 	defer s.humanMu.Unlock()
 	s.seatCommands.online = &onlineCommandConfig{roles: roles, unitLimit: r.UnitLimit, cheatsAllowed: r.CheatsAllowed}
+	// The lobby teams the alliance admission reads; a battle composition
+	// has its result rows by now (online_alliance.go).
+	s.onlineResults.setTeams(r.Seats)
 	return nil
 }
 
@@ -152,6 +155,10 @@ func (s *Session) applyQueuedSeatCommand(q *seatQueued, tick uint32) {
 	outcome, diagnostic := CommandRejected, ""
 	if why != "" {
 		diagnostic = fmt.Sprintf("nanolathe: seat command rejected: logical path seat %d tick %d position %d kind %d, providers searched [session], expected %s", q.stamp.Seat, q.stamp.Tick, q.stamp.Position, q.command.Kind, why)
+	} else if sharingSeatKind(q.command.Kind) {
+		// The sharing and alliance kinds have no single-player operation, so
+		// they apply from the seat payload itself (online_sharing.go).
+		outcome = s.applyOnlineSharing(issuer, &q.command, tick)
 	} else {
 		b := s.bindSeatCommand(q, issuer)
 		outcome = s.applyBound(&b, tick)
@@ -205,6 +212,9 @@ func (s *Session) admitSeatCommand(q *seatQueued) (uint8, string) {
 		if c.Kind == SeatMobileBuild && !s.onlineBuildSiteKnown(seat, c.MobileBuild) {
 			return 0, "a build site known to the issuing seat"
 		}
+		if why := s.admitOnlineSharing(seat, c); why != "" {
+			return 0, why
+		}
 	}
 	return seat, ""
 }
@@ -254,8 +264,12 @@ func onlineKindAdmission(k SeatCommandKind) string {
 	case SeatDoubleShot, SeatHalfShot:
 		return m5Gate + ": the issuing seat's own damage gates"
 	case SeatShareMetal, SeatShareEnergy, SeatShareMapping, SeatShareRadar, SeatShareAll, SeatSetShareMetal,
-		SeatSetShareEnergy, SeatShareGift, SeatDeclareAlliance, SeatSharedVictory, SeatShootAll:
-		return m5Gate + ": a reserved kind with no version-1 payload until its owning service contract"
+		SeatSetShareEnergy, SeatShareGift, SeatDeclareAlliance, SeatSharedVictory:
+		// Command schema version 2's sharing and alliance kinds; their
+		// state-dependent admission is admitOnlineSharing's.
+		return ""
+	case SeatShootAll:
+		return "a kind with a payload; ShootAll is reserved and no command schema version carries it yet"
 	case SeatSelectionReplace, SeatSelectionToggle, SeatSelectionClear, SeatBuildPage, SeatGroupRecall, SeatBigBrother, SeatShiftState:
 		return "a seat command kind; selection, build pages, group recall, BigBrother and Shift are local interface state"
 	case SeatDeveloperSpawn:
@@ -282,8 +296,12 @@ func replayKindAdmission(k SeatCommandKind) string {
 	case SeatSelectionReplace, SeatSelectionToggle, SeatSelectionClear, SeatBuildPage, SeatGroupRecall, SeatBigBrother, SeatShiftState:
 		return "a recorded kind; local interface state has no replay payload"
 	case SeatShareMetal, SeatShareEnergy, SeatShareMapping, SeatShareRadar, SeatShareAll, SeatSetShareMetal,
-		SeatSetShareEnergy, SeatShareGift, SeatDeclareAlliance, SeatSharedVictory, SeatShootAll:
-		return "a kind with a version-1 payload"
+		SeatSetShareEnergy, SeatShareGift, SeatDeclareAlliance, SeatSharedVictory:
+		// Retail's share commands, SHARE screen and Allies window act only in
+		// a networked session [07 R-CAM-01 §6] [05 R-SHARE-01 §5].
+		return "a kind with a single-player replay payload; sharing and alliance commands act only in a networked session"
+	case SeatShootAll:
+		return "a kind with a payload; ShootAll is reserved and no command schema version carries it yet"
 	}
 	return "a kind number listed in command schema version 1"
 }
@@ -307,6 +325,14 @@ func (s *Session) onlinePermission(c *SeatCommand) string {
 		}
 		if !cheats && (a < 1 || a > seatOnlineMaxGift) {
 			return "a positive whole gift amount from 1 to 2^31, or the room's cheat permission"
+		}
+	case SeatShareGift:
+		// A SHARE slider reads back a whole number; zero gives nothing and a
+		// positive amount is ordinary sharing (§15 Q8). A negative one
+		// reverses the transfer [05 R-SHARE-01 §2], which only the room's
+		// cheat permission admits.
+		if !cheats && (c.ShareGift.Metal < 0 || c.ShareGift.Energy < 0) {
+			return "gift amounts of zero or more, or the room's cheat permission"
 		}
 	}
 	return ""
@@ -343,7 +369,7 @@ func onlineAmount(a float32) bool {
 // combinations. Online it also applies the agreed unit limit, the per-command
 // work limits and the replay-only fields' required zeros.
 func (s *Session) seatSchema(context CommandContext, c *SeatCommand) string {
-	if !c.unselectedZero() {
+	if !c.unselectedZero() || !c.unselectedSharingZero() {
 		return "every payload record but the kind's own to be zero"
 	}
 	online := context == OnlineCommand
@@ -524,6 +550,15 @@ func (s *Session) seatSchema(context CommandContext, c *SeatCommand) string {
 			return why
 		}
 		return validPoint(c.CommunityKickout.Destination, online)
+	case SeatShareGift:
+		if c.ShareGift.Target > 9 {
+			return "a target seat 0..9"
+		}
+		return validActors(c.ShareGift.Actors, limit, false)
+	case SeatDeclareAlliance:
+		if c.DeclareAlliance.Target > 9 {
+			return "a target seat 0..9"
+		}
 	}
 	return ""
 }
@@ -598,6 +633,8 @@ func (s *Session) onlineForeignActors(seat uint8, c *SeatCommand) string {
 		list = c.SelfDestruct.Actors
 	case SeatCancelQueuedMove:
 		list = c.CancelQueuedMove.Actors
+	case SeatShareGift:
+		list = c.ShareGift.Actors
 	case SeatActivation:
 		single = c.Activation.Unit
 	case SeatFactoryBuild:

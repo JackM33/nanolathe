@@ -154,6 +154,13 @@ type Player struct {
 	AutoShareSensor      bool
 	MetalShareThreshold  float32 // separate sharing threshold [05 "Allied resource and sensor sharing"]
 	EnergyShareThreshold float32
+	// ShareRadar is option-word bit 6: an owner that sets it has its units
+	// marked friendly by the sensor pass of every viewer it has declared
+	// alliance toward [03 R-VIS-01 §7] [05 "Sensor sharing"]. Only an online
+	// seat command writes it (share.go); it enters the checkpoint behind the
+	// EconomySelector tag's bit 2, so a ledger in which no player sets it
+	// writes the bytes it always has.
+	ShareRadar bool
 	// Storage bonus per [05 "Storage capacity"] [OX P1]: an enable flag plus a
 	// per-resource bonus holding max(starting stock, 200). When set, the bonus
 	// is added to the player's storage capacity during the ledger's capacity

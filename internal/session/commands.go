@@ -76,6 +76,74 @@ const (
 	HumanCommunityKickout
 )
 
+// The sharing and alliance kinds exist only in a networked session: retail's
+// share commands, SHARE screen and Allies window act only there
+// [07 R-CAM-01 §6] [05 R-SHARE-01 §5] [07 "Tab options menu and manual
+// exit"], so a single-player session refuses them at the input boundary and
+// the online client captures them into seat commands 35..44
+// (CaptureOnlineCommand, DESIGN_MULTIPLAYER §7.1). Their numbers are the seat
+// kinds' for recognition; each payload carries the value the client's press
+// produces from the state it shows, as the seat payload does
+// (seat_command.go).
+const (
+	// HumanShareMetal is `+ShareMetal` (ShareOption.On, the option's new value).
+	HumanShareMetal HumanCommandKind = 35
+	// HumanShareEnergy is `+ShareEnergy` (ShareOption.On).
+	HumanShareEnergy HumanCommandKind = 36
+	// HumanShareMapping is `+ShareMapping` (ShareOption.On).
+	HumanShareMapping HumanCommandKind = 37
+	// HumanShareRadar is `+ShareRadar` (ShareOption.On).
+	HumanShareRadar HumanCommandKind = 38
+	// HumanShareAll is `+ShareAll` (ShareAll, each option's new value).
+	HumanShareAll HumanCommandKind = 39
+	// HumanSetShareMetal is `+SetShareMetal n` (ShareThreshold.Amount).
+	HumanSetShareMetal HumanCommandKind = 40
+	// HumanSetShareEnergy is `+SetShareEnergy n` (ShareThreshold.Amount).
+	HumanSetShareEnergy HumanCommandKind = 41
+	// HumanShareGift is one confirmation of the SHARE screen (ShareGift).
+	HumanShareGift HumanCommandKind = 42
+	// HumanDeclareAlliance is one Allies-window ally click (DeclareAlliance).
+	HumanDeclareAlliance HumanCommandKind = 43
+	// HumanSharedVictory is the Allies window's OK writing its VICTORY box
+	// (SharedVictory).
+	HumanSharedVictory HumanCommandKind = 44
+)
+
+// HumanShareOptionCommand is one share toggle: the option's value after the
+// press, which retail's command flips [05 R-SHARE-01 §3].
+type HumanShareOptionCommand struct{ On bool }
+
+// HumanShareAllCommand is `+ShareAll`, retail's four toggles in sequence
+// [07 R-CAM-01 §6]: each option's value after its own flip.
+type HumanShareAllCommand struct{ Metal, Energy, Mapping, Radar bool }
+
+// HumanShareThresholdCommand is `+SetShareMetal n` / `+SetShareEnergy n`:
+// the typed integer [07 R-CAM-01 §6].
+type HumanShareThresholdCommand struct{ Amount int32 }
+
+// HumanShareGiftCommand is one SHARE confirmation [05 R-SHARE-01 §5]: the
+// target seat; the two sliders' whole read-backs, zero for none; the local
+// selection when the units box is checked, empty otherwise; and the
+// map-information box.
+type HumanShareGiftCommand struct {
+	Target  uint8
+	Metal   int32
+	Energy  int32
+	Handles []pool.Handle
+	MapInfo bool
+}
+
+// HumanDeclareAllianceCommand is one ally click: the issuing seat's
+// declaration toward Target after the click's flip [05 R-SHARE-01 §1].
+type HumanDeclareAllianceCommand struct {
+	Target uint8
+	Value  bool
+}
+
+// HumanSharedVictoryCommand is the VICTORY box as OK writes it
+// [07 "Tab options menu and manual exit"].
+type HumanSharedVictoryCommand struct{ On bool }
+
 // HumanSpawnCommand is the Modern testing command's captured world point.
 // See DESIGN_INTERFACE_HUD_INPUT "Modern spawn command".
 type HumanSpawnCommand struct {
@@ -306,7 +374,15 @@ type HumanCommand struct {
 	Give               HumanGiveCommand
 	Visibility         HumanVisibilityCommand
 	Meteor             HumanMeteorCommand
-	ShiftHeld          bool
+	// ShareOption is HumanShareMetal..HumanShareRadar's payload,
+	// ShareThreshold HumanSetShareMetal/HumanSetShareEnergy's.
+	ShareOption     HumanShareOptionCommand
+	ShareAll        HumanShareAllCommand
+	ShareThreshold  HumanShareThresholdCommand
+	ShareGift       HumanShareGiftCommand
+	DeclareAlliance HumanDeclareAllianceCommand
+	SharedVictory   HumanSharedVictoryCommand
+	ShiftHeld       bool
 
 	// seat is a stamped stream entry riding this queue (EnqueueSeatCommand);
 	// nil for every local command. One queue keeps stamped and local entries
@@ -350,6 +426,7 @@ func cloneHumanCommand(c HumanCommand) HumanCommand {
 	c.Stance.Handles = cloneHumanHandles(c.Stance.Handles)
 	c.Cloak.Handles = cloneHumanHandles(c.Cloak.Handles)
 	c.Group.Handles = cloneHumanHandles(c.Group.Handles)
+	c.ShareGift.Handles = cloneHumanHandles(c.ShareGift.Handles)
 	c.refs.actors = cloneRefs(c.refs.actors)
 	c.refs.targets = cloneRefs(c.refs.targets)
 	return c
@@ -418,6 +495,8 @@ func (s *Session) captureLocalRefs(c *HumanCommand) {
 		c.refs.actors = s.captureRefs(c.Cloak.Handles)
 	case HumanGroupAssign:
 		c.refs.actors = s.captureRefs(c.Group.Handles)
+	case HumanShareGift:
+		c.refs.actors = s.captureRefs(c.ShareGift.Handles)
 	case HumanActivation:
 		c.refs.unit = s.captureRef(c.Activation.Unit)
 	case HumanMobileBuild:
@@ -490,6 +569,9 @@ func (s *Session) EnqueueHumanCommandWithSequence(c HumanCommand) (uint64, error
 	s.humanMu.Unlock()
 	if online {
 		return 0, fmt.Errorf("nanolathe: local command refused: logical path human command kind %d, providers searched [session], expected a stamped seat command in an online session", c.Kind)
+	}
+	if onlineOnlyHumanKind(c.Kind) {
+		return 0, fmt.Errorf("nanolathe: local command refused: logical path human command kind %d, providers searched [session], expected a networked session; sharing and alliance commands act only there [07 R-CAM-01 §6]", c.Kind)
 	}
 	// A caller cannot supply the capture or a stamped entry.
 	c.seat = nil

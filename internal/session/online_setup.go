@@ -13,8 +13,9 @@ import (
 )
 
 // The online lobby's configuration (DESIGN_MULTIPLAYER §16.6). Every value
-// below is Nanolathe lobby policy, not a retail record: the seat-to-row
-// mapping, the default names, the colour rule and the team numbering.
+// below is Nanolathe lobby policy, not a retail record: the rule sets a room
+// offers, the seat-to-row mapping, the display-name rule and the default
+// names, the colour rule and the team numbering.
 
 // OnlineTeamNone is the lobby team of a seat on no team. Teams 1..5 are the
 // configuration's ally groups 0..4; none is the unassigned group 5.
@@ -32,15 +33,73 @@ const onlineColors = 10
 // (DESIGN_SURVIVAL §4.1), each a human online.
 const OnlineSurvivalMaxSurvivors = 1 + SurvivalMaxBuddies
 
+// OnlineNameMaxBytes is the longest online display name, the configuration
+// nickname's limit (DESIGN_MULTIPLAYER §8.6 player row 1).
+const OnlineNameMaxBytes = matchNicknameMaxBytes
+
 // OnlineSeat is one present lobby seat, in slot order (DESIGN_MULTIPLAYER
 // §16.6). Team is OnlineTeamNone or 1..OnlineMaxTeam; Survival ignores it.
 // Side indexes the frozen catalog's sides in their compiled order, the order
 // OnlineSides names them. Color is the player's colour, 0..9, held by no
-// other seat.
+// other seat. Name is the player's display name, which ValidateOnlineName
+// admits, or "" for the default "Player n" of slot n-1.
 type OnlineSeat struct {
 	Team  uint8
 	Side  uint8
 	Color uint8
+	Name  string
+}
+
+// ValidateOnlineName reports whether name may be an online player's display
+// name: 1..OnlineNameMaxBytes bytes of printable ASCII (0x20..0x7E) without
+// '<' or '>', which frame a speaker in a chat line, and without a leading or
+// trailing space. The empty name is refused here; a seat that has none takes
+// its default in NewOnlineMatchRequest.
+func ValidateOnlineName(name string) error {
+	return validateOnlineName("name", name)
+}
+
+func validateOnlineName(path, name string) error {
+	ok := len(name) >= 1 && len(name) <= OnlineNameMaxBytes && name[0] != ' ' && name[len(name)-1] != ' '
+	for i := 0; ok && i < len(name); i++ {
+		c := name[i]
+		ok = c >= 0x20 && c <= 0x7e && c != '<' && c != '>'
+	}
+	if !ok {
+		return matchFieldError(path, fmt.Sprintf("a display name of 1..%d printable ASCII bytes without '<', '>' or a leading or trailing space", OnlineNameMaxBytes))
+	}
+	return nil
+}
+
+// onlineRuleSet is the reserved rule set an online room names (§16.6): ""
+// is Modern, and otherwise the name must be Strict 3.1's, Community 3.9's or
+// Modern's. A set a mod registered is not offered online.
+func onlineRuleSet(path, rules string) (RuleSet, error) {
+	switch rules {
+	case "":
+		return ModernRuleSet(), nil
+	case StrictRuleSetName:
+		return StrictRuleSet(), nil
+	case CommunityRuleSetName:
+		return CommunityRuleSet(), nil
+	case ModernRuleSetName:
+		return ModernRuleSet(), nil
+	}
+	return RuleSet{}, matchFieldError(path, fmt.Sprintf("an online rule set, %q (or \"\" for it), %q or %q; got %q", ModernRuleSetName, StrictRuleSetName, CommunityRuleSetName, rules))
+}
+
+// OnlineComputersPerHost is how many computers one human may add to an
+// online room under rules, as the set's seat seam answers
+// (SeatRules.ComputerSeatsPerHuman, DESIGN_MULTIPLAYER §6.6, §15 Q23): one
+// under Strict 3.1 and up to the available seats under Community 3.9 and
+// Modern. rules is spelt as OnlineMatchSetup.Rules is. Only the room host
+// adds computers, so it is also the most computers a room holds.
+func OnlineComputersPerHost(rules string) (int, error) {
+	set, err := onlineRuleSet("rules", rules)
+	if err != nil {
+		return 0, err
+	}
+	return matchComputersPerHost(set), nil
 }
 
 // OnlineComputer is one computer row the room host added to its base
@@ -59,10 +118,15 @@ type OnlineComputer struct {
 }
 
 // OnlineMatchSetup is what a lobby decides beyond the host's frozen content:
-// the game type, map, seats with their teams and sides, the host's computers,
-// the host's seed pair and, for Survival, its options. Every seat is a human
-// under Modern gameplay.
+// the rule set, the game type, map, seats with their teams, sides and names,
+// the host's computers, the host's seed pair and, for Survival, its options.
+// Every seat is a human.
 type OnlineMatchSetup struct {
+	// Rules names the room's rule set: "" or Modern's name for Modern,
+	// otherwise Strict 3.1's or Community 3.9's (StrictRuleSetName,
+	// CommunityRuleSetName). The empty value builds exactly the request a
+	// Modern room always has.
+	Rules    string
 	Survival bool
 	MapName  string
 	Seats    []OnlineSeat
@@ -94,10 +158,12 @@ func (s OnlineMatchSetup) Rows() int {
 // per computer in its stored order, and, for Survival, the attacker row as
 // SurvivalConfigFor builds it. A human row carries the participant identity
 // whose first byte is its slot plus one (room's own Participants are not
-// read), the nickname "Player n" for slot n-1, the seat's side and colour,
-// and the skirmish default resources. A computer row is hosted by seat 0 and
-// carries its controller, its own difficulty, its side, an empty nickname and
-// the default resources. A skirmish row's ally group is its team's (team t is
+// read), the seat's display name as its nickname — "Player n" for slot n-1
+// when it has none — the seat's side and colour, and the skirmish default
+// resources. The nickname is configuration text every seat agrees through
+// the digest; battle entry names the human's player record with it. A
+// computer row is hosted by seat 0 and carries its controller, its own
+// difficulty, its side, an empty nickname and the default resources. A skirmish row's ally group is its team's (team t is
 // group t-1, no team is the unassigned group); every survivor, computer
 // survivors included, shares the Survival team.
 //
@@ -109,8 +175,13 @@ func (s OnlineMatchSetup) Rows() int {
 // DESIGN_SURVIVAL §4.1). A human-only setup builds exactly the rows it always
 // has.
 //
-// The rule words and the unit limit are the single-player skirmish defaults
-// under Modern, as DirectSkirmishConfig writes them; options and room are as
+// The rule set is setup.Rules, one of the three reserved sets. The request
+// names it and its base, resolves the Community table through it — Strict
+// 3.1's is the zero table whatever the sources, Community 3.9 and Modern
+// layer the sources as NewMatchConfigRequest does — and gives each human row
+// the set's default builder options unless options carries a preference. The
+// rule words and the unit limit are the single-player skirmish defaults, as
+// DirectSkirmishConfig writes them; options and room are as
 // NewMatchConfigRequest takes them. room.MapSchema must be the schema the
 // map-entry code selects for setup.Rows() players; OnlineMapSchema resolves
 // it.
@@ -119,8 +190,14 @@ func (s OnlineMatchSetup) Rows() int {
 // holding every row [08 R-SKIR-01 §12]; whether the map offers that many
 // start positions is the lobby's cap (OnlineMapCapacity), which composition
 // checks again. Survival seats 2..3 human survivors and at most three
-// survivors in all. A colour above 9, or one two seats share, is refused.
+// survivors in all. A rule set other than the three, more computers than
+// OnlineComputersPerHost allows, a display name ValidateOnlineName refuses, a
+// colour above 9, or one two seats share, is refused.
 func NewOnlineMatchRequest(setup OnlineMatchSetup, options SkirmishEntryOptions, room MatchRoomInputs) (MatchConfigRequest, error) {
+	set, err := onlineRuleSet("setup.rules", setup.Rules)
+	if err != nil {
+		return MatchConfigRequest{}, err
+	}
 	n := len(setup.Seats)
 	most := SkirmishMaxPlayers
 	if setup.Survival {
@@ -132,6 +209,10 @@ func NewOnlineMatchRequest(setup OnlineMatchSetup, options SkirmishEntryOptions,
 	if n+len(setup.Computers) > most {
 		return MatchConfigRequest{}, matchFieldError("setup.computers", fmt.Sprintf("at most %d players, seats and computers together", most))
 	}
+	// Every computer is the room host's (§6.6).
+	if perHost := matchComputersPerHost(set); len(setup.Computers) > perHost {
+		return MatchConfigRequest{}, matchFieldError("setup.computers", fmt.Sprintf("at most %d computer(s) added by the room host under rule set %q", perHost, set.Name))
+	}
 	if setup.SideCount < 1 || setup.SideCount > 256 {
 		return MatchConfigRequest{}, matchFieldError("setup.sideCount", "the frozen catalog's side count, len(OnlineSides(cat)), 1..256")
 	}
@@ -139,7 +220,7 @@ func NewOnlineMatchRequest(setup OnlineMatchSetup, options SkirmishEntryOptions,
 		return MatchConfigRequest{}, matchFieldError("setup.mapName", "a map name")
 	}
 	cfg := DirectSkirmishConfig(setup.MapName)
-	cfg.Gameplay = gameplay.Modern
+	cfg.Gameplay = gameplay.Mode(set.Name)
 	cfg.RNGSimSeed, cfg.RNGCrtSeed = setup.SimSeed, setup.CRTSeed
 	players := make([]SkirmishPlayer, n, n+len(setup.Computers))
 	for i, seat := range setup.Seats {
@@ -158,6 +239,13 @@ func NewOnlineMatchRequest(setup OnlineMatchSetup, options SkirmishEntryOptions,
 				return MatchConfigRequest{}, matchFieldError(path+".color", fmt.Sprintf("a colour no other seat holds, not seat %d's", j))
 			}
 		}
+		name := fmt.Sprintf("Player %d", i+1)
+		if seat.Name != "" {
+			if err := validateOnlineName(path+".name", seat.Name); err != nil {
+				return MatchConfigRequest{}, err
+			}
+			name = seat.Name
+		}
 		players[i] = SkirmishPlayer{
 			Controller: SkirmishControllerHuman,
 			Side:       int(seat.Side),
@@ -165,7 +253,7 @@ func NewOnlineMatchRequest(setup OnlineMatchSetup, options SkirmishEntryOptions,
 			AllyGroup:  onlineAllyGroup(seat.Team),
 			Metal:      SkirmishDefaultMetal,
 			Energy:     SkirmishDefaultEnergy,
-			Nickname:   fmt.Sprintf("Player %d", i+1),
+			Nickname:   name,
 		}
 		room.Participants[i] = MatchParticipantID{byte(i + 1)}
 	}

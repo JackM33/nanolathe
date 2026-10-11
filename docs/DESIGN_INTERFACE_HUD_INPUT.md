@@ -2636,7 +2636,7 @@ count through the same installed-art resolver used by painting. No held-key
 fallback supplies a palette command `[07 §2]` `[07 §9]` `[07 R-WGT-01 §3]` `[07 R-HUD-03 §6]`.
 `\`, `Ctrl+F10` and
 F11 are developer mode, `Ctrl+F9` is a screenshot with no in-battle writer,
-`h` is the multiplayer share dialog and remains out of scope. Unclaimed Enter
+`h` opens the share dialog in an online battle only (§3.9). Unclaimed Enter
 opens the single-player TALK editor through partial I10 (§3.9)
 `[07 §5 "Chat"]` `[07 R-CAM-01 §9]`.
 
@@ -2683,7 +2683,7 @@ evidence only.
 | Orders | Previous / next build page `,` / `.`, plus this build's Page Down / Page Up; Self-destruct Ctrl+D | census rows above; the page keys' host extras in `handleBattleShortcuts` |
 | Selection | Select all Ctrl+A, commander Ctrl+C, on screen Ctrl+S, same type Ctrl+Z; `CTRL_B`, `CTRL_E`…`CTRL_R`, `CTRL_T`…`CTRL_Y` category selects on their Ctrl letters | census rows `[07 R-CAM-01 §2]` |
 | Camera | Follow next / previous `t` / `T`; next unvisited `n`; message source F3; store bookmarks 1–4 Ctrl+F5–F8 and recall F5–F8; zoom step F9 | census rows; F9 is the host extension of §3.8 |
-| Game | Options F2; options, resume or megamap Tab; Pause; speed `+` `=` / `-` `_`; label every unit `` ` `` `~` `!` `#` `*`; unit information F1; score panel F4; clear messages F12; chat Enter; switch renderer F10 | census rows; Enter opens TALK (§3.9); F10 is the host extension of DESIGN_GPU_RENDERER §14.6 |
+| Game | Options F2; options, resume or megamap Tab (online, the Tab strip with Options or F2 with Overview; Share `h`, §3.9); Pause; speed `+` `=` / `-` `_`; label every unit `` ` `` `~` `!` `#` `*`; unit information F1; score panel F4; clear messages F12; chat Enter; switch renderer F10 | census rows; Enter opens TALK (§3.9); F10 is the host extension of DESIGN_GPU_RENDERER §14.6 |
 | Fixed | Recall group or build page 1–9; assign group Ctrl+1–9; cancel or deselect Escape; scroll arrows; slide the rails Space (held) | shown for reference, never rebound |
 
 Fixed keys are held-key queries (arrows, Space), modifier-read multiplexers
@@ -2692,7 +2692,7 @@ the options window's and TALK's own cancel key, so rebinding it on the
 residual path alone would split its meaning. No action may take a Fixed key.
 Options (F2) and Unit information (F1) act only with Shift up, which the
 rewrite cannot change, so a shifted chord is never bound to them.
-The developer keys (`\`, Ctrl+F9, Ctrl+F10, F11) and the out-of-scope `h`
+The developer keys (`\`, Ctrl+F9, Ctrl+F10, F11) and the online-only `h`
 are not catalogued. They pass through unchanged, and binding an action to
 one of them takes the key.
 
@@ -3132,8 +3132,68 @@ display bits, including the persisted low bit that selects dithered fog; a
 later direct-entry settings write includes deferred shadow preferences. The remaining ordinary local
 single-player command families stay in the parent I10 scope. The mask-4
 developer table and default unit-spawn handler remain unimplemented with developer
-mode; multiplayer `TALK2.GUI`, recipient controls and network chat remain
-excluded with multiplayer `[07 R-CAM-01 §6]` `[07 R-FE-02 §12]`.
+mode.
+
+**Online battle chat.** In an online battle the same TALK line is network
+chat over the hosted relay (DESIGN_MULTIPLAYER §12.2). A committed line is
+composed as `<name> text`, sent to the recipients its one-line prefix or
+the stored recipient mode selects, then posted locally with class 4 and no
+speaker; a received line is posted with class 8 and its sender's slot as
+speaker, drawing the sender's logo and playing `MessageArrived`
+`[07 §5 "Chat"]` `[07 R-FE-02 §12]` `[07 R-HUD-03 §14.3]`. The prefix is the
+first character of a line whose second is `,`, `:` or `;`: a digit names one
+slot, `a` or `e` the local player's allies or enemies by its own row A. The
+battle opens `TALK.GUI`, whose form cannot change the stored mode, so it
+stays "everyone"; `TALK2.GUI`'s recipient controls are a `TODO(question)`
+at `openTalk`, as is whether a prefix digit is the slot index or the slot
+plus one (the placeholder reads the index). A watcher, or a seat whose
+result is final, cannot open chat. A `+` line runs its command as in
+single-player and is then sent to everyone. Received names come from each
+receiver's own copy of the sender's row, so only the text travels. The
+loopback play test and replay playback post lines locally only. Chat
+changes no tick and is never recorded
+(`cmd/nanolathe/battle_online_chat.go`).
+
+**Online sharing and alliances.** Online, the Tab strip `TABMENU.GUI`
+fills the surface's last 33 rows: its authored `ypos −33` counts up from the
+bottom, and SHARE's `−429` ends on the strip's top edge `[07 R-WGT-01 §12]`
+`[07 R-HUD-05]`. It offers OPTIONS, SHARE, CONTROL, ALLIES and CANCEL, and
+`h` opens `SHARE.GUI` for a playing seat `[07 R-CAM-01 §2]`. Tab keeps the
+`presentation.overview` preference: with Options, Tab toggles the strip
+online as retail's Tab does in a multiplayer session; with Overview, Tab
+keeps the overview and F2 toggles the strip. Single-player keys are
+unchanged. Tab plays `SmallButton` both ways. Each strip button plays
+`BigButton` and opens its window — the options root, SHARE or ALLIES — on
+top of the strip, which stays open beneath and is the top window again when
+that window closes (`ui.BattleState.StripBeneath`); CANCEL closes the strip
+silently, and CONTROL is greyed (see the exclusions below)
+`[07 "Tab options menu and manual exit"]`. A Tab that closes the options
+root returns to the strip, and a second Tab closes it.
+
+The screens read the committed frame's `Sharing` view and player rows,
+which carry each replica's own admission for the local seat, and send the
+online seat commands of DESIGN_MULTIPLAYER §7.1; the `+ShareMetal` …
+`+SetShareEnergy` and `+Give` lines send the same commands and post retail's
+class-2 replies `[07 R-CAM-01 §6]`. SHARE lists the rows the local seat may
+give to, in slot order, starting on row 0, and with no player to offer it
+does not open; its sliders range over the committed stock and read back
+whole numbers, travel taken from the bar the build shrank between its arrows
+`[07 R-HUD-03 §9]`; its boxes and OK play `Options` and CANCEL `Previous`,
+while `h` and the opener play nothing `[05 R-SHARE-01 §5]`. OK sends one
+gift, and a gift of nothing is not sent. ALLIES shows one row per seated
+player still in play, the player's colour behind the name, and the ally
+button's stage is the local seat's two directions of declaration; a click
+sends the declaration and announces it as a chat line, VICTORY and OK play
+`Options`, and OK sends the Allied Victory box when it changed. Enter and
+Escape reach SHARE's and ALLIES's defaults only while the key-navigation
+switch the strip turned on is still on, so a SHARE opened by `h` alone takes
+both keys and ignores them. The windows are battle modals that take the
+world's input while up and never pause, because online battles have no
+pause; a final result closes them, the strip beneath included.
+`TODO(question)` at `battle_tabmenu.go`: whether retail's battle input still
+reaches the world under the strip alone. A replay playback, and a battle
+entered without the front-end shell, offer none of them
+(`cmd/nanolathe/battle_tabmenu.go`).
 
 * **The multiplayer lobby shell.** Retail's `SELGAME.GUI` lobby and its
   transport remain out of scope; the single-player skirmish setup screen is a
@@ -3181,9 +3241,11 @@ excluded with multiplayer `[07 R-CAM-01 §6]` `[07 R-FE-02 §12]`.
   audio calibration and focus-loss sound behavior remain a marked research
   gap `[03 §9]`. The pure Go decoder and bounded PCM conversion add no module
   dependencies and do not invoke an external decoder at runtime.
-* **`SHARE.GUI` and `CONTROL.GUI`.** The resource transfer dialog and the
-  host-only player control panel are multiplayer surfaces
-  `[07 R-HUD-03 §9]` `[07 R-FE-01 §7]`.
+* **`CONTROL.GUI`.** The host-only player control panel — watching allowed
+  and rejecting a player — has no online counterpart: watchers are not
+  offered and only a vote removes a seat (DESIGN_MULTIPLAYER §11.1, §11.4),
+  so the Tab strip shows CONTROL greyed on the host's machine
+  `[07 R-FE-01 §7]`. `SHARE.GUI` is built online (§3.9).
 * **Developer mode.** The repeated-command binding, contour overlay, in-battle
   screenshot and Unit State/Builder Probes are not implemented. They are now
   planned in [DESIGN_DEVELOPER_TOOLS](DESIGN_DEVELOPER_TOOLS.md), including the
@@ -4491,8 +4553,14 @@ small popup over `MAINMENU` on the base install's message-box frame
 move it. It holds one sentence ("Play online with friends: create a game and
 send them its code, or join with the code a friend sent you."), **Create
 Game** and **Join Game** in the stock 96×31 button size, a status line, and
-off the main path a small **Server** button with the current server beside it
-and **Cancel** (or Escape).
+off the main path a small **Name** button with "Name: none chosen" or the
+player's name beside it, a small **Server** button with the current server
+beside it, both cut short by character when long, and **Cancel** (or
+Escape). **Name** opens a popup, "Enter the name other players see", that
+saves the trimmed name as `nickname` (empty for none) and refuses, in plain
+words in the popup, a name over 16 characters or one with `<` or `>`
+(DESIGN_MULTIPLAYER §12.2). The name rides the hello of every room the
+player creates or joins.
 
 **Join Game** replaces the chooser with the base install's address window
 (`guis/tcp.gui`), captioned "Enter the room code your friend sent you", with
@@ -4531,7 +4599,9 @@ window does the same for a join.
 
 The lobby is the authored `SKIRMISH.GUI` window, opened as the setup screen
 with its ten runtime rows. Each present player has a row in seat order:
-"Player n", marked "(You)" or "(Host)", their side in the setup screen's side
+their name, or "Player n" when they have none or their client carries no
+names, marked "(You)" or "(Host)" — a long name is shortened with "..." so
+the mark stays, and the row's help names the player in full — their side in the setup screen's side
 art (any side the catalog defines), their colour in the setup screen's
 `logos.gaf` column, their team as the allegiance symbols (none, or teams 1–5,
 joined when shared and split when alone; hidden in Survival) and "Ready" in
@@ -4575,8 +4645,12 @@ build uses `navigator.clipboard.writeText` on secure pages; a host without a
 bridge, or a desktop without one of those programs, hides it).
 
 The host's settings stay open until Start: the game type (Skirmish or
-Survival, in Difficulty's place), **Select Map** through the ordinary map
-selector, which returns to the lobby, the four standard skirmish options
+Survival, in Difficulty's place), **Rules** after them in the same row, a
+push button cloned from Select Map's art that steps Strict 3.1, Community
+3.9 and Modern (a room starts on the host's own gameplay mode; a mod's
+minimum gameplay leaves out lower stages, and a Modern-only mod greys it;
+switching to Strict 3.1 with more computers than it allows is refused),
+**Select Map** through the ordinary map selector, which returns to the lobby, the four standard skirmish options
 (Commander, Location, Mapping, Line of Sight) and, for Survival, the Survival
 setup screen's Wave Pace, Air Waves and Naval Waves. Each change replaces the
 room's base configuration, which every seat adopts as it arrives; the mod,
@@ -4585,8 +4659,8 @@ greyed, and a map it lacks is named on the status line ("The host chose
 _map_, which you don't have.") with Ready greyed.
 
 **Ready** composes the final configuration from the latest base and the
-present seats in seat order, with their teams and sides, then the base's
-computers, prepares this seat's
+present seats in seat order, with their teams, sides, colours and names,
+then the base's computers, prepares this seat's
 battle at its slot and runs the pre-start rehearsal of DESIGN_MULTIPLAYER
 §16.7 on a job goroutine, then sends the configuration-identity and rehearsal
 digests; **Not ready** withdraws them. While the check runs the status line
@@ -4600,7 +4674,20 @@ or Survival has more than three players, computers included.
 **Start** is the host's, enabled when everyone present is ready and the
 digests agree; a mismatch is stated in plain words ("Your games simulate
 differently. Every player needs the same version."). Hovering a control shows
-its help in the status line instead. **Leave** (or Escape) leaves the room. A
+its help in the status line instead, which has two rows clear of the right
+column.
+
+**Chat.** Below the map field, left of Ready, four rows show the latest
+lines as `<name> text`, each receiver composing the name from its own room
+state. Enter, or a click on the line, opens a text line along the bottom
+("Press Enter to chat." while closed); Enter sends it to every other present
+seat whose client carries chat, and Escape or a right click drops it, the
+right press doing nothing else. A ready seat may chat. The line holds what
+fits its field, about 53 characters. A refusal — the rate limit, a
+character outside printable ASCII, no one able to read it — shows in the
+chat rows. Lines still unread at Start reach the battle's chat, which maps
+the room's seats to the battle's slots at Start (§3.9). Because Enter opens
+chat, it no longer starts the game. **Leave** (or Escape) leaves the room. A
 relay failure — the host leaving, the 30-minute wait, a dropped connection —
 returns to the chooser with its reason.
 

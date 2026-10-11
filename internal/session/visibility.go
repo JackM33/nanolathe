@@ -417,9 +417,9 @@ func (s *Session) stepSensorPhaseFor(tick uint32, viewer int) {
 			PrimaryCandidateOf:    mask,
 		})
 	}
-	// No alliance row reaches the phase any more. Pass 1's allied disjunct
-	// fires only for an owner whose ShareRadar bit is set, which no session
-	// built today carries [R-VIS-01 §7], and pass 4 — the one pass that used
+	// Pass 1's allied disjunct fires only for an owner whose ShareRadar bit is
+	// set, which only an online seat command sets [R-VIS-01 §7]; the online
+	// pass below hands it the sharing owners. Pass 4 — the one pass that used
 	// to consult a row, to separate hostiles from friends in a live-unit scan —
 	// now reads the per-side primary candidate lists, where hostility was
 	// settled once at the registry rebuild against the alliance rows economy
@@ -434,10 +434,17 @@ func (s *Session) stepSensorPhaseFor(tick uint32, viewer int) {
 		// flag: the defeat predicate for session kinds 2 and 3 is the local
 		// live unit count reaching zero [08 R-SKIR-01 §3] "Defeat detection",
 		// which is this predicate once the row has created a unit.
-		defeated = p.IsObserver || s.ownerEliminated(viewer)
+		// A watching viewer — online, a host that took the watch branch
+		// (enterOnlineWatch) — marks every unit friendly as a defeated one
+		// does [03 R-VIS-01 §4] pass 1; single-player never sets the bit.
+		defeated = p.IsObserver || p.Watcher || s.ownerEliminated(viewer)
 	}
 	if s.onlineResults != nil {
-		s.Vis.SensorTickForPerspective(visibility.PlayerID(viewer), defeated, tick, active, sensorUnits)
+		// Pass 1's allied disjunct: the units of every owner that shares radar
+		// and has declared alliance toward this viewer are marked friendly
+		// [03 R-VIS-01 §4] [03 R-VIS-01 §7]; the owner's declaration is the
+		// one matrix's (§6.7 Q22). A hosted computer reads this pass.
+		s.Vis.SensorTickForPerspectiveSharing(visibility.PlayerID(viewer), defeated, tick, active, sensorUnits, s.Econ.RadarShareOwners(viewer))
 	} else {
 		s.Vis.SetViewerDefeated(defeated)
 		s.Vis.SensorTick(tick, active, sensorUnits)

@@ -27,7 +27,7 @@ import (
 // rehearsalDomain with it.
 
 // rehearsalDomain separates the rehearsal digest from every other digest.
-const rehearsalDomain = "nanolathe/rehearsal/v2"
+const rehearsalDomain = "nanolathe/rehearsal/v3"
 
 // The script's timing and geometry. Ticks are granted ticks at 30 Hz.
 const (
@@ -55,6 +55,30 @@ const (
 	// first wave has spawned, and at the latest this many ticks after the
 	// director's planned arrival (its first-wave delay plus its warning).
 	rehearsalWaveTicks = 300
+
+	// The sharing script (DESIGN_MULTIPLAYER §6.7, §7.1), the same for every
+	// human seat, each toward the next human seat in slot order. At
+	// rehearsalDeclareTick a seat turns every share option on and declares
+	// alliance toward the next seat; at rehearsalThresholdTick it sets both
+	// automatic-share thresholds; at rehearsalGiftTick it gives the next seat
+	// rehearsalGiftMetal and rehearsalGiftEnergy times its own position in
+	// the human order, plus one, every live unit but its lead, and its map
+	// information, so the stocks part and the automatic shares due at ticks
+	// 180 and 240 have a poorer ally to fill. At rehearsalBreakTick it breaks
+	// the declaration and then turns shared victory on; at rehearsalMendTick
+	// it turns shared victory off and declares again, so no due ever sees a
+	// mutual declaration beside two shared-victory bits, and the map share
+	// due at tick 450 has a declared ally. Teammates' declarations and their
+	// shared-victory changes are refused, which the receipts record.
+	rehearsalDeclareTick   = 120
+	rehearsalThresholdTick = 150
+	rehearsalGiftTick      = 170
+	rehearsalBreakTick     = 300
+	rehearsalMendTick      = 330
+	rehearsalMetalShare    = 50
+	rehearsalEnergyShare   = 100
+	rehearsalGiftMetal     = 25
+	rehearsalGiftEnergy    = 50
 )
 
 // RehearsalDigest runs the room's pre-start rehearsal: a short deterministic
@@ -101,7 +125,7 @@ func rehearse(inputs *content.SimulationInputs, config EffectiveMatchConfig, loc
 	if err := s.PrepareGrantedBattle(); err != nil {
 		return [32]byte{}, err
 	}
-	r := rehearsal{s: s, h: sha256.New()}
+	r := rehearsal{s: s, h: sha256.New(), sharing: true}
 	r.h.Write([]byte(rehearsalDomain))
 	r.findLeads(config)
 	tick := uint32(0)
@@ -163,6 +187,9 @@ type rehearsal struct {
 	leads    []pool.UnitRef
 	sites    []CommandPoint
 	sited    []bool
+	// sharing adds the sharing script. RehearsalDigest always runs it; a
+	// test driving a battle with the script alone may leave it off.
+	sharing bool
 }
 
 // findLeads lists the configuration's human rows and picks each one's lead
@@ -225,8 +252,10 @@ type rehearsalCommand struct {
 // identically. The script is the same for every seat: move toward the map's
 // centre, build the first structure on the lead's own build list at the
 // nearest known legal site, and fire at that site with an ordinary attack
-// order. A command the session refuses or cannot carry out is refused
-// identically on every replica.
+// order; and, with sharing on, the sharing script toward the next seat
+// (sharingCommands). A command the session refuses or cannot carry out is
+// refused identically on every replica, and a seat whose lead has died
+// issues nothing more.
 func (r *rehearsal) commands(tick uint32) []rehearsalCommand {
 	var out []rehearsalCommand
 	for i, seat := range r.seats {
@@ -260,12 +289,60 @@ func (r *rehearsal) commands(tick uint32) []rehearsalCommand {
 			c = SeatCommand{Kind: SeatOrder, Order: OrderPayload{Actors: []pool.UnitRef{ref}, Code: 3,
 				Position: CommandPosition{X: site.X, Y: site.Y, Z: site.Z}}}
 		default:
+			if r.sharing {
+				for _, c := range r.sharingCommands(tick, i) {
+					r.position++
+					out = append(out, rehearsalCommand{stamp: CommandStamp{Seat: seat, Tick: tick, Position: r.position}, command: c})
+				}
+			}
 			continue
 		}
 		r.position++
 		out = append(out, rehearsalCommand{stamp: CommandStamp{Seat: seat, Tick: tick, Position: r.position}, command: c})
 	}
 	return out
+}
+
+// sharingCommands is the sharing script's commands for the i-th human seat
+// at tick, in their stream order (the rehearsal constants). Each names the
+// next human seat in slot order; a room of one human seat has none.
+func (r *rehearsal) sharingCommands(tick uint32, i int) []SeatCommand {
+	if len(r.seats) < 2 {
+		return nil
+	}
+	next := r.seats[(i+1)%len(r.seats)]
+	declare := func(value bool) SeatCommand {
+		return SeatCommand{Kind: SeatDeclareAlliance, DeclareAlliance: DeclareAlliancePayload{Target: next, Value: value}}
+	}
+	victory := func(on bool) SeatCommand {
+		return SeatCommand{Kind: SeatSharedVictory, SharedVictory: SharedVictoryPayload{On: on}}
+	}
+	switch tick {
+	case rehearsalDeclareTick:
+		return []SeatCommand{
+			{Kind: SeatShareAll, ShareAll: ShareAllPayload{Metal: true, Energy: true, Mapping: true, Radar: true}},
+			declare(true),
+		}
+	case rehearsalThresholdTick:
+		return []SeatCommand{
+			{Kind: SeatSetShareMetal, SetShareMetal: SetShareMetalPayload{Amount: rehearsalMetalShare}},
+			{Kind: SeatSetShareEnergy, SetShareEnergy: SetShareEnergyPayload{Amount: rehearsalEnergyShare}},
+		}
+	case rehearsalGiftTick:
+		gift := ShareGiftPayload{Target: next, Metal: rehearsalGiftMetal * int32(i+1), Energy: rehearsalGiftEnergy * int32(i+1), MapInfo: true}
+		lead := r.leads[i]
+		r.s.Units.ForEachPlayerSliceLive(int(r.seats[i]), func(u *units.Unit) {
+			if u.Handle != lead.Handle {
+				gift.Actors = append(gift.Actors, pool.UnitRef{Handle: u.Handle, Serial: u.AllocationSerial})
+			}
+		})
+		return []SeatCommand{{Kind: SeatShareGift, ShareGift: gift}}
+	case rehearsalBreakTick:
+		return []SeatCommand{declare(false), victory(true)}
+	case rehearsalMendTick:
+		return []SeatCommand{victory(false), declare(true)}
+	}
+	return nil
 }
 
 // moveTarget is the lead's position moved rehearsalMoveDistance toward the
@@ -333,6 +410,38 @@ func (r *rehearsal) site(i int, u *units.Unit, def *content.UnitDef) (CommandPoi
 	return CommandPoint{}, false
 }
 
+// sharingDigest folds the sharing state the partial fingerprint omits: for
+// each player slot 0..9 one byte — bit 0 its share-radar option, bit 1 its
+// watch-mode bit, bit 2 its shared-victory bit — then every word of the
+// explored-history grid, u16 little-endian, in index order.
+func (r *rehearsal) sharingDigest() {
+	var flags [10]byte
+	for i := range flags {
+		if r.s.Econ != nil {
+			p := &r.s.Econ.Players[i]
+			if p.ShareRadar {
+				flags[i] |= 1
+			}
+			if p.Watcher {
+				flags[i] |= 2
+			}
+		}
+		if r.s.onlineResults != nil && r.s.onlineResults.sharedVictory[i] {
+			flags[i] |= 4
+		}
+	}
+	r.h.Write(flags[:])
+	if r.s.Vis == nil {
+		return
+	}
+	words := r.s.Vis.WordMask()
+	out := make([]byte, 2*len(words))
+	for i, w := range words {
+		binary.LittleEndian.PutUint16(out[2*i:], w)
+	}
+	r.h.Write(out)
+}
+
 func abs32(v int32) int32 {
 	if v < 0 {
 		return -v
@@ -365,10 +474,11 @@ func (r *rehearsal) recordTick() {
 	r.h.Write(b[:])
 }
 
-// finish closes the digest with the number of ticks run, u32 little-endian,
-// and the text of the final state's partial fingerprint, which adds what the
-// unit checksum omits: the units' scripts, pieces, orders and weapon slots,
-// the economy, pending paths and routes, and the features.
+// finish closes the digest with the number of ticks run, u32 little-endian;
+// the text of the final state's partial fingerprint, which adds what the unit
+// checksum omits: the units' scripts, pieces, orders and weapon slots, the
+// economy, pending paths and routes, and the features; then the sharing
+// state the fingerprint omits (sharingDigest).
 func (r *rehearsal) finish(ticks uint32) ([32]byte, error) {
 	fingerprint, err := r.s.PartialStateFingerprint()
 	if err != nil {
@@ -378,6 +488,7 @@ func (r *rehearsal) finish(ticks uint32) ([32]byte, error) {
 	binary.LittleEndian.PutUint32(b[:], ticks)
 	r.h.Write(b[:])
 	r.h.Write([]byte(fingerprint))
+	r.sharingDigest()
 	var out [32]byte
 	r.h.Sum(out[:0])
 	return out, nil

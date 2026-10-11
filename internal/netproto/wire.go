@@ -22,11 +22,15 @@ import (
 )
 
 // CommandSchemaVersion is the command schema version this build speaks. It is
-// negotiated outside every payload (§7.4.1): no payload carries it.
-const CommandSchemaVersion uint16 = 1
+// negotiated outside every payload (§7.4.1): no payload carries it, and a
+// seat reports it as its Identity's Protocol. Version 2 adds the sharing and
+// alliance payloads; every version-1 payload keeps its bytes and meaning
+// under it. Both versions are written in this package's version-1
+// primitives.
+const CommandSchemaVersion uint16 = 2
 
-// Protocol limits of version 1 (§7.4.1). They are Nanolathe protocol limits,
-// not retail constants.
+// Protocol limits of the version-1 primitives (§7.4.1), unchanged by command
+// schema version 2. They are Nanolathe protocol limits, not retail constants.
 const (
 	// MaxCommandBytes is the largest command payload, checked before parsing.
 	MaxCommandBytes = 4 << 20

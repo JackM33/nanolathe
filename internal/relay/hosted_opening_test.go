@@ -35,7 +35,7 @@ func openingLobbyPair(t *testing.T, timeouts hostedTimeouts, websocket bool, ver
 		if seat == 0 {
 			config, size = []byte("opening"), 2
 		}
-		l, err := openHostedLobby(ctx, versions[seat], address, code, localTestHello(uint8(seat)), config, size, HostedDialOptions{InsecureLoopback: true})
+		l, err := openHostedLobby(ctx, versions[seat], address, code, versionTestHello(versions[seat], uint8(seat)), config, size, HostedDialOptions{InsecureLoopback: true})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -89,8 +89,7 @@ func awaitOpeningGrant(t *testing.T, result <-chan openingGrantResult) LocalGran
 	}
 }
 
-// Started publishes the opening, then every version-7 seat must explicitly
-// finish it. The execution-progress deadline starts only at release, while
+// Started publishes the opening, then every seat must explicitly finish it. The execution-progress deadline starts only at release, while
 // regular tick-zero progress traffic keeps both readers responsive
 // (DESIGN_MULTIPLAYER §16.5.2, §16.6.1).
 func TestHostedOpeningBarrierRetainsCommandsAndProgress(t *testing.T) {
@@ -98,7 +97,7 @@ func TestHostedOpeningBarrierRetainsCommandsAndProgress(t *testing.T) {
 		t.Run(fmt.Sprint(websocket), func(t *testing.T) {
 			timeouts := hostedDefaultTimeouts
 			timeouts.progress, timeouts.report, timeouts.opening = 100*time.Millisecond, 20*time.Millisecond, 2*time.Second
-			s, lobbies := openingLobbyPair(t, timeouts, websocket, [2]uint16{7, 7})
+			s, lobbies := openingLobbyPair(t, timeouts, websocket, [2]uint16{8, 8})
 			host := lobbies[0].client
 			before := host.Traffic().MessagesOut
 			if err := host.OpeningReady(); err == nil || !strings.Contains(err.Error(), "after Started") {
@@ -195,7 +194,7 @@ func TestHostedOpeningRefusesEarlyMalformedAndDisconnectedSeats(t *testing.T) {
 		t.Run(failure, func(t *testing.T) {
 			timeouts := hostedDefaultTimeouts
 			timeouts.opening, timeouts.report = 120*time.Millisecond, 20*time.Millisecond
-			s, lobbies := openingLobbyPair(t, timeouts, false, [2]uint16{7, 7})
+			s, lobbies := openingLobbyPair(t, timeouts, false, [2]uint16{8, 8})
 			if failure == "early" {
 				if err := lobbies[1].send([]byte{hostedOpeningReadyMessage}); err != nil {
 					t.Fatal(err)
@@ -236,27 +235,31 @@ func TestHostedOpeningRefusesEarlyMalformedAndDisconnectedSeats(t *testing.T) {
 	}
 }
 
-// Earlier protocols have no opening marker and are implicitly ready, including
-// in a room with a version-7 seat (DESIGN_MULTIPLAYER §12.2).
-func TestHostedOpeningLegacySeatsRemainImplicitlyReady(t *testing.T) {
-	for _, versions := range [][2]uint16{{5, 5}, {6, 6}, {5, 6}, {5, 7}, {6, 7}} {
+// Both served versions finish the opening explicitly, in one room: the first
+// grant waits for the last marker, whichever version sends it
+// (DESIGN_MULTIPLAYER §12.2, §16.6.1).
+func TestHostedOpeningEveryServedVersionMarks(t *testing.T) {
+	for _, versions := range [][2]uint16{{7, 8}, {8, 7}} {
 		t.Run(fmt.Sprint(versions), func(t *testing.T) {
 			_, lobbies := openingLobbyPair(t, hostedDefaultTimeouts, false, versions)
 			clients := startOpeningPair(t, lobbies)
-			for i, c := range clients {
-				if versions[i] == 7 {
-					if err := c.OpeningReady(); err != nil {
-						t.Fatal(err)
-					}
-				} else {
-					before := c.Traffic().MessagesOut
-					if err := c.OpeningReady(); err != nil || c.Traffic().MessagesOut != before {
-						t.Fatalf("legacy marker: %v", err)
-					}
-				}
+			if err := clients[0].OpeningReady(); err != nil {
+				t.Fatal(err)
 			}
-			if g := readLocalPair(t, clients); g.Tick != 1 {
-				t.Fatalf("legacy first grant: %+v", g)
+			first := readOpeningGrant(clients[0])
+			select {
+			case r := <-first:
+				t.Fatalf("one marker released the opening: %+v %v", r.grant, r.err)
+			case <-time.After(150 * time.Millisecond):
+			}
+			if err := clients[1].OpeningReady(); err != nil {
+				t.Fatal(err)
+			}
+			if g := awaitOpeningGrant(t, first); g.Tick != 1 {
+				t.Fatalf("first grant: %+v", g)
+			}
+			if g, err := clients[1].ReadGrant(); err != nil || g.Tick != 1 {
+				t.Fatalf("first grant: %+v %v", g, err)
 			}
 		})
 	}

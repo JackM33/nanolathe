@@ -141,7 +141,13 @@ Nanolathe Modern policy through the existing `SeatRules` seam: under Modern
 and Community a hosted computer keeps playing, with normal sight, after its
 host human is defeated, while Strict 3.1 keeps retail's one countdown per
 machine (Q30); and local replays, recorded for every skirmish and Survival
-battle and played back from a Replays screen (§10).
+battle and played back from a Replays screen (§10). On 2026-10-10 the
+maintainer approved online rooms under Strict 3.1 and Community 3.9 as well
+as Modern, chosen by the host (Q31); display names and chat in the lobby and
+in battle (Q32); and retail's in-battle sharing and alliances online —
+share toggles and thresholds, SHARE-screen gifts of resources, units and
+map information, Allies-window declarations and shared victory — as seat
+commands in every mode (Q33).
 
 **Unit restrictions are the fifth mode-independent exception (user-authorized
 2026-10-05).** A restriction is retail's multiplayer unit-restriction count,

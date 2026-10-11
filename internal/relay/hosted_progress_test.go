@@ -11,10 +11,10 @@ import (
 	"github.com/nanolathe-gg/nanolathe/internal/netproto"
 )
 
-// A room of version-5 and version-6 seats plays as one; only the version-6
-// seats receive the relay's progress reports, which follow the agreed tick
-// and show a defeated seat that left as no longer playing (§12.2, §16.5.2).
-func TestHostedProgressReachesOnlyVersion6Seats(t *testing.T) {
+// A room of version-7 and version-8 seats plays as one; every seat receives
+// the relay's progress reports, which follow the agreed tick and show a
+// defeated seat that left as no longer playing (§12.2, §16.5.2).
+func TestHostedProgressReachesEveryServedVersion(t *testing.T) {
 	timeouts := hostedDefaultTimeouts
 	timeouts.ping, timeouts.report = 20*time.Millisecond, 50*time.Millisecond
 	s := listenWebSocketTest(t, HostedConfig{InsecureLoopback: true}, false, timeouts)
@@ -22,21 +22,25 @@ func TestHostedProgressReachesOnlyVersion6Seats(t *testing.T) {
 	options := HostedDialOptions{InsecureLoopback: true}
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
-	host, err := openHostedLobby(ctx, 6, address, "", localTestHello(0), []byte{1}, 3, options)
+	host, err := openHostedLobby(ctx, hostedVersion, address, "", versionTestHello(hostedVersion, 0), []byte{1}, 3, options)
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = host.Close() })
-	// A version-5 seat is welcomed in version 5, and describes in it.
-	if d, err := describeVersion(ctx, address, host.Code(), 5); err != nil || d != hostedDescriptionMessage {
-		t.Fatalf("version-5 description: %d %v", d, err)
+	// A version-7 seat is welcomed in version 7, and describes in it; a
+	// retired version is refused.
+	if d, err := describeVersion(ctx, address, host.Code(), 7); err != nil || d != hostedDescriptionMessage {
+		t.Fatalf("version-7 description: %d %v", d, err)
 	}
-	old, err := openHostedLobby(ctx, hostedMinVersion, address, host.Code(), localTestHello(1), nil, 0, options)
+	if d, err := describeVersion(ctx, address, host.Code(), 6); err != nil || d != localRefusedMessage {
+		t.Fatalf("version-6 description: %d %v", d, err)
+	}
+	old, err := openHostedLobby(ctx, hostedMinVersion, address, host.Code(), versionTestHello(hostedMinVersion, 1), nil, 0, options)
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = old.Close() })
-	leaver, err := openHostedLobby(ctx, 6, address, host.Code(), localTestHello(1), nil, 0, options)
+	leaver, err := openHostedLobby(ctx, hostedVersion, address, host.Code(), versionTestHello(hostedVersion, 1), nil, 0, options)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -103,11 +107,11 @@ func TestHostedProgressReachesOnlyVersion6Seats(t *testing.T) {
 	if !ok || !p.Seats[0].Playing || !p.Seats[1].Playing || p.Seats[2].Playing || !p.Seats[2].Final || p.Seats[2].Acked < 5 || p.Seats[0].Final {
 		t.Fatalf("latest report after slot 2 left: %+v %v", p, ok)
 	}
-	if p, ok := battles[1].Progress(); ok {
-		t.Fatalf("the version-5 seat received a report: %+v", p)
+	if p, ok := battles[1].Progress(); !ok || len(p.Seats) != 3 {
+		t.Fatalf("the version-7 seat's report: %+v %v", p, ok)
 	}
 	if _, ok := battles[2].Progress(); !ok {
-		t.Fatal("the version-6 seat that left had received no report")
+		t.Fatal("the seat that left had received no report")
 	}
 	// The relay's messages and the seat's own, the lobby's included.
 	for i, c := range battles[:2] {
@@ -148,7 +152,7 @@ func describeVersion(ctx context.Context, address, room string, version uint16) 
 func TestHostedTrafficCountsBothDirections(t *testing.T) {
 	s := listenHostedTest(t, HostedConfig{InsecureLoopback: true}, hostedDefaultTimeouts)
 	c, code := dialHostedTest(t, s, "", 0)
-	hello, err := encodeHostedHello("", hostedAutoStart, 2, localTestHello(0), nil)
+	hello, err := encodeHostedHello("", hostedAutoStart, 2, localTestHello(0), nil, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -178,12 +182,12 @@ func TestHostedClientRefusesAnotherWelcomeVersion(t *testing.T) {
 		}
 		_ = writeLocalFrame(server, encodeHostedWelcome("CFHJKM", 0, hostedMinVersion))
 	}()
-	hello, err := encodeHostedHello("", hostedAutoStart, 2, localTestHello(0), nil)
+	hello, err := encodeHostedHello("", hostedAutoStart, 2, localTestHello(0), nil, "")
 	if err != nil {
 		t.Fatal(err)
 	}
 	var traffic trafficCounter
-	if _, _, err := exchangeHostedHello(client, &traffic, hostedVersion, hello, "", 0); err == nil || !strings.Contains(err.Error(), "version 7; this relay answered version 5") {
+	if _, _, err := exchangeHostedHello(client, &traffic, hostedVersion, hello, "", 0); err == nil || !strings.Contains(err.Error(), "version 8; this relay answered version 7") {
 		t.Fatalf("welcome in another version: %v", err)
 	}
 }

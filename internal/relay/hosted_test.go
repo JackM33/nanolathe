@@ -10,6 +10,7 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"errors"
+	"fmt"
 	"io"
 	"math/big"
 	"net"
@@ -43,6 +44,14 @@ func dialHostedTest(t *testing.T, s *HostedServer, room string, seat uint8) (*Lo
 	c.idle = 0
 	_ = c.conn.SetReadDeadline(time.Now().Add(5 * time.Second))
 	return c, code
+}
+
+// versionTestHello is a seat's hello in a served hosted version: a version-7
+// hello names command schema 1.
+func versionTestHello(version uint16, seat uint8) LocalHello {
+	h := localTestHello(seat)
+	h.Identity.Protocol = hostedCommandSchema(version)
+	return h
 }
 
 func hostedTestPair(t *testing.T, s *HostedServer) ([2]*LocalClient, string) {
@@ -620,11 +629,11 @@ func TestHostedSlowReaderDoesNotBlockOtherRoom(t *testing.T) {
 }
 
 func TestHostedVersionAndHelloFraming(t *testing.T) {
-	body, err := encodeHostedHello("", hostedAutoStart, 4, localTestHello(0), []byte("configuration"))
+	body, err := encodeHostedHello("", hostedAutoStart, 4, localTestHello(0), []byte("configuration"), "Ann")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if h, err := decodeHostedHello(body); err != nil || h.version != hostedVersion || h.code != "" || h.flags != hostedAutoStart || h.size != 4 || string(h.config) != "configuration" {
+	if h, err := decodeHostedHello(body); err != nil || h.version != hostedVersion || h.code != "" || h.flags != hostedAutoStart || h.size != 4 || string(h.config) != "configuration" || h.name != "Ann" {
 		t.Fatalf("creator hello round trip: %+v %v", h, err)
 	}
 	for _, mutate := range []func([]byte) []byte{
@@ -637,35 +646,85 @@ func TestHostedVersionAndHelloFraming(t *testing.T) {
 			t.Fatal("accepted malformed versioned hello")
 		}
 	}
-	// A version-1 client is told the served versions and its own; a
-	// version-5 hello is still served, in its own version (§12.2).
-	old := bytes.Clone(body)
-	old[1] = 1
-	if _, err := decodeHostedHello(old); err == nil || !strings.Contains(err.Error(), "version 5, 6 or 7; this client sent version 1") {
-		t.Fatalf("version mismatch: %v", err)
+	// Another version is told the served versions and its own (§12.2).
+	for _, version := range []byte{1, 5, 6, 9} {
+		other := bytes.Clone(body)
+		other[1] = version
+		if _, err := decodeHostedHello(other); err == nil || !strings.Contains(err.Error(), fmt.Sprintf("version 7 or 8; this client sent version %d", version)) {
+			t.Fatalf("version %d: %v", version, err)
+		}
 	}
-	old[1] = 5
-	if h, err := decodeHostedHello(old); err != nil || h.version != 5 {
-		t.Fatalf("version-5 hello: %+v %v", h, err)
+	// A version-7 hello has no name and names command schema 1; a version-8
+	// hello names this build's schema.
+	old, err := encodeHostedHelloVersion(7, "", 0, 2, versionTestHello(7, 0), []byte{1}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if h, err := decodeHostedHello(old); err != nil || h.version != 7 || h.name != "" {
+		t.Fatalf("version-7 hello: %+v %v", h, err)
+	}
+	if _, err := encodeHostedHelloVersion(7, "", 0, 2, versionTestHello(7, 0), []byte{1}, "Ann"); err == nil {
+		t.Fatal("a version-7 hello carried a name")
+	}
+	for _, c := range []struct{ version, named uint16 }{
+		{7, hostedV7CommandSchema + 1}, {8, netproto.CommandSchemaVersion + 1}, {8, hostedV7CommandSchema},
+	} {
+		version, schema := c.version, hostedCommandSchema(c.version)
+		if c.named == schema {
+			continue // version 8's schema is still version 7's until it changes
+		}
+		h := versionTestHello(version, 0)
+		h.Identity.Protocol = c.named
+		raw, err := encodeLocalHello(h, c.named)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var w netproto.Writer
+		w.U8(hostedHelloMessage)
+		w.U16(version)
+		w.Text("")
+		w.U8(0)
+		w.U8(2)
+		w.U32(uint32(len(raw)))
+		w.Raw(raw)
+		w.U32(1)
+		w.U8(1)
+		if version >= hostedChatVersion {
+			w.Text("")
+		}
+		if _, err := decodeHostedHello(w.Bytes()); err == nil || !strings.Contains(err.Error(), fmt.Sprintf("command schema version %d", schema)) {
+			t.Fatalf("version %d with command schema %d: %v", version, c.named, err)
+		}
+	}
+	// A name is refused with its reason, whoever encoded it.
+	for _, name := range []string{"<Ann>", " Ann", "Ann ", "An\x00n", "An\x7fn", "Ann\n", "\xc3\xa9", "seventeen bytes!!"} {
+		if _, err := encodeHostedHello("", 0, 2, localTestHello(0), []byte{1}, name); err == nil {
+			t.Fatalf("encoded name %q", name)
+		}
+		raw := append(bytes.Clone(body[:len(body)-4]), byte(len(name)))
+		raw = append(raw, name...)
+		if _, err := decodeHostedHello(raw); err == nil || !strings.Contains(err.Error(), "name") && !strings.Contains(err.Error(), "UTF-8") && !strings.Contains(err.Error(), "text of at most") {
+			t.Fatalf("decoded name %q: %v", name, err)
+		}
 	}
 	for _, code := range []string{"SHORT", "AAAAAAA", "AAAAA0", "aaaaaa", "AAA AA"} {
-		if _, err := encodeHostedHello(code, 0, 0, localTestHello(1), nil); err == nil {
+		if _, err := encodeHostedHello(code, 0, 0, localTestHello(1), nil, ""); err == nil {
 			t.Fatalf("accepted invalid invitation %q", code)
 		}
 	}
 	// A joiner carries no creator flags, size or configuration; a creator
 	// names a size of 2 to 10 seats.
-	if _, err := encodeHostedHello("CFHJKM", hostedAutoStart, 0, localTestHello(1), nil); err == nil {
+	if _, err := encodeHostedHello("CFHJKM", hostedAutoStart, 0, localTestHello(1), nil, ""); err == nil {
 		t.Fatal("joiner sent creator flags")
 	}
-	if _, err := encodeHostedHello("CFHJKM", 0, 2, localTestHello(1), nil); err == nil {
+	if _, err := encodeHostedHello("CFHJKM", 0, 2, localTestHello(1), nil, ""); err == nil {
 		t.Fatal("joiner sent a room size")
 	}
-	if _, err := encodeHostedHello("CFHJKM", 0, 0, localTestHello(1), []byte{1}); err == nil {
+	if _, err := encodeHostedHello("CFHJKM", 0, 0, localTestHello(1), []byte{1}, ""); err == nil {
 		t.Fatal("joiner sent a configuration")
 	}
 	for _, size := range []int{0, 1, 11} {
-		if _, err := encodeHostedHello("", 0, size, localTestHello(0), []byte{1}); err == nil {
+		if _, err := encodeHostedHello("", 0, size, localTestHello(0), []byte{1}, ""); err == nil {
 			t.Fatalf("created a room of %d seats", size)
 		}
 	}

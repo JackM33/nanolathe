@@ -22,6 +22,11 @@ import (
 // Draw order is the window's gadget order, which puts each plate behind the
 // controls authored over it, exactly as the merge leaves the array.
 func (h *retailBattleHUD) drawBattleOptionsWindow(c *client.Client, b *battleSession) {
+	// The networked session's windows are battle children painted in this
+	// same late layer. The Tab strip may stay open beneath the options root
+	// or another window its buttons opened; drawSharingWindows paints the
+	// strip first (battle_tabmenu.go).
+	h.drawSharingWindows(c, b)
 	if h == nil || c == nil || !b.battlePrefsActive() {
 		return
 	}

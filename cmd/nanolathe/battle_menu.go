@@ -117,6 +117,12 @@ func (b *battleSession) handleBattleMenuInput(in *input.State, cl *client.Client
 		b.handleBattleOptionsInput(cl)
 		return
 	}
+	// The networked session's windows own the pass while one is up
+	// (battle_tabmenu.go).
+	if b != nil && b.battleState() != nil && ui.SharingModal(b.battleState().Modal()) {
+		b.handleSharingInput(in, cl)
+		return
+	}
 	if b != nil && b.battleState() != nil && b.battleState().Modal() == ui.BattleModalRestart {
 		b.handleBattleRestartInput(in, cl)
 		return

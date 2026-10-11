@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -43,28 +44,54 @@ func cat(parts ...any) []byte {
 	return out
 }
 
+// seatWireCase is one command in one context. since is the first command
+// schema version with its payload; zero means version 1.
 type seatWireCase struct {
 	name    string
 	context CommandContext
 	command SeatCommand
 	wire    []byte
+	since   uint16
 }
 
-// seatWireLayouts is every kind with a version-1 payload, in every context
-// that admits it, with its bytes written out by hand from the §7.4.2 table:
-// the field order, widths and signedness are locked here, independently of
-// the encoder.
+// first is the case's first command schema version.
+func (c seatWireCase) first() uint16 { return max(c.since, seatSchemaV1) }
+
+// seatSchemaVersions is every command schema version this build speaks.
+func seatSchemaVersions() []uint16 {
+	var out []uint16
+	for v := seatSchemaV1; v <= netproto.CommandSchemaVersion; v++ {
+		out = append(out, v)
+	}
+	return out
+}
+
+// seatSharingKinds are the kinds whose payloads command schema version 2
+// adds.
+var seatSharingKinds = []SeatCommandKind{SeatShareMetal, SeatShareEnergy, SeatShareMapping, SeatShareRadar, SeatShareAll,
+	SeatSetShareMetal, SeatSetShareEnergy, SeatShareGift, SeatDeclareAlliance, SeatSharedVictory}
+
+// seatWireLayouts is every kind with a payload, in every context and from
+// the first schema version that admits it, with its bytes written out by
+// hand from the §7.4.2 table: the field order, widths and signedness are
+// locked here, independently of the encoder. The version-1 cases are the
+// version-1 golden encodings, unchanged under version 2.
 func seatWireLayouts() []seatWireCase {
 	ref := func(h pool.Handle, s uint64) pool.UnitRef { return pool.UnitRef{Handle: h, Serial: s} }
 	var cases []seatWireCase
 	both := func(name string, c SeatCommand, wire []byte) {
-		cases = append(cases, seatWireCase{name + " online", OnlineCommand, c, wire}, seatWireCase{name + " replay", SinglePlayerReplay, c, wire})
+		cases = append(cases, seatWireCase{name: name + " online", context: OnlineCommand, command: c, wire: wire},
+			seatWireCase{name: name + " replay", context: SinglePlayerReplay, command: c, wire: wire})
 	}
 	replay := func(name string, c SeatCommand, wire []byte) {
-		cases = append(cases, seatWireCase{name, SinglePlayerReplay, c, wire})
+		cases = append(cases, seatWireCase{name: name, context: SinglePlayerReplay, command: c, wire: wire})
 	}
 	online := func(name string, c SeatCommand, wire []byte) {
-		cases = append(cases, seatWireCase{name, OnlineCommand, c, wire})
+		cases = append(cases, seatWireCase{name: name, context: OnlineCommand, command: c, wire: wire})
+	}
+	// The sharing and alliance kinds are online-only from version 2.
+	sharing := func(name string, c SeatCommand, wire []byte) {
+		cases = append(cases, seatWireCase{name: name, context: OnlineCommand, command: c, wire: wire, since: seatSchemaV2})
 	}
 	both("ordinary order", SeatCommand{Kind: SeatOrder, Order: OrderPayload{
 		Actors: []pool.UnitRef{ref(2, 9), ref(5, 1)}, Code: 2, Target: ref(7, 300),
@@ -125,6 +152,22 @@ func seatWireLayouts() []seatWireCase {
 		cat(34, 2, 3, 20, 0, 19))
 	replay("developer spawn", SeatCommand{Kind: SeatDeveloperSpawn, DeveloperSpawn: DeveloperSpawnPayload{Pattern: "arm*", Owner: 255, Position: CommandPoint{X: 1, Z: -1}}}, cat(46, 4, "arm*", 255, 2, 0, 1))
 	replay("gameplay", SeatCommand{Kind: SeatGameplay, Gameplay: GameplayPayload{Mode: gameplay.Strict31}}, cat(255, 10, "strict-3.1"))
+
+	sharing("share metal", SeatCommand{Kind: SeatShareMetal, ShareMetal: ShareMetalPayload{On: true}}, cat(35, 1))
+	sharing("share energy off", SeatCommand{Kind: SeatShareEnergy}, cat(36, 0))
+	sharing("share mapping", SeatCommand{Kind: SeatShareMapping, ShareMapping: ShareMappingPayload{On: true}}, cat(37, 1))
+	sharing("share radar", SeatCommand{Kind: SeatShareRadar, ShareRadar: ShareRadarPayload{On: true}}, cat(38, 1))
+	sharing("share all", SeatCommand{Kind: SeatShareAll, ShareAll: ShareAllPayload{Metal: true, Mapping: true}}, cat(39, 1, 0, 1, 0))
+	sharing("share all other half", SeatCommand{Kind: SeatShareAll, ShareAll: ShareAllPayload{Energy: true, Radar: true}}, cat(39, 0, 1, 0, 1))
+	sharing("set share metal", SeatCommand{Kind: SeatSetShareMetal, SetShareMetal: SetShareMetalPayload{Amount: 300}}, cat(40, 0xd8, 0x04))
+	sharing("set share energy", SeatCommand{Kind: SeatSetShareEnergy, SetShareEnergy: SetShareEnergyPayload{Amount: -1}}, cat(41, 1))
+	sharing("share gift", SeatCommand{Kind: SeatShareGift, ShareGift: ShareGiftPayload{Target: 3, Metal: 250, Energy: -2,
+		Actors: []pool.UnitRef{ref(5, 1), ref(2, 9)}, MapInfo: true}},
+		cat(42, 3, 0xf4, 0x03, 3, 2, 5, 1, 2, 9, 1))
+	sharing("empty share gift", SeatCommand{Kind: SeatShareGift}, cat(42, 0, 0, 0, 0, 0))
+	sharing("declare alliance", SeatCommand{Kind: SeatDeclareAlliance, DeclareAlliance: DeclareAlliancePayload{Target: 9, Value: true}}, cat(43, 9, 1))
+	sharing("break alliance", SeatCommand{Kind: SeatDeclareAlliance, DeclareAlliance: DeclareAlliancePayload{Target: 2}}, cat(43, 2, 0))
+	sharing("shared victory", SeatCommand{Kind: SeatSharedVictory, SharedVictory: SharedVictoryPayload{On: true}}, cat(44, 1))
 	return cases
 }
 
@@ -166,6 +209,16 @@ func seatWireExtremes() []seatWireCase {
 	add("replay infinity", SeatCommand{Kind: SeatSetResource, SetResource: SetResourcePayload{Amount: float32(math.Inf(-1))}})
 	add("replay fraction", SeatCommand{Kind: SeatGive, Give: GivePayload{Amount: 0.1}})
 	add("replay community gameplay", SeatCommand{Kind: SeatGameplay, Gameplay: GameplayPayload{Mode: gameplay.Community39}})
+	sharing := func(name string, c SeatCommand) {
+		out = append(out, seatWireCase{name: name, context: OnlineCommand, command: c, since: seatSchemaV2})
+	}
+	sharing("widest gift", SeatCommand{Kind: SeatShareGift, ShareGift: ShareGiftPayload{Target: 9, Metal: math.MinInt32, Energy: math.MaxInt32,
+		Actors: []pool.UnitRef{maxRef, {Handle: 1, Serial: 1}}, MapInfo: true}})
+	sharing("lowest gift", SeatCommand{Kind: SeatShareGift, ShareGift: ShareGiftPayload{Metal: math.MaxInt32, Energy: math.MinInt32}})
+	sharing("lowest metal threshold", SeatCommand{Kind: SeatSetShareMetal, SetShareMetal: SetShareMetalPayload{Amount: math.MinInt32}})
+	sharing("highest energy threshold", SeatCommand{Kind: SeatSetShareEnergy, SetShareEnergy: SetShareEnergyPayload{Amount: math.MaxInt32}})
+	sharing("every option on", SeatCommand{Kind: SeatShareAll, ShareAll: ShareAllPayload{Metal: true, Energy: true, Mapping: true, Radar: true}})
+	sharing("every option off", SeatCommand{Kind: SeatShareAll})
 	return out
 }
 
@@ -180,46 +233,125 @@ func sameSeatCommand(a, b SeatCommand) bool {
 }
 
 // checkSeatDecode is the codec's one property: a payload is refused with no
-// value, or decodes to a value whose encoding in the same context is that
-// payload exactly. A decoder never accepts one value and hands back another.
-func checkSeatDecode(t testing.TB, context CommandContext, payload []byte) bool {
+// value, or decodes to a value whose encoding in the same schema version and
+// context is that payload exactly. A decoder never accepts one value and
+// hands back another.
+func checkSeatDecode(t testing.TB, version uint16, context CommandContext, payload []byte) bool {
 	t.Helper()
-	c, err := DecodeSeatCommand(context, payload)
+	_, ok := decodeSeatChecked(t, version, context, payload)
+	return ok
+}
+
+func decodeSeatChecked(t testing.TB, version uint16, context CommandContext, payload []byte) (SeatCommand, bool) {
+	t.Helper()
+	c, err := DecodeSeatCommandVersion(version, context, payload)
 	if err != nil {
 		if !reflect.DeepEqual(c, SeatCommand{}) {
 			t.Fatalf("a refused payload %x returned a value: %v", payload, err)
 		}
-		return false
+		return SeatCommand{}, false
 	}
-	again, err := EncodeSeatCommand(context, c)
+	again, err := EncodeSeatCommandVersion(version, context, c)
 	if err != nil || !bytes.Equal(again, payload) {
-		t.Fatalf("an accepted payload re-encodes differently in context %d:\n got %x, %v\nwant %x", context, again, err, payload)
+		t.Fatalf("an accepted payload re-encodes differently in version %d context %d:\n got %x, %v\nwant %x", version, context, again, err, payload)
 	}
-	return true
+	return c, true
+}
+
+// checkSeatDecodeEverywhere holds checkSeatDecode in every schema version and
+// context, and the version property of §7.4.1: version 2 accepts exactly
+// version 1's payloads, to the same values, plus the sharing and alliance
+// kinds online. It reports whether any decode accepted the payload.
+func checkSeatDecodeEverywhere(t testing.TB, payload []byte) bool {
+	t.Helper()
+	accepted := false
+	for _, context := range []CommandContext{OnlineCommand, SinglePlayerReplay} {
+		v1, ok1 := decodeSeatChecked(t, seatSchemaV1, context, payload)
+		v2, ok2 := decodeSeatChecked(t, seatSchemaV2, context, payload)
+		sharing := ok2 && slices.Contains(seatSharingKinds, v2.Kind)
+		if ok1 != (ok2 && !sharing) || ok1 && !sameSeatCommand(v1, v2) {
+			t.Fatalf("payload %x in context %d: version 1 accepted %v (%+v), version 2 accepted %v (%+v)", payload, context, ok1, v1, ok2, v2)
+		}
+		if sharing && context != OnlineCommand {
+			t.Fatalf("payload %x: a sharing kind decoded in context %d", payload, context)
+		}
+		accepted = accepted || ok2
+	}
+	return accepted
 }
 
 // Every kind's wire layout is the §7.4.2 table, field by field, and decodes
-// back to the same value (§7.4.4).
+// back to the same value (§7.4.4). A version-1 layout is the same bytes in
+// every version; a version-2 layout has no form in version 1.
 func TestSeatCommandWireLayouts(t *testing.T) {
-	kinds := map[SeatCommandKind]bool{}
+	type key struct {
+		version uint16
+		context CommandContext
+		kind    SeatCommandKind
+	}
+	laid := map[key]bool{}
+	for _, c := range seatWireLayouts() {
+		for _, v := range seatSchemaVersions() {
+			got, err := EncodeSeatCommandVersion(v, c.context, c.command)
+			back, derr := DecodeSeatCommandVersion(v, c.context, c.wire)
+			if v < c.first() {
+				if err == nil || derr == nil {
+					t.Fatalf("%s: version %d encoded (%v) or decoded (%v) a version-%d kind", c.name, v, err, derr, c.first())
+				}
+				continue
+			}
+			if err != nil {
+				t.Fatalf("%s, version %d: %v", c.name, v, err)
+			}
+			if !bytes.Equal(got, c.wire) {
+				t.Fatalf("%s, version %d:\n got %x\nwant %x", c.name, v, got, c.wire)
+			}
+			if derr != nil || !sameSeatCommand(back, c.command) {
+				t.Fatalf("%s, version %d: decoded %+v, %v", c.name, v, back, derr)
+			}
+			laid[key{v, c.context, c.command.Kind}] = true
+		}
+	}
+	// Every kind with a payload in a version and context is laid out above.
+	for _, v := range seatSchemaVersions() {
+		for _, context := range []CommandContext{OnlineCommand, SinglePlayerReplay} {
+			for k := 0; k < 256; k++ {
+				if seatCodecKind(seatCodec{v, context}, SeatCommandKind(k)) == "" && !laid[key{v, context, SeatCommandKind(k)}] {
+					t.Errorf("kind %d has a version-%d payload in context %d but no layout case", k, v, context)
+				}
+			}
+		}
+	}
+}
+
+// The version-1 golden layouts encode identically through the unversioned
+// entry points, which speak netproto.CommandSchemaVersion, and the sharing
+// layouts are the only ones version 1 refuses.
+func TestSeatCommandVersionTwoKeepsVersionOne(t *testing.T) {
+	if netproto.CommandSchemaVersion != seatSchemaV2 {
+		t.Fatalf("this build speaks command schema version %d, want 2", netproto.CommandSchemaVersion)
+	}
 	for _, c := range seatWireLayouts() {
 		got, err := EncodeSeatCommand(c.context, c.command)
-		if err != nil {
-			t.Fatalf("%s: %v", c.name, err)
+		if err != nil || !bytes.Equal(got, c.wire) {
+			t.Fatalf("%s: %x, %v", c.name, got, err)
 		}
-		if !bytes.Equal(got, c.wire) {
-			t.Fatalf("%s:\n got %x\nwant %x", c.name, got, c.wire)
+		if !checkSeatDecodeEverywhere(t, c.wire) {
+			t.Fatalf("%s: decoded nowhere", c.name)
 		}
-		back, err := DecodeSeatCommand(c.context, c.wire)
-		if err != nil || !sameSeatCommand(back, c.command) {
-			t.Fatalf("%s: decoded %+v, %v", c.name, back, err)
+		v1 := checkSeatDecode(t, seatSchemaV1, c.context, c.wire)
+		if v1 != (c.first() == seatSchemaV1) || v1 == slices.Contains(seatSharingKinds, c.command.Kind) {
+			t.Fatalf("%s: version 1 accepted %v", c.name, v1)
 		}
-		kinds[c.command.Kind] = true
 	}
-	// Every kind with a version-1 payload is laid out above.
-	for k := 0; k < 256; k++ {
-		if seatCodecKind(SinglePlayerReplay, SeatCommandKind(k)) == "" && !kinds[SeatCommandKind(k)] {
-			t.Errorf("kind %d has a payload but no layout case", k)
+	for _, v := range []uint16{0, netproto.CommandSchemaVersion + 1, math.MaxUint16} {
+		for _, context := range []CommandContext{OnlineCommand, SinglePlayerReplay} {
+			if _, err := EncodeSeatCommandVersion(v, context, SeatCommand{Kind: SeatATM}); err == nil || !strings.Contains(err.Error(), "logical path version") {
+				t.Errorf("version %d encoded: %v", v, err)
+			}
+			if _, err := DecodeSeatCommandVersion(v, context, []byte{18}); err == nil || !strings.Contains(err.Error(), "logical path version") {
+				t.Errorf("version %d decoded: %v", v, err)
+			}
 		}
 	}
 }
@@ -236,6 +368,9 @@ func TestSeatCommandExtremesRoundTrip(t *testing.T) {
 		if err != nil || !sameSeatCommand(back, c.command) {
 			t.Fatalf("%s: decoded %+v, %v", c.name, back, err)
 		}
+		if c.first() > seatSchemaV1 && checkSeatDecode(t, seatSchemaV1, c.context, payload) {
+			t.Fatalf("%s: decoded in version 1", c.name)
+		}
 	}
 }
 
@@ -243,7 +378,7 @@ func TestSeatCommandExtremesRoundTrip(t *testing.T) {
 func seatMutationSeeds(t testing.TB) []seatWireCase {
 	var out []seatWireCase
 	for _, c := range append(seatWireLayouts(), seatWireExtremes()...) {
-		payload, err := EncodeSeatCommand(c.context, c.command)
+		payload, err := EncodeSeatCommandVersion(c.first(), c.context, c.command)
 		if err != nil {
 			t.Fatalf("%s: %v", c.name, err)
 		}
@@ -254,26 +389,32 @@ func seatMutationSeeds(t testing.TB) []seatWireCase {
 }
 
 // Every proper prefix of a valid payload is refused, and so is any byte after
-// its end; flipping any byte under several masks is refused or an exactly
-// re-encoding command (M2-C4).
+// its end, in every schema version that has the kind; flipping any byte under
+// several masks is refused or an exactly re-encoding command in every
+// version and context (M2-C4).
 func TestSeatCommandTruncationsAndFlips(t *testing.T) {
 	accepted := 0
 	for _, c := range seatMutationSeeds(t) {
-		for n := 0; n < len(c.wire); n++ {
-			if checkSeatDecode(t, c.context, c.wire[:n]) {
-				t.Fatalf("%s: a %d-byte prefix of %d decoded", c.name, n, len(c.wire))
+		for _, v := range seatSchemaVersions() {
+			if v < c.first() {
+				continue
 			}
-		}
-		for _, tail := range [][]byte{{0}, {1}, {0xff}} {
-			if checkSeatDecode(t, c.context, append(append([]byte(nil), c.wire...), tail...)) {
-				t.Fatalf("%s: trailing %x decoded", c.name, tail)
+			for n := 0; n < len(c.wire); n++ {
+				if checkSeatDecode(t, v, c.context, c.wire[:n]) {
+					t.Fatalf("%s: a %d-byte prefix of %d decoded in version %d", c.name, n, len(c.wire), v)
+				}
+			}
+			for _, tail := range [][]byte{{0}, {1}, {0xff}} {
+				if checkSeatDecode(t, v, c.context, append(append([]byte(nil), c.wire...), tail...)) {
+					t.Fatalf("%s: trailing %x decoded in version %d", c.name, tail, v)
+				}
 			}
 		}
 		for i := range c.wire {
 			for _, mask := range []byte{0x01, 0x02, 0x04, 0x40, 0x80, 0xff} {
 				m := append([]byte(nil), c.wire...)
 				m[i] ^= mask
-				if checkSeatDecode(t, c.context, m) {
+				if checkSeatDecodeEverywhere(t, m) {
 					accepted++
 				}
 			}
@@ -311,23 +452,24 @@ func TestSeatCommandRandomEdits(t *testing.T) {
 				p = p[:at]
 			}
 		}
-		checkSeatDecode(t, OnlineCommand, p)
-		checkSeatDecode(t, SinglePlayerReplay, p)
+		checkSeatDecodeEverywhere(t, p)
 	}
 }
 
-// FuzzDecodeSeatCommand holds the codec property over arbitrary input in both
-// contexts, seeded with every kind's layout. The fast tier runs the seeds;
-// `go test -fuzz` explores further.
+// FuzzDecodeSeatCommand holds the codec property over arbitrary input in
+// every schema version and context, with the version property of
+// checkSeatDecodeEverywhere, seeded with every kind's layout, the sharing
+// and alliance kinds included. The fast tier runs the seeds; `go test -fuzz`
+// explores further.
 func FuzzDecodeSeatCommand(f *testing.F) {
 	for _, c := range seatWireLayouts() {
 		f.Add(c.wire)
 	}
 	f.Add([]byte{})
 	f.Add([]byte{4, 0xff, 0xff, 0x03})
+	f.Add([]byte{42, 9, 0xff, 0xff, 0xff, 0xff, 0x0f, 0xfe, 0xff, 0xff, 0xff, 0x0f, 1, 0xff, 0xff, 0x03, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x01, 1})
 	f.Fuzz(func(t *testing.T, payload []byte) {
-		checkSeatDecode(t, OnlineCommand, payload)
-		checkSeatDecode(t, SinglePlayerReplay, payload)
+		checkSeatDecodeEverywhere(t, payload)
 	})
 }
 
@@ -349,31 +491,65 @@ func TestSeatCommandContextIsNotThePayloads(t *testing.T) {
 		if _, err := EncodeSeatCommand(OnlineCommand, c.command); err == nil {
 			t.Errorf("%s: encoded online", c.name)
 		}
-		if checkSeatDecode(t, OnlineCommand, c.wire) {
-			t.Errorf("%s: its replay bytes decoded online", c.name)
+		for _, v := range seatSchemaVersions() {
+			if checkSeatDecode(t, v, OnlineCommand, c.wire) {
+				t.Errorf("%s: its replay bytes decoded online in version %d", c.name, v)
+			}
 		}
 	}
 	if seen != len(replayOnly) {
 		t.Fatalf("found %d of the %d replay-only layouts", seen, len(replayOnly))
 	}
 	for _, c := range seatWireLayouts() {
-		if c.context == OnlineCommand && (c.command.Kind == SeatSetResource || c.command.Kind == SeatBuilderOptions) && checkSeatDecode(t, SinglePlayerReplay, c.wire) {
+		if c.context == OnlineCommand && (c.command.Kind == SeatSetResource || c.command.Kind == SeatBuilderOptions) && checkSeatDecode(t, seatSchemaV2, SinglePlayerReplay, c.wire) {
 			t.Errorf("%s: its online bytes decoded in replay", c.name)
 		}
 	}
 	for _, k := range []SeatCommandKind{0, SeatSelectionReplace, SeatSelectionToggle, SeatSelectionClear, SeatBuildPage, SeatGroupRecall,
-		SeatBigBrother, SeatShiftState, SeatShareMetal, SeatShareEnergy, SeatShareMapping, SeatShareRadar, SeatShareAll, SeatSetShareMetal,
-		SeatSetShareEnergy, SeatShareGift, SeatDeclareAlliance, SeatSharedVictory, SeatShootAll, 47, 128, 254} {
-		for _, context := range []CommandContext{OnlineCommand, SinglePlayerReplay} {
-			if _, err := EncodeSeatCommand(context, SeatCommand{Kind: k}); err == nil {
-				t.Errorf("kind %d encoded in context %d", k, context)
-			}
-			for _, payload := range [][]byte{{byte(k)}, {byte(k), 0}, {byte(k), 1, 1, 1}} {
-				if checkSeatDecode(t, context, payload) {
-					t.Errorf("kind %d decoded in context %d from %x", k, context, payload)
+		SeatBigBrother, SeatShiftState, SeatShootAll, 47, 128, 254} {
+		for _, v := range seatSchemaVersions() {
+			for _, context := range []CommandContext{OnlineCommand, SinglePlayerReplay} {
+				if _, err := EncodeSeatCommandVersion(v, context, SeatCommand{Kind: k}); err == nil {
+					t.Errorf("kind %d encoded in version %d context %d", k, v, context)
+				}
+				for _, payload := range [][]byte{{byte(k)}, {byte(k), 0}, {byte(k), 1, 1, 1}} {
+					if checkSeatDecode(t, v, context, payload) {
+						t.Errorf("kind %d decoded in version %d context %d from %x", k, v, context, payload)
+					}
 				}
 			}
 		}
+	}
+	// The sharing and alliance kinds have payloads online from version 2
+	// only: version 1 refuses them in both contexts, and no version has a
+	// single-player replay form, because retail runs them only in a
+	// networked session.
+	sharing := 0
+	for _, c := range seatWireLayouts() {
+		if !slices.Contains(seatSharingKinds, c.command.Kind) {
+			continue
+		}
+		sharing++
+		for _, try := range []struct {
+			version uint16
+			context CommandContext
+			why     string
+		}{
+			{seatSchemaV1, OnlineCommand, "from command schema version 2"},
+			{seatSchemaV1, SinglePlayerReplay, "from command schema version 2"},
+			{seatSchemaV2, SinglePlayerReplay, "only in a networked session"},
+		} {
+			_, err := EncodeSeatCommandVersion(try.version, try.context, c.command)
+			if err == nil || !strings.Contains(err.Error(), try.why) || !strings.Contains(err.Error(), fmt.Sprintf("providers searched [%s]", seatCodecProvider(seatCodec{try.version, try.context}))) {
+				t.Errorf("%s: version %d context %d encoded or refused for another reason: %v", c.name, try.version, try.context, err)
+			}
+			if _, err := DecodeSeatCommandVersion(try.version, try.context, c.wire); err == nil || !strings.Contains(err.Error(), try.why) {
+				t.Errorf("%s: version %d context %d decoded or refused for another reason: %v", c.name, try.version, try.context, err)
+			}
+		}
+	}
+	if sharing < len(seatSharingKinds) {
+		t.Fatalf("found %d sharing layouts, fewer than the %d kinds", sharing, len(seatSharingKinds))
 	}
 	// Replay-only fields must be zero in an online value; they are absent
 	// from online bytes, never silently dropped.
@@ -478,6 +654,21 @@ func TestSeatCommandCodecRefusals(t *testing.T) {
 		{"online infinite gift", []CommandContext{OnlineCommand}, SeatCommand{Kind: SeatGive, Give: GivePayload{Amount: float32(math.Inf(-1))}}},
 		{"online gift above 2^31", []CommandContext{OnlineCommand}, SeatCommand{Kind: SeatGive, Give: GivePayload{Amount: 4294967296}}},
 		{"online gift below -2^31", []CommandContext{OnlineCommand}, SeatCommand{Kind: SeatGive, Give: GivePayload{Amount: -2147483904}}},
+		// Version 2's sharing and alliance payloads, online.
+		{"gift target 10", []CommandContext{OnlineCommand}, SeatCommand{Kind: SeatShareGift, ShareGift: ShareGiftPayload{Target: 10}}},
+		{"gift target 255", []CommandContext{OnlineCommand}, SeatCommand{Kind: SeatShareGift, ShareGift: ShareGiftPayload{Target: 255, Metal: 1}}},
+		{"alliance target 10", []CommandContext{OnlineCommand}, SeatCommand{Kind: SeatDeclareAlliance, DeclareAlliance: DeclareAlliancePayload{Target: 10, Value: true}}},
+		{"gift with 3277 actors", []CommandContext{OnlineCommand}, SeatCommand{Kind: SeatShareGift, ShareGift: ShareGiftPayload{Actors: actors(3277)}}},
+		{"gift null actor", []CommandContext{OnlineCommand}, SeatCommand{Kind: SeatShareGift, ShareGift: ShareGiftPayload{Actors: []pool.UnitRef{a, {}}}}},
+		{"gift half-null actor", []CommandContext{OnlineCommand}, SeatCommand{Kind: SeatShareGift, ShareGift: ShareGiftPayload{Actors: []pool.UnitRef{{Serial: 4}}}}},
+		{"sharing record beside a version-1 kind", nil, SeatCommand{Kind: SeatStop, Stop: StopPayload{Actors: []pool.UnitRef{a}}, ShareGift: ShareGiftPayload{MapInfo: true}}},
+		{"sharing record beside a fieldless kind", nil, SeatCommand{Kind: SeatATM, SharedVictory: SharedVictoryPayload{On: true}}},
+		{"gift actors beside a version-1 kind", nil, SeatCommand{Kind: SeatCloak, ShareGift: ShareGiftPayload{Actors: []pool.UnitRef{a}}}},
+		{"threshold beside a version-1 kind", nil, SeatCommand{Kind: SeatGive, Give: GivePayload{Amount: 1}, SetShareMetal: SetShareMetalPayload{Amount: 5}}},
+		{"another sharing record", []CommandContext{OnlineCommand}, SeatCommand{Kind: SeatShareMetal, ShareEnergy: ShareEnergyPayload{On: true}}},
+		{"alliance beside share all", []CommandContext{OnlineCommand}, SeatCommand{Kind: SeatShareAll, DeclareAlliance: DeclareAlliancePayload{Target: 1}}},
+		{"version-1 record beside a gift", []CommandContext{OnlineCommand}, SeatCommand{Kind: SeatShareGift, Give: GivePayload{Amount: 1}}},
+		{"version-1 actors beside a gift", []CommandContext{OnlineCommand}, SeatCommand{Kind: SeatShareGift, Stop: StopPayload{Actors: []pool.UnitRef{a}}}},
 	}
 	for _, tc := range cases {
 		contexts := tc.contexts
@@ -487,7 +678,7 @@ func TestSeatCommandCodecRefusals(t *testing.T) {
 		for _, context := range contexts {
 			if _, err := EncodeSeatCommand(context, tc.c); err == nil {
 				t.Errorf("%s: encoded in context %d", tc.name, context)
-			} else if !strings.Contains(err.Error(), "logical path ") || !strings.Contains(err.Error(), "providers searched [command schema v1 ") {
+			} else if !strings.Contains(err.Error(), "logical path ") || !strings.Contains(err.Error(), "providers searched [command schema v2 ") {
 				t.Errorf("%s: diagnostic shape %q", tc.name, err)
 			}
 		}
@@ -519,12 +710,38 @@ func TestSeatCommandCodecRefusals(t *testing.T) {
 		{"empty key", OnlineCommand, cat(31, 0, 0, 0, 0)},
 		{"noncanonical key bytes", OnlineCommand, cat(31, 5, "Scout", 0, 0, 0)},
 		{"drag target bytes", OnlineCommand, cat(33, 2, 3, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0)},
+		// Version 2's sharing and alliance payloads.
+		{"share boolean 2", OnlineCommand, cat(35, 2)},
+		{"share radar boolean 0xff", OnlineCommand, cat(38, 0xff)},
+		{"share all first boolean 2", OnlineCommand, cat(39, 2, 0, 0, 0)},
+		{"share all last boolean 2", OnlineCommand, cat(39, 1, 1, 1, 2)},
+		{"share all with three options", OnlineCommand, cat(39, 1, 1, 1)},
+		{"threshold over 32 bits", OnlineCommand, cat(40, 0x80, 0x80, 0x80, 0x80, 0x10)},
+		{"overlong threshold", OnlineCommand, cat(41, 0x81, 0x00)},
+		{"threshold without its amount", OnlineCommand, cat(40)},
+		{"gift target 10 bytes", OnlineCommand, cat(42, 10, 0, 0, 0, 0)},
+		{"overlong gift metal", OnlineCommand, cat(42, 0, 0x80, 0x00, 0, 0, 0)},
+		{"gift energy over 32 bits", OnlineCommand, cat(42, 0, 0, 0xff, 0xff, 0xff, 0xff, 0x1f, 0, 0)},
+		{"gift map information 2", OnlineCommand, cat(42, 0, 0, 0, 0, 2)},
+		{"gift actor count over 3276", OnlineCommand, cat(42, 0, 0, 0, uvarintBytes(3277), bytes.Repeat([]byte{1, 1}, 3277), 0)},
+		{"gift actor count over the bytes", OnlineCommand, cat(42, 0, 0, 0, uvarintBytes(3276), 1, 1, 0)},
+		{"gift repeated actor", OnlineCommand, cat(42, 0, 0, 0, 2, 1, 1, 1, 1, 0)},
+		{"gift zero serial", OnlineCommand, cat(42, 0, 0, 0, 1, 1, 0, 0)},
+		{"gift half-null actor bytes", OnlineCommand, cat(42, 0, 0, 0, 1, 0, 7, 0)},
+		{"gift without map information", OnlineCommand, cat(42, 0, 0, 0, 0)},
+		{"alliance target 10 bytes", OnlineCommand, cat(43, 10, 1)},
+		{"alliance value 2", OnlineCommand, cat(43, 1, 2)},
+		{"victory boolean 2", OnlineCommand, cat(44, 2)},
+		{"victory with a trailing byte", OnlineCommand, cat(44, 1, 0)},
+		{"share metal bytes in replay", SinglePlayerReplay, cat(35, 1)},
+		{"gift bytes in replay", SinglePlayerReplay, cat(42, 0, 0, 0, 0, 0)},
 	} {
-		if checkSeatDecode(t, tc.context, tc.wire) {
+		if checkSeatDecode(t, seatSchemaV2, tc.context, tc.wire) {
 			t.Errorf("%s: decoded", tc.name)
 		}
+		checkSeatDecodeEverywhere(t, tc.wire)
 	}
-	if checkSeatDecode(t, SinglePlayerReplay, make([]byte, netproto.MaxCommandBytes+1)) {
+	if checkSeatDecode(t, seatSchemaV2, SinglePlayerReplay, make([]byte, netproto.MaxCommandBytes+1)) {
 		t.Fatal("a payload over 4 MiB decoded")
 	}
 	if _, err := DecodeSeatCommand(OnlineCommand, append([]byte{5, 0}, make([]byte, netproto.MaxCommandBytes)...)); err == nil || !strings.Contains(err.Error(), "at most 4194304 bytes") {
@@ -587,6 +804,22 @@ func TestSeatCommandLocalReferencesWithoutAWireForm(t *testing.T) {
 				t.Errorf("%s in context %d: %v, want ErrSeatCommandNoWireForm", tc.name, context, err)
 			}
 		}
+	}
+	// A gift's actors are an `actors` list too, online only.
+	for _, c := range []SeatCommand{
+		{Kind: SeatShareGift, ShareGift: ShareGiftPayload{Target: 2, Actors: []pool.UnitRef{live, captured}}},
+		{Kind: SeatShareGift, ShareGift: ShareGiftPayload{Target: 2, Actors: []pool.UnitRef{live, live}}},
+	} {
+		if _, err := EncodeSeatCommand(OnlineCommand, c); !errors.Is(err, ErrSeatCommandNoWireForm) {
+			t.Errorf("gift actors %+v: %v, want ErrSeatCommandNoWireForm", c.ShareGift.Actors, err)
+		}
+	}
+	// A gift keeps its actors' captured order.
+	captureOrder := SeatCommand{Kind: SeatShareGift, ShareGift: ShareGiftPayload{Target: 2, Actors: []pool.UnitRef{f.ref(f.comp2), live}}}
+	if payload, err := EncodeSeatCommand(OnlineCommand, captureOrder); err != nil {
+		t.Fatalf("a gift's captured actor order: %v", err)
+	} else if back, err := DecodeSeatCommand(OnlineCommand, payload); err != nil || !reflect.DeepEqual(back, captureOrder) {
+		t.Fatalf("a gift's captured actor order decoded as %+v, %v", back, err)
 	}
 	unsorted := SeatCommand{Kind: SeatOrder, Order: OrderPayload{Actors: []pool.UnitRef{f.ref(f.comp2), live}, Code: 2}}
 	if _, err := EncodeSeatCommand(SinglePlayerReplay, unsorted); err == nil || errors.Is(err, ErrSeatCommandNoWireForm) {
@@ -798,9 +1031,11 @@ func TestRefusedPayloadsLeaveTheBattleUnchanged(t *testing.T) {
 		cat(20, 1, 3),              // SetLogo online
 		cat(19, 1, 0, le32(5)),     // replay SetResource bytes online
 		cat(32, 1, 0, 0, 0, 0, 0, 0),
-		cat(1), cat(28), cat(35), cat(200),
+		cat(1), cat(28), cat(35), cat(45), cat(200),
 		cat(5, 2, refBytes(own), refBytes(own)),
 		cat(14, 1, refBytes(own), 2, 0),
+		cat(35, 2), cat(39, 1, 1, 1), cat(43, 10, 1), cat(44, 1, 0),
+		cat(42, 1, 0, 0, 2, refBytes(own), refBytes(own), 0),
 	}
 	for _, payload := range hostile {
 		before := f.state()
@@ -813,6 +1048,41 @@ func TestRefusedPayloadsLeaveTheBattleUnchanged(t *testing.T) {
 	}
 	if r, err := f.deliver(t, OnlineCommand, 1, stop); err != nil || r.Outcome != CommandApplied || f.queueLen(f.own1a) == 0 {
 		t.Fatalf("the valid stop after them: %+v, %v", r, err)
+	}
+}
+
+// Version 2's sharing and alliance payloads decode online and reach their
+// receiver, which admits or refuses each on the battle's state
+// (online_sharing.go); the single-player replay context has neither their
+// bytes nor their application, because retail runs them only in a networked
+// session (§7.4.2) [07 R-CAM-01 §6].
+func TestSharingKindsDecodeOnlineOnly(t *testing.T) {
+	f := newSeatFixture(t, true, true)
+	single := newSeatFixture(t, false, false)
+	seen := map[SeatCommandKind]bool{}
+	for _, c := range seatWireLayouts() {
+		if !slices.Contains(seatSharingKinds, c.command.Kind) {
+			continue
+		}
+		seen[c.command.Kind] = true
+		r, err := f.deliver(t, OnlineCommand, 1, c.wire)
+		if err != nil {
+			t.Fatalf("%s: %v", c.name, err)
+		}
+		if strings.Contains(r.Diagnostic, "M5") || strings.Contains(r.Diagnostic, "version-1") {
+			t.Fatalf("%s: still refused as a reserved kind: %q", c.name, r.Diagnostic)
+		}
+		before := single.state()
+		if _, err := single.deliver(t, SinglePlayerReplay, 0, c.wire); err == nil {
+			t.Fatalf("%s: decoded in the single-player replay context", c.name)
+		}
+		expectOutcome(t, single.issue(t, 0, c.command), CommandRejected)
+		if single.state() != before {
+			t.Fatalf("%s: a sharing command changed a single-player battle", c.name)
+		}
+	}
+	if len(seen) != len(seatSharingKinds) {
+		t.Fatalf("exercised %d of the %d sharing kinds", len(seen), len(seatSharingKinds))
 	}
 }
 
@@ -1008,6 +1278,12 @@ func TestSeatCommandSizeProof(t *testing.T) {
 		if got := len(encode(SinglePlayerReplay, c)); got >= designOrdinary {
 			t.Fatalf("kind %d takes %d bytes, not less than the largest ordinary order", c.Kind, got)
 		}
+	}
+	// Version 2's widest payload, a gift of the maximum selection with both
+	// amounts at their widest, is online-only and smaller still.
+	gift := SeatCommand{Kind: SeatShareGift, ShareGift: ShareGiftPayload{Target: 9, Metal: math.MinInt32, Energy: math.MinInt32, Actors: list, MapInfo: true}}
+	if got := len(encode(OnlineCommand, gift)); got != 1+1+5+5+2+3276*13+1 || got >= designOrdinary {
+		t.Fatalf("the widest gift takes %d bytes", got)
 	}
 	drag := SeatCommand{Kind: SeatCommunityOrderDrag, CommunityOrderDrag: CommunityOrderDragPayload{Unit: widest, Index: math.MaxUint16,
 		DescriptorID: math.MinInt32, CreationTick: math.MaxUint32, Goal: point, BuildProduct: key, BuildFacing: 3, Destination: point}}

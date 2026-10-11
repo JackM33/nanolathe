@@ -40,6 +40,9 @@ type battleMultiplayer struct {
 	// It changes relay pacing only, never a tick (DESIGN_MULTIPLAYER §16.6.1).
 	openingReady func() error
 	openingSent  bool
+	// chat is the hosted connection's chat and the seat map it is addressed
+	// by (battle_online_chat.go). It never touches the stream.
+	chat onlineChat
 }
 
 func (o Options) localMultiplayer() bool    { return o.LocalMPListen != "" || o.LocalMPJoin != "" }
@@ -233,7 +236,15 @@ func (b *battleSession) onlineNotice(message string) {
 	}
 }
 
+// pumpLocalMultiplayer is the host step's online pump: the granted ticks,
+// then, outside every tick, the chat lines received since the last frame
+// (drainOnlineChat).
 func (b *battleSession) pumpLocalMultiplayer(cl *client.Client) {
+	b.pumpMultiplayerTicks(cl)
+	b.drainOnlineChat()
+}
+
+func (b *battleSession) pumpMultiplayerTicks(cl *client.Client) {
 	if b == nil || b.multiplayer == nil || b.multiplayer.driver == nil || b.multiplayer.failure != nil {
 		return
 	}
@@ -344,9 +355,10 @@ func (g *gameShell) onlineBackgroundStep(cl *client.Client) bool {
 // pumpBackground runs the ticks the relay has granted, as the host step does,
 // and drops the cues and notices they raised: no frame presented them, and a
 // page shown again resumes from its latest committed tick rather than
-// replaying them all at once.
+// replaying them all at once. Chat lines wait in the connection's inbox for
+// the next frame.
 func (b *battleSession) pumpBackground(cl *client.Client) {
-	b.pumpLocalMultiplayer(cl)
+	b.pumpMultiplayerTicks(cl)
 	if m := b.multiplayer; m != nil && b.sess != nil && b.sess.Snapshot != nil {
 		m.dropped = b.sess.Snapshot.DrainCommittedEvents(m.dropped)
 		clear(m.dropped)

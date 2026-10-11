@@ -15,6 +15,9 @@ type battleChatState struct {
 	active      bool
 	ownsFrame   bool
 	lastCommand string
+	// mode is the persistent recipient-mode byte an online line is sent by
+	// (battle_online_chat.go); nothing in this build changes it from all.
+	mode chatRecipientMode
 
 	// Battle-local host input policy; see DESIGN_INTERFACE_HUD_INPUT §3.9.
 	commandHistory   []string
@@ -35,6 +38,20 @@ func (b *battleSession) openTalk(in *input.State, cl *client.Client) bool {
 	if b == nil || b.hud == nil || b.chat.active || battleSessionKind(b) == 3 {
 		return false
 	}
+	// The opener returns at once for a watcher, so a watcher can neither chat
+	// nor type a + line [07 §5 "Chat"]. Online, a seat whose result is final
+	// is defeated and watching, so it counts as one.
+	if b.localChatWatcher() {
+		return false
+	}
+	// TODO(question): online this opens the single-player TALK.GUI form with
+	// SENDTO hidden. Retail's multiplayer opener configures SENDTO instead of
+	// hiding it, and opens the expanded TALK2.GUI form, with SENDTYPE and the
+	// recipient rows, when a persistent expansion-flag byte has bit 0x01 set
+	// [07 §5 "Chat"]. Unknown: what sets that flag, how the recipient rows are
+	// painted, what SENDTO's word-flag bit 0x0100 does, and the recipient-mode
+	// byte's initial value. A trace of the flag's writers, the row painter,
+	// the bit's readers and the mode byte's initialisation would settle them.
 	b.hud.openTalkWindow()
 	p := b.hud.talkPanel
 	if p == nil {
@@ -227,15 +244,30 @@ func talkRightPress(frame ui.WidgetFrame) bool {
 	return false
 }
 
+// commitLocalChat runs a committed TALK line: a + line is dispatched on this
+// machine first, then every line, + lines included, goes through the chat
+// sender, to everyone when the dispatched entry was a cheat
+// [07 R-CAM-01 §6][07 §5 "Chat"].
 func (b *battleSession) commitLocalChat(text string) {
 	if b == nil || b.sess == nil || b.sess.Econ == nil || int(b.sess.LocalOwner) >= len(b.sess.Econ.Players) {
 		return
 	}
 	b.chat.rememberCommand(text)
-	b.dispatchLocalCommand(text)
+	cheat := b.dispatchLocalCommand(text)
+	_ = b.sendChat(text, true, cheat)
+}
+
+// postLocalChat is the chat composer's local post: the registered local
+// player name without a fallback, `<name> text`, routing class 4, source unit
+// 0 and the no-speaker sentinel, so the line draws no logo and plays no
+// MessageArrived cue [07 §5 "Chat"][07 R-FE-02 §12][07 R-HUD-03 §14.3].
+func (b *battleSession) postLocalChat(text string) {
+	if b == nil || b.sess == nil || b.sess.Econ == nil || int(b.sess.LocalOwner) >= len(b.sess.Econ.Players) {
+		return
+	}
 	name := b.sess.Econ.Players[b.sess.LocalOwner].Name
 	if ring := b.messageRing(); ring != nil {
-		ring.Append("<"+name+"> "+text, 4, pool.Handle(0), 10, b.currentTick())
+		ring.Append("<"+name+"> "+text, chatClassLocal, pool.Handle(0), chatNoSpeaker, b.currentTick())
 	}
 }
 

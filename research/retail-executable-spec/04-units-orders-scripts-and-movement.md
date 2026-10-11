@@ -91,11 +91,13 @@ unit from the **owner** record, not from the slot being swept.
    ([04 §4.6] "drain and lerp order");
 5. the minimap blink byte, if nonzero, is decremented as a signed byte
    ([06 R-WPN-04 §2]);
-6. the **post-capture countdown**, if nonzero, is decremented by one. Doc
-   05's ownership transfer writes 150, and the sweep counts it down one per
-   unit visit; the contextual
-   resolver's own-unit reject ([R-ORD-02 §1]) and the selection predicates
-   read it;
+6. the **post-capture countdown**, if nonzero, is decremented by one. Its
+   only non-zero writer is doc 05's ownership transfer, which writes 150
+   into the **departing copy on the giving machine** in its remote branch
+   alone ([05 R-WORK-01 §15]); the constructor zeroes it, so a replacement,
+   local or remote, starts at 0. The sweep counts it down one per unit
+   visit; the contextual resolver's own-unit reject ([R-ORD-02 §1]) and the
+   selection predicates read it;
 7. **selection maintenance:** a unit carrying the *selected* bit (bit 4 of
    the state word) loses it when it is no longer *ready*, where ready means
    all of: the *selectable* bit (bit 5, the bit the `MakeSelectable` order
@@ -5434,11 +5436,24 @@ mechanism of the rally point: the factory takes a `QMove` record it never
 executes (a 60-tick delayed tail rotate binding no goal, §3.3), and its
 `GetBuilt` copies it onto each finished product (§3.8, [R-FAC-02 §4]).
 
-**The post-capture byte.** Code 1's default variant reads the unit byte that
-the ownership transfer of doc 05 writes `150` into on a capture
-([05 R-WORK-01 §15]); the unit sweep decrements it once per unit visit ([R-MOV-03 §1]
-step 6), so the own-unit reject above admits a freshly captured unit for the
-next 150 visits.
+**The post-capture byte.** Code 1's default variant reads the unit's
+post-capture countdown. **Established** ([05 R-WORK-01 §15]; the field's
+writers are the constructor, the transfer and the sweep, and nothing else):
+the ownership transfer writes `150` into it **only in its remote branch, on
+the giving machine's departing copy** — the unit whose new owner is a remote
+peer, which the same branch then unselects and kills — and a replacement,
+whether made by a local capture or gift or by the receiving machine's
+transfer arm, starts at the constructor's `0`. No freshly captured or
+received unit ever carries the countdown. The unit sweep decrements it once
+per unit visit ([R-MOV-03 §1] step 6). What the reject's reading therefore
+means: a non-zero countdown turns the own-unit reject off for the giver's
+departing copy — a unit still in the giver's slice for the one unit phase
+before its cause-4 death takes it, or for up to 150 visits if the
+veterancy-scaled kill of [05 R-WORK-01 §15] left it alive — so a click on
+that copy resolves an ordinary contextual order rather than a selection,
+exactly as the selection predicates of [R-MOV-03 §1] step 7 drop it from the
+selection for the same window. On every other unit the byte is `0` and the
+reject runs as written.
 
 ### `VTOL_Move`, `VTOL_Patrol`, and `VTOL_MobileBuild` [R-ORD-02 §2]
 

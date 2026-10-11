@@ -58,7 +58,9 @@ func TestWasmSeats(t *testing.T) {
 	}
 
 	config := bytes.Repeat([]byte("browser room "), 512)
-	host, err := OpenHostedLobby(ctx, address, "", localTestHello(0), config, 2, options)
+	named := options
+	named.Name = "Browser host"
+	host, err := OpenHostedLobby(ctx, address, "", localTestHello(0), config, 2, named)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -78,6 +80,14 @@ func TestWasmSeats(t *testing.T) {
 	awaitLobby(t, host, "the joiner's colour", func(s HostedLobbyState, err error) bool {
 		return err == nil && s.Seats[1].Present && s.Seats[1].Color == 4
 	})
+	// Names and chat cross the browser's WebSocket too (§12.2).
+	awaitLobby(t, joiner, "the host's name", func(s HostedLobbyState, err error) bool {
+		return err == nil && s.Seats[0].Name == "Browser host" && s.Seats[0].Chat
+	})
+	if err := joiner.SendChat(1<<0, "lobby line"); err != nil {
+		t.Fatal(err)
+	}
+	awaitChat(t, host.DrainChat, HostedChatLine{Seat: 1, Text: "lobby line"})
 	if !bytes.Equal(joiner.Configuration(), config) {
 		t.Fatal("the joiner did not receive the room's configuration")
 	}
@@ -99,6 +109,10 @@ func TestWasmSeats(t *testing.T) {
 	if _, err := seats[1].Submit([]byte("browser order")); err != nil {
 		t.Fatal(err)
 	}
+	if err := seats[0].SendChat(1<<1, "battle line"); err != nil {
+		t.Fatal(err)
+	}
+	var chat []HostedChatLine
 	ordered, measured := false, [2]bool{}
 	for tick := uint32(1); tick <= wasmTerminalTick; tick++ {
 		for _, c := range seats {
@@ -110,6 +124,7 @@ func TestWasmSeats(t *testing.T) {
 				ordered = ordered || (command.Seat == 1 && string(command.Payload) == "browser order")
 			}
 		}
+		chat = seats[1].DrainChat(chat)
 		for i, c := range seats {
 			if err := c.Acknowledge(tick, [32]byte{}, tick == wasmTerminalTick, false); err != nil {
 				t.Fatal(err)
@@ -123,6 +138,9 @@ func TestWasmSeats(t *testing.T) {
 	}
 	if !ordered {
 		t.Fatal("the browser seat's order never reached a grant")
+	}
+	if len(chat) != 1 || chat[0] != (HostedChatLine{Seat: 0, Text: "battle line"}) {
+		t.Fatalf("battle chat: %+v", chat)
 	}
 	for i, c := range seats {
 		p, ok := c.Progress()

@@ -40,7 +40,21 @@ const (
 	BattleModalBriefing
 	BattleModalGameOptions
 	BattleModalHelp
+	// The networked session's own windows: the Tab strip `TABMENU.GUI`, the
+	// transfer dialog `SHARE.GUI` and the allies window `ALLIES.GUI`
+	// [07 "Tab options menu and manual exit"][07 R-HUD-03 §9]
+	// [05 R-SHARE-01 §5]. None is `ARMOPT` or sits over it, and none sets the
+	// pause bit: retail's network mode takes no local pause [07 §11].
+	BattleModalTabMenu
+	BattleModalShare
+	BattleModalAllies
 )
+
+// SharingModal reports the networked session's windows, which open and close
+// without the options root or its pause intent.
+func SharingModal(m BattleModal) bool {
+	return m == BattleModalTabMenu || m == BattleModalShare || m == BattleModalAllies
+}
 
 // BattleModalAction is the concrete result of activating a modal control.
 // Navigation remains owned by the battle composition root; UI state only
@@ -156,6 +170,12 @@ type BattleState struct {
 	modal        BattleModal
 	pressed      int
 	pressedModal BattleModal
+	// stripBeneath records that the networked session's Tab strip is still
+	// open beneath the top window, which one of its buttons opened: SHARE,
+	// ALLIES or the options root. Closing that window makes the strip the
+	// top window again [07 "Tab options menu and manual exit"]. Only a window
+	// opened over the strip sets it, so a single-player battle never does.
+	stripBeneath bool
 	// paused is the UI's synchronous pause truth. It is initialized to the
 	// running production state and updated only by the scheduling boundary;
 	// committed frames may synchronize it until that first UI-issued pause
@@ -384,9 +404,54 @@ func (s *BattleState) Modal() BattleModal {
 
 // HasOptionsLayer reports whether ARMOPT remains visible beneath the active
 // child modal. The root survives exit/confirmation replacement [07 R-FE-01 §7].
+// The networked session's windows are not ARMOPT's children.
 func (s *BattleState) HasOptionsLayer() bool {
-	return s != nil && s.modal != BattleModalClosed
+	return s != nil && s.modal != BattleModalClosed && !SharingModal(s.modal)
 }
+
+// OpenSharing makes one of the networked session's windows the top modal. It
+// emits no schedule intent: those windows never pause [07 §11]. A window
+// opened while the Tab strip is on top opens over it, and the strip stays
+// open beneath [07 "Tab options menu and manual exit"]. Any other value is
+// refused.
+func (s *BattleState) OpenSharing(m BattleModal) bool {
+	if s == nil || !SharingModal(m) {
+		return false
+	}
+	s.stripBeneath = m != BattleModalTabMenu && s.modal == BattleModalTabMenu
+	s.modal = m
+	s.ClearModalPress()
+	return true
+}
+
+// CloseSharing closes the networked session's window on top, if one is, again
+// with no schedule intent. A strip beneath it becomes the top window again.
+func (s *BattleState) CloseSharing() {
+	if s != nil && SharingModal(s.modal) {
+		s.modal = BattleModalClosed
+		if s.stripBeneath {
+			s.modal = BattleModalTabMenu
+		}
+		s.stripBeneath = false
+		s.ClearModalPress()
+	}
+}
+
+// DropSharing closes every one of the networked session's windows, a strip
+// beneath another window included, and leaves an options root on top open.
+func (s *BattleState) DropSharing() {
+	if s == nil {
+		return
+	}
+	s.stripBeneath = false
+	if SharingModal(s.modal) {
+		s.modal = BattleModalClosed
+		s.ClearModalPress()
+	}
+}
+
+// StripBeneath reports that the Tab strip is open beneath the top window.
+func (s *BattleState) StripBeneath() bool { return s != nil && s.stripBeneath }
 
 // HasExitLayer reports whether EXITMENU itself is open. Its callback closes
 // it before opening YESORNO [07 R-FE-01 §7].
@@ -413,9 +478,14 @@ func (s *BattleState) ConfirmTitle() string {
 }
 
 // OpenOptions opens ARMOPT and emits the synchronous local pause intent.
+// Opened by the Tab strip's `OPTIONS`, it opens over the strip, which stays
+// open beneath [07 "Tab options menu and manual exit"].
 func (s *BattleState) OpenOptions() BattleScheduleIntent {
 	if s == nil {
 		return BattleScheduleIntent{}
+	}
+	if s.modal == BattleModalTabMenu {
+		s.stripBeneath = true
 	}
 	s.modal = BattleModalOptions
 	s.ClearModalPress()
@@ -424,11 +494,16 @@ func (s *BattleState) OpenOptions() BattleScheduleIntent {
 
 // CloseOptions closes the complete modal chain and emits the synchronous
 // resume intent. This is the only modal transition that resumes battle time.
+// A Tab strip the chain was opened from becomes the top window again.
 func (s *BattleState) CloseOptions() BattleScheduleIntent {
 	if s == nil {
 		return BattleScheduleIntent{}
 	}
 	s.modal = BattleModalClosed
+	if s.stripBeneath {
+		s.modal = BattleModalTabMenu
+	}
+	s.stripBeneath = false
 	s.ClearModalPress()
 	return BattleScheduleIntent{PauseSet: true, Pause: false}
 }
@@ -448,6 +523,10 @@ func (s *BattleState) Back() BattleScheduleIntent {
 		s.modal = BattleModalOptions
 	case BattleModalExit:
 		s.modal = BattleModalOptions
+	case BattleModalTabMenu, BattleModalShare, BattleModalAllies:
+		// Not a child of the options root: nothing to resume. A window over
+		// the Tab strip returns to the strip.
+		s.CloseSharing()
 	}
 	return BattleScheduleIntent{}
 }

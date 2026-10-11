@@ -501,6 +501,15 @@ type Settings struct {
 	// it; empty selects the default (docs/DESIGN_MULTIPLAYER.md §16.6.2).
 	// It is stored verbatim; the desktop command validates it when used.
 	OnlineServer string `json:"onlineServer,omitempty"`
+	// Nickname is the player's display name for online games, which the
+	// room's other players see and which names the player's row of every
+	// online battle (docs/DESIGN_MULTIPLAYER.md §16.6.2); empty chooses none,
+	// and the battle names the row "Player n". Retail's registry keeps a
+	// `Nickname` of its own, empty by default. Normalize drops a name
+	// ValidNickname refuses. Its one writer is StoreNickname: the frontend's
+	// whole-block writes do not carry it, so SaveTo keeps the stored name
+	// whenever the block it writes names none.
+	Nickname string `json:"nickname,omitempty"`
 	// KeyBindings is the player's keyboard profile and rebound actions
 	// (keybindings.go).
 	KeyBindings KeyBindings `json:"keyBindings,omitzero"`
@@ -1255,6 +1264,9 @@ func (s *Settings) Normalize() {
 	s.ModernAI.normalize()
 	s.ControlsOffered = normalizeOffered(s.ControlsOffered)
 	s.ModLockOverrides = normalizeOffered(s.ModLockOverrides)
+	if ValidNickname(s.Nickname) != nil {
+		s.Nickname = ""
+	}
 	if s.Version == 0 {
 		s.Version = FileVersion
 	}
@@ -1407,6 +1419,54 @@ func LoadFrom(path string) (Settings, error) {
 	return s, nil
 }
 
+// MaxNicknameBytes is the longest display name, the online configuration's
+// nickname bound (DESIGN_MULTIPLAYER §8.6).
+const MaxNicknameBytes = 16
+
+// ValidNickname reports whether name may be stored as the display name: empty
+// for none, or 1..MaxNicknameBytes bytes of printable ASCII (0x20..0x7E)
+// without '<' or '>', which frame a chat line's speaker, and without a
+// leading or trailing space. It is the online lobby's own rule
+// (session.ValidateOnlineName), restated here so this package stays free of
+// the session.
+func ValidNickname(name string) error {
+	if name == "" {
+		return nil
+	}
+	if len(name) > MaxNicknameBytes {
+		return fmt.Errorf("settings: nickname: at most %d bytes", MaxNicknameBytes)
+	}
+	if name[0] == ' ' || name[len(name)-1] == ' ' {
+		return fmt.Errorf("settings: nickname: no leading or trailing space")
+	}
+	for i := 0; i < len(name); i++ {
+		if c := name[i]; c < 0x20 || c > 0x7e || c == '<' || c == '>' {
+			return fmt.Errorf("settings: nickname: printable ASCII other than < and >")
+		}
+	}
+	return nil
+}
+
+// StoreNickname persists the display name, "" for none: it reads the whole
+// block, replaces the name and rewrites the block, as StoreDamageBars does
+// for its bit. A name ValidNickname refuses is refused, and an unreadable
+// block is preserved and its error returned.
+func StoreNickname(name string) error {
+	if err := ValidNickname(name); err != nil {
+		return err
+	}
+	path, err := Path()
+	if err != nil {
+		return err
+	}
+	s, err := LoadFrom(path)
+	if err != nil {
+		return err
+	}
+	s.Nickname = name
+	return s.saveTo(path, false)
+}
+
 // Save writes the block to Path().
 func (s Settings) Save() error {
 	path, err := Path()
@@ -1422,9 +1482,18 @@ func (s Settings) Save() error {
 // half-written file where the next start expects settings. As a host recovery
 // policy, an existing unreadable or unsupported file is never replaced; return
 // its error so the caller can report the failure while keeping in-memory state.
+// A block without a Nickname keeps the stored one (StoreNickname).
 func (s Settings) SaveTo(path string) error {
-	if _, err := LoadFrom(path); err != nil {
+	return s.saveTo(path, true)
+}
+
+func (s Settings) saveTo(path string, keepNickname bool) error {
+	stored, err := LoadFrom(path)
+	if err != nil {
 		return fmt.Errorf("settings: preserve existing file: %w", err)
+	}
+	if keepNickname && s.Nickname == "" {
+		s.Nickname = stored.Nickname
 	}
 	s.Normalize()
 	data, err := json.MarshalIndent(s, "", "  ")

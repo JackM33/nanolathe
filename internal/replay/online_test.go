@@ -14,6 +14,7 @@ import (
 	"github.com/nanolathe-gg/nanolathe/internal/community"
 	"github.com/nanolathe-gg/nanolathe/internal/gameplay"
 	"github.com/nanolathe-gg/nanolathe/internal/lockstep"
+	"github.com/nanolathe-gg/nanolathe/internal/netproto"
 	"github.com/nanolathe-gg/nanolathe/internal/orders"
 	"github.com/nanolathe-gg/nanolathe/internal/pool"
 	"github.com/nanolathe-gg/nanolathe/internal/relay"
@@ -556,5 +557,29 @@ func TestOnlineRecorderUnderThePacedDriver(t *testing.T) {
 	}
 	if commands == 0 {
 		t.Fatal("no submitted command reached the recording")
+	}
+}
+
+// A recording made under an older command schema still plays: the newer
+// schema decodes every older payload to the same command (DESIGN_MULTIPLAYER
+// §7.4.1). A newer schema than this build speaks is refused.
+func TestOlderCommandSchemaRecordingPlaysBack(t *testing.T) {
+	fs := portableFS(t)
+	rec := recordOnline(t, fs, 300)
+	keep := func(*replay.Entry) bool { return true }
+
+	older := rewriteHeader(t, rec.data, func(h *replay.Header) { h.Identity.Protocol = 1 }, keep)
+	p, s, receipts, err := play(t, fs, older, 30)
+	if err != nil || p.Mismatch() != nil || p.Tick() != rec.ticks || s.UnitStateChecksum() != rec.final || !reflect.DeepEqual(receipts, rec.receipts) {
+		t.Fatalf("schema-1 recording played to %d of %d, mismatch %v: %v", p.Tick(), rec.ticks, p.Mismatch(), err)
+	}
+
+	newer := rewriteHeader(t, rec.data, func(h *replay.Header) { h.Identity.Protocol = netproto.CommandSchemaVersion + 1 }, keep)
+	r, err := replay.NewReader(newer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := replay.Compose(r.Header(), replay.Content{FS: fs}); err == nil {
+		t.Fatal("a recording from a newer command schema composed")
 	}
 }

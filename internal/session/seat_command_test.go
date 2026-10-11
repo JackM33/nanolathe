@@ -176,8 +176,16 @@ func TestSeatCommandKindNumbers(t *testing.T) {
 			t.Fatalf("pair %d: seat kind %d, local kind %d", i, p.seat, p.human)
 		}
 	}
-	if SeatCommunityKickout != 34 || SeatShareMetal != 35 || SeatShootAll != 45 || SeatGameplay != 255 {
+	if SeatCommunityKickout != 34 || SeatShootAll != 45 || SeatGameplay != 255 {
 		t.Fatal("reserved kind numbers moved")
+	}
+	// The sharing and alliance kinds of command schema version 2, in the
+	// order §7.4.2 reserved them.
+	for i, k := range []SeatCommandKind{SeatShareMetal, SeatShareEnergy, SeatShareMapping, SeatShareRadar, SeatShareAll,
+		SeatSetShareMetal, SeatSetShareEnergy, SeatShareGift, SeatDeclareAlliance, SeatSharedVictory} {
+		if k != SeatCommandKind(35+i) {
+			t.Fatalf("sharing kind %d is number %d, want %d", i, k, 35+i)
+		}
 	}
 	if OnlineCommand != 1 || SinglePlayerReplay != 2 || CommandApplied != 1 || CommandNoOp != 2 || CommandRejected != 3 {
 		t.Fatal("context or outcome numbers moved")
@@ -248,6 +256,21 @@ func TestEnqueueSeatCommandCopiesPayloadStorage(t *testing.T) {
 	expectOutcome(t, f.tick()[0], CommandApplied)
 	if f.queueLen(f.own1a) == 0 || f.queueLen(f.own1b) != 0 {
 		t.Fatal("the queued command followed the caller's reused slice")
+	}
+}
+
+// A gift's actor list is variable storage too: the queued copy never aliases
+// the caller's slice.
+func TestSeatCommandCloneCopiesGiftActors(t *testing.T) {
+	actors := []pool.UnitRef{{Handle: 1, Serial: 1}}
+	c := SeatCommand{Kind: SeatShareGift, ShareGift: ShareGiftPayload{Target: 1, Actors: actors}}
+	copied := c.clone()
+	actors[0] = pool.UnitRef{Handle: 2, Serial: 2}
+	if copied.ShareGift.Actors[0] != (pool.UnitRef{Handle: 1, Serial: 1}) {
+		t.Fatal("the cloned gift followed the caller's reused slice")
+	}
+	if (SeatCommand{Kind: SeatShareGift}).clone().ShareGift.Actors != nil {
+		t.Fatal("cloning an empty gift allocated a list")
 	}
 }
 
@@ -365,8 +388,9 @@ func TestOnlineForeignActorRejectsTheWholeCommand(t *testing.T) {
 }
 
 // Kinds that wait for M5's perspectives, local interface kinds, local
-// preferences, the lobby-only rule switch and unlisted numbers are refused
-// online, before mutation, even with the cheat permission (§7.4.2, §16.2).
+// preferences, the lobby-only rule switch, the reserved ShootAll and unlisted
+// numbers are refused online, before mutation, even with the cheat
+// permission (§7.4.2, §16.2).
 func TestOnlineUnavailableKindsAreRejected(t *testing.T) {
 	f := newSeatFixture(t, true, true)
 	m5 := []SeatCommand{
@@ -376,9 +400,6 @@ func TestOnlineUnavailableKindsAreRejected(t *testing.T) {
 		{Kind: SeatVisibility, Visibility: VisibilityPayload{ToggleMask: 1}},
 		{Kind: SeatDoubleShot},
 		{Kind: SeatHalfShot},
-	}
-	for k := SeatShareMetal; k <= SeatShootAll; k++ {
-		m5 = append(m5, SeatCommand{Kind: k})
 	}
 	for _, c := range m5 {
 		r := f.issue(t, 1, c)
@@ -390,7 +411,7 @@ func TestOnlineUnavailableKindsAreRejected(t *testing.T) {
 	for _, c := range []SeatCommand{
 		{Kind: SeatSelectionReplace}, {Kind: SeatBuildPage}, {Kind: SeatGroupRecall}, {Kind: SeatBigBrother},
 		{Kind: SeatNoShake}, {Kind: SeatSetLogo, SetLogo: SetLogoPayload{Player: 1, Logo: 3}},
-		{Kind: SeatGameplay, Gameplay: GameplayPayload{Mode: gameplay.Strict31}}, {Kind: 0}, {Kind: 46}, {Kind: 200},
+		{Kind: SeatGameplay, Gameplay: GameplayPayload{Mode: gameplay.Strict31}}, {Kind: SeatShootAll}, {Kind: 0}, {Kind: 46}, {Kind: 200},
 	} {
 		expectOutcome(t, f.issue(t, 1, c), CommandRejected)
 	}

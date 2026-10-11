@@ -2697,6 +2697,7 @@ rule 2 still runs it before the later respawn.
 - Outside the tick the ending bit is set by: the quit confirmation; the Continue-Watching dialog's `No`; the two leave routines; the developer win and lose commands; and the unreachable type-`0x1c` peer-loss notice arm when its payload names this machine's own human (ending set, won cleared).
 - Session setup arms the countdown at −1; battle entry and teardown clear the latch.
 - A hosted computer player's defeat or victory is never evaluated: the end-condition block runs for the own row only. Its elimination only closes its own settlement gate, lowers the live-hosted-computer count, and posts the line.
+- The pair gates one thing: the settlement call of every row the machine simulates ([05 R-ECO-01 §1] gates 6–7). Neither word has a reader in the per-unit visit, the order pumps, the construction step, the weapon update, the unit allocators or the computer planner, and the manager entry, strategic refresh and LOS sweep precede the gate in the same phase. A hosted computer whose machine is counting down or has latched `ending` therefore keeps planning, ordering, moving, firing, creating units and building — construction on the carry its last settlement left, free where that carry was non-positive and stalled where it was positive — with its stock, capacities and the archived rates its planner reads frozen at the last pass; [05 R-ECO-01 §1] "construction under a refused settlement" gives the arithmetic and how the next pass charges the work in arrears.
 - Another machine's defeat, watch entry or ending changes nothing here except through: arriving kill records; the defeated player's re-broadcast lobby record (its watch bit removes it from the victory sweep and the live-human count); and, if it leaves, the removal path.
 
 #### Counters
@@ -2748,6 +2749,37 @@ appears, and its two answers are [07 R-FE-01 §9]. Otherwise, when a human is
 still playing (the second counter of [R-SESS-01 §1]), it posts `You are placed
 in watch mode because you are hosting AI players which are still alive.  If
 you exit, they will be terminated.` and clears the latch's `won` bit.
+
+**A hosting machine's own defeat and its computer — Established.** The watch
+branch writes neither the ending bit nor the countdown; the due that enters
+it has just taken the countdown from 0 to −1, and the branch leaves it
+there. Because a machine hosting a live computer always satisfies the watch
+branch's disjunction, whatever the host's watching-allowed bit says, **a
+hosting human's defeat never sets the ending bit** and never reaches the
+Continue-Watching question. The hosted computer's settlement gate
+([05 R-ECO-01 §1] gates 6–7) is therefore refused on exactly five
+consecutive dues — the arming due and the four that count down — and passes
+again on the sixth, when the countdown reads −1 and the latch is clear. The
+battleroom row order of [R-SKIR-01 §13] decides which five: with the own
+human's row below its computer's, the refusals are the dues on which the
+computer's row reads the countdown at 4, 3, 2, 1 and 0; with the rows the
+other way round the window shifts by one due. It is five dues either way,
+so the open item on which row a joiner's own human takes does not reach the
+count. During those dues the computer keeps playing and building on its frozen
+carry, and the sixth due settles the accumulated work in one pass
+([05 R-ECO-01 §1] "construction under a refused settlement"). Afterwards the
+own row's block polls victory instead of defeat (its watch bit is set), so
+the countdown is next armed only by the won path — the computer's side
+eliminating every opponent with the shared-victory conditions of "Victory
+detection" met — which refuses the computer for five more dues and then sets
+`ending` and `won`; by the no-human post-loop site of [R-SESS-01 §1], which
+counts a watching human as not playing; or by the out-of-tick writers (the
+quit confirmation, the leave routines, the developer commands, the
+unreachable peer-loss arm). After any ending the machine's rows are refused
+until the session pump's end transition, which in kind 3 also waits for the
+participant-snapshot exchange with every remote human ([R-CAMP-01 §6]), and
+the leave path then removes the human and its computers together
+([R-LEAVE-01 §9]).
 
 **The direct ending — Established.** In every other case — skirmish (kind 2),
 a local player already removed from the game, or multiplayer with watching
@@ -6130,7 +6162,7 @@ rows; the remaining rows from their arms and the cited sections):
 | `0x0a` attachment | Attaches or detaches any living unit and any carrier. For an attached unit this machine simulates, with a carrier named, it flushes the unit's queue and installs the carried-unit record. | None. |
 | `0x0b` damage | Kind 10 adds health, capped at the maximum. Kind 2 adds or extends the paralyze record on a locally simulated, non-immune victim. Other kinds subtract; below 1 marks a local victim dying and clamps a remote one at 0. | None, for victim or attacker. |
 | `0x0c` death | Full death of the named living unit, with kill credit, cargo cascade and elimination announcement. | None. |
-| `0x14` transfer | Acts only where the named new owner is simulated on this machine. Allocates a replacement of the named unit's definition at its position in the new owner's range, taking health, build fraction and stockpile bytes from the packet. The named unit is not removed by this packet. | None. |
+| `0x14` transfer | Acts only where the named new owner is simulated on this machine. Allocates a finished replacement of the named unit's definition, at the receiver's own mirror position, in the new owner's range through the ordinary allocator; takes health, the whole-number build fraction, the orientation triple and the per-slot stockpile bytes from the packet, replays the mirror's operational byte, and defaults everything else. The named unit is not removed by this packet; the giver's death packet does that ([05 R-WORK-01 §15]). | None. |
 | `0x2c` unit state | Movement state and scheduled status for units addressed by a signed 16-bit index from the sender's first unit, ending at all-ones. The stated tick becomes the sender's progress word. | Implicit in the relative index, but the index is not range-checked against the sender's range. |
 | `0x10`, `0x11`, `0x12` | Start any authored script with four arguments on any living unit; apply a state transition; make a build link. | None in the arms; bodies not re-read. |
 | `0x16` sharing | [05 R-SHARE-01 §4]. | None. |
@@ -6307,7 +6339,7 @@ the table alone as a complete framing grammar.
 | `0x11` | 4 | 4 | **Unit state transition.** `+1` u16 unit, `+3` u8 state. The handler applies the value once and its complement once, driving the Activate, Deactivate, StartBuilding, and StopBuilding edges. |
 | `0x12` | 5 | 4 | Build-related command. `+1` u16, `+3` u16. |
 | `0x13` | 18 | 7 | **Play a sound.** Selector u8, sound identity i32, three-component world position. Receiver uses position only for selector zero; both audited emitters set selector one. Recorder taxonomy reports 19 bytes, unverified in the available corpus. |
-| `0x14` | 24 | 4 | **Ownership transfer**, used by capture and the share screen’s unit gift; only the named new owner’s machine acts. `+1` u16, `+3` i32, remainder read by the handler. |
+| `0x14` | 24 | 4 | **Ownership transfer**, used by capture and the share screen’s unit gift; only the named new owner’s machine acts. `+1` u16 unit, `+3` i32 new-owner identity, `+7` i32 remaining-build fraction truncated to a whole number, `+11` i32 sign-extended 16-bit health (the receiver reads the low 16 bits), `+15` u16 bank, `+17` u16 heading, `+19` u16 pitch, `+21`..`+23` stockpiled-round bytes of weapon slots 0–2 (zero unless the giver's slot 0 is enabled). Broadcast from the old owner's identity; the receiver's copy rules are [05 R-WORK-01 §15]. |
 | `0x15` | 1 | 6 | Sets a per-player flag, gated on a global bit. No payload; the sender comes from the transport. |
 | `0x16` | 17 | 4 | **Resource and explored-memory sharing** ([05 R-SHARE-01 §3], [05 R-SHARE-01 §4]). `+1` u32 subtype — only the exact values 1 (energy), 2 (metal) and 3 dispatch — `+5` u32 source DPID, `+9` u32 dest DPID, `+13` f32 amount. Subtype 3 asks the receiver to copy the source player's explored-memory bits to the destination player ([05 R-SHARE-01 §6]); it carries no map data, and both of its producers write zero in the amount field. Sent to the destination player alone. |
 | `0x17` | 2 | 7 | `+1` u8. Session control. |

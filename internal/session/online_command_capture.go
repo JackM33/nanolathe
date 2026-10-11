@@ -101,6 +101,52 @@ func (s *Session) CaptureOnlineCommand(c HumanCommand) (SeatCommand, error) {
 			out.BuilderOptions.Guard[i] = uint8(c.BuilderOptions.Options.Guard[i])
 			out.BuilderOptions.Patrol[i] = uint8(c.BuilderOptions.Options.Patrol[i])
 		}
+	case HumanGive:
+		// `+Give p n metal`: the stamped seat is the source online and the
+		// payload names the recipient (§7.1, §7.4).
+		p := c.Give
+		if p.Player < 0 || p.Player > 9 {
+			return SeatCommand{}, onlineCaptureError("give.player", "a recipient 0..9")
+		}
+		out.Kind, out.Give = SeatGive, GivePayload{Player: uint8(p.Player), Resource: p.Resource, Amount: p.Amount}
+	case HumanCommunityKickout:
+		ref, err := s.captureKickoutUnit(c.CommunityKickout)
+		if err != nil {
+			return SeatCommand{}, err
+		}
+		c.refs.unit = ref
+		out.Kind = SeatCommunityKickout
+		out.CommunityKickout = CommunityKickoutPayload{Unit: ref,
+			Destination: CommandPoint{X: c.CommunityKickout.X, Y: c.CommunityKickout.Y, Z: c.CommunityKickout.Z}}
+	case HumanShareMetal:
+		out.Kind, out.ShareMetal = SeatShareMetal, ShareMetalPayload{On: c.ShareOption.On}
+	case HumanShareEnergy:
+		out.Kind, out.ShareEnergy = SeatShareEnergy, ShareEnergyPayload{On: c.ShareOption.On}
+	case HumanShareMapping:
+		out.Kind, out.ShareMapping = SeatShareMapping, ShareMappingPayload{On: c.ShareOption.On}
+	case HumanShareRadar:
+		out.Kind, out.ShareRadar = SeatShareRadar, ShareRadarPayload{On: c.ShareOption.On}
+	case HumanShareAll:
+		out.Kind, out.ShareAll = SeatShareAll, ShareAllPayload(c.ShareAll)
+	case HumanSetShareMetal:
+		out.Kind, out.SetShareMetal = SeatSetShareMetal, SetShareMetalPayload{Amount: c.ShareThreshold.Amount}
+	case HumanSetShareEnergy:
+		out.Kind, out.SetShareEnergy = SeatSetShareEnergy, SetShareEnergyPayload{Amount: c.ShareThreshold.Amount}
+	case HumanShareGift:
+		// The selection as a set in ascending handle order, the order the
+		// transfer visits it [05 R-SHARE-01 §5].
+		p := c.ShareGift
+		out.Kind = SeatShareGift
+		out.ShareGift = ShareGiftPayload{Target: p.Target, Metal: p.Metal, Energy: p.Energy,
+			Actors: sortedUniqueRefs(c.refs.actors), MapInfo: p.MapInfo}
+		if len(out.ShareGift.Actors) == 0 {
+			out.ShareGift.Actors = nil
+		}
+	case HumanDeclareAlliance:
+		out.Kind = SeatDeclareAlliance
+		out.DeclareAlliance = DeclareAlliancePayload{Target: c.DeclareAlliance.Target, Value: c.DeclareAlliance.Value}
+	case HumanSharedVictory:
+		out.Kind, out.SharedVictory = SeatSharedVictory, SharedVictoryPayload{On: c.SharedVictory.On}
 	default:
 		return SeatCommand{}, onlineCaptureError("kind", fmt.Sprintf("a supported play-test command, got %d", c.Kind))
 	}
@@ -113,7 +159,30 @@ func (s *Session) CaptureOnlineCommand(c HumanCommand) (SeatCommand, error) {
 	if why := s.seatSchema(OnlineCommand, &out); why != "" {
 		return SeatCommand{}, onlineCaptureError("payload", why)
 	}
+	// The cheat permission is every receiver's to enforce (§7.2); the sender
+	// refuses first what no receiver would admit, such as a negative gift in
+	// a room without it.
+	if why := s.onlinePermission(&out); why != "" {
+		return SeatCommand{}, onlineCaptureError("payload", why)
+	}
 	return out, nil
+}
+
+// captureKickoutUnit names the unit a Community kickout gesture drew on: the
+// handle's current allocation, which must still be the unit the client's
+// published frame showed under that identity, as the local adapter's check
+// requires (publishedHumanUnit). Ownership stays the receiver's to judge.
+func (s *Session) captureKickoutUnit(c HumanCommunityKickoutCommand) (pool.UnitRef, error) {
+	if c.Unit == 0 {
+		return pool.UnitRef{}, onlineCaptureError("communityKickout.unit", "a unit")
+	}
+	if s.publication != nil {
+		ids := s.publication.unitIdentities
+		if c.InstanceID == 0 || int(c.Unit) >= len(ids) || ids[c.Unit].id != c.InstanceID || ids[c.Unit].unit != s.Units.Unit(c.Unit) {
+			return pool.UnitRef{}, onlineCaptureError("communityKickout.instanceID", "the published unit the gesture named")
+		}
+	}
+	return s.captureRef(c.Unit), nil
 }
 
 func (s *Session) validateOnlineCaptureRefs(refs localRefs) error {

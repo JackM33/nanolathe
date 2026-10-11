@@ -19,6 +19,16 @@ import (
 // payload. Clock pacing, seat-command queues/receipts/issuer, result views,
 // rulesDefaultsApplied, player names/colours, publication/snapshot/scratch,
 // diagnostics, observers, HUD and device state remain excluded (§16.3.5).
+//
+// runtime.Wind is a tag byte: bit 0 is the wind's presence, as the presence
+// byte always was, and bit 1 says the session is an online battle, whose
+// changeable seat state follows at its lexical place,
+// runtime.onlineResults.sharedVictory — each row's shared-victory bit, which
+// the SharedVictory seat command writes (online_alliance.go). A
+// single-player session writes the tag as the presence byte and no section,
+// so its bytes are unchanged. The online alliance matrix needs no section of
+// its own: it is economy's row A of every player, already in that owner's
+// payload; the lobby teams are configuration.
 func (s *Session) writeCheckpointRuntime(e *checkpoint.Encoder, keys *content.CheckpointKeys, boundary CheckpointBoundary) error {
 	if e == nil {
 		return runtimeCheckpointError("runtime", "an encoder")
@@ -102,7 +112,14 @@ func (s *Session) writeCheckpointRuntime(e *checkpoint.Encoder, keys *content.Ch
 	e.Field("runtime.ViewingOwner")
 	e.U8(s.ViewingOwner)
 	e.Field("runtime.Wind")
-	e.Bool(s.Wind != nil)
+	var tag uint8
+	if s.Wind != nil {
+		tag |= 1
+	}
+	if s.onlineResults != nil {
+		tag |= 2
+	}
+	e.U8(tag)
 	if s.Wind != nil {
 		if err := s.Wind.WriteCheckpoint(e); err != nil {
 			return err
@@ -130,6 +147,12 @@ func (s *Session) writeCheckpointRuntime(e *checkpoint.Encoder, keys *content.Ch
 	e.I64(int64(s.deathsWithNoRecordedCause))
 	e.Field("runtime.noShake")
 	e.Bool(s.noShake)
+	if s.onlineResults != nil {
+		e.Field("runtime.onlineResults.sharedVictory")
+		for _, v := range s.onlineResults.sharedVictory {
+			e.Bool(v)
+		}
+	}
 	e.Field("runtime.pendingCommanderDeaths")
 	for _, v := range s.pendingCommanderDeaths {
 		e.Bool(v)

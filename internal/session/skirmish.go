@@ -928,6 +928,20 @@ func composeSkirmish(entry skirmishEntry, options SkirmishEntryOptions, audio vf
 		// result rows carried a nickname fallback the setup row stopped
 		// answering after a load.
 		p.Name = skirmishSlotName(ctrlState, int(p.Side))
+		// Online, a human's record carries its player's own name instead, as
+		// retail's multiplayer rows do: the slot initializer copies the
+		// configured player name for the local player's slot, and admission
+		// reads a joining player's names from the transport
+		// [08 R-AI-01 §14] [08 R-SKIR-01 §13]. Here it is the configuration
+		// row's nickname, which every seat agrees through the configuration
+		// digest (DESIGN_MULTIPLAYER §8.6); a row without one keeps the
+		// conversion's name. It is presentation: no checkpoint, unit checksum
+		// or fingerprint reads it.
+		if entry.online != nil && i < len(entry.online.request.Seats) {
+			if seat := &entry.online.request.Seats[i]; seat.Role == MatchRoleHuman && seat.Nickname != "" {
+				p.Name = seat.Nickname
+			}
+		}
 		p.GameEnded = false
 		p.EndGameCountdown = -1
 	}

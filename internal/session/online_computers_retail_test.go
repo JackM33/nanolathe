@@ -56,11 +56,13 @@ func onlineScriptedRun(t *testing.T, s *Session, config EffectiveMatchConfig, ti
 }
 
 // A human-only online battle is bit-identical to the one released clients
-// compute: the rehearsal digest and an 1,800-tick scripted run of two- and
-// three-seat skirmish and Survival rooms on the reference install are the
-// values recorded before online computer seats were admitted. A change to
-// them is a protocol change for every human-only room, which released clients
-// would refuse at Ready.
+// compute: an 1,800-tick scripted run of two- and three-seat skirmish and
+// Survival rooms on the reference install gives the values recorded before
+// online computer seats were admitted, and the rehearsal digest the values
+// re-recorded for rehearsal v3, whose script adds the sharing and alliance
+// commands (the run drives the movement, build and fire script alone). A
+// change to them is a protocol change for every human-only room, which
+// released clients would refuse at Ready.
 func TestOnlineHumanOnlyRoomsAreLocked(t *testing.T) {
 	for _, tc := range []struct {
 		name      string
@@ -71,19 +73,19 @@ func TestOnlineHumanOnlyRoomsAreLocked(t *testing.T) {
 		final     string
 	}{
 		{"two seats", false, []uint8{0, 0},
-			"92404bbc9317764e35a72fd05223528ce13471cff98a96e1b8c70b120c50149d",
+			"3991e492aab92fd560799beaf49a0a88916b055c2f3ddaf16f5e4ac5d6df1319",
 			"ddf7f0fdf27408d251f098e5366b8dd0f2d1b011792f7a600c3cdf3523d098d7",
 			"636e71d3c35447e094f074f55e2acf88036ada86059ee1340025e5a40ca192cc"},
 		{"three seats", false, []uint8{0, 0, 0},
-			"2439c2183e531e74272df2909f424f4bf5b53aad15731a399ed10a7b5c92fba6",
+			"5ba0f5eee87de4b646b8e93751d52f2e53ef3adecdd2f3fb4f8f80bc613539cf",
 			"7e4cb57f427941d237df914b9b672be6cc0445ca60cc87c99f432c08ca6c74e3",
 			"25ef2f3e16580b8f6dbbfb0a89a8fe2c912d58952a630f1b74a38a418a863a89"},
 		{"two survivors", true, []uint8{0, 0},
-			"93d6ccc47d81e94b943f4b77d86a71fc71388c9e0c4175011662e24c1c81675f",
+			"b7a8bfe395a00ffe5a8ede5980e0cd626218ee6a4fab66110fd053d31538929f",
 			"9e6bd2b49eca961147fd013d1fd661d5cbc3081941a60249e55fdd54c21a1be5",
 			"55c8d0cee569aaab56ad70902b0ff7d3d71481a79bfaa58011d78ef49fe5c18c"},
 		{"three survivors", true, []uint8{0, 0, 0},
-			"192f1dda8ffdea7ff9b9749c22b5c5a576d60bfff4f649cda94ac949c1a79dab",
+			"af5fce2691ae294e4bef0ad1be0595e5cfa59da30728114029954a3af2091fa1",
 			"dd8184a0385b3974f0de7bc2118ae9dd5a5adca1debcec58fa296e8ed7cf3009",
 			"2f14c30e90aadc9058f479217d154b5b2619943ba0a11403330ac8532faa67f3"},
 	} {

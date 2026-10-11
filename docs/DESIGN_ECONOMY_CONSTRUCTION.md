@@ -140,6 +140,27 @@ exactly once and never redoes the source's threshold or capacity tests
 `[05 R-SHARE-01 §4]` — has no transport in a single-player build and no code
 here.
 
+**Online sharing** (`share.go`). An online battle replaces `ShareTick` with
+`ShareTickSeats`, retail's dispatcher run for every human seat in ascending
+order, each as its own machine would run it, with the periodic map share
+handed back to the session's explored-history copy (DESIGN_MULTIPLAYER
+§6.3, §6.7 Q25). The share options and thresholds are per-player record
+state written only by online seat commands (`SetShareOption`,
+`SetShareThreshold`); `RadarShareOwners` gives the sensor pass the owners
+whose units a viewer's radar treats as friendly `[03 R-VIS-01 §7]`. The
+excess, capacity gap and ratio products are float64 transients at working
+precision; only the chosen amount is stored as float32
+`[05 R-SHARE-01 §3]` (I2). Single-player keeps `ShareTick`.
+
+**Unit gifts** (`internal/construction/gift.go`). `GiftUnits` is the SHARE
+screen's unit sharing: the giver's units in ascending identifier order,
+leaving out airborne, carried or carrying units and commanders, each handed
+to the ownership transfer under the local or the remote branch the session
+chooses `[05 R-SHARE-01 §5]` `[05 R-WORK-01 §15]`. The remote branch
+captures the unit, removes it with 30,000 kind-4 damage on the giver's side
+and allocates a finished copy for the new owner at its position. Each
+visited unit reports transferred, excluded, refused, not owned or lost.
+
 **Save boxes** (`retail_save.go`, `retail_restore.go`). The detached per-unit
 account image is twelve single-precision words in two consecutive resource
 halves, energy before metal `[08 R-SAVE-02 §7]`.

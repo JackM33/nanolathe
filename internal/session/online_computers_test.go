@@ -23,13 +23,14 @@ import (
 // present humans. These are Nanolathe lobby and protocol values, not retail
 // data.
 
-// A human-only online battle on the authored install rehearses exactly as
-// it did before online computer seats were admitted: the value is the one
-// recorded then, so released clients and this build agree at Ready.
+// A human-only online battle on the authored install rehearses to a locked
+// digest, so released clients and this build agree at Ready. The value was
+// re-recorded for rehearsal v3, whose script adds the sharing and alliance
+// commands (rehearsal.go); a change is a protocol change.
 func TestOnlineHumanOnlyFixtureRehearsalIsLocked(t *testing.T) {
 	config := rehearsalFixtureConfig(t, nil)
 	got := rehearsalDigestOf(t, rehearsalFixtureInputs(t, config), config, 0)
-	if want := "f9367cbfad4bd3621389861584a8dcdac1ba9da398d60b6c2ba6c002d9b52039"; hex.EncodeToString(got[:]) != want {
+	if want := "88155af5e41396289d51ca4aeb8de46380005d584021b6c42b0af9b1e512921d"; hex.EncodeToString(got[:]) != want {
 		t.Fatalf("rehearsal digest %x, want %s", got, want)
 	}
 }
@@ -242,9 +243,14 @@ func settledOnTick(s *Session, player int, tick uint32) bool {
 // the host, so the computer settles through the host's whole countdown and
 // after it, and the battle goes on for the other human. Strict 3.1 keeps
 // retail's machine-wide countdown: the host's countdown gates its hosted
-// computer's settlement from the due that arms it [05 R-ECO-01 §1]
-// [08 R-SKIR-01 §3]. Online admission is Modern-only, so the Strict answer is
-// exercised here at the seam and its gate.
+// computer's settlement from the due that arms it, for exactly five dues; on
+// the sixth the host takes the watch branch rather than the ending, because
+// its machine hosts a live computer, so the countdown is −1 again with the
+// ending bit clear and the computer settles once more [05 R-ECO-01 §1]
+// [08 R-SKIR-01 §3] "A hosting machine's own defeat and its computer". The
+// watching host is out of play but not ended, its result a defeat. Each
+// reserved set's answer is exercised here at the seam and its gate, on a
+// fixture bound to that set.
 func TestHostedComputerOutlivesItsDefeatedHost(t *testing.T) {
 	if !(StrictSeats{}).ComputersStopWithHost() || (ModernSeats{}).ComputersStopWithHost() ||
 		CommunityRuleSet().Seats.ComputersStopWithHost() || !StrictRuleSet().Seats.ComputersStopWithHost() ||
@@ -268,38 +274,61 @@ func TestHostedComputerOutlivesItsDefeatedHost(t *testing.T) {
 			t.Fatalf("%s: the computer did not settle while its host played", tc.name)
 		}
 		onlineResultKill(t, s, h[0])
-		ended := false
+		ended, refused := false, 0
 		for tick := uint32(30); tick <= 30*12; tick += 30 {
 			settled := settledOnTick(s, 2, tick)
 			host := &s.Econ.Players[0]
-			if host.EndGameCountdown < 0 && !host.GameEnded {
-				t.Fatalf("%s: the host's defeat did not arm at tick %d", tc.name, tick)
-			}
 			computer := &s.Econ.Players[2]
 			if tc.gated {
-				if settled || computer.EndGameCountdown != host.EndGameCountdown || computer.GameEnded != host.GameEnded {
-					t.Fatalf("%s: tick %d: computer settled %v under its host's countdown %d/%v (its own %d/%v)", tc.name, tick, settled, host.EndGameCountdown, host.GameEnded, computer.EndGameCountdown, computer.GameEnded)
+				// The arming due and the four that count down refuse the
+				// computer; from the sixth the watch branch has left the
+				// countdown at −1 with the ending bit clear.
+				window := tick <= 150
+				if settled == window || computer.EndGameCountdown != host.EndGameCountdown || computer.GameEnded != host.GameEnded ||
+					host.GameEnded || (host.EndGameCountdown >= 0) != window || host.Watcher == window {
+					t.Fatalf("%s: tick %d: computer settled %v under its host's countdown %d/%v watching %v (its own %d/%v)",
+						tc.name, tick, settled, host.EndGameCountdown, host.GameEnded, host.Watcher, computer.EndGameCountdown, computer.GameEnded)
 				}
-			} else if !settled || computer.EndGameCountdown != -1 || computer.GameEnded {
-				t.Fatalf("%s: tick %d: the computer stopped with its host (settled %v, countdown %d, ended %v)", tc.name, tick, settled, computer.EndGameCountdown, computer.GameEnded)
+				if !settled {
+					refused++
+				}
+			} else {
+				if host.EndGameCountdown < 0 && !host.GameEnded {
+					t.Fatalf("%s: the host's defeat did not arm at tick %d", tc.name, tick)
+				}
+				if !settled || computer.EndGameCountdown != -1 || computer.GameEnded {
+					t.Fatalf("%s: tick %d: the computer stopped with its host (settled %v, countdown %d, ended %v)", tc.name, tick, settled, computer.EndGameCountdown, computer.GameEnded)
+				}
 			}
 			ended = ended || host.GameEnded
 			if s.onlineResults.seats[1].latch.IsEnding() || s.OnlineBattleEnded() {
 				t.Fatalf("%s: the other human's battle ended at tick %d", tc.name, tick)
 			}
 		}
-		if !ended {
-			t.Fatalf("%s: the host's countdown never ended", tc.name)
+		if ended == tc.gated {
+			t.Fatalf("%s: the host's ending bit set %v, want %v", tc.name, ended, !tc.gated)
+		}
+		if tc.gated && refused != 5 {
+			t.Fatalf("%s: the computer was refused on %d dues, want 5", tc.name, refused)
+		}
+		if r := s.ResultForSeat(0); r.Kind != "defeat" || r.Ended == tc.gated {
+			t.Fatalf("%s: the host's result %+v", tc.name, r)
 		}
 		if r := s.ResultForSeat(2); r.Kind != "" {
 			t.Fatalf("%s: the computer has a result row %+v", tc.name, r)
 		}
 		// The computer is an opponent in the victory sweep: the surviving
-		// human wins only once it is gone.
+		// human wins only once it is gone, and its ending ends the battle
+		// whether the host latched or watches.
 		onlineResultKill(t, s, h[2])
-		s.tickPlayers(30 * 13)
-		if r := s.ResultForSeat(1); r.Kind != "victory" {
-			t.Fatalf("%s: the last human's result %+v once the computer is gone", tc.name, r)
+		for tick := uint32(30 * 13); tick <= 30*18; tick += 30 {
+			s.tickPlayers(tick)
+		}
+		if r := s.ResultForSeat(1); r.Kind != "victory" || !r.Ended || !s.OnlineBattleEnded() {
+			t.Fatalf("%s: the last human's result %+v once the computer is gone, battle ended %v", tc.name, r, s.OnlineBattleEnded())
+		}
+		if tc.gated && (s.Econ.Players[0].GameEnded || s.ResultForSeat(0).Ended) {
+			t.Fatalf("%s: the watching host's row ended", tc.name)
 		}
 	}
 }

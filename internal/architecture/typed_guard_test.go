@@ -661,6 +661,7 @@ var float64ScopeAllowances = map[string]float64Allowance{
 	"internal/sim/checkpoint/encoder.go func *Encoder.F64":             {1, "I2 exact stored binary64 bits for canonical diagnostics; no floating arithmetic (DESIGN_MULTIPLAYER §16.3.6)"},
 	"internal/orders/scans.go func patrolResourceAtLeastTwenty":        {3, "I2 patrol stored stock/capacity and binary64 threshold constant compared at working precision [04 R-ORD-01 §4]"},
 	"internal/orders/scans.go func resourceFits":                       {3, "I2 patrol stored stock plus stored feature value compared without narrowing [04 R-ORD-01 §4]"},
+	"internal/economy/share.go func *Service.shareSeatResource":        {7, "I2 automatic-share ratios, and excess, gap and product compared at working precision [05 R-SHARE-01 §3][01 §8]"},
 	"internal/ai/strategic.go func classify":                           {8, "I2 net-energy query stored inputs and working-precision return [05 R-PROD-01 §1]"},
 	"internal/ai/strategic.go func *Strategic.classify":                {1, "I2 net-energy query result forwarded without a single store [05 R-PROD-01 §1]"},
 	"internal/ai/strategic.go func *Strategic.recomputeClassVectors":   {25, "I2 class coefficients retain working precision between explicit single stores [08 R-P0-05 §5]"},

@@ -158,9 +158,9 @@ func TestCaptureOnlineCommandRefusesUnsupportedAndNarrowing(t *testing.T) {
 		}
 	}
 	for _, kind := range []HumanCommandKind{0, HumanSelectionReplace, HumanBuildPage, HumanGroupRecall, HumanNoShake, HumanATM,
-		HumanSetResource, HumanSetLogo, HumanView, HumanGive, HumanMakeSelectable, HumanVisibility, HumanDoubleShot,
+		HumanSetResource, HumanSetLogo, HumanView, HumanMakeSelectable, HumanVisibility, HumanDoubleShot,
 		HumanHalfShot, HumanMeteor, HumanBigBrother, HumanShiftState, HumanSpawn, HumanCommunityOrderDrag,
-		HumanCommunityKickout, HumanDeveloperSpawn, HumanGameplay, 254} {
+		HumanDeveloperSpawn, HumanGameplay, 45, 254} {
 		if _, err := f.s.CaptureOnlineCommand(HumanCommand{Kind: kind}); err == nil {
 			t.Fatalf("unsupported kind %d captured", kind)
 		}
@@ -185,6 +185,10 @@ func TestCaptureOnlineCommandRefusesUnsupportedAndNarrowing(t *testing.T) {
 		{Kind: HumanStance, Stance: HumanStanceCommand{Value: -1}},
 		{Kind: HumanCancelQueuedMove},
 		{Kind: HumanBuilderOptions, BuilderOptions: HumanBuilderOptionsCommand{Options: orders.BuilderOptions{Guard: [3]orders.GuardHomeOption{3}}}},
+		{Kind: HumanGive, Give: HumanGiveCommand{Player: -1, Amount: 1}},
+		{Kind: HumanGive, Give: HumanGiveCommand{Player: 1}}, // zero needs the cheat permission (§15 Q8)
+		{Kind: HumanCommunityKickout, CommunityKickout: HumanCommunityKickoutCommand{Unit: f.own0, X: 1 << 48}},
+		{Kind: HumanShareGift, ShareGift: HumanShareGiftCommand{Handles: []pool.Handle{0}}},
 	}
 	streams, checksum := f.streams(), f.s.UnitStateChecksum()
 	for i, in := range bad {

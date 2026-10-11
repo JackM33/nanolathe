@@ -19,7 +19,7 @@ import (
 // can (§7.4.1, §7.4.4).
 type CommandContext uint8
 
-// The two contexts of command schema version 1. The numbers are protocol
+// The two contexts of every command schema version. The numbers are protocol
 // constants.
 const (
 	OnlineCommand      CommandContext = 1
@@ -68,17 +68,17 @@ const (
 	SeatBuilderOptions     SeatCommandKind = 32 // S
 	SeatCommunityOrderDrag SeatCommandKind = 33 // D: known-site admission needs M5
 	SeatCommunityKickout   SeatCommandKind = 34 // S
-	SeatShareMetal         SeatCommandKind = 35 // D, reserved: no v1 payload
-	SeatShareEnergy        SeatCommandKind = 36 // D, reserved
-	SeatShareMapping       SeatCommandKind = 37 // D, reserved
-	SeatShareRadar         SeatCommandKind = 38 // D, reserved
-	SeatShareAll           SeatCommandKind = 39 // D, reserved
-	SeatSetShareMetal      SeatCommandKind = 40 // D, reserved
-	SeatSetShareEnergy     SeatCommandKind = 41 // D, reserved
-	SeatShareGift          SeatCommandKind = 42 // D, reserved
-	SeatDeclareAlliance    SeatCommandKind = 43 // D, reserved
-	SeatSharedVictory      SeatCommandKind = 44 // D, reserved
-	SeatShootAll           SeatCommandKind = 45 // D, cheat, reserved
+	SeatShareMetal         SeatCommandKind = 35 // D, online, schema 2
+	SeatShareEnergy        SeatCommandKind = 36 // D, online, schema 2
+	SeatShareMapping       SeatCommandKind = 37 // D, online, schema 2
+	SeatShareRadar         SeatCommandKind = 38 // D, online, schema 2
+	SeatShareAll           SeatCommandKind = 39 // D, online, schema 2
+	SeatSetShareMetal      SeatCommandKind = 40 // D, online, schema 2
+	SeatSetShareEnergy     SeatCommandKind = 41 // D, online, schema 2
+	SeatShareGift          SeatCommandKind = 42 // D, online, schema 2
+	SeatDeclareAlliance    SeatCommandKind = 43 // D, online, schema 2
+	SeatSharedVictory      SeatCommandKind = 44 // D, online, schema 2
+	SeatShootAll           SeatCommandKind = 45 // D, cheat, reserved: no payload
 	SeatDeveloperSpawn     SeatCommandKind = 46 // R: authorized local developer submission
 	SeatGameplay           SeatCommandKind = 255
 )
@@ -270,6 +270,92 @@ type CommunityKickoutPayload struct {
 	Destination CommandPoint
 }
 
+// The sharing and alliance payloads, kinds 35..44, exist from command schema
+// version 2 and only in the online context: retail's share commands, SHARE
+// screen and Allies window act only in a networked session [07 R-CAM-01 §6]
+// [05 R-SHARE-01 §5], so they have no single-player replay form (§7.4.2).
+// Each acts on the issuing seat. Their admission and application are the
+// receiver's (seat_command_apply.go).
+//
+// Design reading, a Nanolathe wire choice: retail's option commands flip a
+// bit [05 R-SHARE-01 §3] and its ally click flips a declaration
+// [05 R-SHARE-01 §1]; the wire carries the value the sender's flip produces
+// from the state it shows, so a repeated or delayed press sets that value
+// again rather than flipping twice. The applied effect is retail's toggle.
+
+// ShareMetalPayload is kind 35, `+ShareMetal`: the issuing seat's
+// share-metal option set to On.
+type ShareMetalPayload struct {
+	On bool
+}
+
+// ShareEnergyPayload is kind 36, `+ShareEnergy`.
+type ShareEnergyPayload struct {
+	On bool
+}
+
+// ShareMappingPayload is kind 37, `+ShareMapping`.
+type ShareMappingPayload struct {
+	On bool
+}
+
+// ShareRadarPayload is kind 38, `+ShareRadar`.
+type ShareRadarPayload struct {
+	On bool
+}
+
+// ShareAllPayload is kind 39. Retail's `+ShareAll` is the four toggles in
+// sequence, each flipping its own option [07 R-CAM-01 §6], so its explicit
+// form carries each option's new value rather than one value for all four.
+type ShareAllPayload struct {
+	Metal, Energy, Mapping, Radar bool
+}
+
+// SetShareMetalPayload is kind 40, `+SetShareMetal n`: the typed integer
+// [07 R-CAM-01 §6]. Its conversion and the storage-capacity substitution are
+// the applier's.
+type SetShareMetalPayload struct {
+	Amount int32
+}
+
+// SetShareEnergyPayload is kind 41, `+SetShareEnergy n`.
+type SetShareEnergyPayload struct {
+	Amount int32
+}
+
+// ShareGiftPayload is kind 42, one confirmation of the SHARE screen
+// [05 R-SHARE-01 §5]: the target seat; the metal and energy amounts its
+// sliders read back through truncation to a whole signed 32-bit number, zero
+// meaning none; the issuer's units to transfer, empty when the units box is
+// unchecked or nothing is selected; and the map-information box. Whether a
+// negative amount is admitted is the receiver's question (§15 Q8).
+//
+// The gift visits the units in ascending unit-identifier order, the order
+// retail's gather walks the giver's slice [05 R-SHARE-01 §5]; the capture
+// sends the selection in that order (CaptureOnlineCommand), so it decides
+// which units transfer when the target's slice fills.
+type ShareGiftPayload struct {
+	Target  uint8
+	Metal   int32
+	Energy  int32
+	Actors  []pool.UnitRef
+	MapInfo bool
+}
+
+// DeclareAlliancePayload is kind 43, an Allies-window ally click
+// [07 R-FE-01 §7]: the issuing seat's declaration toward Target set to Value
+// [05 R-SHARE-01 §1].
+type DeclareAlliancePayload struct {
+	Target uint8
+	Value  bool
+}
+
+// SharedVictoryPayload is kind 44, the Allies window's OK writing its
+// VICTORY box into the issuing seat's shared-victory bit [07 R-FE-01 §7].
+type SharedVictoryPayload struct {
+	On bool
+}
+
 // DeveloperSpawnPayload is kind 46, a single-player replay record. Pattern
 // is a canonical key with '*'/'?' interpreted by the retail default handler.
 // Owner is the typed integer's low byte, including values the allocator refuses.
@@ -313,6 +399,16 @@ type SeatCommand struct {
 	BuilderOptions     BuilderOptionsPayload
 	CommunityOrderDrag CommunityOrderDragPayload
 	CommunityKickout   CommunityKickoutPayload
+	ShareMetal         ShareMetalPayload
+	ShareEnergy        ShareEnergyPayload
+	ShareMapping       ShareMappingPayload
+	ShareRadar         ShareRadarPayload
+	ShareAll           ShareAllPayload
+	SetShareMetal      SetShareMetalPayload
+	SetShareEnergy     SetShareEnergyPayload
+	ShareGift          ShareGiftPayload
+	DeclareAlliance    DeclareAlliancePayload
+	SharedVictory      SharedVictoryPayload
 	Gameplay           GameplayPayload
 }
 
@@ -329,6 +425,7 @@ func (c SeatCommand) clone() SeatCommand {
 	c.Cloak.Actors = cloneRefs(c.Cloak.Actors)
 	c.SelfDestruct.Actors = cloneRefs(c.SelfDestruct.Actors)
 	c.CancelQueuedMove.Actors = cloneRefs(c.CancelQueuedMove.Actors)
+	c.ShareGift.Actors = cloneRefs(c.ShareGift.Actors)
 	return c
 }
 

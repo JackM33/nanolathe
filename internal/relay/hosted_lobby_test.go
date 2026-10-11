@@ -82,7 +82,9 @@ func TestHostedLobbyDescribeReadyAndStart(t *testing.T) {
 			address = s.Addr()
 		}
 		options := HostedDialOptions{InsecureLoopback: true}
-		host := openLobbyTest(t, address, "", 0, []byte("configuration"), options)
+		named := options
+		named.Name = "Host"
+		host := openLobbyTest(t, address, "", 0, []byte("configuration"), named)
 		awaitLobby(t, host, "the host's seat", present(false))
 		if len(host.Code()) != hostedCodeLength || host.Seat() != 0 {
 			t.Fatalf("room %q seat %d", host.Code(), host.Seat())
@@ -92,7 +94,14 @@ func TestHostedLobbyDescribeReadyAndStart(t *testing.T) {
 		}
 		joiner := openLobbyTest(t, address, host.Code(), 1, nil, options)
 		awaitLobby(t, host, "both seats", present(true))
-		awaitLobby(t, joiner, "both seats", present(true))
+		awaitLobby(t, joiner, "both seats and the host's name", func(s HostedLobbyState, err error) bool {
+			return present(true)(s, err) && s.Seats[0].Name == "Host" && s.Seats[0].Chat && s.Seats[1].Name == "" && s.Seats[1].Chat
+		})
+		// Chat crosses the lobby on either transport (§12.2).
+		if err := joiner.SendChat(1<<0, "ready when you are"); err != nil {
+			t.Fatal(err)
+		}
+		awaitChat(t, host.DrainChat, HostedChatLine{Seat: 1, Text: "ready when you are"})
 		if _, err := describeTest(address, host.Code(), options); err == nil || !strings.Contains(err.Error(), "unoccupied seat") {
 			t.Fatalf("describe of a full room: %v", err)
 		}
@@ -275,6 +284,17 @@ func openSizedLobby(t *testing.T, address string, size int, config []byte, optio
 // host sees them all.
 func readyAll(t *testing.T, host *HostedLobby, lobbies ...*HostedLobby) {
 	t.Helper()
+	// The relay welcomes a joiner before its room handles the join, which
+	// clears every seat's readiness; wait until the room shows every seat
+	// present, so no join can clear a ready set below.
+	awaitLobby(t, host, "everyone present", func(s HostedLobbyState, err error) bool {
+		for _, l := range lobbies {
+			if !s.Seats[l.Seat()].Present {
+				return false
+			}
+		}
+		return err == nil
+	})
 	for _, l := range lobbies {
 		if err := l.SetReady(true, [32]byte{1}, [32]byte{2}); err != nil {
 			t.Fatal(err)
@@ -541,11 +561,18 @@ func TestHostedStatusPage(t *testing.T) {
 	address := "ws://" + s.Addr() + "/relay"
 	options := HostedDialOptions{InsecureLoopback: true}
 	host := openSizedLobby(t, address, 4, []byte{1}, options)
-	joiner := openLobbyTest(t, address, host.Code(), 1, nil, options)
+	named := options
+	named.Name = "Zanzibar Quill"
+	joiner := openLobbyTest(t, address, host.Code(), 1, nil, named)
 	if err := joiner.SetTeam(3); err != nil {
 		t.Fatal(err)
 	}
 	awaitLobby(t, host, "the joiner's team", func(s HostedLobbyState, err error) bool { return err == nil && s.Seats[1].Team == 3 })
+	// Chat is counted, never shown.
+	if err := joiner.SendChat(1<<0, "Quokka whisper"); err != nil {
+		t.Fatal(err)
+	}
+	awaitChatTotals(t, s, 1, 0)
 	for _, path := range []string{"/status", "/status.json"} {
 		response, err := http.Get("http://" + s.Addr() + path)
 		if err != nil {
@@ -553,15 +580,15 @@ func TestHostedStatusPage(t *testing.T) {
 		}
 		body, _ := io.ReadAll(response.Body)
 		_ = response.Body.Close()
-		if response.StatusCode != http.StatusOK || bytes.Contains(body, []byte(host.Code())) {
-			t.Fatalf("%s: %d, code shown: %v", path, response.StatusCode, bytes.Contains(body, []byte(host.Code())))
+		if response.StatusCode != http.StatusOK || bytes.Contains(body, []byte(host.Code())) || bytes.Contains(body, []byte("Zanzibar")) || bytes.Contains(body, []byte("Quokka")) {
+			t.Fatalf("%s: %d, code, name or chat shown: %s", path, response.StatusCode, body)
 		}
 		if path == "/status.json" {
 			var st HostedStatus
 			if err := json.Unmarshal(body, &st); err != nil {
 				t.Fatal(err)
 			}
-			if st.Protocol != hostedVersion || st.Lobbies != 1 || st.Players != 2 || len(st.Rooms) != 1 || st.Rooms[0].Size != 4 || len(st.Rooms[0].Seats) != 2 || st.Rooms[0].Seats[1].Team != 3 {
+			if st.Protocol != hostedVersion || st.Lobbies != 1 || st.Players != 2 || len(st.Rooms) != 1 || st.Rooms[0].Size != 4 || len(st.Rooms[0].Seats) != 2 || st.Rooms[0].Seats[1].Team != 3 || st.Totals.ChatRelayed != 1 {
 				t.Fatalf("status: %+v", st)
 			}
 		} else if !bytes.Contains(body, []byte("Room 1")) {

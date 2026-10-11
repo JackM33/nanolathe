@@ -18,6 +18,7 @@ import (
 	"github.com/nanolathe-gg/nanolathe/internal/session"
 	"github.com/nanolathe-gg/nanolathe/internal/settings"
 	"github.com/nanolathe-gg/nanolathe/internal/sim/numeric"
+	"github.com/nanolathe-gg/nanolathe/internal/ui"
 	"github.com/nanolathe-gg/nanolathe/internal/units"
 )
 
@@ -242,7 +243,7 @@ func (b *battleSession) megamapCentreCamera(x, y int32) {
 // it is shown and the point lies in the battle viewport it covers, not under a
 // battle child window [draw-engine-interface "Input while shown"].
 func (b *battleSession) megamapOwnsPointer(x, y int32) bool {
-	if b == nil || !b.megamap.shown || b.battleState().HasOptionsLayer() || unitInfoCovers(x, y) {
+	if b == nil || !b.megamap.shown || b.battleState().Modal() != ui.BattleModalClosed || unitInfoCovers(x, y) {
 		return false
 	}
 	return b.megamapLens().ContainsView(x, y) && b.overWorld(x, y)

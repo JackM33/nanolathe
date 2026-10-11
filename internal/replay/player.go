@@ -48,6 +48,9 @@ type Player struct {
 	r      *Reader
 	online bool
 	ctx    session.CommandContext
+	// schema is the recorded command schema version, which may be older
+	// than the one this build speaks.
+	schema uint16
 	tick   uint32
 	final  uint32
 	// runCount pumps of runTicks ticks are read and not yet run.
@@ -96,7 +99,7 @@ func NewPlayer(s *session.Session, r *Reader) (*Player, error) {
 	if s.OnlineCommandContext() != h.Kind.Online() {
 		return nil, fmt.Errorf("nanolathe: replay playback refused: logical path session, providers searched [replay format v%d], expected a battle of the replay's %s kind", FormatVersion, h.Kind)
 	}
-	p := &Player{s: s, r: r, online: h.Kind.Online(), ctx: h.Kind.commandContext()}
+	p := &Player{s: s, r: r, online: h.Kind.Online(), ctx: h.Kind.commandContext(), schema: h.Identity.Protocol}
 	if summary, err := Summarize(r.data); err == nil {
 		p.final = summary.FinalTick
 	}
@@ -254,7 +257,7 @@ func (p *Player) readChecksums() {
 // enqueue decodes a recorded command and queues it for phase 1 of its tick
 // with its recorded stamp.
 func (p *Player) enqueue(e Entry) error {
-	c, err := session.DecodeSeatCommand(p.ctx, e.Payload)
+	c, err := session.DecodeSeatCommandVersion(p.schema, p.ctx, e.Payload)
 	if err != nil {
 		return fmt.Errorf("%w: %w", formatError(fmt.Sprintf("command at tick %d position %d", e.Tick, e.Position), "a command this build decodes"), err)
 	}

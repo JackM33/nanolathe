@@ -243,7 +243,7 @@ func (r *LocalRelay) run() {
 				return
 			}
 			if !e.peer.registered {
-				h, err := decodeLocalHello(e.body)
+				h, err := decodeLocalHello(e.body, netproto.CommandSchemaVersion)
 				if err == nil && h.Seat > 1 {
 					err = localError("hello seat", "seat 0 or 1")
 				}
@@ -340,18 +340,19 @@ func (r *LocalRelay) run() {
 	}
 }
 
-// LocalClient supports one ReadGrant reader, concurrent serialized Submit and
-// Acknowledge and OpeningReady writers, and Close from any goroutine
-// (DESIGN_MULTIPLAYER §16.4.2, §16.5.2).
+// LocalClient supports one ReadGrant reader, concurrent serialized Submit,
+// Acknowledge, OpeningReady and SendChat writers, and Close and DrainChat
+// from any goroutine (DESIGN_MULTIPLAYER §16.4.2, §16.5.2, §12.2).
 type LocalClient struct {
 	conn          net.Conn
 	idle          time.Duration // zero for the loopback prototype
 	maxCommand    int           // the hosted relay's smaller per-command bound, or zero
 	writeMu       sync.Mutex
-	version       uint16      // zero for the loopback prototype
-	started       atomic.Bool // Started consumed by the lobby or grant reader
-	autoOpening   bool        // direct streams have no presentation opening
-	openingReady  bool        // writeMu: marker already sent
+	version       uint16         // zero for the loopback prototype
+	started       atomic.Bool    // Started consumed by the lobby or grant reader
+	autoOpening   bool           // direct streams have no presentation opening
+	openingReady  bool           // writeMu: marker already sent
+	chatRate      hostedChatRate // writeMu: the sender's own rate limit
 	sequence      uint64
 	readTick      uint32
 	readPosition  uint64
@@ -359,13 +360,15 @@ type LocalClient struct {
 	traffic       trafficCounter
 	progressMu    sync.Mutex
 	progress      *HostedMatchProgress // the latest report; never modified
+	chatMu        sync.Mutex
+	chat          []HostedChatLine // chatMu: unread lines, oldest first
 }
 
 func DialLocal(ctx context.Context, address string, hello LocalHello) (*LocalClient, error) {
 	if err := localAddress(address, false); err != nil {
 		return nil, err
 	}
-	body, err := encodeLocalHello(hello)
+	body, err := encodeLocalHello(hello, netproto.CommandSchemaVersion)
 	if err != nil {
 		return nil, err
 	}
@@ -425,7 +428,8 @@ func (c *LocalClient) Submit(payload []byte) (uint64, error) {
 // ReadGrant waits for a sealed tick. Both terminal ACKs end it with io.EOF.
 // A sequence refusal is reported without closing the connection; other relay
 // failures abort the room. The prototype host may abort on either error.
-// A hosted relay's progress reports are consumed here and kept for Progress.
+// A hosted relay's progress reports and chat lines are consumed here and kept
+// for Progress and DrainChat; neither is ever a grant.
 func (c *LocalClient) ReadGrant() (LocalGrant, error) {
 	if c == nil {
 		return LocalGrant{}, localError("client", "a connected client")
@@ -449,6 +453,13 @@ func (c *LocalClient) ReadGrant() (LocalGrant, error) {
 		if body[0] == hostedProgressMessage {
 			// Host diagnostics, not a grant (§16.5.2).
 			if err := c.recordProgress(body); err != nil {
+				return LocalGrant{}, err
+			}
+			continue
+		}
+		if body[0] == hostedChatMessage {
+			// Chat never enters the stream (§12.2).
+			if err := c.recordChat(body); err != nil {
 				return LocalGrant{}, err
 			}
 			continue
@@ -516,14 +527,14 @@ func (c *LocalClient) ReadGrant() (LocalGrant, error) {
 }
 
 // OpeningReady reports that this seat finished its local presentation opening.
-// Hosted version-7 clients may call it after Started; it sends one marker,
-// serialized with Submit and Acknowledge. Earlier protocols and the loopback
-// prototype need no marker (DESIGN_MULTIPLAYER §16.5.2, §16.6.1).
+// Hosted clients may call it after Started; it sends one marker, serialized
+// with Submit and Acknowledge. The loopback prototype needs no marker
+// (DESIGN_MULTIPLAYER §16.5.2, §16.6.1).
 func (c *LocalClient) OpeningReady() error {
 	if c == nil {
 		return localError("client", "a connected client")
 	}
-	if c.version < hostedOpeningVersion {
+	if c.version == 0 {
 		return nil
 	}
 	c.writeMu.Lock()

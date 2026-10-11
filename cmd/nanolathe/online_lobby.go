@@ -1,8 +1,9 @@
 package main
 
 // The online lobby (DESIGN_MULTIPLAYER §16.6, §16.6.2): the room code, a row
-// per present player with their team, side, colour and readiness, a row per
-// computer player the host added (§6.6), the host's settings until Start,
+// per present player with their name, team, side, colour and readiness, a row
+// per computer player the host added (§6.6), the host's settings — the rule
+// set among them — until Start, the players' chat (online_lobby_chat.go),
 // Ready, Start and Leave. It is the authored SKIRMISH.GUI window, whose ten
 // runtime rows, side art, colours and allegiance symbols already fit a
 // ten-player room, opened as the front end's skirmish screen. Its own controls
@@ -12,11 +13,13 @@ import (
 	"fmt"
 	"slices"
 	"strconv"
+	"strings"
 
 	"github.com/nanolathe-gg/nanolathe/formats"
 	"github.com/nanolathe-gg/nanolathe/internal/ai"
 	"github.com/nanolathe-gg/nanolathe/internal/client"
 	"github.com/nanolathe-gg/nanolathe/internal/content"
+	"github.com/nanolathe-gg/nanolathe/internal/gameplay"
 	"github.com/nanolathe-gg/nanolathe/internal/gui"
 	"github.com/nanolathe-gg/nanolathe/internal/relay"
 	"github.com/nanolathe-gg/nanolathe/internal/session"
@@ -37,6 +40,11 @@ const (
 	lobbyCode      = "CODE"
 	lobbyReadyHead = "READYHEAD"
 	lobbyLevelHead = "LEVELHEAD"
+	// lobbyRules is the host's rule-set control under its lobbyRulesLabel.
+	lobbyRules      = "RULES"
+	lobbyRulesLabel = "RULESLABEL"
+	// lobbyChatLine is the chat's text line (online_lobby_chat.go).
+	lobbyChatLine = "CHATLINE"
 	// lobbyLevel names a row's difficulty caption, lobbyLevel+"n" over
 	// Energy n.
 	lobbyLevel  = "LEVEL"
@@ -75,11 +83,13 @@ type onlineRoomState struct {
 	readyJob *onlineReadyJob
 	prepared *onlinePrepared
 	readyErr error
+
+	chat onlineLobbyChat
 }
 
 // onlineRoomKey is what the final configuration depends on: the base
-// configuration and every seat's presence, team, side and colour. A prepared
-// battle is valid only while the key is unchanged.
+// configuration and every seat's presence, team, side, colour and name. A
+// prepared battle is valid only while the key is unchanged.
 type onlineRoomKey struct {
 	base  [32]byte
 	seats [relay.HostedMaxSeats]relay.HostedSeatState
@@ -89,7 +99,7 @@ func (r *onlineRoomState) key() onlineRoomKey {
 	k := onlineRoomKey{base: r.base.Digest()}
 	for i, seat := range r.state.Seats {
 		if seat.Present {
-			k.seats[i] = relay.HostedSeatState{Present: true, Team: seat.Team, Side: seat.Side, Color: seat.Color}
+			k.seats[i] = relay.HostedSeatState{Present: true, Team: seat.Team, Side: seat.Side, Color: seat.Color, Name: onlineLobbyName(seat)}
 		}
 	}
 	return k
@@ -151,11 +161,13 @@ func (r *onlineRoomState) lobbyRows() []onlineLobbyRow {
 }
 
 // canAddComputer reports whether the host may add a computer now that the
-// room has these players (onlineCanAddComputer). Before the relay's first
-// state the room has no players, the host included, and no row.
+// room has these players (onlineCanAddComputer) and its rule set lets the
+// host add another (onlineComputerCap). Before the relay's first state the
+// room has no players, the host included, and no row.
 func (r *onlineRoomState) canAddComputer() bool {
 	humans := len(r.presentSeats())
-	return r.isHost() && r.cat != nil && humans > 0 && onlineCanAddComputer(r.settings.survival, r.capacity, humans, len(r.settings.computers))
+	return r.isHost() && r.cat != nil && humans > 0 && onlineCanAddComputer(r.settings.survival, r.capacity, humans, len(r.settings.computers)) &&
+		len(r.settings.computers) < onlineComputerCap(r.settings.rules)
 }
 
 // computerColors are the colours the host's computers take beside the
@@ -167,8 +179,11 @@ func (r *onlineRoomState) computerColors() []uint8 {
 
 // buildOnlineLobbyWindow shapes a SKIRMISH.GUI clone, with its ten runtime
 // rows installed, into the lobby. Difficulty becomes the game type, Survival's
-// controls are the Survival setup screen's clones, the metal column shows
-// readiness, and the room code takes the free space beside the title.
+// controls are the Survival setup screen's clones, the Rules control follows
+// them in their row as Select Map's clone — the stage buttons' art leaves
+// "Community 3.9" no room beside its lights — the metal column shows
+// readiness, the room code takes the free space beside the title, and the
+// chat's text line runs along the bottom.
 func buildOnlineLobbyWindow(window *gui.Window) {
 	index := func(name string) int { return window.GadgetIndex(name) }
 	labelOf := func(text string) int {
@@ -219,6 +234,8 @@ func buildOnlineLobbyWindow(window *gui.Window) {
 		b.Rect.X, b.Rect.Y = int32(x0+col*pitch), buttonY
 		added = append(added, label(c.labelName, c.caption, int32(x0+col*pitch), labelY, 117), b)
 	}
+	rules := button(lobbyRules, gameplayLabel(gameplay.Modern), x0+2*pitch, buttonY)
+	added = append(added, label(lobbyRulesLabel, "Rules", x0+2*pitch, labelY, 117), rules)
 	added = append(added,
 		label(lobbyRoomLabel, "Room code", 300, 12, 160),
 		label(lobbyCode, "", 300, 28, 170),
@@ -246,7 +263,22 @@ func buildOnlineLobbyWindow(window *gui.Window) {
 	if i := index("PrevMenu"); i >= 0 {
 		window.Gadgets[i].Text, window.Gadgets[i].Labels = "Leave", nil
 	}
+	// The status line takes two rows, and stops short of the right column,
+	// so a longer reason or help reads whole.
+	if i := index(lobbyStatus); i >= 0 {
+		r := &window.Gadgets[i].Rect
+		r.Y, r.W, r.H = onlineStatusY, onlineStatusW, onlineStatusH
+	}
+	buildOnlineChatLine(window)
 }
+
+// The lobby's status line: two rows of the label face between the settings
+// band and the map field's heading, clear of the right-hand column.
+const (
+	onlineStatusY = 328
+	onlineStatusW = 420
+	onlineStatusH = 26
+)
 
 func splitStages(stages string) []string {
 	var out []string
@@ -377,8 +409,8 @@ func (g *gameShell) leaveOnlineLobby(status string) {
 
 // pollOnlineLobby follows the room each step: a failure returns to the online
 // screen with its reason, a new base configuration is adopted, cleared
-// readiness is explained, a finished check reports Ready, and Started enters
-// the battle.
+// readiness is explained, a finished check reports Ready, chat arrives, and
+// Started enters the battle.
 func (g *gameShell) pollOnlineLobby() {
 	r := &g.online.room
 	state, err := r.lobby.State()
@@ -390,7 +422,11 @@ func (g *gameShell) pollOnlineLobby() {
 		g.startOnlineBattle(state)
 		return
 	}
-	changed := state != r.state
+	if clPtr != nil {
+		g.cancelOnlineChatOnRightPress(clPtr.Input())
+	}
+	changed := g.syncOnlineChatCapture()
+	changed = state != r.state || changed
 	if state.ConfigVersion != r.baseVersion {
 		r.baseVersion = state.ConfigVersion
 		// The host already holds what it sent; an echo of an earlier change
@@ -413,6 +449,10 @@ func (g *gameShell) pollOnlineLobby() {
 			r.ready, r.notice = false, onlineReadyClearedReason(r.state, state)
 		}
 		r.state = state
+	}
+	// Chat after the state, so a line names a sender who has just joined.
+	if g.pollOnlineChat() {
+		changed = true
 	}
 	if job := r.readyJob; job != nil {
 		select {
@@ -530,6 +570,8 @@ func (g *gameShell) refreshOnlineLobby() {
 	}
 	p.SetActive(lobbyLevelHead, len(r.settings.computers) > 0)
 	g.refreshOnlineLobbySettings(host)
+	g.refreshOnlineRules(host)
+	g.refreshOnlineChat()
 	p.SetText("MapName", r.baseReq.MapName)
 	p.SetActive(lobbyCopy, onlineClipboardAvailable())
 	ready := "Ready"
@@ -560,22 +602,26 @@ func (r *onlineRoomState) lobbyTeams() []uint8 {
 	return teams
 }
 
-// refreshOnlineHumanRow writes a present player's row: "Player n", marked
-// (You) or (Host), their side, colour, team and readiness.
+// refreshOnlineHumanRow writes a present player's row: their name — the
+// display name their hello carried, or "Player n" — marked (You) or (Host),
+// their side, colour, team and readiness. A name too long for the button
+// beside its mark is shortened with "..." so the mark stays; the help names
+// the player in full.
 func (g *gameShell) refreshOnlineHumanRow(row, seatIndex int, teams []uint8) {
 	r := &g.online.room
 	p := r.panel
 	local := r.lobby.Seat()
 	suffix := strconv.Itoa(row)
 	seat := r.state.Seats[seatIndex]
-	caption := "Player " + strconv.Itoa(row+1)
+	name := r.seatDisplayName(seatIndex)
+	mark := ""
 	switch {
 	case uint8(seatIndex) == local:
-		caption += " (You)"
+		mark = " (You)"
 	case seatIndex == 0:
-		caption += " (Host)"
+		mark = " (Host)"
 	}
-	p.SetText("Player"+suffix, caption)
+	p.SetText("Player"+suffix, g.fitOnlineRowCaption(p, "Player"+suffix, name, mark))
 	p.SetStatus("Player"+suffix, 0)
 	p.SetStatus("Side"+suffix, 0)
 	p.SetStageAt(p.Index("Side"+suffix), clampMenuStage(int(seat.Side), g.onlineSideCount()))
@@ -600,16 +646,52 @@ func (g *gameShell) refreshOnlineHumanRow(row, seatIndex int, teams []uint8) {
 		p.SetHelp("Color"+suffix, "This player's colour.")
 		p.SetHelp("Allies"+suffix, "This player's team.")
 	}
-	help := ""
+	p.SetHelp("Player"+suffix, onlinePlayerHelp(name, seatIndex == 0, own))
+}
+
+// onlinePlayerHelp is a player row's help: who the player is, by name, and
+// what the host does.
+func onlinePlayerHelp(name string, host, own bool) string {
 	switch {
-	case seatIndex == 0 && own:
-		help = "You are the host: you choose the settings and start the game."
-	case seatIndex == 0:
-		help = "The host chooses the settings and starts the game."
+	case host && own:
+		return "You are " + name + ", the host: you choose the settings and start the game."
+	case host:
+		return name + " is the host, who chooses the settings and starts the game."
 	case own:
-		help = "This is you."
+		return "This is you, " + name + "."
 	}
-	p.SetHelp("Player"+suffix, help)
+	return "This is " + name + "."
+}
+
+// fitOnlineRowCaption is a player's name with its mark, in the width the
+// row's name button gives a caption, the name shortened with "..." when the
+// two do not fit.
+func (g *gameShell) fitOnlineRowCaption(p *ui.Panel, gadget, name, mark string) string {
+	i := p.Index(gadget)
+	if i < 0 {
+		return name + mark
+	}
+	gad := p.Window.Gadgets[i]
+	measure, _ := g.retailTextMetrics(g.windowGadgetFont(p, gad))
+	return onlineFitCaption(name, mark, measure, int(gad.Rect.W)-onlineCaptionInset)
+}
+
+// onlineCaptionInset is the part of a name button's width the caption keeps
+// clear: the centred pen's offset and the art's bevel on either side.
+const onlineCaptionInset = 8
+
+// onlineFitCaption shortens name with "..." until name and mark fit width.
+func onlineFitCaption(name, mark string, measure func(string) int, width int) string {
+	if measure(name+mark) <= width {
+		return name + mark
+	}
+	for cut := len(name) - 1; cut > 0; cut-- {
+		short := strings.TrimRight(name[:cut], " ") + "..."
+		if measure(short+mark) <= width {
+			return short + mark
+		}
+	}
+	return "..." + mark
 }
 
 // refreshOnlineComputerRow writes one of the host's computers: its AI named
@@ -748,6 +830,40 @@ func (g *gameShell) refreshOnlineLobbySettings(host bool) {
 	}
 }
 
+// onlineRulesHelp describes each rule set, after the Nanolathe screen's words
+// (nlscreen_pages.go), in the Rules control's stage order.
+var onlineRulesHelp = [...]string{
+	"Strict 3.1: the original 3.1 game, faults included. One computer per human, and only the host adds computers.",
+	"Community 3.9: the original game plus the TA community patch's fixes and larger limits.",
+	"Modern: Community 3.9 plus Nanolathe's own fixes for movement, building and targeting.",
+}
+
+// refreshOnlineRules writes the Rules control: the room's rule set, which the
+// host may change and every guest sees. The mounted mod's minimum leaves
+// lower stages out, and a host with one stage left has nothing to change.
+func (g *gameShell) refreshOnlineRules(host bool) {
+	r := &g.online.room
+	p := r.panel
+	stage := max(onlineRulesStage(r.settings.rules), 0)
+	p.SetText(lobbyRules, gameplayLabel(gameplay.Mode(onlineRuleStages[stage])))
+	lowest := onlineLowestRulesStage(g.cs)
+	fixed := lowest == len(onlineRuleStages)-1
+	retailGreyGadget(p.Window, lobbyRules, !host || fixed)
+	help := onlineRulesHelp[stage]
+	switch {
+	case !host:
+		help = "The host chose these rules. " + help
+	case fixed:
+		help = "This mod plays only Modern rules. " + help
+	case lowest > 0:
+		help = "Click for this mod's other rules. " + help
+	default:
+		help = "Click to change the rules. " + help
+	}
+	p.SetHelp(lobbyRules, help)
+	p.SetHelp(lobbyRulesLabel, help)
+}
+
 // onlineTeamIcon is a row's allegiance symbol, as the setup screen draws an
 // alliance: no team is blank, and teams 1..5 are the five symbols, joined
 // when shared with another row of teams and split when alone
@@ -828,6 +944,17 @@ func (g *gameShell) activateOnlineLobbyGadget(name string) bool {
 		return false
 	}
 	r := &g.online.room
+	if r.chat.swallowRight {
+		// The right press that dropped the chat line does nothing else.
+		r.chat.swallowRight = false
+		return true
+	}
+	if name == lobbyChatLine {
+		// Chat stays open to a ready seat: it changes no setting.
+		g.playMenuCue("SmallButton")
+		g.activateOnlineChatLine()
+		return true
+	}
 	if r.readyJob == nil && r.ready && name != lobbyReady && name != lobbyCopy && name != "PrevMenu" && name != "Start" {
 		// A ready seat changes nothing; the relay would clear every seat.
 		return true
@@ -870,6 +997,11 @@ func (g *gameShell) activateOnlineLobbyGadget(name string) bool {
 		set.noAir = !set.noAir
 	case survivalSeaButton:
 		set.noNaval = !set.noNaval
+	case lobbyRules:
+		lowest := onlineLowestRulesStage(g.cs)
+		if set.rules = onlineNextRules(set.rules, 1, lowest); set.rules == r.settings.rules {
+			return true
+		}
 	default:
 		return true
 	}
@@ -894,6 +1026,10 @@ func nextOnlineLineOfSight(lineOfSight, losType uint8) (uint8, uint8) {
 // right click does [08 R-SKIR-01 §1].
 func (g *gameShell) activateOnlineColorBack(row int) {
 	if !g.onlineLobbyActive() || g.online.room.readyJob == nil && g.online.room.ready {
+		return
+	}
+	if r := &g.online.room; r.chat.swallowRight {
+		r.chat.swallowRight = false
 		return
 	}
 	g.playMenuCue("SmallButton")
@@ -1069,10 +1205,12 @@ func onlineColorHeld(state relay.HostedLobbyState, seat int, color uint8) bool {
 }
 
 // pushOnlineSettings is the host replacing the room's base configuration with
-// new settings, computers included, which every seat adopts. Its frozen part
-// — seeds, mod, mutators and restrictions — is unchanged. Survival keeps one
-// computer at most beside its two players, so a switch to Survival with more
-// is refused until the host removes them.
+// new settings, rule set and computers included, which every seat adopts. Its
+// frozen part — seeds, mod, mutators and restrictions — is unchanged; what
+// the rule set decides is resolved again (onlineFrozen). Survival keeps one
+// computer at most beside its two players, and Strict 3.1 one computer per
+// human, so a switch to either with more is refused until the host removes
+// them. A rule set below the mod's minimum is refused.
 func (g *gameShell) pushOnlineSettings(next onlineSettings) {
 	r := &g.online.room
 	if !r.isHost() || r.cat == nil {
@@ -1086,7 +1224,17 @@ func (g *gameShell) pushOnlineSettings(next onlineSettings) {
 		g.refreshOnlineLobby()
 		return
 	}
-	base, err := onlineBaseConfig(g.cs, r.cat, next, onlineFrozenOf(r.baseReq))
+	if len(next.computers) > onlineComputerCap(next.rules) {
+		r.notice = onlineStrictComputersText
+		g.refreshOnlineLobby()
+		return
+	}
+	if onlineRulesStage(next.rules) < onlineLowestRulesStage(g.cs) {
+		r.notice = "This game's mod needs " + gameplayLabel(gameplay.Mode(onlineRuleStages[onlineLowestRulesStage(g.cs)])) + " rules or newer."
+		g.refreshOnlineLobby()
+		return
+	}
+	base, err := onlineBaseConfig(g.cs, r.cat, next, onlineFrozenOf(g.cs, r.baseReq))
 	if err == nil {
 		var encoded []byte
 		if encoded, err = session.EncodeMatchConfig(base); err == nil {
@@ -1101,6 +1249,10 @@ func (g *gameShell) pushOnlineSettings(next onlineSettings) {
 	}
 	g.refreshOnlineLobby()
 }
+
+// onlineStrictComputersText is why the host cannot switch to Strict 3.1 with
+// more computers than it allows.
+const onlineStrictComputersText = "Strict 3.1 allows one computer per human, and only the host adds computers for now. Remove the others first."
 
 // openOnlineMapPicker opens the ordinary map selector over the lobby; its
 // choice is the skirmish map, which the room then plays.

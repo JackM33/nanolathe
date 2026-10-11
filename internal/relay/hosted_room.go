@@ -8,6 +8,10 @@ import (
 	"github.com/nanolathe-gg/nanolathe/internal/netproto"
 )
 
+// unknownMessage is the room's refusal of a client message kind it does not
+// serve.
+var unknownMessage = hostedError("client message", "ready, team, side, colour, configuration, start, opening-ready, chat, submit or acknowledgment after hello")
+
 type hostedEvent struct {
 	peer *hostedPeer
 	body []byte
@@ -191,7 +195,7 @@ func (r *hostedRoom) run() {
 	defer deadline.Stop()
 	var started bool
 	var opening bool
-	var openingReady [HostedMaxSeats]bool // by slot; legacy seats are implicit
+	var openingReady [HostedMaxSeats]bool // by slot
 	var configVersion uint32
 	stats := roomStats{created: r.created}
 
@@ -320,39 +324,57 @@ func (r *hostedRoom) run() {
 			seats[i].ready = false
 		}
 	}
+	// lobby sends every seat the lobby state in its own version: a version-7
+	// seat's bytes are unchanged, and only version 8 carries names and the
+	// chat bit (§12.2, §16.6.1).
 	lobby := func() error {
-		var w netproto.Writer
-		w.U8(hostedLobbyMessage)
-		w.U8(uint8(r.size))
-		flags := uint8(0)
-		if mismatch() {
-			flags |= hostedLobbyMismatch
-		}
-		w.U8(flags)
-		w.U32(configVersion)
+		st := HostedLobbyState{Size: r.size, Mismatch: mismatch(), ConfigVersion: configVersion}
 		for i := range r.size {
 			s := seats[i]
-			bits := uint8(0)
+			st.Seats[i] = HostedSeatState{Present: s.peer != nil, Ready: s.ready, Team: s.team, Side: s.side, Color: s.color}
 			if s.peer != nil {
-				bits |= 1
+				st.Seats[i].Name, st.Seats[i].Chat = s.peer.name, s.peer.version >= hostedChatVersion
 			}
-			if s.ready {
-				bits |= 2
-			}
-			w.U8(bits)
-			w.U8(s.team)
-			w.U8(s.side)
-			w.U8(s.color)
 		}
-		body := w.Bytes()
+		var bodies [hostedVersion - hostedMinVersion + 1][]byte
 		var err error
 		every(func(p *hostedPeer) {
+			body := &bodies[p.version-hostedMinVersion]
+			if *body == nil {
+				*body = encodeHostedLobby(st, p.version)
+			}
 			if err == nil {
-				err = enqueue(p, body, false)
+				err = enqueue(p, *body, false)
 			}
 		})
 		publish()
 		return err
+	}
+	// chat offers a line to each version-8 seat its sender names that is
+	// present and has not left, never to the sender itself. Seats keep their
+	// numbers after Start. A line beyond the sender's rate limit, or a
+	// delivery a recipient's queue cannot take, is dropped and counted; chat
+	// never fails a room (§12.2).
+	chat := func(from *hostedPeer, recipients uint16, text string) {
+		if !from.chatRate.allow(time.Now()) {
+			r.server.recordChat(0, 1)
+			return
+		}
+		body := encodeHostedChatLine(from.seat, text)
+		var delivered, dropped uint64
+		for i := range r.size {
+			q := seats[i].peer
+			if recipients&(1<<i) == 0 || q == nil || q == from || q.version < hostedChatVersion || (started && !progress.active[q.slot]) {
+				continue
+			}
+			if q.offer(body) {
+				stats.bytesOut += uint64(len(body))
+				delivered++
+			} else {
+				dropped++
+			}
+		}
+		r.server.recordChat(delivered, dropped)
 	}
 	configuration := func() []byte {
 		r.server.mu.Lock()
@@ -365,13 +387,12 @@ func (r *hostedRoom) run() {
 		w.Raw(config)
 		return w.Bytes()
 	}
-	// report sends every playing seat that spoke version 6 or later the
-	// match's progress and restarts the interval (§16.5.2). Version-5 seats
-	// receive exactly the stream they always did.
+	// report sends every playing seat the match's progress and restarts the
+	// interval (§16.5.2).
 	report := func() {
 		body := encodeHostedProgress(&progress, tick, func(slot int) time.Duration { return players[slot].rtt() })
 		for slot := range progress.n {
-			if p := players[slot]; progress.active[slot] && p.version >= hostedProgressVersion && p.report(body) {
+			if p := players[slot]; progress.active[slot] && p.report(body) {
 				stats.bytesOut += uint64(len(body))
 			}
 		}
@@ -420,7 +441,6 @@ func (r *hostedRoom) run() {
 				players[progress.n] = p
 				progress.active[progress.n] = true
 				progress.last[progress.n] = stats.startedAt
-				openingReady[progress.n] = p.version < hostedOpeningVersion
 				progress.n++
 			}
 		}
@@ -583,8 +603,8 @@ func (r *hostedRoom) run() {
 					finish(err, finishProtocol)
 					return
 				}
-				if !started || p.version < hostedOpeningVersion {
-					finish(hostedError("opening readiness", "a version-7 OpeningReady after Started"), finishProtocol)
+				if !started {
+					finish(hostedError("opening readiness", "an OpeningReady after Started"), finishProtocol)
 					return
 				}
 				openingReady[p.slot] = true
@@ -804,8 +824,21 @@ func (r *hostedRoom) run() {
 					ready = nil
 				}
 				arm()
+			case hostedChatMessage:
+				// Version 7 has no chat message: from such a seat it is as
+				// unknown as any other kind.
+				if p.version < hostedChatVersion {
+					finish(unknownMessage, finishProtocol)
+					return
+				}
+				recipients, text, err := decodeHostedChatRequest(e.body)
+				if err != nil {
+					finish(err, finishProtocol)
+					return
+				}
+				chat(p, recipients, text)
 			default:
-				finish(hostedError("client message", "ready, team, side, colour, configuration, start, opening-ready, submit or acknowledgment after hello"), finishProtocol)
+				finish(unknownMessage, finishProtocol)
 				return
 			}
 		}

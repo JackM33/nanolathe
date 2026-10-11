@@ -5,14 +5,14 @@ import (
 
 	"github.com/nanolathe-gg/nanolathe/internal/content"
 	"github.com/nanolathe-gg/nanolathe/internal/frame"
-	"github.com/nanolathe-gg/nanolathe/internal/gameplay"
 	"github.com/nanolathe-gg/nanolathe/internal/sim/numeric"
 	"github.com/nanolathe-gg/nanolathe/internal/units"
 	"github.com/nanolathe-gg/nanolathe/internal/visibility"
 	"github.com/nanolathe-gg/nanolathe/internal/world"
 )
 
-// NewPlaytestSkirmish composes an online battle under Modern gameplay
+// NewPlaytestSkirmish composes an online battle under one of the three
+// reserved rule sets, Strict 3.1, Community 3.9 or Modern
 // (DESIGN_MULTIPLAYER §16.4, §16.6): a skirmish of 2..10 humans on static
 // lobby teams, or Survival with 2..3 human survivors and the attacker row,
 // either joined by computer rows the room host added. The rows are the human
@@ -22,8 +22,10 @@ import (
 // most three survivors. The local seat selects presentation only and must be
 // a human row. Admission runs before world allocation; broader configurations
 // — watcher rows, a computer another seat hosts, cheats, watching, Deathmatch,
-// another rule set — remain explicitly refused. The name is the first slice's;
-// code and documents cite it.
+// a rule set a mod registered — remain explicitly refused. Configuration
+// validation already holds the set's own limits: its base, Strict's zero
+// Community table and its computers per human. The name is the first
+// slice's; code and documents cite it.
 //
 // Every client runs every computer, which borrows its host's perspective as
 // retail's hosted computer borrows its machine's sensor picture (§6.2, §6.6).
@@ -48,9 +50,14 @@ func NewPlaytestSkirmish(inputs *content.SimulationInputs, config EffectiveMatch
 	}
 	r := admitted.request
 	refuse := func() (*Session, error) {
-		return nil, matchAdmissionError(ErrMatchConfigurationRejected, inputs, "playtest", "a Modern online skirmish of 2..10 human seats or online Survival of 2..3 human survivors, joined by computers the host added up to ten rows, the map's start positions or three survivors, the local seat a human, with no cheats, watchers or Deathmatch (DESIGN_MULTIPLAYER §16.6)")
+		return nil, matchAdmissionError(ErrMatchConfigurationRejected, inputs, "playtest", "an online skirmish of 2..10 human seats or online Survival of 2..3 human survivors under Strict 3.1, Community 3.9 or Modern, joined by computers the host added up to ten rows, the map's start positions or three survivors, the local seat a human, with no cheats, watchers or Deathmatch (DESIGN_MULTIPLAYER §16.6)")
 	}
-	if r.RuleName != string(gameplay.Modern) || r.CommanderDeath == 2 || r.CheatsAllowed || r.WatchingAllowed {
+	switch r.RuleName {
+	case StrictRuleSetName, CommunityRuleSetName, ModernRuleSetName:
+	default:
+		return refuse()
+	}
+	if r.CommanderDeath == 2 || r.CheatsAllowed || r.WatchingAllowed {
 		return refuse()
 	}
 	// The human rows lead, then the host's computers; Survival's attacker is

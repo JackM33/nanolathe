@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"slices"
 	"strings"
 
 	"github.com/nanolathe-gg/nanolathe/formats"
@@ -143,10 +144,17 @@ func (b *battleSession) toggleEffectChatSetting(command string) {
 	b.saveDirectChatSetting(func(*settings.Settings) {})
 }
 
+// retailCheatCommands are the mask-2 (cheat) entries this build dispatches
+// [07 R-CAM-01 §6]; MakePoster is not implemented.
+var retailCheatCommands = []string{"radar", "atm", "view", "los", "mapping", "doubleshot", "halfshot", "nowisee", "meteor"}
+
 // dispatchLocalCommand handles the bounded command set currently owned by
 // the engine. Unknown names remain plain local chat and do not create a
-// placeholder command framework [07 R-CAM-01 §6][07 R-FE-02 §12].
-func (b *battleSession) dispatchLocalCommand(text string) {
+// placeholder command framework [07 R-CAM-01 §6][07 R-FE-02 §12]. It reports
+// whether the line ran a cheat entry: the dispatcher's returned mask has bit
+// 2, which sends the line as chat to everyone [07 R-CAM-01 §6]. Every cheat
+// here dispatches only in skirmish; online none dispatches.
+func (b *battleSession) dispatchLocalCommand(text string) (cheat bool) {
 	trimmed := strings.TrimLeft(text, " ")
 	if len(trimmed) == 0 || trimmed[0] != '+' {
 		return
@@ -161,12 +169,19 @@ func (b *battleSession) dispatchLocalCommand(text string) {
 		return
 	}
 	if b.onlineBattle() {
-		// The play test has no cheat permission or chat transport. Keep the
-		// established local interface gestures; refuse every other +command
-		// before developer dispatch and exact-unit spawn fallbacks.
+		// Online play has no cheat permission. Keep the established local
+		// interface gestures and the share commands; refuse every other
+		// +command before developer dispatch and exact-unit spawn fallbacks.
+		// The line is still sent as chat (commitLocalChat).
 		switch strings.ToLower(words[0]) {
 		case "bigbrother", "noshake", "logo", "switchalt", "fps", "net":
 			// Local displays and interface gestures only.
+		case "sharemetal", "shareenergy", "sharemapping", "shareradar", "shareall", "setsharemetal", "setshareenergy", "give":
+			// Seat commands acting for this seat (battle_share_commands.go).
+			if !b.onlineShareCommand(words) {
+				b.onlineNotice("This +command is unavailable in multiplayer games")
+			}
+			return
 		default:
 			b.onlineNotice("This +command is unavailable in multiplayer games")
 			return
@@ -175,6 +190,7 @@ func (b *battleSession) dispatchLocalCommand(text string) {
 	if b.developerCommand(words) {
 		return
 	}
+	cheat = b.sess != nil && battleSessionKind(b) == 2 && slices.Contains(retailCheatCommands, strings.ToLower(words[0]))
 	switch strings.ToLower(words[0]) {
 	case "light":
 		render.SetModelLight(int32(localCommandInt(words, 1)), int32(localCommandInt(words, 2)), int32(localCommandInt(words, 3)))
@@ -576,4 +592,5 @@ func (b *battleSession) dispatchLocalCommand(text string) {
 		// Modern exact-name shorthand keeps its own contract.
 		b.unitNameChatCommand(words)
 	}
+	return
 }

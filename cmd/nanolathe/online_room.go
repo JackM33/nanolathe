@@ -10,9 +10,10 @@ package main
 
 import (
 	"crypto/sha256"
+	"strconv"
 
-	"github.com/nanolathe-gg/nanolathe/internal/community"
 	"github.com/nanolathe-gg/nanolathe/internal/content"
+	"github.com/nanolathe-gg/nanolathe/internal/gameplay"
 	"github.com/nanolathe-gg/nanolathe/internal/netproto"
 	"github.com/nanolathe-gg/nanolathe/internal/relay"
 	"github.com/nanolathe-gg/nanolathe/internal/session"
@@ -35,6 +36,10 @@ const onlineTeams = session.OnlineMaxTeam + 1
 // Start. The four standard skirmish options are configuration field 5 in the
 // request's own words.
 type onlineSettings struct {
+	// rules names the room's rule set, one of the three reserved sets
+	// (session.OnlineMatchSetup.Rules), always spelt out: Modern is
+	// session.ModernRuleSetName, never "".
+	rules          string
 	survival       bool
 	mapName        string
 	pace           survival.Pace
@@ -53,9 +58,10 @@ type onlineSettings struct {
 
 // onlineSettingsFromSetup are a new room's settings: a skirmish on the host's
 // current skirmish map with its skirmish options, normalized as the request
-// adapter normalizes them (session.NewMatchConfigRequest).
-func onlineSettingsFromSetup(setup session.SkirmishConfig) onlineSettings {
-	s := onlineSettings{mapName: setup.MapName, mapping: uint8(setup.Mapping & 1), lineOfSight: uint8(setup.LineOfSight & 1), losType: uint8(setup.LOSType & 1)}
+// adapter normalizes them (session.NewMatchConfigRequest), under rules
+// (onlineRoomRules).
+func onlineSettingsFromSetup(setup session.SkirmishConfig, rules string) onlineSettings {
+	s := onlineSettings{rules: onlineRulesName(rules), mapName: setup.MapName, mapping: uint8(setup.Mapping & 1), lineOfSight: uint8(setup.LineOfSight & 1), losType: uint8(setup.LOSType & 1)}
 	if setup.Location != 0 {
 		s.location = 1
 	}
@@ -68,6 +74,7 @@ func onlineSettingsFromSetup(setup session.SkirmishConfig) onlineSettings {
 // onlineSettingsOf reads a base configuration's settings back.
 func onlineSettingsOf(r session.MatchConfigRequest) onlineSettings {
 	return onlineSettings{
+		rules:    onlineRulesName(r.RuleName),
 		survival: r.SessionKind == session.MatchOnlineSurvival, mapName: r.MapName,
 		pace: r.SurvivalPace, noAir: r.SurvivalNoAir, noNaval: r.SurvivalNoNaval,
 		location: r.Location, commanderDeath: r.CommanderDeath, mapping: r.Mapping,
@@ -108,62 +115,71 @@ func onlineBaseConfig(cs *contentSet, cat *content.Catalog, settings onlineSetti
 
 // onlineFrozen is what a room keeps from its creation and never changes: the
 // seeds, the content's identity and transformations, and the request's fixed
-// room inputs.
+// room inputs. What depends on the rule set — the Community table (field 10)
+// and the unit limit it may set (field 6) — is not frozen: every composition
+// resolves it again through the room's current rule set from the content's
+// own Community table, the sources options carries, so Strict 3.1 has the
+// zero table and the retail default limit, and a switch back finds the
+// content's table again (session.NewOnlineMatchRequest).
 type onlineFrozen struct {
 	seeds   [2]uint32
 	options session.SkirmishEntryOptions
 	room    session.MatchRoomInputs
-	// community and unitLimit are the base configuration's resolved table
-	// and limit; nil resolves the table from options at creation.
-	community *community.Features
-	unitLimit uint16
+}
+
+// onlineContentSources are the Community sources an online room resolves
+// field 10 from: only the mounted content's own table, never the player's
+// personal overrides or command line (§16.6.2). Every seat mounts the room's
+// mod, so every seat reads the same table; the identity digest compares the
+// resolved table at Ready.
+func onlineContentSources(cs *contentSet) session.CommunitySources {
+	if cs == nil || len(cs.gameplayFeatures) == 0 {
+		return session.CommunitySources{}
+	}
+	return session.CommunitySources{Content: cs.gameplayFeatures}
 }
 
 // onlineCreationFrozen freezes a new room on the host's content: its mod,
 // mutators, restriction records and set, and its own Community table.
 func onlineCreationFrozen(cs *contentSet, seeds [2]uint32, mutators content.Mutators, restrictions content.Restrictions, records []session.MatchUnitRestriction) onlineFrozen {
 	view := session.MatchView{MinimumScale: 64, MaximumScale: 2048, FullMap: true}
-	f := onlineFrozen{
+	return onlineFrozen{
 		seeds:   seeds,
-		options: session.SkirmishEntryOptions{ContentLimits: cs.limits, Mutators: mutators, Restrictions: restrictions},
+		options: session.SkirmishEntryOptions{ContentLimits: cs.limits, Mutators: mutators, Restrictions: restrictions, CommunitySources: onlineContentSources(cs)},
 		room: session.MatchRoomInputs{Mod: matchModOf(cs.mod), ContentProfile: cs.profile, UnitRestrictions: records,
 			PlayerView: view, SpectatorView: view, ReplayView: view,
 			Policies: session.MatchPolicies{Revision: 1, Scheduling: 1, Pacing: 1, Drop: 1, Audience: 1, RejoinGraceMilliseconds: 90000}},
 	}
-	if len(cs.gameplayFeatures) != 0 {
-		f.options.CommunitySources = session.CommunitySources{Content: cs.gameplayFeatures}
-	}
-	return f
 }
 
-// onlineFrozenOf is a base configuration's frozen part, as every seat reads it.
-func onlineFrozenOf(r session.MatchConfigRequest) onlineFrozen {
+// onlineFrozenOf is a base configuration's frozen part, as every seat reads
+// it, with the Community sources of cs, the room's mounted content.
+func onlineFrozenOf(cs *contentSet, r session.MatchConfigRequest) onlineFrozen {
 	p := r.ContentProfile
 	dirs := map[string]string{}
 	for _, d := range p.Directories {
 		dirs[d.From] = d.To
 	}
-	features := r.Community
 	return onlineFrozen{
 		seeds: [2]uint32{r.SimulationSeed, r.CRTSeed},
 		options: session.SkirmishEntryOptions{
-			ContentLimits: content.Limits{Units: int(p.Units), Weapons: int(p.Weapons), TNTBytes: int64(p.TNTBytes), LOSBytes: int64(p.LOSBytes)},
-			Mutators:      r.Mutators,
+			ContentLimits:    content.Limits{Units: int(p.Units), Weapons: int(p.Weapons), TNTBytes: int64(p.TNTBytes), LOSBytes: int64(p.LOSBytes)},
+			Mutators:         r.Mutators,
+			CommunitySources: onlineContentSources(cs),
 		},
 		room: session.MatchRoomInputs{Mod: r.Mod, ContentProfile: p.Name, ContentDirectories: dirs,
 			UnitRestrictions: append([]session.MatchUnitRestriction(nil), r.UnitRestrictions...),
 			PlayerView:       r.PlayerView, SpectatorView: r.SpectatorView, ReplayView: r.ReplayView, Policies: r.Policies},
-		community: &features,
-		unitLimit: r.UnitLimit,
 	}
 }
 
 // onlineConfig resolves a room configuration on cs and its catalog: the
-// settings, with their computers, and seats through the session's online
-// request, at the schema the map-entry code selects for its rows, with the
-// frozen part carried unchanged.
+// settings, with their rule set and computers, and seats through the
+// session's online request, at the schema the map-entry code selects for its
+// rows, with the frozen part carried unchanged. The rule set's Community table,
+// unit limit and builder defaults are resolved by the request.
 func onlineConfig(cs *contentSet, cat *content.Catalog, settings onlineSettings, seats []session.OnlineSeat, frozen onlineFrozen) (session.EffectiveMatchConfig, error) {
-	setup := session.OnlineMatchSetup{Survival: settings.survival, MapName: settings.mapName, Seats: seats, Computers: settings.computers,
+	setup := session.OnlineMatchSetup{Rules: settings.rules, Survival: settings.survival, MapName: settings.mapName, Seats: seats, Computers: settings.computers,
 		SimSeed: frozen.seeds[0], CRTSeed: frozen.seeds[1], SideCount: len(session.OnlineSides(cat))}
 	if settings.survival {
 		setup.SurvivalOptions = session.SurvivalOptions{Enabled: true, Pace: settings.pace, NoAir: settings.noAir, NoNaval: settings.noNaval}
@@ -188,15 +204,13 @@ func onlineConfig(cs *contentSet, cat *content.Catalog, settings onlineSettings,
 		request.Location = settings.location
 	}
 	request.CommanderDeath, request.Mapping, request.LineOfSight, request.LOSType = settings.commanderDeath, settings.mapping, settings.lineOfSight, settings.losType
-	if frozen.community != nil {
-		request.Community, request.UnitLimit = *frozen.community, frozen.unitLimit
-	}
 	return session.ResolveMatchConfig(request)
 }
 
 // onlineSeatsOf are a lobby's present seats in ascending seat order, which is
-// slot order, with their teams, sides and colours, and the local seat's slot.
-// Survival has no teams.
+// slot order, with their teams, sides, colours and names, and the local
+// seat's slot. Survival has no teams. A seat without a name, or whose client
+// cannot carry one (onlineLobbyName), takes the default "Player n".
 func onlineSeatsOf(state relay.HostedLobbyState, local uint8, survival bool) ([]session.OnlineSeat, uint8, bool) {
 	var seats []session.OnlineSeat
 	slot, found := uint8(0), false
@@ -212,9 +226,105 @@ func onlineSeatsOf(state relay.HostedLobbyState, local uint8, survival bool) ([]
 		if survival {
 			team = 0
 		}
-		seats = append(seats, session.OnlineSeat{Team: team, Side: seat.Side, Color: seat.Color})
+		seats = append(seats, session.OnlineSeat{Team: team, Side: seat.Side, Color: seat.Color, Name: onlineLobbyName(seat)})
 	}
 	return seats, slot, found
+}
+
+// onlineLobbyName is the display name a seat's row carries: the name its hello
+// gave, from a seat that speaks protocol version 8 (Chat), when the
+// configuration admits it; "" otherwise, which composes as the default
+// "Player n". Every seat reads the same lobby state, so every seat composes
+// the same names.
+func onlineLobbyName(seat relay.HostedSeatState) string {
+	if !seat.Chat || seat.Name == "" || session.ValidateOnlineName(seat.Name) != nil {
+		return ""
+	}
+	return seat.Name
+}
+
+// onlineDefaultName is the name the configuration gives slot's human row when
+// it has none (session.NewOnlineMatchRequest).
+func onlineDefaultName(slot int) string { return "Player " + strconv.Itoa(slot+1) }
+
+// onlineRuleStages are the Rules control's stages, in the order of the
+// Nanolathe screen's rules control (gameplayOptionModes).
+var onlineRuleStages = [...]string{session.StrictRuleSetName, session.CommunityRuleSetName, session.ModernRuleSetName}
+
+// onlineRulesName spells a room's rule set as the lobby keeps it: one of the
+// three reserved names, with "" — Modern by the request's own contract — as
+// Modern's name.
+func onlineRulesName(rules string) string {
+	if rules == "" {
+		return session.ModernRuleSetName
+	}
+	return rules
+}
+
+// onlineRulesStage is the Rules control's stage for rules: 0 Strict 3.1, 1
+// Community 3.9, 2 Modern; -1 for a set the lobby does not offer.
+func onlineRulesStage(rules string) int {
+	for stage, name := range onlineRuleStages {
+		if name == onlineRulesName(rules) {
+			return stage
+		}
+	}
+	return -1
+}
+
+// onlineRoomRules is the rule set a new room starts on: the reserved base of
+// the host's gameplay selection, a registered set's base standing in for it,
+// raised to the mounted mod's minimum whether or not the host overrode its
+// lock, since every seat of the room plays it.
+func onlineRoomRules(selected gameplay.Mode, cs *contentSet) string {
+	base := session.BaseModeOf(selected.Normalize())
+	if lowest := onlineLowestRulesStage(cs); onlineRulesStage(string(base)) < lowest {
+		return onlineRuleStages[lowest]
+	}
+	if onlineRulesStage(string(base)) < 0 {
+		return session.ModernRuleSetName
+	}
+	return string(base)
+}
+
+// onlineLowestRulesStage is the lowest Rules stage the room's mod allows: its
+// minimumGameplay's reserved base (mods.go), or Strict 3.1 when it states
+// none. The lobby offers no stage below it, even to a host who overrode the
+// mod's lock locally.
+func onlineLowestRulesStage(cs *contentSet) int {
+	if cs == nil {
+		return 0
+	}
+	minimum, ok := modMinimumGameplay(cs.mod)
+	if !ok {
+		return 0
+	}
+	return max(onlineRulesStage(string(session.BaseModeOf(minimum))), 0)
+}
+
+// onlineNextRules is the Rules control's next stage after rules, stepping by
+// delta and wrapping, past every stage below lowest.
+func onlineNextRules(rules string, delta, lowest int) string {
+	n := len(onlineRuleStages)
+	stage := max(onlineRulesStage(rules), 0)
+	for range n {
+		stage = ((stage+delta)%n + n) % n
+		if stage >= lowest {
+			return onlineRuleStages[stage]
+		}
+	}
+	return onlineRulesName(rules)
+}
+
+// onlineComputerCap is how many computers the room's rule set lets its host
+// add (session.OnlineComputersPerHost): one under Strict 3.1, the room's seats
+// otherwise. Only the host adds computers for now, so it caps the room.
+func onlineComputerCap(rules string) int {
+	n, err := session.OnlineComputersPerHost(onlineRulesName(rules))
+	if err != nil {
+		return 0
+	}
+	return n
 }
 
 // onlineOneTeam reports a skirmish whose players, the host's computers

@@ -46,7 +46,7 @@ import (
 const (
 	lockModernAITicks     = onlineModernSpan
 	lockModernAIRun       = "275c2bf3df93a8f5e69b11ce18f3811d3360c776e5049db5c763f5ae1eb6ffa1"
-	lockModernAIRehearsal = "d01a66338086438e1f6cf4f9dd7cd1bf35abdbed405edf6253ed5e6b38d8cd3f"
+	lockModernAIRehearsal = "5f1ec52dd0ed30cff894055942c4f59f759aaa58468e5bcef49f0186b3e2c7bf"
 )
 
 func TestOnlineModernAIFingerprintIsLocked(t *testing.T) {

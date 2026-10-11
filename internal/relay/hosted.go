@@ -30,6 +30,10 @@ type HostedConfig struct {
 type HostedDialOptions struct {
 	TLSConfig        *tls.Config
 	InsecureLoopback bool
+	// Name is the player's display name, carried by the hello and shown to
+	// the room's other version-8 seats: ValidHostedName, empty for none. It
+	// is fixed for the connection; a room description ignores it.
+	Name string
 }
 
 const (
@@ -48,19 +52,25 @@ const (
 	// from the host and the latest one to every seat.
 	hostedConfigurationMessage = hostedSideMessage + 1
 	hostedColorMessage         = hostedConfigurationMessage + 1
-	// hostedProgressMessage is the relay's match progress report, sent only
-	// to seats that spoke version 6 or later (§16.5.2).
+	// hostedProgressMessage is the relay's match progress report (§16.5.2).
 	hostedProgressMessage = hostedColorMessage + 1
-	// A version-7 seat has finished its local opening after Started. Grants
-	// wait for every seat's marker (DESIGN_MULTIPLAYER §16.5.2, §16.6.1).
+	// A seat has finished its local opening after Started. Grants wait for
+	// every seat's marker (DESIGN_MULTIPLAYER §16.5.2, §16.6.1).
 	hostedOpeningReadyMessage = hostedProgressMessage + 1
+	// hostedChatMessage is a version-8 chat line: from a client its
+	// recipient seats and text, from the relay its sender's seat and text
+	// (hosted_chat.go).
+	hostedChatMessage = hostedOpeningReadyMessage + 1
 	// hostedVersion is the protocol this build's clients speak; the relay
-	// still serves seats that speak hostedMinVersion, each in its own
-	// version, in the same rooms (§12.2).
-	hostedVersion         = 7
-	hostedMinVersion      = 5
-	hostedProgressVersion = 6
-	hostedOpeningVersion  = 7
+	// also serves seats that speak hostedMinVersion, each in its own
+	// version, in the same rooms (§12.2). Version 8 adds display names and
+	// chat.
+	hostedVersion     = 8
+	hostedMinVersion  = 7
+	hostedChatVersion = 8
+	// hostedV7CommandSchema is the command schema a version-7 hello names;
+	// a version-8 hello names netproto.CommandSchemaVersion.
+	hostedV7CommandSchema = uint16(1)
 	hostedMaxTeam         = 5
 	hostedCodeLength      = 6
 	// hostedAnySeat is a joiner's hello seat: the relay assigns the lowest
@@ -289,7 +299,7 @@ func (s *HostedServer) serve(raw net.Conn) {
 		return
 	}
 	peer := newHostedPeer(conn, hello.hello, s.timeouts.write)
-	peer.version, peer.helloDeadline = hello.version, handshakeDeadline
+	peer.version, peer.name, peer.helloDeadline = hello.version, hello.name, handshakeDeadline
 	room, creator, err := s.admit(hello.code, hello.flags, hello.size, hello.config, peer)
 	if err != nil {
 		_ = writeLocalFrame(conn, localFailureBody(localRefusedMessage, err))
@@ -369,7 +379,16 @@ func (r *hostedRoom) free() int {
 
 // hostedVersionError is the relay's refusal of a version it does not serve.
 func hostedVersionError(sent uint16) error {
-	return hostedError("handshake", fmt.Sprintf("hosted protocol version 5, 6 or %d; this client sent version %d", hostedVersion, sent))
+	return hostedError("handshake", fmt.Sprintf("hosted protocol version %d or %d; this client sent version %d", hostedMinVersion, hostedVersion, sent))
+}
+
+// hostedCommandSchema is the command schema a hello of the given hosted
+// version must name.
+func hostedCommandSchema(version uint16) uint16 {
+	if version < hostedChatVersion {
+		return hostedV7CommandSchema
+	}
+	return netproto.CommandSchemaVersion
 }
 
 // hostedRelayVersionError is a client's refusal of a relay that answered in
@@ -480,14 +499,21 @@ func (s *HostedServer) admit(code string, flags uint8, size int, config []byte, 
 }
 
 // A creator's hello carries its flags, room size and base configuration; a
-// joiner's carries none of them and asks for any seat (§16.6.1).
-func encodeHostedHello(code string, flags uint8, size int, hello LocalHello, config []byte) ([]byte, error) {
-	return encodeHostedHelloVersion(hostedVersion, code, flags, size, hello, config)
+// joiner's carries none of them and asks for any seat (§16.6.1). Both carry
+// the player's display name.
+func encodeHostedHello(code string, flags uint8, size int, hello LocalHello, config []byte, name string) ([]byte, error) {
+	return encodeHostedHelloVersion(hostedVersion, code, flags, size, hello, config, name)
 }
 
 // encodeHostedHelloVersion speaks a served version; tests use it to play a
-// version-5 seat.
-func encodeHostedHelloVersion(version uint16, code string, flags uint8, size int, hello LocalHello, config []byte) ([]byte, error) {
+// version-7 seat, whose hello has no name.
+func encodeHostedHelloVersion(version uint16, code string, flags uint8, size int, hello LocalHello, config []byte, name string) ([]byte, error) {
+	if version < hostedChatVersion && name != "" {
+		return nil, hostedError("player name", "no name from a version-7 seat")
+	}
+	if err := ValidHostedName(name); err != nil {
+		return nil, err
+	}
 	if code != "" && !validHostedCode(code) {
 		return nil, hostedError("room code", "a six-character invitation")
 	}
@@ -500,7 +526,7 @@ func encodeHostedHelloVersion(version uint16, code string, flags uint8, size int
 	if len(config) > hostedMaxConfigBytes {
 		return nil, hostedError("room configuration", "at most 64 KiB")
 	}
-	body, err := encodeLocalHello(hello)
+	body, err := encodeLocalHello(hello, hostedCommandSchema(version))
 	if err != nil {
 		return nil, err
 	}
@@ -517,6 +543,9 @@ func encodeHostedHelloVersion(version uint16, code string, flags uint8, size int
 	w.Raw(body)
 	w.U32(uint32(len(config)))
 	w.Raw(config)
+	if version >= hostedChatVersion {
+		w.Text(name)
+	}
 	return w.Bytes(), nil
 }
 
@@ -528,6 +557,7 @@ type hostedHello struct {
 	size    int
 	hello   LocalHello
 	config  []byte
+	name    string // version 8; empty for none
 }
 
 func decodeHostedHello(body []byte) (hostedHello, error) {
@@ -551,11 +581,20 @@ func decodeHostedHello(body []byte) (hostedHello, error) {
 	if flags&^hostedAutoStart != 0 || (code != "" && (flags != 0 || size != 0 || len(config) != 0)) || (code == "" && (size < 2 || size > HostedMaxSeats)) {
 		r.Abort(hostedError("hello flags", "a creator's known flags and 2 to 10 seats, and none of them from a joiner"))
 	}
+	name := ""
+	if version >= hostedChatVersion {
+		name = r.Text(HostedMaxNameBytes)
+		if r.Err() == nil {
+			if err := ValidHostedName(name); err != nil {
+				r.Abort(err)
+			}
+		}
+	}
 	if err := r.End(); err != nil {
 		return hostedHello{}, err
 	}
-	h, err := decodeLocalHello(hello)
-	return hostedHello{version: version, code: code, flags: flags, size: size, hello: h, config: config}, err
+	h, err := decodeLocalHello(hello, hostedCommandSchema(version))
+	return hostedHello{version: version, code: code, flags: flags, size: size, hello: h, config: config, name: name}, err
 }
 
 // The welcome answers in the version the seat spoke.
@@ -582,7 +621,7 @@ func dialHostedStream(ctx context.Context, address, room string, hello LocalHell
 	if room == "" {
 		flags, size = hostedAutoStart, 2
 	}
-	body, err := encodeHostedHello(room, flags, size, hello, nil)
+	body, err := encodeHostedHello(room, flags, size, hello, nil, options.Name)
 	if err != nil {
 		return nil, "", err
 	}

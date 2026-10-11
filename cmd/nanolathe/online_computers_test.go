@@ -117,7 +117,7 @@ func TestOnlineLobbyGuestSeesComputers(t *testing.T) {
 	r := &g.online.room
 	settings := r.settings
 	settings.computers = []session.OnlineComputer{{Team: 2, Side: 1, Color: 7, Kind: ai.ControllerClassic, Difficulty: 2}}
-	base, err := onlineBaseConfig(nil, onlineTestCatalog(), settings, onlineFrozenOf(r.baseReq))
+	base, err := onlineBaseConfig(nil, onlineTestCatalog(), settings, onlineFrozenOf(nil, r.baseReq))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -254,7 +254,7 @@ func TestOnlineFinalConfigurationCarriesComputers(t *testing.T) {
 	base := onlineTestBase(t, "Test Map", session.MatchMod{}, content.Mutators{})
 	settings := onlineSettingsOf(base.Request())
 	settings.computers = []session.OnlineComputer{{Team: 1, Color: 0, Kind: ai.ControllerClassic, Difficulty: 2}, {Team: 2, Side: 1, Color: 1, Kind: ai.ControllerModern}}
-	withComputers, err := onlineBaseConfig(nil, onlineTestCatalog(), settings, onlineFrozenOf(base.Request()))
+	withComputers, err := onlineBaseConfig(nil, onlineTestCatalog(), settings, onlineFrozenOf(nil, base.Request()))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -262,7 +262,7 @@ func TestOnlineFinalConfigurationCarriesComputers(t *testing.T) {
 	if len(read.computers) != 2 || read.computers[0] != settings.computers[0] || read.computers[1] != settings.computers[1] {
 		t.Fatalf("the base stores %+v, the host chose %+v", read.computers, settings.computers)
 	}
-	final, err := onlineConfig(nil, onlineTestCatalog(), read, []session.OnlineSeat{{Color: 1}, {Team: 1, Side: 1, Color: 4}}, onlineFrozenOf(withComputers.Request()))
+	final, err := onlineConfig(nil, onlineTestCatalog(), read, []session.OnlineSeat{{Color: 1}, {Team: 1, Side: 1, Color: 4}}, onlineFrozenOf(nil, withComputers.Request()))
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -107,9 +107,9 @@ func run(ctx context.Context, args []string, out io.Writer) error {
 func logServerStats(out io.Writer, st relay.HostedStatus) {
 	var mem runtime.MemStats
 	runtime.ReadMemStats(&mem)
-	fmt.Fprintf(out, "relay: players=%d matches=%d lobbies=%d connections=%d started=%d completed=%d failed=%d heap=%dMiB sys=%dMiB goroutines=%d\n",
+	fmt.Fprintf(out, "relay: players=%d matches=%d lobbies=%d connections=%d started=%d completed=%d failed=%d chat=%d chat_dropped=%d heap=%dMiB sys=%dMiB goroutines=%d\n",
 		st.Players, st.Matches, st.Lobbies, st.Connections, st.Totals.Matches, st.Totals.Completed, st.Totals.Failed,
-		mem.HeapAlloc>>20, mem.Sys>>20, runtime.NumGoroutine())
+		st.Totals.ChatRelayed, st.Totals.ChatDropped, mem.HeapAlloc>>20, mem.Sys>>20, runtime.NumGoroutine())
 }
 
 func serverError(path, expected string) error {

@@ -36,7 +36,9 @@ func (s *Service) CollectCheckpointReferences(c *CheckpointContext) (int, error)
 // says the player rows carry their own words (OwnSelector, Selector), so a
 // ledger in which no player has one writes the tag as the presence byte it
 // has always been and its player rows unchanged (docs/DESIGN_MULTIPLAYER.md
-// §6.6). Players is a fixed array; unitBuckets has its stored count and
+// §6.6). Bit 2 likewise says the player rows carry the share-radar option
+// (ShareRadar), which only an online seat command sets [03 R-VIS-01 §7].
+// Players is a fixed array; unitBuckets has its stored count and
 // includes every physical row, even unused
 // rows and slot zero. UnitEconomy is Archived then Buckets; resource pairs are
 // always Metal then Energy. No accessor grows or resets a bucket during capture
@@ -55,12 +57,16 @@ func (s *Service) WriteCheckpoint(e *checkpoint.Encoder, c *CheckpointContext) e
 		return err
 	}
 	seats := s.hasPlayerSelectors()
+	radar := s.hasShareRadar()
 	var tag uint8
 	if s.EconomySelector != nil {
 		tag |= 1
 	}
 	if seats {
 		tag |= 2
+	}
+	if radar {
+		tag |= 4
 	}
 	e.Field("economy.Service.EconomySelector")
 	e.U8(tag)
@@ -72,7 +78,7 @@ func (s *Service) WriteCheckpoint(e *checkpoint.Encoder, c *CheckpointContext) e
 	e.Field("economy.Service.Networked")
 	e.Bool(s.Networked)
 	for slot := range s.Players {
-		writeCheckpointPlayer(e, &s.Players[slot], fmt.Sprintf("economy.Service.Players[%d]", slot), seats)
+		writeCheckpointPlayer(e, &s.Players[slot], fmt.Sprintf("economy.Service.Players[%d]", slot), seats, radar)
 	}
 	e.Field("economy.Service.ReferencePlayer")
 	e.I64(int64(s.ReferencePlayer))
@@ -93,13 +99,14 @@ func (s *Service) WriteCheckpoint(e *checkpoint.Encoder, c *CheckpointContext) e
 // CommanderLosses, ControllerState, EndGameCountdown, EnergyShareThreshold,
 // Exists, FullIncome, GameEnded, IsObserver, Kills, Losses, MetalShareThreshold,
 // Mirror, OptionKind, OwnSelector, PassConsumed, PassProduced, RejectionReason,
-// ResultAuxiliary, Selector, Side, Stock, StorageBonus, StorageBonusEnabled,
-// TotalConsumed, TotalProduced, UpdateTime, Waste, Watcher. OwnSelector (bool)
-// and Selector (i64) are written only when seats is set, which the service's
+// ResultAuxiliary, Selector, ShareRadar, Side, Stock, StorageBonus,
+// StorageBonusEnabled, TotalConsumed, TotalProduced, UpdateTime, Waste,
+// Watcher. OwnSelector (bool) and Selector (i64) are written only when seats
+// is set, and ShareRadar (bool) only when radar is set, which the service's
 // EconomySelector tag announces. Names, logos, rank, WinLoseTime,
 // DisplayTimer and aiAggregatesPrepared have the reviewed exclusions; capture
 // never applies a profile or reconstructs stored accounting.
-func writeCheckpointPlayer(e *checkpoint.Encoder, p *Player, path string, seats bool) {
+func writeCheckpointPlayer(e *checkpoint.Encoder, p *Player, path string, seats, radar bool) {
 	writeCheckpointF32Pair(e, p.AIConsumption, path+".AIConsumption")
 	writeCheckpointF32Pair(e, p.AIProduction, path+".AIProduction")
 	e.FieldChild(path, "Allies")
@@ -155,6 +162,10 @@ func writeCheckpointPlayer(e *checkpoint.Encoder, p *Player, path string, seats 
 		e.FieldChild(path, "Selector")
 		e.I64(int64(p.Selector))
 	}
+	if radar {
+		e.FieldChild(path, "ShareRadar")
+		e.Bool(p.ShareRadar)
+	}
 	e.FieldChild(path, "Side")
 	e.U8(p.Side)
 	writeCheckpointF32Pair(e, p.Stock, path+".Stock")
@@ -168,6 +179,17 @@ func writeCheckpointPlayer(e *checkpoint.Encoder, p *Player, path string, seats 
 	writeCheckpointF64Pair(e, p.Waste, path+".Waste")
 	e.FieldChild(path, "Watcher")
 	e.Bool(p.Watcher)
+}
+
+// hasShareRadar reports whether any player row sets the share-radar option,
+// the state the EconomySelector tag's bit 2 announces.
+func (s *Service) hasShareRadar() bool {
+	for slot := range s.Players {
+		if s.Players[slot].ShareRadar {
+			return true
+		}
+	}
+	return false
 }
 
 // hasPlayerSelectors reports whether any player row holds a word of its own

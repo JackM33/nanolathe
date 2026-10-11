@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/nanolathe-gg/nanolathe/internal/content"
+	"github.com/nanolathe-gg/nanolathe/internal/netproto"
 	"github.com/nanolathe-gg/nanolathe/internal/session"
 	"github.com/nanolathe-gg/nanolathe/vfs"
 )
@@ -71,6 +72,12 @@ func Compose(h Header, c Content) (*session.Session, error) {
 	}
 	if recorded.Content == ([32]byte{}) {
 		recorded.Content = inputs.Digest()
+	}
+	// An older command schema still plays: every newer schema decodes the
+	// older payloads to the same commands (DESIGN_MULTIPLAYER §7.4.1), and
+	// the player decodes in the recorded version.
+	if recorded.Protocol >= 1 && recorded.Protocol < netproto.CommandSchemaVersion {
+		recorded.Protocol = netproto.CommandSchemaVersion
 	}
 	if err := session.CompareMatchIdentity(session.MatchJoin{Inputs: inputs, Config: config, Mod: c.Mod}, recorded); err != nil {
 		return nil, compatibilityError("header.identity", "the recorded identity", err)

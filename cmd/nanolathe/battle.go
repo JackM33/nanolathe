@@ -207,6 +207,9 @@ type battleSession struct {
 	scrollSpeedPrimed bool
 
 	chat battleChatState
+	// sharing is the networked session's Tab strip, transfer dialog and
+	// allies window (battle_tabmenu.go).
+	sharing battleSharing
 
 	dragScroll        camera.DragScroll
 	dragScrollActive  bool
@@ -1251,6 +1254,9 @@ func (b *battleSession) viewerStep(delta float64, cl *client.Client) {
 	// release-inside gesture; no battle hotkey or world command leaks through
 	// [07 §3][07 §11].
 	if b.isResultVisible() {
+		// A final result closes the networked session's windows, which act
+		// for a seat still playing (battle_tabmenu.go).
+		b.closeSharingModal()
 		if b.postBattle == nil && b.sess != nil && b.sess.Audio != nil {
 			b.sess.Audio.EndBattleMusic()
 		}
@@ -1307,7 +1313,14 @@ func (b *battleSession) viewerStep(delta float64, cl *client.Client) {
 		// routes the frame to it instead [07 R-WGT-01 §1][07 R-FE-01 §6].
 		// In the Megamap overview Tab belongs to the megamap and closes nothing
 		// (DESIGN_INTERFACE_HUD_INPUT §3.15).
-		if (keyDown(input.KeyTab) && !b.megamapMode() || keyDown(input.KeyF2) && !shortcutKeyboard.KeyHeld(input.KeyCtrl)) && state.Modal() == ui.BattleModalOptions &&
+		//
+		// Online, a second press of the strip's key closes the Tab strip
+		// (battle_tabmenu.go) [07 "Tab options menu and manual exit"].
+		_, sharing := b.sharingFrame()
+		if sharing && state.Modal() == ui.BattleModalTabMenu && b.stripKey(keyDown, shortcutKeyboard.KeyHeld(input.KeyCtrl), shortcutKeyboard.HasShift()) {
+			in.DiscardTokens(1)
+			b.closeTabMenu(cl, true)
+		} else if (keyDown(input.KeyTab) && !b.megamapMode() || keyDown(input.KeyF2) && !shortcutKeyboard.KeyHeld(input.KeyCtrl)) && state.Modal() == ui.BattleModalOptions &&
 			!b.battlePrefsActive() && !(b.shell != nil && (b.shell.saveLoadPanelActive() || b.shell.frontend.Panels.Modal() != nil)) {
 			in.DiscardTokens(1)
 			b.closeBattleMenu()
@@ -1382,6 +1395,22 @@ func (b *battleSession) viewerStep(delta float64, cl *client.Client) {
 	}
 	shiftHeld := shortcutKeyboard != nil && shortcutKeyboard.HasShift()
 	ctrlHeld := shortcutKeyboard != nil && shortcutKeyboard.KeyHeld(input.KeyCtrl)
+	// Online, the strip's key opens the Tab strip and `h` the transfer
+	// dialog, as retail's multiplayer session binds them; chat holds both
+	// while it is open [07 R-CAM-01 §2] (battle_tabmenu.go). A single-player
+	// battle never takes this branch.
+	if _, sharing := b.sharingFrame(); sharing && !talkOwned {
+		if b.stripKey(keyDown, ctrlHeld, shiftHeld) {
+			b.openTabMenu(cl)
+			cl.Cursors().SetIndex(render.CursorNormal)
+			return
+		}
+		if shareKeyToken(in) {
+			b.openShareScreen(cl)
+			cl.Cursors().SetIndex(render.CursorNormal)
+			return
+		}
+	}
 	if !talkOwned && (keyDown(input.KeyTab) || keyDown(input.KeyF2) && !ctrlHeld && !shiftHeld) {
 		// Host UI policy: a paused save opens without ARMOPT, so Tab resumes
 		// it directly instead of requiring an open/close cycle. F2 retains

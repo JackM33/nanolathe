@@ -86,7 +86,10 @@ func writeLocalFrame(w io.Writer, body []byte) error {
 	return nil
 }
 
-func encodeLocalHello(h LocalHello) ([]byte, error) {
+// encodeLocalHello writes a seat's hello naming command schema schema: the
+// build's own for the loopback relay and a version-8 hosted hello, schema 1
+// for a version-7 one.
+func encodeLocalHello(h LocalHello, schema uint16) ([]byte, error) {
 	// Validate through the same bounded primitive reader before any network IO.
 	// The small preliminary limits also bound writer allocation on local input.
 	if len(h.Identity.Rules.Name) > netproto.MaxKeyBytes || len(h.Identity.Mod.ID) > 255 || len(h.Identity.Mod.Version) > 255 {
@@ -107,11 +110,11 @@ func encodeLocalHello(h LocalHello) ([]byte, error) {
 	w.Digest(h.Identity.Mod.Archive)
 	w.Digest(h.Identity.Configuration)
 	w.Digest(h.InitialChecksum)
-	_, err := decodeLocalHello(w.Bytes())
+	_, err := decodeLocalHello(w.Bytes(), schema)
 	return w.Bytes(), err
 }
 
-func decodeLocalHello(body []byte) (LocalHello, error) {
+func decodeLocalHello(body []byte, schema uint16) (LocalHello, error) {
 	r := netproto.NewReader(body, localError)
 	if r.U8() != localHelloMessage {
 		r.Abort(localError("hello", "hello as the first message"))
@@ -132,8 +135,8 @@ func decodeLocalHello(body []byte) (LocalHello, error) {
 	if h.Seat >= HostedMaxSeats && h.Seat != hostedAnySeat {
 		r.Abort(localError("hello seat", "a seat below 10, or any seat"))
 	}
-	if h.Identity.Protocol != netproto.CommandSchemaVersion {
-		r.Abort(localError("hello protocol", "the current command schema version"))
+	if h.Identity.Protocol != schema {
+		r.Abort(localError("hello protocol", fmt.Sprintf("command schema version %d", schema)))
 	}
 	return h, r.End()
 }

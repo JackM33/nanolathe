@@ -14,6 +14,7 @@ import (
 	"github.com/nanolathe-gg/nanolathe/formats"
 	"github.com/nanolathe-gg/nanolathe/internal/camera"
 	"github.com/nanolathe-gg/nanolathe/internal/client"
+	"github.com/nanolathe-gg/nanolathe/internal/economy"
 	"github.com/nanolathe-gg/nanolathe/internal/hud"
 	"github.com/nanolathe-gg/nanolathe/internal/relay"
 	"github.com/nanolathe-gg/nanolathe/internal/session"
@@ -333,9 +334,12 @@ func netTestFont() *formats.FNT {
 	return f
 }
 
-// netWidestOverlay is the widest overlay seats make: the last seat local, a
-// seat defeated, a 999 ms ping, a seat holding the match and the summary at
-// its longest.
+// netWidestName is a display name at its longest, session.OnlineNameMaxBytes.
+const netWidestName = "WWWWWWWWWWWWWWWW"
+
+// netWidestOverlay is the widest overlay seats make: the last seat local,
+// every name at its longest, a seat defeated, a 999 ms ping, a seat holding
+// the match and the summary at its longest.
 func netWidestOverlay(seats int) onlineNetOverlay {
 	o := onlineNetOverlay{
 		lines: []string{
@@ -350,7 +354,7 @@ func netWidestOverlay(seats int) onlineNetOverlay {
 	}
 	for slot := range seats {
 		state := []string{"playing", "defeated", "holding", "left"}[slot%4]
-		o.seats = append(o.seats, onlineNetSeat{cells: []string{onlineSeatName(slot, uint8(seats-1)), state, "999 ms", "999"}, holding: state == "holding"})
+		o.seats = append(o.seats, onlineNetSeat{cells: []string{onlineSeatName(netWidestName, slot, uint8(seats-1)), state, "999 ms", "999"}, holding: state == "holding"})
 	}
 	return o
 }
@@ -549,6 +553,21 @@ func TestOnlineNetOverlayClearsScaledChrome(t *testing.T) {
 			if !l.fits || !l.backdrop.In(world) || l.backdrop.Min.Y < messages+2 {
 				t.Fatalf("chrome %+v fps %v: overlay %v covers chrome or messages in %v", chrome, fps, l.backdrop, world)
 			}
+		}
+	}
+}
+
+// Each seat row shows its player's name, the local one marked, a long one
+// shortened to keep ten seats inside the world view.
+func TestOnlineNetSeatNames(t *testing.T) {
+	b := newTestBattle(testCatalogON05(), testWorldON05(20, 20))
+	b.sess.Econ = &economy.Service{}
+	b.sess.Econ.Players[0].Name, b.sess.Econ.Players[1].Name = "Alice", "Bartholomew Long"
+	n, _ := netTestStats(&fakeNetClient{}, 3)
+	o := n.overlay(b.sess)
+	for i, want := range []string{"Alice (You)", "Bartholo..", "Player 3"} {
+		if got := o.seats[i].cells[0]; got != want {
+			t.Fatalf("seat %d %q, want %q", i, got, want)
 		}
 	}
 }

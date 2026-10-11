@@ -208,10 +208,11 @@ func (s *Service) sensorCandidates(source *SensorUnit, radius int32) []int {
 //
 // Under Strict, no pass consults an alliance row. Pass 1's allied disjunct
 // needs the owner's ShareRadar bit, which only a chat command in a networked
-// session sets [R-VIS-01 §7]. No session built today carries that bit, so an
-// ally's units are not marked friendly and are not exempted from the underwater
-// rejection on the viewer's behalf; the multiplayer form is
-// docs/DESIGN_MULTIPLAYER.md §6.3. Community CP-FIX-6 changes only pass 3:
+// session sets [R-VIS-01 §7]. This single-viewer form never carries that bit,
+// so an ally's units are not marked friendly and are not exempted from the
+// underwater rejection on the viewer's behalf; the multiplayer form takes the
+// sharers as an owner mask (SensorTickForPerspectiveSharing,
+// docs/DESIGN_MULTIPLAYER.md §6.3). Community CP-FIX-6 changes only pass 3:
 // its rule may exempt an allied jammer. Pass 4 used to take an alliance
 // predicate to separate hostiles from friends in a live-unit scan; it no longer
 // scans, because hostility was settled once, for the whole side, when that
@@ -221,13 +222,19 @@ func (s *Service) SensorTick(tick uint32, playerCount int, units []SensorUnit) {
 	if s == nil {
 		return
 	}
-	s.sensorTick(tick, playerCount, units, s.local, s.viewerDefeated)
+	s.sensorTick(tick, playerCount, units, s.local, s.viewerDefeated, 0)
 }
 
 // sensorTick is the same ordered five-pass walk for either one retail viewer
 // or one online human's perspective. Explicit arguments leave presentation's
 // viewer and the legacy defeated flag untouched (DESIGN_MULTIPLAYER §6.3).
-func (s *Service) sensorTick(tick uint32, playerCount int, units []SensorUnit, viewer PlayerID, defeated bool) {
+//
+// radarSharers is pass 1's allied disjunct as an owner mask, bit p for slot
+// p: the owners whose units this viewer marks friendly because they share
+// radar and have declared alliance toward the viewer [R-VIS-01 §4] pass 1
+// [R-VIS-01 §7]. Zero is every single-viewer battle and leaves the pass as it
+// was.
+func (s *Service) sensorTick(tick uint32, playerCount int, units []SensorUnit, viewer PlayerID, defeated bool, radarSharers uint16) {
 	s.sensorInputs = s.sensorInputs[:0]
 	s.sensorStatusByID = s.sensorStatusByID[:0]
 	if playerCount <= 1 {
@@ -243,7 +250,9 @@ func (s *Service) sensorTick(tick uint32, playerCount int, units []SensorUnit, v
 			continue
 		}
 		*u.Status &^= DecloakBit
-		if s.sameSide(viewer, u.Owner) || defeated {
+		// Own, allied and sharing radar, or seen by a defeated viewer
+		// [R-VIS-01 §4] pass 1. cellBit answers zero for an invalid owner.
+		if s.sameSide(viewer, u.Owner) || radarSharers&cellBit(u.Owner) != 0 || defeated {
 			*u.Status |= FriendlyMask
 		} else {
 			*u.Status &^= sensorClearMask

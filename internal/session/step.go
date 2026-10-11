@@ -801,6 +801,13 @@ func (s *Session) stepSharingPhase(tick uint32) {
 	// Sharing cadence is the transport tail after phase 12 [01 §4.4][05
 	// "Allied resource and sensor sharing"].
 	if s.Econ != nil {
+		if s.onlineResults != nil {
+			// Online every human seat dispatches, ascending, and the periodic
+			// map shares apply here on their request tick (DESIGN_MULTIPLAYER
+			// §6.3, §6.7 Q25) [05 R-SHARE-01 §3].
+			s.stepOnlineSharing(tick)
+			return
+		}
 		// The unit world carries the candidate scan's elimination counters
 		// [05 R-SHARE-01 §3].
 		s.Econ.ShareTick(tick, s.Units)

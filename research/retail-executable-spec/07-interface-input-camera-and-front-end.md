@@ -520,10 +520,20 @@ controller kind is `1..3` and its side byte is not `10`.
 | `ShareMetal` `ShareEnergy` `ShareMapping` `ShareRadar` | network mode only: toggle the local player's share bits (`2`, `4`, `0x20`, `0x40`), post `Toggled ShareX to: ON/OFF`, resend the player record (doc 05 [R-SHARE-01]) |
 | `ShareAll` | the four toggles in sequence |
 | `ShowRanges` | toggle the range-ring overlay dword (§6 [R-P0-11 §3]) |
-| `SetShareMetal n` / `SetShareEnergy n` | network mode only: share threshold = `n` when `n` is not above the storage capacity, else the capacity; post `OK.  Will share metal if above %d` |
+| `SetShareMetal n` / `SetShareEnergy n` | network mode only: share threshold = `n` when `n` is not above the storage capacity, else the capacity — the compare is single precision against the integer converted to single, and an unordered compare (a NaN capacity) stores `n` ([05 R-SHARE-01 §3]); post `OK.  Will share metal if above %d` / `OK.  Will share energy if above %d` with the parsed `n`; unlike the toggles, neither resends the player record |
 | `Compression` | network mode only: toggle outgoing packet compression; post `Ok.  Outgoing packet compression turned ON/OFF` |
 | `BPS` | toggle the bytes-per-second display dword |
 | `SFX` | toggle the sound-effects debug byte |
+
+**Established fact — the replies' message class** (direct static trace of
+the handlers' posts). Every reply the table above quotes is posted to the message
+ring with routing class 2, source unit 0 and speaker sentinel 10
+([R-HUD-03 §14.3]): `Invalid logo setting`, each share toggle's `Toggled
+ShareX to: ON` or `OFF`, the `OK.  Will share … if above %d` lines and the
+`Compression` line. `ShareAll` runs the four toggles one after another, so it
+posts four lines and resends the player record four times. A class-2 line
+carries no logo and plays no `MessageArrived`, and it is hidden when
+`screenchat` is 0.
 
 **Established fact — `BPS` painter.** The optional overlay prints
 `Send - %1.1f K/s` and `Receive - %1.1f K/s`, scaling the sampled unsigned
@@ -1694,7 +1704,8 @@ width(frame base+5)` and `travel := w' − knobsize − 4` (with the shrunken
 `w'`). Vertical: the second arrow sits at `y + h − arrowH`, the bar shrinks
 and shifts likewise, and **`travel` is left as authored** — a vertical bar
 gets its travel from its list (below) or from the screen. `SHARE` overrides
-both (`travel := w − h`, [R-HUD-03 §9]).
+both after the build (`travel := w' − h` and `knobsize := h`, with the shrunken
+`w'`, [R-HUD-03 §9]).
 
 **Established — an arrow gadget's cross-axis extent.** `arrowW`/`arrowH`
 above is each arrow's size on its *long* axis; **both** axes of each arrow's
@@ -1858,7 +1869,19 @@ without subtracting the window origin — the only handler that does — so a
 hot surface in a window placed away from the origin hit-tests at the
 wrong place (retail quirk; stock hot surfaces sit in full-screen windows
 whose origin is 0,0). Painting: the bound GAF frame, else the bound
-surface copied, else a fill with window colour entry 7. A picture box
+surface copied, else a fill with window colour entry 7. A bound frame is
+looked up by the surface's frame-number word in its bound GAF entry. An
+uncompressed frame is drawn by the quad-mapped blitter
+([03 R-RAST-01 §1]) from its interior — source corners `(1,1) (w−1,1)
+(w−1,h−1) (1,h−1)`, `w`/`h` the frame size — onto the surface rectangle's
+corners `(x,y) (x+w'−1,y) (x+w'−1,y+h'−1) (x,y+h'−1)`, `w'`/`h'` the
+gadget size, so it is stretched to the gadget. A compressed frame is
+instead blitted unscaled with its top-left at the surface's corner: the
+painter adds the frame's two offset words to the corner, and the ordinary
+frame blitter subtracts them again. The window builder clears a surface's
+bindings at build, so only a screen that binds them after opening, such as
+the allies row builder ("Tab options menu and manual exit"), shows a frame.
+A picture box
 (kind 12) blits its frame (keyed by `colorf` while it decays, §1) and
 darkens by 28 steps when its own flag bit is set; a "line" gadget draws a
 horizontal (attribute 1), vertical (2) or outlined (4) line in the
@@ -2095,7 +2118,7 @@ kind 11 shares the panel arm with kind 0:
 
 | Key | Arm |
 |---:|---|
-| 0, 11 | panel: a negative window `ypos` receives the centring offset (§4's "−1 centering"); when the window has no GAF yet, `anims\<name>` is opened as the window's own GAF; the `panel` entry is resolved own GAF → common GAF → common `BackTile` (every frame's origin zeroed) and stored as the window background |
+| 0, 11 | panel: a negative window `ypos` is counted up from the surface bottom — the live surface height is added to it, so `ypos = −33` puts the window's top 33 rows above the bottom edge ([R-HUD-05]). This is not the centring of §4's "−1 centering": the `−1`/`−2` sentinels are tested on `xpos` alone at the top of the same routine, before its per-gadget arms, and overwrite `ypos` ([R-HUD-05]); when the window has no GAF yet, `anims\<name>` is opened as the window's own GAF; the `panel` entry is resolved own GAF → common GAF → common `BackTile` (every frame's origin zeroed) and stored as the window background |
 | 1 | button (§3) |
 | 2 | listbox: `LISTBOX` from the common GAF (frame origins zeroed); then every **other** kind-2 gadget with the same `assoc` byte and this one take the larger of their two `itemheight` values (both records are written) |
 | 3 | text input: `TEXTINPUT` from the common GAF (frame origins zeroed); `maxchars` capped at **127**; the 128-byte text buffer zeroed |
@@ -3862,6 +3885,49 @@ requests, a request does not guarantee playback [03 R-AUD-01 §2].
 dialog [R-HUD-03 §9], `CONTROL` opens `CONTROL.GUI`, and `ALLIES` opens the allies
 window.
 
+**Established — the strip's buttons, and the strip stays open beneath** (direct
+static trace of the strip's callback, its toggle and the window-open routine).
+Each of `OPTIONS`, `SHARE`, `CONTROL` and `ALLIES` requests the `BigButton` cue,
+runs its opener, and then keeps the strip open. Opening a window pushes it onto
+the window stack (§3), so the window a button opens sits on top of the strip,
+and closing that window makes the strip the top window again through the
+top-object close of §3. The strip therefore stays open beneath every window its
+buttons open, `ARMOPT` included, and only the top window is serviced. `CANCEL`
+closes the top window, which whenever `CANCEL` can fire is the strip itself, and
+requests no cue. It is authored inactive and the opener never shows it, so stock
+play never reaches it. The Tab key's own press plays `SmallButton` both ways
+(§11), and its close branch closes the strip only when the strip is the top
+window.
+
+**Established — the key-navigation switch under the strip's windows.** The
+strip's opener turns on the window context's key-navigation switch, which the
+window key matrix of [R-WGT-01 §2] requires (§3, [R-WGT-01 §1] step 3), and the
+strip's close turns it off. `SHARE` and `ALLIES` set their own window's token
+mode to one, so while either is on top it takes every keyboard token, but
+neither opener touches the switch. `ARMOPT` turns it on at open and off at
+close. Battle entry starts with the switch off, and in a battle only the
+strip, `ARMOPT` and the windows `ARMOPT` opens (its save and load dialogs and
+the options pages) turn it on. So the authored Enter and Escape defaults of
+`SHARE` and `ALLIES` act only while the strip is open beneath them and no
+options window opened from it has closed since. A `SHARE` opened by `h` with no strip open takes Enter and Escape
+and does nothing with them.
+
+**Established — the transfer dialog's cues and empty list** (direct static
+trace of its opener and callback; the controls are [05 R-SHARE-01 §5], the
+sliders [R-HUD-03 §9]). The opener and the `h` key request no cue; opened from
+the strip, the strip's `BigButton` is the only one. When no player qualifies
+for the target list, the opener closes the dialog again at once, through the
+top-object close, before it is ever composed, so nothing is seen or heard and a
+strip beneath it is the top window again. The list's selection and top both
+start at row 0. In the callback:
+- `SHARUNIT` and `MAPINFO` request `Options` and a redraw, and keep the dialog
+  open; the widget service has already toggled the box.
+- `OK` requests `Options`, then runs the confirmation of [05 R-SHARE-01 §5],
+  and closes the dialog — also when no row is selected, in which case nothing
+  is given.
+- `CANCEL` requests `Previous` and closes the dialog.
+- Any other fired gadget keeps the dialog open.
+
 **Established — the allies window.** `ALLIES.GUI` is opened only by the Tab
 strip's `ALLIES` button, never by the battleroom. Opening sets a panel-open bit
 and renames the template gadgets.
@@ -3878,6 +3944,14 @@ player's team symbol (other than "none"): a battleroom team cannot be broken in
 battle.
 
 *Team icons.* Shown, but greyed in battle.
+
+*Logo surfaces.* Each shown row's `LOGO` surface is shown, made not hot (its
+`hotornot` bit cleared, so it never takes a click), and bound to entry
+`32xlogos` of `textures/logos.gaf` with the row player's lobby colour byte as
+the frame number. The surface painter ([R-WGT-01 §8]) stretches that frame's
+interior over the surface rectangle, as the score panel's logo is stretched
+([R-HUD-04 §1]). The stock surfaces are 130×20 behind each row's name label, so
+every shown row carries its player's colour behind the name.
 
 *Indicator.* Each `LIVEALLY` stage is `local.B[slot] << 1 | local.A[slot]`: 0
 none, 1 mine only, 2 theirs only, 3 mutual. It is refreshed after a click and when
@@ -3896,9 +3970,11 @@ watcher.
   with` or `broke alliance with`, a space, and the target's name. It obeys the
   current chat recipient mode, evaluated after the flip, and is shown locally
   without the arrival cue.
-- `VICTORY` only toggles the box.
-- `OK` writes the box into the local shared-victory bit, broadcasts the player
-  records when the bit changed, and closes the window.
+- `VICTORY` requests `Options` and keeps the window open; the widget service
+  has already toggled the box.
+- `OK` requests `Options`, writes the box into the local shared-victory bit,
+  broadcasts the player records when the bit changed, and closes the window.
+- Any other fired gadget keeps the window open.
 
 **Established — the battleroom's controls** (its own window, not `ALLIES.GUI`).
 - `ALLY<n>` is active only for a remote human row while the local player is not a
@@ -5582,9 +5658,14 @@ is set to `ftol(live stock)` of that resource (metal from the metal stock,
 energy from the energy stock), its knob to position 0, and its change
 callback installed; the slider helper places the knob at
 `ceil(min(value, range) × (travel − 1) / range)` and reads it back as
-`ftol(knob / (travel − 1) × range)` — with `travel = width − height` of the
-authored gadget (the knob is a square of the gadget height) and a travel
-below 2 reading back as 0. `METAL#` and `ENERGY#` are
+`ftol(knob / (travel − 1) × range)` — with `travel = width − height` and a
+knob that is a square of the gadget height, and a travel below 2 reading back
+as 0. The opener writes this travel and knob size **after** the window build,
+so `width` is the built bar's, already shrunk between the two arrow buttons the
+build appended ([R-WGT-01 §5]), not the authored width. With the stock
+`SLIDERS` art (9-pixel arrows, a 16-pixel bar) each authored 120×16 slider
+builds to a 102-pixel bar, so its travel is 86 and the read-back divides by
+85. `METAL#` and `ENERGY#` are
 label gadgets whose text is `"%d"` of that read-back value, written on open
 (so both start at `0`) and again by each slider's change callback. The
 confirm handler reads the same two read-back values ([05 R-SHARE-01 §5]:
@@ -5970,12 +6051,12 @@ mode 3:
 |---:|---|
 | 0 | one announcement producer that passes 16, which the writer's low-nibble mask folds to 0 |
 | 1 | unit captions (§14.2) — the only producer |
-| 2 | the score announcements (`… has taken the lead with %d kills`) and the resource-share line |
+| 2 | the score announcements (`… has taken the lead with %d kills`), the resource-share line, and the chat `+` command replies of [R-CAM-01 §6] (`Invalid logo setting`, the share toggles' and share thresholds' lines, the `Compression` line; each with source unit 0 and speaker sentinel 10) |
 | 4 | the ordinary chat commit ([R-FE-02 §12]) and the player-scoped announcements, which are the only lines that carry a real speaker slot and therefore the only ones that draw a logo and play `MessageArrived` |
 | 8 | two session/network lines |
 
-So `screenchat = 0` hides the score and share announcements and the class-0
-producer, and keeps captions and chat.
+So `screenchat = 0` hides the score and share announcements, the `+` command
+replies and the class-0 producer, and keeps captions and chat.
 
 #### What a reimplementation must do to put `Target area was blocked` on screen [R-HUD-03 §14.5]
 
@@ -6384,7 +6465,7 @@ handle in the image.
 
 | Rule | Elements |
 |---|---|
-| Anchored to the bottom edge `H` | the footer's `y` anchors through `dy = H − baseheight` ([R-HUD-03 §1]); the §6 slide strip; the `Send` throughput meter at `(129, H−95)`; the frozen-frame `Click to continue` line at `y = H−20` |
+| Anchored to the bottom edge `H` | the footer's `y` anchors through `dy = H − baseheight` ([R-HUD-03 §1]); the §6 slide strip; the `Send` throughput meter at `(129, H−95)`; the frozen-frame `Click to continue` line at `y = H−20`; a window whose authored `ypos` is negative, at `y = H + ypos` ([R-WGT-01 §12]) — `TABMENU.GUI` (`−33`, so its 33 rows are the surface's last 33), `SHARE.GUI` (`−429`, so its 396 rows end 33 rows above the bottom, on the strip's top edge) and the chat windows of §5 "Chat", `TALK.GUI` (`−33`) and `TALK2.GUI` (`−164`) |
 | Anchored to the right edge `W` | the Space-held score panel, `x = W − slide` ([R-HUD-04 §1]); both strip stamp loops; the pointer clamp and edge-scroll tests at `W−1` / `H−1` (§10) |
 | Centred on the surface | a window opened with the "centre" placement flag: `x = (W − w) / 2`, `y = (H − h) / 2` |
 | Centred in the view | a window opened with the "centre in the view" flag — `EXITMENU`, `YESORNO` ("Tab options menu and manual exit"), `UNITINFOx` (F1, [R-HUD-03 §8]): `x = (W − 128 − w) / 2 + 128`, `y = (H − h) / 2`; the in-game title frames `igpaused` / `igvictory` / `igdefeat` (§11), whose draw origin is the view centre `((W + 128) / 2, H / 2)` less the frame's authored offsets; the camera clamp's maximum, `PlayRight − (W − 128)` and `PlayBottom − (H − 64)` ([R-CAM-01 §13]) |
@@ -6394,13 +6475,19 @@ All divisions above are truncating integer divides.
 
 **Established — the window initializer's sentinel rules.** The two placement
 flags write sentinels into the root gadget's `xpos`/`ypos` before placement:
-"centre" writes `−1` into both, "centre in the view" writes `−2` into `x` and
-`−1` into `y`. Placement then tests **`x` alone**: `x = −1` centres both axes
+"centre" writes `−1` into both, "centre in the view" writes `−2` into both.
+Placement then tests **`x` alone**: `x = −1` centres both axes
 on the surface, `x = −2` centres `x` in the view and `y` on the surface; `y`'s
 own value is never consulted. Afterwards, an `x + w > W` recentres `x` and a
 `y + h > H` recentres `y`, and a window wider or taller than the surface is
 refused. `W` and `H` are the live surface size, so a sentinel-placed window
-moves with the display mode while an explicitly placed one does not.
+moves with the display mode while one placed at a non-negative authored
+position does not. A negative authored `ypos` that survives these tests is
+counted up from the bottom edge by the build's panel arm ([R-WGT-01 §12]):
+`y = H + ypos`. These tests run on every build and repaint, the panel arm only
+at build, so the first composition's bottom test sees the raw negative `ypos`
+and later repaints see the resolved one; no stock window reaches past the
+bottom either way.
 
 **Nanolathe impact.** The build reads the surface size at draw time
 and applies the rules above: `hud.StripStamps` / `hud.BottomStripY` /
@@ -9465,10 +9552,14 @@ scrollbar rendering.
 
 **Tab strip and manual exit.** In a multiplayer battle only (session kind 3,
 with chat inactive), the Tab key plays `SmallButton` and opens the hard-coded
-`guis/tabmenu.gui` window — a 510×33 top strip (authored origin `y=-33`)
-carrying `OPTIONS`, `SHARE`, `ALLIES`, and `CONTROL`; this name is not
+`guis/tabmenu.gui` window — a 510×33 strip along the bottom edge (authored
+origin `x=130`, `y=-33`; a negative `ypos` counts up from the surface bottom
+[R-WGT-01 §12], so the strip fills the surface's last 33 rows at every display
+size) carrying `OPTIONS`, `SHARE`, `ALLIES`, and `CONTROL`; this name is not
 side-prefixed. A second Tab while it is open closes it (the Tab-menu word bit
-`0x20` toggles), with the same cue. The opener shows `ALLIES` and `SHARE` only
+`0x20` toggles), with the same cue. Its buttons play `BigButton` and open their
+windows on top of it, leaving it open beneath ("Tab options menu and manual
+exit"). The opener shows `ALLIES` and `SHARE` only
 when the local player is not a watcher and at least one of the ten slots other
 than a local human's has its watcher bit clear; empty slots count, so in
 practice the two are shown whenever the local player is not a watcher. It
@@ -9624,6 +9715,22 @@ can remain composed under the appropriate overlay.
   The rest of the outcome-transition timing is closed there.
 - Pause authorization and forwarding authority for chat, pause, and speed
   packets in multiplayer · §11 · static trace. Out of implementation scope.
+- Whether a one-line chat prefix digit names the slot index (0–9) or the
+  slot plus one, as players are numbered on screen · §5 "Chat" · a trace of
+  the prefix parser's digit conversion, or a two-machine observation of
+  `1:` in a two-player game.
+- The expanded `TALK2.GUI` form: what sets the persistent expansion-flag
+  byte, how its recipient rows are painted, what `SENDTO`'s word-flag bit
+  `0x0100` does, and the recipient-mode byte's initial value · §5 "Chat" ·
+  a trace of the flag's writers, the row painter, the bit's readers and the
+  mode byte's initialization.
+- Whether a received chat line carries a speaker slot. §5 "Chat" posts it
+  as class 8 with the sender's slot as speaker, which would draw a logo and
+  play `MessageArrived`; [R-HUD-03 §14.3]'s routing-class census says only
+  class-4 lines carry a real speaker slot and lists class 8 as two
+  session/network lines. One of the two statements is wrong · §5 "Chat"
+  [R-HUD-03 §14.3] · a trace of the receipt's append call and of the two
+  class-8 producers.
 
 
 ## 12. Lobby and session shell

@@ -24,9 +24,14 @@ const _ = uint(HostedColors - HostedMaxSeats)
 // HostedSeatState is one seat as the lobby reports it. Team is 0 for none or
 // 1..5 (Survival ignores it); Side indexes the catalog's sides; Color is the
 // seat's player colour, below HostedColors and held by no other present seat.
+// Name is the display name the seat's hello carried, empty for none; Chat
+// reports that its client sends and receives chat (version 8). Seats may
+// share a name.
 type HostedSeatState struct {
 	Present, Ready    bool
 	Team, Side, Color uint8
+	Name              string
+	Chat              bool
 }
 
 // HostedLobbyState is one seat's latest view of its room before Start
@@ -125,13 +130,13 @@ func DescribeHostedRoom(ctx context.Context, address, room string, options Hoste
 // OpenHostedLobby creates a room of size seats (2..HostedMaxSeats) when room
 // is empty, carrying the host's encoded base configuration (at most 64 KiB),
 // or joins one, passing config nil and size 0, and takes its lowest free
-// seat.
+// seat. options.Name is the player's display name for the room's seats.
 func OpenHostedLobby(ctx context.Context, address, room string, hello LocalHello, config []byte, size int, options HostedDialOptions) (*HostedLobby, error) {
 	return openHostedLobby(ctx, hostedVersion, address, room, hello, config, size, options)
 }
 
-// openHostedLobby speaks a served version; tests use it to play a version-5
-// seat, which the relay never sends a progress report.
+// openHostedLobby speaks a served version; tests use it to play a version-7
+// seat, which carries no name and never sends or receives chat.
 func openHostedLobby(ctx context.Context, version uint16, address, room string, hello LocalHello, config []byte, size int, options HostedDialOptions) (*HostedLobby, error) {
 	if room == "" && len(config) == 0 {
 		return nil, hostedError("room configuration", "the creator's encoded configuration")
@@ -139,7 +144,7 @@ func openHostedLobby(ctx context.Context, version uint16, address, room string, 
 	if room != "" {
 		hello.Seat = hostedAnySeat
 	}
-	body, err := encodeHostedHelloVersion(version, room, 0, size, hello, config)
+	body, err := encodeHostedHelloVersion(version, room, 0, size, hello, config, options.Name)
 	if err != nil {
 		return nil, err
 	}
@@ -166,28 +171,19 @@ func (l *HostedLobby) read() {
 		r := netproto.NewReader(body, hostedError)
 		switch r.U8() {
 		case hostedLobbyMessage:
-			var st HostedLobbyState
-			st.Size = int(r.U8())
-			flags := r.U8()
-			st.ConfigVersion = r.U32()
-			if st.Size < 2 || st.Size > HostedMaxSeats {
-				r.Abort(hostedError("lobby state", "2 to 10 seats"))
-			}
-			for i := range st.Size {
-				bits := r.U8()
-				st.Seats[i] = HostedSeatState{Present: bits&1 != 0, Ready: bits&2 != 0, Team: r.U8(), Side: r.U8(), Color: r.U8()}
-				if st.Seats[i].Color >= HostedColors {
-					r.Abort(hostedError("lobby state", "colours 0 to 9"))
-				}
-			}
-			st.Mismatch = flags&hostedLobbyMismatch != 0
-			if err := r.End(); err != nil {
+			st, err := decodeHostedLobby(body, l.client.version)
+			if err != nil {
 				l.fail(err)
 				return
 			}
 			l.mu.Lock()
 			l.state = st
 			l.mu.Unlock()
+		case hostedChatMessage:
+			if err := l.client.recordChat(body); err != nil {
+				l.fail(err)
+				return
+			}
 		case hostedConfigurationMessage:
 			version := r.U32()
 			config := r.Raw(r.Count(hostedMaxConfigBytes, 1))
@@ -225,10 +221,99 @@ func (l *HostedLobby) read() {
 			l.fail(hostedError("room", "an open room"))
 			return
 		default:
-			l.fail(hostedError("lobby message", "lobby state, configuration, Started or a refusal"))
+			l.fail(hostedError("lobby message", "lobby state, configuration, chat, Started or a refusal"))
 			return
 		}
 	}
+}
+
+// Lobby state bits per seat. hostedSeatChat is version 8's.
+const (
+	hostedSeatPresent = 1 << iota
+	hostedSeatReady
+	hostedSeatChat
+)
+
+// encodeHostedLobby is the lobby state in a seat's version: the room size,
+// the flags (the mismatch bit), the configuration version, then per seat its
+// bits, team, side and colour, and in version 8 its name. Version 7's bytes
+// are exactly what version-7 clients have always read.
+func encodeHostedLobby(st HostedLobbyState, version uint16) []byte {
+	var w netproto.Writer
+	w.U8(hostedLobbyMessage)
+	w.U8(uint8(st.Size))
+	flags := uint8(0)
+	if st.Mismatch {
+		flags |= hostedLobbyMismatch
+	}
+	w.U8(flags)
+	w.U32(st.ConfigVersion)
+	for i := range st.Size {
+		s := st.Seats[i]
+		bits := uint8(0)
+		if s.Present {
+			bits |= hostedSeatPresent
+		}
+		if s.Ready {
+			bits |= hostedSeatReady
+		}
+		if s.Chat && version >= hostedChatVersion {
+			bits |= hostedSeatChat
+		}
+		w.U8(bits)
+		w.U8(s.Team)
+		w.U8(s.Side)
+		w.U8(s.Color)
+		if version >= hostedChatVersion {
+			w.Text(s.Name)
+		}
+	}
+	return w.Bytes()
+}
+
+// decodeHostedLobby reads the lobby state in the version this client spoke.
+func decodeHostedLobby(body []byte, version uint16) (HostedLobbyState, error) {
+	r := netproto.NewReader(body, hostedError)
+	if r.U8() != hostedLobbyMessage {
+		r.Abort(hostedError("lobby state", "a lobby state message"))
+	}
+	var st HostedLobbyState
+	st.Size = int(r.U8())
+	flags := r.U8()
+	if version >= hostedChatVersion && flags&^hostedLobbyMismatch != 0 {
+		r.Abort(hostedError("lobby state", "the mismatch flag"))
+	}
+	st.ConfigVersion = r.U32()
+	if st.Size < 2 || st.Size > HostedMaxSeats {
+		// Stop before the seats: a larger size would index past them.
+		r.Abort(hostedError("lobby state", "2 to 10 seats"))
+		return HostedLobbyState{}, r.Err()
+	}
+	for i := range st.Size {
+		bits := r.U8()
+		s := HostedSeatState{Present: bits&hostedSeatPresent != 0, Ready: bits&hostedSeatReady != 0, Team: r.U8(), Side: r.U8(), Color: r.U8()}
+		if s.Color >= HostedColors {
+			r.Abort(hostedError("lobby state", "colours 0 to 9"))
+		}
+		if version >= hostedChatVersion {
+			if bits&^(hostedSeatPresent|hostedSeatReady|hostedSeatChat) != 0 {
+				r.Abort(hostedError("lobby state", "the present, ready and chat bits"))
+			}
+			s.Chat = bits&hostedSeatChat != 0
+			s.Name = r.Text(HostedMaxNameBytes)
+			if r.Err() == nil {
+				if err := ValidHostedName(s.Name); err != nil {
+					r.Abort(err)
+				}
+			}
+		}
+		st.Seats[i] = s
+	}
+	st.Mismatch = flags&hostedLobbyMismatch != 0
+	if err := r.End(); err != nil {
+		return HostedLobbyState{}, err
+	}
+	return st, nil
 }
 
 func (l *HostedLobby) fail(err error) {
@@ -324,6 +409,22 @@ func (l *HostedLobby) Start() error {
 		return hostedError("start", "the room's host")
 	}
 	return l.send([]byte{hostedStartMessage})
+}
+
+// SendChat sends a chat line to the seats recipients names, as
+// LocalClient.SendChat does; seats keep their numbers after Start.
+func (l *HostedLobby) SendChat(recipients uint16, text string) error {
+	if _, err := l.State(); err != nil {
+		return err
+	}
+	return l.client.SendChat(recipients, text)
+}
+
+// DrainChat appends the chat lines received since the last call, oldest
+// first. The battle client Battle returns shares this inbox, so a line that
+// arrived before Started is not lost.
+func (l *HostedLobby) DrainChat(dst []HostedChatLine) []HostedChatLine {
+	return l.client.DrainChat(dst)
 }
 
 // Battle returns the grant-stream client once Started, or nil before then.

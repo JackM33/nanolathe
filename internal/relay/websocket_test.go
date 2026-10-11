@@ -205,7 +205,7 @@ func TestWebSocketHandshakeHealthAndPipelinedHello(t *testing.T) {
 	_ = c.Close()
 	c = rawWebSocketTest(t, s.Addr())
 	var envelope bytes.Buffer
-	hello, err := encodeHostedHello("", hostedAutoStart, 2, localTestHello(0), nil)
+	hello, err := encodeHostedHello("", hostedAutoStart, 2, localTestHello(0), nil, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -242,7 +242,7 @@ func TestWebSocketBrowserUpgradeAndClose(t *testing.T) {
 	c := rawWebSocketTest(t, s.Addr())
 	hello := localTestHello(1)
 	hello.Seat = hostedAnySeat
-	body, err := encodeHostedHello(host.Code(), 0, 0, hello, nil)
+	body, err := encodeHostedHello(host.Code(), 0, 0, hello, nil, "")
 	if err != nil {
 		t.Fatal(err)
 	}

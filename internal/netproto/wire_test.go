@@ -440,10 +440,14 @@ func TestReaderMutations(t *testing.T) {
 	}
 }
 
-// The version-1 constants are protocol contracts (§7.4.1): a change is a new
-// schema version, never an edit.
+// The protocol constants are contracts (§7.4.1): a change is a new schema
+// version, never an edit. Command schema version 2 added payloads and kept
+// every version-1 primitive and limit.
 func TestProtocolConstants(t *testing.T) {
-	if CommandSchemaVersion != 1 || MaxCommandBytes != 4194304 || MaxKeyBytes != 255 || DigestBytes != 32 || IDBytes != 16 || AmountBytes != 4 {
-		t.Fatal("a version-1 protocol constant moved")
+	if CommandSchemaVersion != 2 {
+		t.Fatalf("command schema version %d, want 2", CommandSchemaVersion)
+	}
+	if MaxCommandBytes != 4194304 || MaxKeyBytes != 255 || DigestBytes != 32 || IDBytes != 16 || AmountBytes != 4 {
+		t.Fatal("a version-1 primitive's limit moved")
 	}
 }

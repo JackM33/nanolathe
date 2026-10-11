@@ -317,7 +317,7 @@ func (n *onlineNetStats) overlay(sess *session.Session) onlineNetOverlay {
 		// report (DESIGN_MULTIPLAYER §16.5.2); a relay that sends none would
 		// need a departure notice in the stream.
 		for slot := range n.humans {
-			o.seats = append(o.seats, onlineNetSeat{cells: []string{onlineSeatName(slot, n.slot), onlineSeatResult(sess, slot)}})
+			o.seats = append(o.seats, onlineNetSeat{cells: []string{onlineSeatName(onlinePlayerName(sess, slot), slot, n.slot), onlineSeatResult(sess, slot)}})
 		}
 		return o
 	}
@@ -341,7 +341,7 @@ func (n *onlineNetStats) overlay(sess *session.Session) onlineNetOverlay {
 	}
 	holding := playing && fastest > slowest && sealed >= slowest && sealed-slowest >= onlineRelayLead
 	for slot := range n.humans {
-		row := onlineNetSeat{cells: []string{onlineSeatName(slot, n.slot), onlineSeatResult(sess, slot), "--", "--"}}
+		row := onlineNetSeat{cells: []string{onlineSeatName(onlinePlayerName(sess, slot), slot, n.slot), onlineSeatResult(sess, slot), "--", "--"}}
 		if slot < len(progress.Seats) {
 			switch s := progress.Seats[slot]; {
 			case !s.Playing:
@@ -375,11 +375,35 @@ func onlinePing(rtt time.Duration) string {
 	return fmt.Sprintf("%.1f s", rtt.Seconds())
 }
 
-func onlineSeatName(slot int, local uint8) string {
-	if uint8(slot) == local {
-		return fmt.Sprintf("Player %d (You)", slot+1)
+// onlineNetNameBytes is the longest name the seat table shows whole; a
+// longer one shows its first onlineNetNameBytes-2 bytes and "..", so ten
+// seats of the longest names still fit beside or below the +fps panel at
+// 640x480. A host display bound, not a name rule.
+const onlineNetNameBytes = 10
+
+// onlineSeatName is a seat row's label: the player's name, marked "(You)" for
+// this seat. An online session names every human, by display name or
+// "Player n" (session.NewOnlineMatchRequest); a record without one reads
+// "Player n" here too.
+func onlineSeatName(name string, slot int, local uint8) string {
+	if name == "" {
+		name = fmt.Sprintf("Player %d", slot+1)
 	}
-	return fmt.Sprintf("Player %d", slot+1)
+	if len(name) > onlineNetNameBytes {
+		name = name[:onlineNetNameBytes-2] + ".."
+	}
+	if uint8(slot) == local {
+		return name + " (You)"
+	}
+	return name
+}
+
+// onlinePlayerName is slot's player record name, empty when there is none.
+func onlinePlayerName(sess *session.Session, slot int) string {
+	if sess == nil || sess.Econ == nil || slot < 0 || slot >= len(sess.Econ.Players) {
+		return ""
+	}
+	return sess.Econ.Players[slot].Name
 }
 
 // onlineSeatResult is a seat's state from the shared simulation's results.

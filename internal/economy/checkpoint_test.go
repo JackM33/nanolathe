@@ -95,7 +95,7 @@ func TestCheckpointEconomyRetainedPlayerMutations(t *testing.T) {
 		"Exists": func(p *Player) { p.Exists = true }, "FullIncome": func(p *Player) { p.FullIncome = true }, "GameEnded": func(p *Player) { p.GameEnded = true }, "IsObserver": func(p *Player) { p.IsObserver = true },
 		"Kills": func(p *Player) { p.Kills = -1 }, "Losses": func(p *Player) { p.Losses = -1 }, "MetalShareThreshold": func(p *Player) { p.MetalShareThreshold = 1 },
 		"Mirror": func(p *Player) { p.Mirror[Metal].Carry = 1 }, "OptionKind": func(p *Player) { p.OptionKind = 2 }, "PassConsumed": func(p *Player) { p.PassConsumed[Energy] = 1 }, "PassProduced": func(p *Player) { p.PassProduced[Metal] = 1 },
-		"RejectionReason": func(p *Player) { p.RejectionReason = 3 }, "ResultAuxiliary": func(p *Player) { p.ResultAuxiliary = 1 }, "Side": func(p *Player) { p.Side = 2 },
+		"RejectionReason": func(p *Player) { p.RejectionReason = 3 }, "ResultAuxiliary": func(p *Player) { p.ResultAuxiliary = 1 }, "ShareRadar": func(p *Player) { p.ShareRadar = true }, "Side": func(p *Player) { p.Side = 2 },
 		"Stock": func(p *Player) { p.Stock[Energy] = 1 }, "StorageBonus": func(p *Player) { p.StorageBonus[Metal] = 1 }, "StorageBonusEnabled": func(p *Player) { p.StorageBonusEnabled = true },
 		"TotalConsumed": func(p *Player) { p.TotalConsumed[Energy] = 1 }, "TotalProduced": func(p *Player) { p.TotalProduced[Metal] = 1 }, "UpdateTime": func(p *Player) { p.UpdateTime = 1 }, "Waste": func(p *Player) { p.Waste[Energy] = 1 }, "Watcher": func(p *Player) { p.Watcher = true },
 	}

@@ -242,8 +242,10 @@ func TestLocalHelloComparesEveryIdentity(t *testing.T) {
 			}
 		})
 	}
-	for _, h := range []LocalHello{{Seat: HostedMaxSeats, Identity: localTestHello(0).Identity}, {Seat: 0, Identity: netproto.Identity{Protocol: 2}}} {
-		if _, err := encodeLocalHello(h); err == nil {
+	otherSchema := localTestHello(0)
+	otherSchema.Identity.Protocol++
+	for _, h := range []LocalHello{{Seat: HostedMaxSeats, Identity: localTestHello(0).Identity}, otherSchema} {
+		if _, err := encodeLocalHello(h, netproto.CommandSchemaVersion); err == nil {
 			t.Fatal("accepted invalid hello")
 		}
 	}

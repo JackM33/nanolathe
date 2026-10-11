@@ -132,6 +132,17 @@ type serverStats struct {
 	failedBy          map[string]uint64
 	peakPlayers       int
 	recent            []FinishedRoom
+	// Chat lines the relay queued for a recipient, and lines and deliveries
+	// it dropped.
+	chatRelayed, chatDropped uint64
+}
+
+// recordChat counts chat deliveries, never their text or anyone's name.
+func (s *HostedServer) recordChat(relayed, dropped uint64) {
+	s.mu.Lock()
+	s.stats.chatRelayed += relayed
+	s.stats.chatDropped += dropped
+	s.mu.Unlock()
 }
 
 func (s *HostedServer) recordStarted() {
@@ -177,13 +188,18 @@ type HostedStatus struct {
 }
 
 // HostedTotals counts rooms since the relay started. FailedBy counts started
-// matches by how they ended without completing.
+// matches by how they ended without completing. ChatRelayed counts chat lines
+// queued for a recipient, one per recipient; ChatDropped counts each line
+// beyond its sender's rate limit and each delivery a recipient's full queue
+// refused.
 type HostedTotals struct {
-	Rooms     uint64            `json:"rooms"`
-	Matches   uint64            `json:"matches"`
-	Completed uint64            `json:"completed"`
-	Failed    uint64            `json:"failed"`
-	FailedBy  map[string]uint64 `json:"failed_by,omitempty"`
+	Rooms       uint64            `json:"rooms"`
+	Matches     uint64            `json:"matches"`
+	Completed   uint64            `json:"completed"`
+	Failed      uint64            `json:"failed"`
+	FailedBy    map[string]uint64 `json:"failed_by,omitempty"`
+	ChatRelayed uint64            `json:"chat_relayed"`
+	ChatDropped uint64            `json:"chat_dropped"`
 }
 
 // RoomStatus is one open room, identified by a sequence number, never its code.
@@ -239,7 +255,8 @@ func millis(d time.Duration) float64 { return float64(d.Microseconds()) / 1000 }
 func (s *HostedServer) Status() HostedStatus {
 	s.mu.Lock()
 	out := HostedStatus{Protocol: hostedVersion, UptimeSeconds: time.Since(s.stats.started).Seconds(), Connections: len(s.conns),
-		Totals: HostedTotals{Rooms: s.stats.rooms, Matches: s.stats.matches, Completed: s.stats.completed, Failed: s.stats.failed}}
+		Totals: HostedTotals{Rooms: s.stats.rooms, Matches: s.stats.matches, Completed: s.stats.completed, Failed: s.stats.failed,
+			ChatRelayed: s.stats.chatRelayed, ChatDropped: s.stats.chatDropped}}
 	if len(s.stats.failedBy) != 0 {
 		out.Totals.FailedBy = make(map[string]uint64, len(s.stats.failedBy))
 		for k, v := range s.stats.failedBy {
@@ -311,6 +328,7 @@ th,td{text-align:left;padding:6px 8px;border-bottom:1px solid var(--line);white-
 <div class="tile"><b>{{.Lobbies}}</b>lobbies</div><div class="tile"><b>{{.Connections}}</b>connections</div>
 <div class="tile"><b>{{.PeakPlayers}}</b>peak players</div><div class="tile"><b>{{.Totals.Matches}}</b>matches started</div>
 <div class="tile"><b>{{.Totals.Completed}}</b>completed</div><div class="tile"><b>{{.Totals.Failed}}</b>ended early</div>
+<div class="tile"><b>{{.Totals.ChatRelayed}}</b>chat lines</div><div class="tile"><b>{{.Totals.ChatDropped}}</b>chat dropped</div>
 </div>
 {{if .Totals.FailedBy}}<p class="muted">Ended early: {{range $k, $v := .Totals.FailedBy}}{{$k}} {{$v}} · {{end}}</p>{{end}}
 <h2>Open rooms</h2>

@@ -42,7 +42,11 @@ combat, the computer player, the HUD. It adds only four things:
 **Online.** Two or three human survivors can play Survival online
 (DESIGN_MULTIPLAYER §16.6): each survivor is a human row, the director is
 unchanged and its waves hunt the survivor team it records, never the local
-seat, and there are no computer buddies, saves or best scores online.
+seat. A two-human room's host may add one computer survivor
+(DESIGN_MULTIPLAYER §6.6). There are no saves or best scores online.
+Retail's sharing and alliance commands work among the survivors as in any
+online battle (DESIGN_MULTIPLAYER §7.1), but the attacker is a scenario row,
+not a player: it is never a gift or alliance target.
 
 **Out of scope.** Saving (D2). Campaign
 integration. Scripted or authored wave lists; waves are generated from the
@@ -173,8 +177,8 @@ survivors only, in every mode:
 
 Alternatives considered: a single pooled stock (rejected: the computer buddies
 build continuously and would keep the pool near empty, starving the human),
-and opt-in sharing through the retail SHARE screen (kept as a possible
-addition; it is not needed for the team to play as one side).
+and opt-in sharing through the retail SHARE screen (not needed for the team
+to play as one side; online battles offer it anyway, on top of this split).
 
 ### 4.4 Session kind
 

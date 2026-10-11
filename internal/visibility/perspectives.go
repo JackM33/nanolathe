@@ -57,7 +57,27 @@ func (s *Service) StatusForPerspective(owner PlayerID, id uint16, allocationSeri
 // unless SetDefeatedHostKeepsSight is on and a computer this owner hosts
 // still has a live unit in units: then the pass is an ordinary viewer's, so
 // the computer that reads it keeps normal sight.
+//
+// It is SensorTickForPerspectiveSharing with no radar sharer.
 func (s *Service) SensorTickForPerspective(owner PlayerID, defeated bool, tick uint32, activePlayers int, units []SensorUnit) {
+	s.SensorTickForPerspectiveSharing(owner, defeated, tick, activePlayers, units, 0)
+}
+
+// SensorTickForPerspectiveSharing is SensorTickForPerspective with pass 1's
+// allied disjunct: radarSharers holds bit p for every owner p whose units this
+// perspective marks friendly because p shares radar and has declared alliance
+// toward this perspective's viewer — p's own declaration toward the viewer,
+// not the viewer's toward p [03 R-VIS-01 §4] pass 1 [03 R-VIS-01 §7]
+// [05 R-SHARE-01 §1]. The caller owns both reads: the alliance matrix and the
+// share-radar option live in the player records (economy RadarShareOwners).
+// A hosted computer borrows its host's pass, so the viewer is the host's.
+//
+// A marked unit gains the friendly pair, and so a minimap contact, the
+// underwater exemption and a place in the seen set; it gains no line of
+// sight, and the sharer's radar, sonar and sight mark nothing for the viewer.
+// An allied jammer still clears a sharer's seen bit [03 R-VIS-01 §7]. A zero
+// mask is SensorTickForPerspective exactly.
+func (s *Service) SensorTickForPerspectiveSharing(owner PlayerID, defeated bool, tick uint32, activePlayers int, units []SensorUnit, radarSharers uint16) {
 	if s == nil || !s.ownerPerspectives || !validPlayer(owner) {
 		return
 	}
@@ -66,7 +86,7 @@ func (s *Service) SensorTickForPerspective(owner PlayerID, defeated bool, tick u
 	}
 	if activePlayers <= 1 {
 		// Preserve both the no-write gate and the ordinary diagnostic reset.
-		s.sensorTick(tick, activePlayers, units, owner, defeated)
+		s.sensorTick(tick, activePlayers, units, owner, defeated, radarSharers)
 		return
 	}
 
@@ -110,7 +130,7 @@ func (s *Service) SensorTickForPerspective(owner PlayerID, defeated bool, tick u
 		*row = perspectiveSensorStatus{allocationSerial: u.AllocationSerial, status: status}
 		u.Status = &row.status
 	}
-	s.sensorTick(tick, activePlayers, s.perspectiveUnits, owner, defeated)
+	s.sensorTick(tick, activePlayers, s.perspectiveUnits, owner, defeated, radarSharers)
 }
 
 // historyPlayer is the explored-history bit a query on behalf of viewer reads

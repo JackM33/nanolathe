@@ -993,6 +993,76 @@ Per-player phase work by controller (the phase's own gates only):
 
 Outside the phase, the automatic sharing dispatcher is called for the own-slot row only.
 
+**Established — a refused due stops the settlement call and nothing else.**
+Gates 6 and 7 stand between the deadline advance and the settlement entry,
+and that entry is the only thing they guard. A census of every reference to
+the two words in the recovered image: the countdown is read and written only
+in this phase and armed at −1 by session setup; the latch is read or written
+outside this phase only by presentation, front-end, save and end-of-battle
+code — the in-battle title and results composers, the statistics screen, the
+session pump's end transition, the quit, leave and Continue-Watching paths,
+the developer win and lose commands, the film and developer overlays, the save
+writer, and the clears at battle entry, restart and teardown. Neither word
+has a reader in the per-unit visit, the order pumps, the construction step,
+the weapon update, the unit allocators or the computer planner. So while a
+machine's countdown is non-negative or its ending bit is set, for every row
+that machine simulates — its own human and every computer it hosts:
+
+- **Keeps running every tick, ungated by the pair:** the manager entry — the
+  computer's classification countdown, its ten task slots on their own
+  deadlines, and weapon maintenance ([08 R-AI-01 §1]); the strategic refresh
+  on its own 30-tick gate; the LOS stamp sweep; and, in the per-unit visit,
+  the order pumps, the construction, assist and factory-product steps,
+  movement, the weapon update, unit creation and kill filing
+  ([04 §3.3], [R-WORK-01 §1], [06 §3.3]). The deadline itself keeps
+  advancing by 30 per due, so no catch-up burst follows the refusal.
+- **Stops:** the settlement alone. Live stock, the rebuilt capacities, the
+  per-pass counters, waste, carry and the four archived rates the HUD and
+  the computer planner read ([R-ECO-01 §6], [08 R-AI-01 §2]) hold their
+  last-settled values, so the planner keeps deciding on the picture of the
+  last completed pass. Live stock still moves through the direct payment
+  helpers of [R-ECO-01 §7] — per-shot weapon costs, cheats and transfers —
+  which never pass through the settlement.
+
+**Established — construction under a refused settlement.** The construction
+step never reads stock. Its forward arm asks the **builder's** subrecord for
+two-resource admission ([R-ECO-01 §7], [R-WORK-01 §1]): both requested
+accumulators grow unconditionally; the step is committed — fraction, health
+and the accepted accumulators advance — exactly when the builder's energy
+carry and metal carry are both non-positive, and otherwise writes nothing.
+Carry has one writer, the apply-back of [R-ECO-01 §5], and nothing outside
+the settlement clears requested or accepted (the helpers of [R-ECO-01 §7]
+only add; the apply-back archives and zeroes). There is no per-player ratio
+for construction to fall back on: the two stage ratios are pass-local
+temporaries, and the only state a pass leaves for the next is the per-unit
+carry. Therefore, from the first refused due:
+
+- a builder or factory whose last apply-back left both carries at or below
+  zero commits every step at its full nominal rate — frames fill, products
+  complete, no stock is debited — while its requested and accepted
+  accumulators grow by the full demand of every step;
+- a builder whose last apply-back left a positive carry on either resource
+  commits nothing and stalls, while its requested accumulator still grows;
+- the reverse arm (decay, deconstruction, the resurrect refund) has no
+  admission and continues; its refund credits accumulate in the unit's
+  production slot.
+
+**Established by composition — the bill arrives with the next settlement.**
+When the gates open again (the countdown back at −1 with the ending bit
+clear — in multiplayer, the sixth due after the watch branch of
+[08 R-SKIR-01 §3], which writes neither word), the next pass folds the
+un-cleared accepted totals of every refused tick into `A` and the un-cleared
+production credits into `P`, against one pass of authored production plus
+the frozen stock. Stage 2 pays what the pool covers, writes the shortfall
+into each builder's carry as `accepted − acceptRatio × accepted`, and closes
+stock at the remainder. The work done during the refusal is charged in
+arrears: paid from stock where stock suffices, otherwise turned into carry
+that refuses those builders' admission on following ticks until later
+passes' stage 1 retires the debt. A machine whose **ending bit** is set never
+settles again, so there the work is never charged; such a machine leaves the
+battle at the session pump's end transition
+([08 "Session end and reporting"]).
+
 **Established — the HUD deadline is one tick stricter.** The sibling
 `DisplayTimer` field is advanced by the same `+30` but by a **strict**
 unsigned compare, `if (playerDisplayTimer < globalTick)`. Its consumer is the resource
@@ -2704,9 +2774,23 @@ stock, a negative amount passes every gate: it does not exceed the stock,
 the zero/unordered test passes, and the debit test `amount <= stock` is true,
 so the source's stock
 *increases* by the magnitude and the destination's production slot *decreases*
-by it. Whether the SHARE screen's slider read-back can produce a negative
-value is **Unknown** (decider: static trace of the slider's range against the
-`ftol` read-back of [R-SHARE-01 §5]); the helpers themselves do not guard.
+by it. The helpers themselves do not guard.
+
+**Established — the SHARE slider read-back takes the sign of the live
+stock.** The knob is clamped to `0..travel−1` after every change
+([07 R-WGT-01 §5]); the read-back is `ftol(knob / (travel − 1) × range)`
+with `range = ftol(live stock)` taken when the screen opens
+([07 R-HUD-03 §9]), the knob read as a signed 16-bit word and the range as a
+32-bit integer; a travel below 2 reads back `0`. So while the live stock is
+non-negative the screen cannot hand the helpers a negative amount. A negative
+live stock — reachable only through the exceptional settlement of a negative
+authored production pool ([R-ECO-01 §5]) — gives a negative range and so a
+negative read-back, which the confirm handler of [R-SHARE-01 §5] passes to
+the helpers unguarded. The other negative producer is the share threshold:
+`SetShareMetal`/`SetShareEnergy` store a negative argument as is
+([R-SHARE-01 §3]), after which the automatic dispatcher's `stock >
+threshold` test holds at any non-negative stock and its amount is bounded by
+the debit clamp above.
 
 ### Automatic transfer
 
@@ -2765,24 +2849,54 @@ no-op.
 metal then energy:
 
 1. Source gate: option-word bit `1` (metal) / bit `2` (energy) set, and
-   `source.threshold < source.stock` (single precision, strict).
+   `source.stock > source.threshold` — a strict compare of the two
+   single-precision fields whose only accepted outcome is *greater*: equal
+   fails, and an **unordered** compare (a NaN on either side) fails, so a NaN
+   source stock or threshold skips the resource. The same test is evaluated
+   again, identically, after the scan and before the transfer.
 2. Candidate scan, slots `0..9` ascending, candidate `c` qualifies when all of:
-   the slot exists; control byte in `{1, 2, 3}`; the slot's own index is not
-   `10`; the slot is not eliminated (`live unit count != 0` or `total units
-   ever created == 0`); **control byte equals `3`**; the candidate's option
-   record kind byte equals `1`; `source.A[c] != 0`; and
-   `candidate.stock < source.stock` (single precision, strict). The last
-   qualifying slot wins.
-3. If a candidate was chosen:
-   `amount = min(candidate.capacity − candidate.stock,
-   (source.stock − source.threshold) × k)` with `k = 0.33333334` (metal) or
-   `0.5` (energy), the multiply in single precision; then the resource's
-   transfer helper is called with the debit flag set.
+   the slot exists; control byte in `{1, 2, 3}`; the slot-index byte is not
+   `10` — the **seated** test of [04 R-MOV-03 §10] and [04 R-MOV-03 §11],
+   inert for any seated row, and not a watcher or observer test (the scan
+   reads no option-word bit of the candidate, no host flag and no alliance
+   row other than the source's); the slot is not eliminated (`live unit count
+   != 0` or `total units ever created == 0`); **control byte equals `3`**;
+   the candidate's option record kind byte equals `1`; `source.A[c] != 0`;
+   and `candidate.stock < source.stock`, a compare whose accepted outcomes
+   are *less* **and unordered** — a NaN candidate stock passes (the source
+   stock cannot be NaN here; step 1 rejected it). The last qualifying slot
+   wins.
+3. If a candidate was chosen, three values are formed in the floating-point
+   unit at its 53-bit working precision ([01 §8]) from the single-precision
+   fields, and none is rounded to single before the compare:
+   `excess = source.stock − source.threshold`, `gap = candidate.capacity −
+   candidate.stock`, and `product = excess × k` with `k` the single-precision
+   constant nearest `1/3` (metal, `0.33333334`) or exactly `0.5` (energy).
+   Then `amount = (product < gap) ? product : gap`, where the compare's
+   accepted outcomes are *less* **and unordered**, so a NaN product or gap
+   selects the product. Only the chosen value is rounded to single, as the
+   argument of the resource's transfer helper, which is called with the
+   debit flag set and applies its own gates ([R-SHARE-01 §2]: a NaN amount
+   is a no-op there). An ordinary gap or excess therefore enters the compare
+   at a precision the stored fields do not have — `min(gap, product)`
+   evaluated after rounding both to single can choose differently when the
+   two are within a single-precision ulp of each other.
 
 The threshold fields are zeroed at battle setup. Their only writers are the
 `SetShareMetal` and `SetShareEnergy` chat commands, which act only in a
 networked session and store the argument, or the storage capacity when the
-argument exceeds it ([07 R-CAM-01 §6]). Until a player uses one, step 1's
+argument exceeds it ([07 R-CAM-01 §6]). **Established — the conversion.**
+Each handler reads its first word as a 32-bit integer by the `atoi` rule of
+[07 R-CAM-01 §6], converts it to single precision and compares it with the
+player's single-precision storage capacity for that resource: an argument
+not above the capacity is stored as that single-precision value — so a
+**negative argument is stored negative**, since the capacity is never below
+it — and an argument above the capacity stores the capacity instead. The
+compare's accepted outcomes are *below*, *equal* and *unordered*: a NaN
+capacity therefore stores the argument, not the capacity. The
+reply line (`OK.  Will share metal if above %d`) prints the parsed integer,
+not the stored value, so it names the argument even when the capacity was
+stored. Until a player uses one, step 1's
 compare is `0 < stock` and step 3's product is `stock × k`. No random draw is
 consumed.
 
@@ -2857,18 +2971,24 @@ by the local helper call and never re-applied by the drain.
 
 **Established — controls.** `SHARE.GUI` binds a player list (`PLYRLIST`), two
 gadget-kind-4 sliders (`METAL`, `ENERGY`), two check controls (`SHARUNIT`,
-`MAPINFO`), a confirm button, and `CANCEL` (back to the previous screen).
-Confirming resolves the selected list row to a network identity and then to a
-slot; the target must exist, have control byte `1`, `2` or `3`, have an
-assigned slot index, not carry the rule word's defeated bit, and not be
-eliminated. **There is no alliance test** — a player may share with an enemy.
+`MAPINFO`), a confirm button (`OK`), and `CANCEL`, which closes the dialog and
+gives nothing; a Tab strip the dialog was opened from is still open beneath it
+([07 "Tab options menu and manual exit"], which also gives the dialog's
+cues). Confirming closes the dialog. It resolves the selected list row to a
+network identity and then to a slot; the target must exist, have control byte
+`1`, `2` or `3`, have an assigned slot index, not carry the rule word's
+defeated bit, and not be eliminated. **There is no alliance test** — a player may share with an enemy.
 
 **Established — reach.** The screen has two openers, the `h` key and the Tab
 strip's `SHARE` button. Both require the multiplayer session kind and a local
 player whose rule word's defeated bit is clear — the watcher bit of
 [08 R-SKIR-01 §12] ([07 R-CAM-01 §2], [07 §11]). Its list offers every
 existing, surviving slot without that bit except a local human: computer
-players and remote players are both offered.
+players and remote players are both offered, in slot order. When no slot
+qualifies, the opener closes the dialog again at once, before it is ever
+composed, so the key or button does nothing visible. Otherwise the list's
+selection starts on row 0, so a confirm without a click gives to the first
+listed player.
 
 **Established — amounts.** Each slider's read-back value is truncated to a
 32-bit integer through `ftol` ([07 R-HUD-03 §9] gives the knob/range
@@ -2877,16 +2997,30 @@ The metal helper is called first, then the energy helper, both with the local
 slot as source, the resolved target, and the debit flag set — so each amount
 is clamped to the local live stock ([R-SHARE-01 §2]). Zero fields are no-ops.
 
-**Established — unit sharing.** With `SHARUNIT` checked, the current
-selection of the local player is gathered and each selected unit is handed to
-the ownership-transfer routine (the same one capture uses, [R-WORK-01 §6])
-with the target's player record, **except** units whose status word's low two
-bits — the mover movement-mode mirror, [04 §2] — equal `2`, units with a
-non-zero transport-attachment reference in either of the two attachment
-slots, and units whose definition index is in the `Commander` category
-bitset. The transfer re-allocates the unit in the target's pool slice through
-the allocator of [R-SHARE-01 §8], so it fails silently when the target's
-slice is full or the definition's limit is reached.
+**Established — unit sharing.** With `SHARUNIT` checked, the local player's
+pool slice is walked from its first record to its last and every record
+carrying the selected bit (state-word bit 4) is gathered, so the gift
+proceeds in **ascending unit-identifier order**; each gathered unit is
+handed to the ownership-transfer routine (the same one capture uses,
+[R-WORK-01 §6]) with the target's player record and no packet, **except**
+units whose status word's low two bits — the mover movement-mode mirror,
+[04 §2] — equal `2` (airborne), units that are **carried** or **carrying** —
+a non-null carrier back-pointer or a non-null cargo-list head, the two
+transport links of [04 R-FAC-02 §1] and [04 R-COB-03 §5] — and units whose
+definition index is in the `Commander` category bitset. Nothing tests the
+remaining-build fraction: a selected nanoframe is given. The routine's
+branch is chosen by the **target's control byte** ([R-WORK-01 §15]): a target
+simulated on this machine (control `1` or `2`) gets a replacement
+re-allocated in its pool slice through the allocator of [R-SHARE-01 §8], so
+the gift fails silently when the target's slice is full or the definition's
+limit is reached; a remote target (control `3`) gets the transfer packet and
+the replacement is allocated on its machine, where the same allocator
+refusals lose the unit outright, because the giver has already killed its
+copy.
+
+**Established — order within one confirm.** Metal, then energy, then the
+unit gift, then the map information; each step runs to completion before the
+next, and no step's outcome gates a later one.
 
 **Established — map information.** With `MAPINFO` checked, confirming applies
 the mapping-grid merge of [R-SHARE-01 §6] at once on the giver's machine, from
@@ -5794,13 +5928,133 @@ either. The old unit is then killed with a cause-4 packet and a null attacker
 state-edge calls: first set every bit that the old byte has, then clear the
 complement. Each call writes its whole resulting byte before its fixed
 activation, building and cloak edge notifications run, so a replacement's
-callbacks and visibility effects observe the resulting byte. The other branch
-(old owner control 1 or 2, **new owner control 3 — a remote peer** by
-[R-SHARE-01 §1]) creates nothing locally: it writes the 150-tick
-post-capture countdown, clears the selected bit, emits the transfer packet
-(the same fields, the three stockpile bytes gated on slot 0's enabled bit
-alone) and kills the old unit with the same cause-4 packet; the replacement is
-the peer's. That branch is multiplayer transport and out of Nanolathe's scope.
+callbacks and visibility effects observe the resulting byte.
+
+**The remote branch, on the giving machine — Established** (instruction-level
+read of the transfer routine's two branches, the packet dispatcher's transfer
+arm, the broadcast helper and the allocator). Once the entry gate above holds,
+and before either branch, the routine notifies the session object's
+registered observers that the unit is leaving — the same list the save
+writer walks, so by that place they are the per-player manager objects of
+[08 R-AI-01] (**Supported inference**; the notification itself is
+Established); that notification runs even when the branch then does
+nothing. The branch is chosen by control
+bytes ([R-SHARE-01 §1]): when the old owner is simulated here (control `1` or
+`2`) and the new owner is a remote peer (control `3`), the giving machine
+creates nothing. In order it:
+
+1. writes `150` into the **victim's** post-capture countdown — the field the
+   unit sweep decrements and the selection and own-unit predicates read
+   ([04 R-MOV-03 §1] step 6) — and clears the victim's selected bit. These
+   are the countdown's only non-zero write and the transfer's only touch of
+   the selected bit; the local branch writes neither, so a replacement
+   never carries the countdown;
+2. builds the 24-byte transfer packet (type `0x14`, layout in
+   [08 "Declared packet types"]): the victim's unit identifier; the new
+   owner's transport identity; the remaining-build fraction **truncated to
+   a whole number** (`ftol`: `0` for every finished or partly built unit,
+   `1` only for an untouched nanoframe); the 16-bit health sign-extended to
+   32 bits; the orientation triple (bank, heading, pitch); and the three
+   stockpiled-round bytes of weapon slots 0–2, written only when **slot 0's**
+   control byte has its enabled bit and zero otherwise. The packet carries
+   no position, kill count, orders, cargo or operational byte;
+3. broadcasts the packet from the **old owner's** transport identity to
+   every remote machine (the helper refuses when that identity's record is
+   not live, not simulated here, or carries a removal reason; it never
+   addresses one peer);
+4. applies a fixed 30,000 damage of kind `4` with a null attacker to its own
+   copy through the ordinary damage builder. Like every kind other than
+   `10`, the amount is scaled by defender veterancy ([06 §9.2]:
+   `(25 − tier) × 4 / 100`, so 24,000 at five tiers) and, because the victim
+   is simulated here, applied locally with no damage packet. Lethal damage
+   sets the death latch; the next unit phase runs the cause-4 death
+   ([06 §12.1]: severity 0, no `Killed` query, no explosion, no corpse) and
+   publishes the death packet that removes the victim on every other
+   machine. A copy whose health exceeds the scaled amount survives the step
+   with that much less health, still the giver's, while the receiver's
+   replacement already exists; whether any stock definition can hold such
+   health is **Unknown** (decider: a census of the compiled 16-bit
+   maximum-health words against 24,000).
+
+When the new owner's record is not live the routine returns after the
+manager notification, sending and killing nothing; when the old owner is
+itself remote this branch is skipped and the allocation branch below runs.
+
+**The receiving machine — Established** (same read). The packet is consumed
+by the network drain, phase 1 of the sub-tick ([R-SHARE-01 §4], [01 §4]), on
+every machine, under the single admission gate of [08 "Packet framing and
+dispatch"]. The transfer arm resolves the unit identifier to a record (zero is
+null) and requires its alive bit; resolves the carried identity to the first
+slot, in ascending order, whose control byte is non-zero and whose identity
+matches (an all-ones identity matches nothing); and acts only when that
+record is live with control `1` or `2`. So exactly the new owner's machine
+proceeds, and a third machine discards the packet and learns the outcome from
+the creation and death packets below. The routine then runs with the local
+**mirror** of the victim as the unit, the new owner's record, and the packet:
+
+1. the entry gate holds on the mirror — its owner is the remote giver, a
+   remotely owned record never carries the death latch ([06 §12.1]), and its
+   alive bit is still set whenever the transfer arrives before the giver's
+   death packet, which the giver does not build until the unit phase after
+   the transfer was sent. The in-battle sends are not guaranteed after the
+   pre-battle barrier ([08 "Custom and direct wire paths"]), so a death
+   packet that overtakes the transfer clears the mirror's alive bit first,
+   the transfer arm then refuses silently, and the unit is lost; whether
+   retail's own queueing above the transport rules that overtaking out is
+   **Unknown** (decider: a read of the batching path's per-record ordering)
+   — the observers are notified that the mirror is leaving, and the giving
+   branch is skipped because the mirror's owner is remote;
+2. the replacement is allocated through the ordinary allocator of
+   [R-SHARE-01 §8] with no preferred index, in the **new owner's** slice —
+   its identifier is the first free record there — as a **finished** unit
+   of the mirror's definition at the **mirror's position** (the position the
+   receiver last synchronized; the packet has none) with the mirror's two
+   movement-mode bits. The creatable bit, the per-definition limit and a
+   free record gate it; a refusal ends the arm with nothing created, and the
+   unit is lost. The allocator runs the whole constructor — the heading draw
+   and the hover-bob draw of [04 R-P28-ANG-01R §2], a fresh script instance,
+   fresh weapon slots, no orders, group 0, selected bit clear, countdown 0,
+   kill count 0, health at maximum, remaining fraction 0 — and announces the
+   record to every other machine with a creation packet from the new owner's
+   identity **before** any packet field is applied, so the peers' mirrors
+   begin in the constructor's pose and catch up through the ordinary status
+   synchronization;
+3. state bits 18–21 are cleared, exactly as in the local branch;
+4. from the packet, in order: the 16-bit health (the low half of the
+   sign-extended word); the remaining fraction, rebuilt as single precision
+   from the whole number; the orientation triple; then, for each of the
+   three weapon slots, the stockpiled-round byte **only when the
+   replacement's slot control byte has its enabled bit**. The receiver's
+   gate is per slot while the giver's was slot 0 alone, so a slot enabled on
+   the replacement whose victim had slot 0 disabled receives a zero byte;
+5. the replacement's operational byte is replayed through the same two
+   state-edge calls as the local branch, reading the **mirror's** byte — the
+   byte the giver's state packets and status synchronization had kept
+   current — not a packet field; each call that changes the byte publishes
+   a state packet from the new owner's identity;
+6. the mirror is **not** removed by this arm. It dies when the giver's
+   cause-4 death packet arrives, through the full remote-death path of
+   [08 "Packet framing and dispatch"] (type `0x0c`).
+
+What the registered observers do with the leaving notification is **Unknown**
+(decider: a read of the registered objects' notification methods).
+
+**The two copy lists side by side — Established.** "Victim" means the giver's
+live record in the local branch and the receiver's mirror of it in the remote
+branch; "defaulted" means the constructor's value for a fresh finished unit.
+
+| Field | Local branch (same machine) | Remote branch (receiving machine) |
+|---|---|---|
+| Definition, movement-mode bits, position | from the victim | from the mirror (the packet carries none of them) |
+| Health (16-bit) | copied | from the packet |
+| Remaining-build fraction | copied exactly | from the packet, already truncated to a whole number by the giver |
+| Bank, heading, pitch | copied | from the packet |
+| Stockpiled rounds, weapon slots 0–2 | copied per slot where the replacement's slot is enabled | from the packet per slot where the replacement's slot is enabled; the giver wrote them only when the victim's slot 0 was enabled |
+| Operational byte (activated, armored, instance-cloaked, building) | replayed from the victim through two state-edge calls | replayed from the mirror the same way |
+| Standing-order bits 18–21 | cleared | cleared |
+| Kill count, orders and queue, velocity, weapon reload and targets, script state and piece transforms, cargo and carrier links, group word, selected bit, post-capture countdown | defaulted | defaulted |
+| Victim's fate | killed here by the cause-4 30,000 packet after the copy | killed on the giver by the same packet before the transfer is received; the mirror falls to the giver's death packet |
+| Victim's countdown and selected bit | untouched | `150` written and the selected bit cleared, on the giver's copy only |
 
 #### The capture transfer's local branch moves neither the group word nor the selected bit [R-WORK-01 §14]
 
