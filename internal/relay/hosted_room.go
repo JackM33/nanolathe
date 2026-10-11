@@ -128,6 +128,18 @@ func (p *hostedProgress) compare() (bool, error) {
 	}
 }
 
+// stalled is the seat of the active slot whose last acknowledgement is
+// oldest, the one the progress bound expired waiting for, or -1.
+func (p *hostedProgress) stalled(players [HostedMaxSeats]*hostedPeer) int {
+	seat, oldest := -1, time.Time{}
+	for s := range p.n {
+		if p.active[s] && (seat < 0 || p.last[s].Before(oldest)) {
+			seat, oldest = int(players[s].seat), p.last[s]
+		}
+	}
+	return seat
+}
+
 // slowest is the lowest acknowledged tick and the oldest acknowledgement
 // time among active slots.
 func (p *hostedProgress) slowest() (uint32, time.Time) {
@@ -198,6 +210,9 @@ func (r *hostedRoom) run() {
 	var openingReady [HostedMaxSeats]bool // by slot
 	var configVersion uint32
 	stats := roomStats{created: r.created}
+	// culprit is the seat whose event is being handled, or the slowest
+	// seat when the progress bound expires; finish reports it.
+	culprit := -1
 
 	every := func(fn func(*hostedPeer)) {
 		if started {
@@ -267,7 +282,7 @@ func (r *hostedRoom) run() {
 		for _, p := range peers {
 			<-p.written
 		}
-		r.server.recordFinished(r, &stats, started, progress.n, tick, reason)
+		r.server.recordFinished(r, &stats, started, progress.n, tick, reason, culprit)
 	}
 	// held reports a colour some present seat other than skip holds.
 	held := func(color uint8, skip int) bool {
@@ -473,12 +488,14 @@ func (r *hostedRoom) run() {
 			if opening {
 				finish(hostedError("opening readiness", "every seat to finish its opening within 30 minutes"), finishExpired)
 			} else if started {
+				culprit = progress.stalled(players)
 				finish(hostedError("execution progress", "execution progress from every seat within ten seconds"), finishStalled)
 			} else {
 				finish(hostedError("room wait", "a started match within 30 minutes"), finishExpired)
 			}
 			return
 		case <-ready:
+			culprit = -1
 			ready = nil
 			if tick == ^uint32(0) {
 				finish(hostedError("grant tick", "a tick before uint32 exhaustion"), finishProtocol)
@@ -515,6 +532,7 @@ func (r *hostedRoom) run() {
 		case <-reporting:
 			report()
 		case e := <-r.events:
+			culprit = int(e.peer.seat)
 			stats.bytesIn += uint64(len(e.body))
 			if e.join {
 				// A joiner takes the lowest colour no present seat holds; a

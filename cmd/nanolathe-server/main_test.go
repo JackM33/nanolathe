@@ -54,3 +54,13 @@ func TestServerStatsLine(t *testing.T) {
 		t.Fatalf("stats line: %q", out.String())
 	}
 }
+
+// A finished room's operator line names its outcome and seat, and nothing
+// that identifies a player or an invitation.
+func TestFinishedRoomLogLine(t *testing.T) {
+	var out strings.Builder
+	logFinishedRoom(&out, relay.FinishedRoom{ID: 7, Size: 4, Players: 3, Ticks: 900, Orders: 12, Outcome: "command flood", Seat: 2, DurationSeconds: 31.6})
+	if got, want := out.String(), "relay: room=7 outcome=\"command flood\" seat=2 players=3/4 ticks=900 orders=12 duration=32s\n"; got != want {
+		t.Fatalf("log line %q, want %q", got, want)
+	}
+}

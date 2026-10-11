@@ -121,7 +121,7 @@ func TestHostedProgressReachesEveryServedVersion(t *testing.T) {
 		}
 	}
 	awaitHostedCapacity(t, s, 0, 0)
-	if st := s.Status(); len(st.Recent) != 1 || st.Recent[0].Outcome != finishCompleted {
+	if st := s.Status(); len(st.Recent) != 1 || st.Recent[0].Outcome != finishCompleted || st.Recent[0].Seat != -1 {
 		t.Fatalf("recent rooms: %+v", st.Recent)
 	}
 }
@@ -209,5 +209,18 @@ func TestHostedProgressReportEncoding(t *testing.T) {
 		if _, err := decodeHostedProgress(bad); err == nil {
 			t.Fatalf("accepted malformed report %v", bad)
 		}
+	}
+}
+
+// The operator's record of an ended match carries its duration and the
+// seat that ended it; a completed match names no seat.
+func TestFinishedRoomRecord(t *testing.T) {
+	var got []FinishedRoom
+	s := &HostedServer{config: HostedConfig{Finished: func(f FinishedRoom) { got = append(got, f) }}}
+	stats := &roomStats{startedAt: time.Now().Add(-2 * time.Second)}
+	s.recordFinished(&hostedRoom{id: 1, size: 2}, stats, true, 2, 60, finishDisconnected, 1)
+	s.recordFinished(&hostedRoom{id: 2, size: 2}, stats, true, 2, 90, finishCompleted, 1)
+	if len(got) != 2 || got[0].Seat != 1 || got[0].DurationSeconds < 2 || got[1].Seat != -1 {
+		t.Fatalf("records %+v", got)
 	}
 }

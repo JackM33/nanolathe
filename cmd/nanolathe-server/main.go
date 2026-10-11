@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/signal"
 	"runtime"
+	"sync"
 	"syscall"
 	"time"
 
@@ -50,7 +51,9 @@ func run(ctx context.Context, args []string, out io.Writer) error {
 	if *proxyTLS && (!*websocket || *insecure || *certFile != "" || *keyFile != "") {
 		return serverError("proxy transport", "--websocket without local TLS or loopback options")
 	}
-	config := relay.HostedConfig{InsecureLoopback: *insecure, MaxRooms: *maxRooms, MaxConnections: *maxConnections}
+	out = &lockedWriter{w: out}
+	config := relay.HostedConfig{InsecureLoopback: *insecure, MaxRooms: *maxRooms, MaxConnections: *maxConnections,
+		Finished: func(f relay.FinishedRoom) { logFinishedRoom(out, f) }}
 	transport := "TLS"
 	if *proxyTLS {
 		transport = "WebSocket behind HTTPS proxy"
@@ -110,6 +113,27 @@ func logServerStats(out io.Writer, st relay.HostedStatus) {
 	fmt.Fprintf(out, "relay: players=%d matches=%d lobbies=%d connections=%d started=%d completed=%d failed=%d chat=%d chat_dropped=%d heap=%dMiB sys=%dMiB goroutines=%d\n",
 		st.Players, st.Matches, st.Lobbies, st.Connections, st.Totals.Matches, st.Totals.Completed, st.Totals.Failed,
 		st.Totals.ChatRelayed, st.Totals.ChatDropped, mem.HeapAlloc>>20, mem.Sys>>20, runtime.NumGoroutine())
+}
+
+// logFinishedRoom writes one line per ended room, so a failure's reason,
+// tick and seat outlive the status page's last 20 rooms and a restart. It
+// carries no room code, address, name or chat (DESIGN_MULTIPLAYER §12.5).
+func logFinishedRoom(out io.Writer, f relay.FinishedRoom) {
+	fmt.Fprintf(out, "relay: room=%d outcome=%q seat=%d players=%d/%d ticks=%d orders=%d duration=%.0fs\n",
+		f.ID, f.Outcome, f.Seat, f.Players, f.Size, f.Ticks, f.Orders, f.DurationSeconds)
+}
+
+// lockedWriter serializes the operator log's writers: the minute ticker and
+// every room's goroutine.
+type lockedWriter struct {
+	mu sync.Mutex
+	w  io.Writer
+}
+
+func (l *lockedWriter) Write(p []byte) (int, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.w.Write(p)
 }
 
 func serverError(path, expected string) error {

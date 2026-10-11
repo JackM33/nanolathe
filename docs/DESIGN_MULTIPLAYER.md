@@ -2031,7 +2031,9 @@ page shows no room code (an invitation), address, name, chat text or
 process-level resource figure.
 
 **Operator log.** Once a minute the server writes one line with the same
-counts plus process heap, total memory and goroutines. Routine logs carry
+counts plus process heap, total memory and goroutines, and one line per
+ended room with its outcome and the seat whose message, departure or
+silence ended it (`FinishedRoom.Seat`). Routine logs carry
 no room codes, credentials, names or chat text. Later: stream retention for rejoin, archives
 under a declared release policy, and the trusted roles of §12.6.
 

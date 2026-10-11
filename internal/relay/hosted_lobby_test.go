@@ -549,7 +549,8 @@ func TestHostedDefeatedSeatMayLeave(t *testing.T) {
 		}
 	}
 	awaitHostedCapacity(t, s, 0, 0)
-	if st := s.Status(); len(st.Recent) != 1 || st.Recent[0].Outcome != finishDisconnected || st.Recent[0].Players != 3 {
+	// The record names the seat whose departure ended the room.
+	if st := s.Status(); len(st.Recent) != 1 || st.Recent[0].Outcome != finishDisconnected || st.Recent[0].Players != 3 || st.Recent[0].Seat != 1 {
 		t.Fatalf("recent rooms: %+v", st.Recent)
 	}
 }

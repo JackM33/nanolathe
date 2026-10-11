@@ -151,13 +151,15 @@ func (s *HostedServer) recordStarted() {
 	s.mu.Unlock()
 }
 
-func (s *HostedServer) recordFinished(r *hostedRoom, stats *roomStats, started bool, players int, ticks uint32, reason string) {
-	f := FinishedRoom{ID: r.id, Size: r.size, Players: players, Ticks: ticks, Orders: stats.orders, Outcome: reason, EndedAt: time.Now().UTC()}
+func (s *HostedServer) recordFinished(r *hostedRoom, stats *roomStats, started bool, players int, ticks uint32, reason string, seat int) {
+	if reason == finishCompleted || reason == finishExpired || reason == finishServer {
+		seat = -1
+	}
+	f := FinishedRoom{ID: r.id, Size: r.size, Players: players, Ticks: ticks, Orders: stats.orders, Outcome: reason, Seat: seat, EndedAt: time.Now().UTC()}
 	if started {
 		f.DurationSeconds = time.Since(stats.startedAt).Seconds()
 	}
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	if reason == finishCompleted {
 		s.stats.completed++
 	} else if started {
@@ -170,6 +172,10 @@ func (s *HostedServer) recordFinished(r *hostedRoom, stats *roomStats, started b
 	s.stats.recent = append(s.stats.recent, f)
 	if len(s.stats.recent) > statusRecentRooms {
 		s.stats.recent = slices.Delete(s.stats.recent, 0, len(s.stats.recent)-statusRecentRooms)
+	}
+	s.mu.Unlock()
+	if s.config.Finished != nil {
+		s.config.Finished(f)
 	}
 }
 
@@ -238,14 +244,19 @@ type SeatStatus struct {
 
 // FinishedRoom is one of the most recently closed rooms.
 type FinishedRoom struct {
-	ID              uint64    `json:"id"`
-	Size            int       `json:"size"`
-	Players         int       `json:"players"`
-	DurationSeconds float64   `json:"duration_seconds"`
-	Ticks           uint32    `json:"ticks"`
-	Orders          uint64    `json:"orders"`
-	Outcome         string    `json:"outcome"`
-	EndedAt         time.Time `json:"ended_at"`
+	ID              uint64  `json:"id"`
+	Size            int     `json:"size"`
+	Players         int     `json:"players"`
+	DurationSeconds float64 `json:"duration_seconds"`
+	Ticks           uint32  `json:"ticks"`
+	Orders          uint64  `json:"orders"`
+	Outcome         string  `json:"outcome"`
+	// Seat is the seat whose message, departure or silence ended the room,
+	// or -1: a completed match, an expired lobby or a closing relay. For a
+	// divergence it is the seat whose report revealed the disagreement,
+	// which need not be the one that diverged.
+	Seat    int       `json:"seat"`
+	EndedAt time.Time `json:"ended_at"`
 }
 
 func millis(d time.Duration) float64 { return float64(d.Microseconds()) / 1000 }
@@ -343,8 +354,8 @@ th,td{text-align:left;padding:6px 8px;border-bottom:1px solid var(--line);white-
 </table></div>{{end}}
 <h2>Recently closed</h2>
 {{if not .Recent}}<p class="muted">None yet.</p>{{else}}<div class="wrap"><table>
-<tr><th>Room</th><th>Players</th><th>Duration</th><th>Ticks</th><th>Orders</th><th>Outcome</th><th>Ended (UTC)</th></tr>
-{{range .Recent}}<tr><td>{{.ID}}</td><td>{{.Players}}/{{.Size}}</td><td>{{secs .DurationSeconds}}</td><td>{{.Ticks}}</td><td>{{.Orders}}</td><td>{{.Outcome}}</td><td>{{.EndedAt.Format "15:04:05"}}</td></tr>{{end}}
+<tr><th>Room</th><th>Players</th><th>Duration</th><th>Ticks</th><th>Orders</th><th>Outcome</th><th>Seat</th><th>Ended (UTC)</th></tr>
+{{range .Recent}}<tr><td>{{.ID}}</td><td>{{.Players}}/{{.Size}}</td><td>{{secs .DurationSeconds}}</td><td>{{.Ticks}}</td><td>{{.Orders}}</td><td>{{.Outcome}}</td><td>{{if ge .Seat 0}}{{.Seat}}{{else}}—{{end}}</td><td>{{.EndedAt.Format "15:04:05"}}</td></tr>{{end}}
 </table></div>{{end}}
 </body></html>`))
 

@@ -24,6 +24,10 @@ type HostedConfig struct {
 	// MaxConnections bounds established and pending connections together.
 	// Zero selects 512; otherwise 2..1024, and at least two per room.
 	MaxConnections int
+	// Finished, when set, receives each room's record as it ends, on the
+	// room's goroutine, for the operator's log (DESIGN_MULTIPLAYER §12.5).
+	// It must return promptly and must not call back into the server.
+	Finished func(FinishedRoom)
 }
 
 // HostedDialOptions permits custom trusted roots, never skipped verification.
