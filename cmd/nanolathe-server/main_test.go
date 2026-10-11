@@ -17,7 +17,7 @@ func TestServerRequiresExplicitTransport(t *testing.T) {
 		{"--websocket", "--behind-tls-proxy", "--tls-key", "key.pem"}, {"--insecure-loopback", "--tls-cert", "cert.pem"},
 		{"--insecure-loopback", "--listen", "0.0.0.0:0"}, {"--insecure-loopback", "--max-rooms", "257"},
 		{"--insecure-loopback", "--max-rooms", "100", "--max-connections", "199"}, {"--insecure-loopback", "--max-connections", "1025"},
-		{"--insecure-loopback", "unexpected-argument"},
+		{"--insecure-loopback", "unexpected-argument"}, {"--insecure-loopback", "--drain-timeout", "-1s"},
 	} {
 		if err := run(ctx, args, io.Discard); err == nil {
 			t.Fatalf("admitted %v", args)

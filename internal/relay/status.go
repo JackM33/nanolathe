@@ -191,6 +191,7 @@ type HostedStatus struct {
 	Totals        HostedTotals   `json:"totals"`
 	Rooms         []RoomStatus   `json:"rooms"`
 	Recent        []FinishedRoom `json:"recent"`
+	Draining      bool           `json:"draining"` // admission stopped for a restart
 }
 
 // HostedTotals counts rooms since the relay started. FailedBy counts started
@@ -265,7 +266,7 @@ func millis(d time.Duration) float64 { return float64(d.Microseconds()) / 1000 }
 // or process-level resource figure.
 func (s *HostedServer) Status() HostedStatus {
 	s.mu.Lock()
-	out := HostedStatus{Protocol: hostedVersion, UptimeSeconds: time.Since(s.stats.started).Seconds(), Connections: len(s.conns),
+	out := HostedStatus{Protocol: hostedVersion, UptimeSeconds: time.Since(s.stats.started).Seconds(), Connections: len(s.conns), Draining: s.draining(),
 		Totals: HostedTotals{Rooms: s.stats.rooms, Matches: s.stats.matches, Completed: s.stats.completed, Failed: s.stats.failed,
 			ChatRelayed: s.stats.chatRelayed, ChatDropped: s.stats.chatDropped}}
 	if len(s.stats.failedBy) != 0 {
@@ -342,6 +343,7 @@ th,td{text-align:left;padding:6px 8px;border-bottom:1px solid var(--line);white-
 <div class="tile"><b>{{.Totals.ChatRelayed}}</b>chat lines</div><div class="tile"><b>{{.Totals.ChatDropped}}</b>chat dropped</div>
 </div>
 {{if .Totals.FailedBy}}<p class="muted">Ended early: {{range $k, $v := .Totals.FailedBy}}{{$k}} {{$v}} · {{end}}</p>{{end}}
+{{if .Draining}}<p><b>Restarting:</b> no new rooms; running matches play on.</p>{{end}}
 <h2>Open rooms</h2>
 {{if not .Rooms}}<p class="muted">No open rooms.</p>{{end}}
 {{range .Rooms}}<div class="room wrap"><table>

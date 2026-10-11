@@ -12,5 +12,6 @@ Use a worktree for edits. Keep this repository private. Never add retail assets,
 credentials, TLS keys, or engine simulation/rendering code. Tests and builds
 must use only the standard library. Run go vet ./..., go test -race ./..., and
 docker build . before publishing. App Platform runs exactly one instance and
-deploys every push to main; redeploys/restarts abort active games. Do not
+deploys every push to main; a redeploy drains for at most --drain-timeout,
+then aborts any game still running. Do not
 deploy paid resources without the maintainer's instruction.

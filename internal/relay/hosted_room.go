@@ -479,11 +479,20 @@ func (r *hostedRoom) run() {
 		finish(err, finishProtocol)
 		return
 	}
+	drain := r.server.drain
 	for {
 		select {
 		case <-r.server.done:
 			finish(hostedError("server", "an open server"), finishServer)
 			return
+		case <-drain:
+			// A lobby closes so its players can recreate it on the relay
+			// that replaces this one; a running match plays on.
+			drain = nil
+			if !started {
+				finish(hostedDrainingError, finishServer)
+				return
+			}
 		case <-deadline.C:
 			if opening {
 				finish(hostedError("opening readiness", "every seat to finish its opening within 30 minutes"), finishExpired)

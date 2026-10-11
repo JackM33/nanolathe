@@ -2009,9 +2009,12 @@ configuration `[08 R-SKIR-01 §12]`; a room has its own defaults
 
 ### 12.5 Operations
 
-One always-running relay instance; a restart or redeploy ends its live
-rooms without a result, and there is no cross-instance room lookup,
-database, autoscaling or reconnect. The room, connection, byte and time
+One always-running relay instance, with no cross-instance room lookup,
+database, autoscaling or reconnect. On SIGTERM the server drains
+(`HostedServer.Drain`): it refuses new rooms and closes lobbies, lets
+running matches play on, and exits when none remain, after
+`--drain-timeout` (100 seconds by default, below the platform's grace) or
+at a second signal; a match still running then ends without a result. The room, connection, byte and time
 bounds are §16.5.1, so one misbehaving room fails alone. A separate health
 listener reports readiness outside the connection limit (§16.5.6).
 

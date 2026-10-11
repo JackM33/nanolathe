@@ -39,11 +39,15 @@ func run(ctx context.Context, args []string, out io.Writer) error {
 	maxRooms := flags.Int("max-rooms", 16, "maximum simultaneous rooms, 1..256")
 	maxConnections := flags.Int("max-connections", 512, "maximum established and pending connections, 2..1024 and at least two per room")
 	healthAddress := flags.String("health-listen", "", "also answer HTTP GET /healthz here, outside the relay's connection limit; never route it publicly")
+	drainTimeout := flags.Duration("drain-timeout", 100*time.Second, "on SIGTERM or interrupt, refuse new rooms and let running matches finish for at most this long; 0 stops at once; keep it below the platform's termination grace")
 	if err := flags.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return nil
 		}
 		return err
+	}
+	if *drainTimeout < 0 {
+		return serverError("drain timeout", "zero or a positive duration")
 	}
 	if flags.NArg() != 0 || *maxRooms < 1 || *maxRooms > 256 || *maxConnections < 2**maxRooms || *maxConnections > 1024 {
 		return serverError("arguments", "flags only, --max-rooms 1..256 and --max-connections 2..1024 with at least two per room")
@@ -97,9 +101,47 @@ func run(ctx context.Context, args []string, out io.Writer) error {
 	for {
 		select {
 		case <-ctx.Done():
+			drainServer(server, *drainTimeout, out)
 			return nil
 		case <-ticker.C:
 			logServerStats(out, server.Status())
+		}
+	}
+}
+
+// drainServer stops admission and waits for the running matches to end, at
+// most timeout or until a second signal, so a redeploy need not end them
+// (DESIGN_MULTIPLAYER §12.5). The deferred Close then ends whatever remains.
+func drainServer(server *relay.HostedServer, timeout time.Duration, out io.Writer) {
+	if timeout <= 0 {
+		return
+	}
+	server.Drain()
+	again, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	deadline := time.NewTimer(timeout)
+	defer deadline.Stop()
+	poll := time.NewTicker(time.Second)
+	defer poll.Stop()
+	last := -1
+	for {
+		st := server.Status()
+		if st.Matches == 0 {
+			fmt.Fprintln(out, "relay: drained; no matches running")
+			return
+		}
+		if st.Matches != last {
+			fmt.Fprintf(out, "relay: draining for at most %s; %d matches running\n", timeout, st.Matches)
+			last = st.Matches
+		}
+		select {
+		case <-again.Done():
+			fmt.Fprintf(out, "relay: stopping now; %d matches end\n", st.Matches)
+			return
+		case <-deadline.C:
+			fmt.Fprintf(out, "relay: drain timeout; %d matches end\n", st.Matches)
+			return
+		case <-poll.C:
 		}
 	}
 }
