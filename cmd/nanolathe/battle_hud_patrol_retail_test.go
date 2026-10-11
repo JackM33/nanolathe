@@ -9,15 +9,21 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/nanolathe-gg/nanolathe/formats"
 	"github.com/nanolathe-gg/nanolathe/internal/camera"
 	"github.com/nanolathe-gg/nanolathe/internal/client"
+	"github.com/nanolathe-gg/nanolathe/internal/content"
+	"github.com/nanolathe-gg/nanolathe/internal/frame"
 	"github.com/nanolathe-gg/nanolathe/internal/gameplay"
 	"github.com/nanolathe-gg/nanolathe/internal/gui"
 	"github.com/nanolathe-gg/nanolathe/internal/orders"
+	"github.com/nanolathe-gg/nanolathe/internal/palette"
+	"github.com/nanolathe-gg/nanolathe/internal/pool"
 	"github.com/nanolathe-gg/nanolathe/internal/sim/numeric"
 	"github.com/nanolathe-gg/nanolathe/internal/sim/rng"
 	"github.com/nanolathe-gg/nanolathe/internal/testsupport"
 	"github.com/nanolathe-gg/nanolathe/internal/units"
+	"github.com/nanolathe-gg/nanolathe/vfs"
 )
 
 // Real stock GUI/art, real session publication and the ordinary click path.
@@ -135,6 +141,101 @@ func TestRetailConstructorPatrolButtonLabels(t *testing.T) {
 				if next.CommandPage.MoveStance != uint8((stance+1)%3) {
 					t.Fatalf("click changed stance to%d", next.CommandPage.MoveStance)
 				}
+			}
+		})
+	}
+}
+
+// The cleared caption area must contain only the original blank texture, and
+// the entire indicator strip must retain the actual stance's stock pixels.
+// This catches an off-by-one crop leaking old lettering or truncating a light.
+func TestRetailConstructorPatrolDarkPlatePixels(t *testing.T) {
+	fs := vfs.New()
+	if err := fs.MountGameDirectory(testsupport.RetailRoot(t)); err != nil {
+		t.Fatal(err)
+	}
+	defer fs.Close()
+	common, err := formats.LoadGAFFile(fs, "anims/commongui.gaf")
+	if err != nil {
+		t.Fatal(err)
+	}
+	fonts, err := formats.LoadGAFFile(fs, "anims/hattfont12.gaf")
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := fs.ReadFile("palettes/palette.pal")
+	if err != nil {
+		t.Fatal(err)
+	}
+	pal, err := formats.LoadPAL(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tables, err := palette.Load(fs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"ARMMOVEORD", "CORMOVEORD"} {
+		t.Run(name, func(t *testing.T) {
+			entry, ok := common.Find(name)
+			if !ok {
+				t.Fatal("missing stock movement art")
+			}
+			r := gui.Rect{X: 4, Y: 4, W: 113, H: 21}
+			window := &gui.Window{Rect: gui.Rect{W: 128, H: 40}, Gadgets: []gui.Gadget{{}, {
+				Kind: gui.KindButton, Active: 1, Name: name, Attribs: guiAttribCycle, Rect: r,
+				ButtonArtResolved: true, ButtonArt: entry,
+			}}}
+			h := &retailBattleHUD{fs: fs, common: common, modalFont: &fonts.Entries[0], windows: map[string]*gui.Window{"gen": window}}
+			b := &battleSession{hud: h, cat: &content.Catalog{}}
+			buffer := frame.NewBuffer()
+			cl, err := client.New(client.Options{Buffer: buffer, Width: 128, Height: 40})
+			if err != nil {
+				t.Fatal(err)
+			}
+			cl.SetPalette(tables)
+			cl.SetUIStage(sidebarDrawStage{b})
+			for stance := uint8(0); stance < 4; stance++ {
+				f := buffer.BeginWrite()
+				f.Selection.Handles = []pool.Handle{1, 2}
+				f.Units = []frame.UnitView{{Slot: 1, PatrolWork: 1}, {Slot: 2, PatrolWork: 1}}
+				f.CommandPage.MoveStance = stance
+				if err := buffer.Publish(uint32(stance) + 1); err != nil {
+					t.Fatal(err)
+				}
+				im := cl.ComposeFrame()
+				for y := 0; y < 21; y++ {
+					for x := 65; x < 113; x++ {
+						source := entry.Frames[4].Frame
+						if x >= 84 {
+							source = entry.Frames[stance].Frame
+						}
+						pixel, visible := source.At(x, y)
+						if !visible {
+							continue
+						}
+						if got, want := im.RGBAAt(int(r.X)+x, int(r.Y)+y), pal.Colors[pixel]; got != want {
+							t.Fatalf("stance%d pixel(%d,%d)=%v want%v", stance, x, y, got, want)
+						}
+					}
+				}
+			}
+			// A different authored frame layout must use the existing generic
+			// plate rather than assuming that a fourth frame is blank.
+			other := *entry
+			other.Frames = entry.Frames[:3]
+			window.Gadgets[1].ButtonArt = &other
+			trace := &sidebarSpriteTrace{}
+			cl.RecordFrame().Replay(trace)
+			generic, _ := common.Find("stagebuttn3")
+			found := false
+			for _, sprite := range trace.sprites {
+				if sprite.Frame == generic.Frames[3].Frame {
+					found = true
+				}
+			}
+			if !found {
+				t.Fatal("different art layout lost its generic mixed-stance fallback")
 			}
 		})
 	}

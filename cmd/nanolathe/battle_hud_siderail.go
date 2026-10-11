@@ -67,11 +67,13 @@ func (h *retailBattleHUD) drawSidePage(c *client.Client, b *battleSession, f *fr
 		if isCommand && !grey && commandButtonName(gad.Name) == "MOVEORD" {
 			patrolCaption = constructorPatrolCaption(f)
 		}
-		var frameArt *formats.GAFFrame
+		var frameArt, patrolPlate *formats.GAFFrame
 		if patrolCaption != "" {
-			// Reuse the authored blank plate without replacing the gadget or its
-			// hit rectangle (DESIGN_INTERFACE_HUD_INPUT "Constructor patrol button labels").
-			if h.common != nil {
+			entry := h.gadgetArtEntry(gad, sourceArt)
+			patrolPlate = constructorPatrolDarkPlate(entry, r)
+			if patrolPlate != nil {
+				frameArt = commandButtonFrame(entry, gad, command.stage, false, down != 0)
+			} else if h.common != nil {
 				entry, _ := h.common.Find("stagebuttn3")
 				frameArt = commandButtonFrame(entry, gad, command.stage, false, down != 0)
 			}
@@ -83,7 +85,13 @@ func (h *retailBattleHUD) drawSidePage(c *client.Client, b *battleSession, f *fr
 		if frameArt != nil {
 			// .GUI controls use the authored rectangle origin; unlike the PANEL
 			// shell, their GAF offsets are not applied [07 §4].
-			if patrolCaption != "" {
+			if patrolPlate != nil {
+				// Clear the old caption with the native dark plate, then retain
+				// the actual stance's indicator strip. Neither stamp changes the
+				// gadget geometry or input state.
+				c.UIBlitClipped(patrolPlate, int(r.X), int(r.Y), int(r.X), int(r.Y), int(r.W), int(r.H))
+				c.UIBlitClipped(frameArt, int(r.X), int(r.Y), int(r.X)+constructorPatrolIndicatorsLeft, int(r.Y), int(r.W)-constructorPatrolIndicatorsLeft, int(r.H))
+			} else if patrolCaption != "" {
 				c.UIBlitFrameScaledClipped(frameArt, int(r.X), int(r.Y), int(r.W), int(r.H), int(r.X), int(r.Y), int(r.W), int(r.H))
 			} else if flatProduct {
 				fit := sidebarFittedArtRect(r, frameArt)

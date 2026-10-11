@@ -2,7 +2,9 @@ package main
 
 import (
 	"fmt"
+	"strings"
 
+	"github.com/nanolathe-gg/nanolathe/formats"
 	"github.com/nanolathe-gg/nanolathe/internal/client"
 	"github.com/nanolathe-gg/nanolathe/internal/frame"
 	"github.com/nanolathe-gg/nanolathe/internal/gui"
@@ -38,6 +40,25 @@ func constructorPatrolCaption(f *frame.Frame) string {
 		return "Mixed"
 	}
 	return [...]string{"", "Reclaim", "Both", "Assist"}[choice]
+}
+
+// The stock faction plate is already blank in frame 4. The rightmost 29
+// columns carry only stance indicators; the authored caption ends before them
+// (DESIGN_INTERFACE_HUD_INPUT "Constructor patrol button labels"). Other art
+// layouts retain the generic plate rather than applying this stock crop.
+const constructorPatrolIndicatorsLeft = 84
+
+func constructorPatrolDarkPlate(entry *formats.GAFEntry, r gui.Rect) *formats.GAFFrame {
+	if entry == nil || len(entry.Frames) != 6 || r.W != 113 || r.H != 21 ||
+		(!strings.EqualFold(entry.Name, "ARMMOVEORD") && !strings.EqualFold(entry.Name, "CORMOVEORD")) {
+		return nil
+	}
+	for _, ref := range entry.Frames[:5] {
+		if ref.Frame == nil || ref.Frame.Width != 113 || ref.Frame.Height != 21 {
+			return nil
+		}
+	}
+	return entry.Frames[4].Frame
 }
 
 func (h *retailBattleHUD) drawConstructorPatrolCaption(c *client.Client, r gui.Rect, text string) {

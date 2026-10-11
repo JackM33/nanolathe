@@ -5709,9 +5709,14 @@ preference. Differing preferences display **Mixed**. The label follows the
 acting owner's preference for the actual stance; Modern's three defaults all
 read **Both**. It does not hard-code a preference for a stance.
 
-The blank three-state `stagebuttn3` plate in `anims/commongui.gaf` supplies the
-background and stance indicators. It is fitted into the existing authored
-movement button rectangle, with the caption drawn using the existing HUD font.
+The stock `ARMMOVEORD` / `CORMOVEORD` art in `anims/commongui.gaf` supplies
+its dark blank frame 4 as the background, with columns 84–112 of the actual
+stance frame overlaid for its three indicators (user-authorized visual update,
+2026-10-11). The stock caption ends before that strip. Both stamps retain the
+native 113×21 authored movement rectangle; the caption uses the existing HUD
+font. This composition applies only to the six-frame stock layout with matching
+frame and gadget dimensions. Other layouts retain the fitted blank three-state
+`stagebuttn3` fallback.
 The original gadget identity, click, accelerator and stance cycle are retained.
 Hover text names both the work choice and movement stance, explains the cycle,
 and points to Options > Builders for editing the preference.
@@ -5727,8 +5732,10 @@ RNG, resource arithmetic or save format changes.
 
 Tests lock ground and air publication, preferences in each stance, player and
 frame isolation, queued-patrol exclusion, borrowed work/return, Strict/Community
-bypass, and selection/hover fallbacks. Visual captures use the installed art;
-original asset bytes are never checked in.
+bypass, and selection/hover fallbacks. A stock-art pixel test locks the cleared
+caption area and every indicator pixel for both factions, including mixed
+stances, and the different-layout fallback. Visual captures use the installed
+art; original asset bytes are never checked in.
 
 ### Prepared-build accelerator status
 
