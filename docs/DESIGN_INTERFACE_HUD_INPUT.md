@@ -5612,6 +5612,37 @@ the selected values without using them. Tests cover player isolation,
 boundary timing, preference reload, and the page's Undo/Cancel/OK behavior.
 
 
+### Constructor patrol button labels
+
+**Nanolathe Modern presentation policy (user-authorized, 2026-10-11).**
+While all selected units are mobile constructors actively on repair patrol,
+performing work borrowed from that patrol, or returning from that work, the
+movement-stance button displays their effective **Reclaim / Both / Assist**
+preference. Differing preferences display **Mixed**. The label follows the
+acting owner's preference for the actual stance; Modern's three defaults all
+read **Both**. It does not hard-code a preference for a stance.
+
+The blank three-state `stagebuttn3` plate in `anims/commongui.gaf` supplies the
+background and stance indicators. It is fitted into the existing authored
+movement button rectangle, with the caption drawn using the existing HUD font.
+The original gadget identity, click, accelerator and stance cycle are retained.
+Hover text names both the work choice and movement stance, explains the cycle,
+and points to Options > Builders for editing the preference.
+
+Session publication supplies one committed presentation byte per unit, derived
+from the bound orders rule and the active queue's proven producer receipt.
+The painter never reads live preferences or queues. Explicit work with a future
+queued patrol is insufficient, and a save without a producer receipt is not
+silently assigned one. A mixed selection containing a non-patrolling unit, an
+empty selection, and a disabled movement control retain the stock button.
+Strict 3.1 and Community 3.9 retain their stock presentation. No command, rule,
+RNG, resource arithmetic or save format changes.
+
+Tests lock ground and air publication, preferences in each stance, player and
+frame isolation, queued-patrol exclusion, borrowed work/return, Strict/Community
+bypass, and selection/hover fallbacks. Visual captures use the installed art;
+original asset bytes are never checked in.
+
 ### Prepared-build accelerator status
 
 CP-CON-4 is supplied by `orders.Rules.PreserveBuildToggle` through the existing

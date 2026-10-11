@@ -148,10 +148,14 @@ type UnitView struct {
 	PriorHealthSample uint8
 	BuildRemaining    float32
 	Flags             uint32
-	DefName           string
-	Model             string
-	FootX, FootZ      int8
-	Pieces            []PieceView
+	// PatrolWork is the bound Modern patrol preference while a constructor is
+	// patrolling or performing proven borrowed work/return: 0 is inactive,
+	// 1 Reclaim, 2 Both, 3 Assist. It is a committed presentation value [I6].
+	PatrolWork   uint8
+	DefName      string
+	Model        string
+	FootX, FootZ int8
+	Pieces       []PieceView
 	// CacheRevision is a copied VM presentation revision. It models image
 	// invalidation in Go and is not a persisted retail counter.
 	CacheRevision uint64

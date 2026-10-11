@@ -305,6 +305,7 @@ func (s *Session) publishFrame(tick uint32, paused bool) {
 				Group: u.Group,
 			}
 			vp.CommunityHUD = s.publishCommunityHUD(u)
+			vp.PatrolWork = s.publishedPatrolWork(u)
 			vp.Pieces = pieces[:0]
 			vp.Cargo = cargo[:0]
 			// The footer's four rate fields read the archived production and

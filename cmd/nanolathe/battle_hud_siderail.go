@@ -63,8 +63,19 @@ func (h *retailBattleHUD) drawSidePage(c *client.Client, b *battleSession, f *fr
 			source := h.expandedSidebar.sources[i]
 			artGadget.Rect = source.window.Gadgets[source.index].Rect
 		}
+		patrolCaption := ""
+		if isCommand && !grey && commandButtonName(gad.Name) == "MOVEORD" {
+			patrolCaption = constructorPatrolCaption(f)
+		}
 		var frameArt *formats.GAFFrame
-		if isCommand {
+		if patrolCaption != "" {
+			// Reuse the authored blank plate without replacing the gadget or its
+			// hit rectangle (DESIGN_INTERFACE_HUD_INPUT "Constructor patrol button labels").
+			if h.common != nil {
+				entry, _ := h.common.Find("stagebuttn3")
+				frameArt = commandButtonFrame(entry, gad, command.stage, false, down != 0)
+			}
+		} else if isCommand {
 			frameArt = commandButtonFrame(h.gadgetArtEntry(gad, sourceArt), gad, command.stage, grey, down != 0)
 		} else {
 			frameArt = h.gadgetButtonFrame(artGadget, sourceArt, down, stage, grey)
@@ -72,7 +83,9 @@ func (h *retailBattleHUD) drawSidePage(c *client.Client, b *battleSession, f *fr
 		if frameArt != nil {
 			// .GUI controls use the authored rectangle origin; unlike the PANEL
 			// shell, their GAF offsets are not applied [07 §4].
-			if flatProduct {
+			if patrolCaption != "" {
+				c.UIBlitFrameScaledClipped(frameArt, int(r.X), int(r.Y), int(r.W), int(r.H), int(r.X), int(r.Y), int(r.W), int(r.H))
+			} else if flatProduct {
 				fit := sidebarFittedArtRect(r, frameArt)
 				c.UIBlitFrameScaledClipped(frameArt, int(fit.X), int(fit.Y), int(fit.W), int(fit.H), int(r.X), int(r.Y), int(r.W), int(r.H))
 			} else {
@@ -93,7 +106,10 @@ func (h *retailBattleHUD) drawSidePage(c *client.Client, b *battleSession, f *fr
 		if frameArt != nil && retailButtonVerdict(gad, 1, int(gad.ArtFrame), down, command.stage, grey).shade {
 			c.UIShadeRect(h.pal, int(r.X), int(r.Y), int(r.W), int(r.H), retailGreyedButtonShade)
 		}
-		// A command button never draws its caption: the painter reads the art
+		if patrolCaption != "" {
+			h.drawConstructorPatrolCaption(c, r, patrolCaption)
+		}
+		// A retail command button never draws its caption: the painter reads the art
 		// alone [07 R-HUD-03 §6]. Stock content authors these gadgets with an
 		// empty label anyway.
 		if !isCommand && gad.Kind == gui.KindButton {
