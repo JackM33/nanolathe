@@ -90,20 +90,20 @@ func TestFiringPositionKeepsAttackAndSecondaryPump(t *testing.T) {
 
 func TestFiringPositionEligibility(t *testing.T) {
 	cases := map[string]func(*firingFixture){
-		"strict":              func(f *firingFixture) { f.q.Binding().Rules = StrictRules{} },
-		"community":           func(f *firingFixture) { f.q.Binding().Rules = CommunityRules{} },
-		"dying shooter":       func(f *firingFixture) { f.u.Dying = true },
-		"dying target":        func(f *firingFixture) { f.target.Dying = true },
-		"non-ground mover":    func(f *firingFixture) { f.u.Move.Mode = 2 },
-		"no refusal":          func(f *firingFixture) { f.blocked = false },
-		"hold position":       func(f *firingFixture) { f.u.Flags &^= 3 << units.StandingMoveShift },
-		"automatic hold fire": func(f *firingFixture) { f.n.automaticAttack = true; f.u.Flags &^= 3 << units.StandingFireShift },
-		"air":                 func(f *firingFixture) { f.u.Def.CanFly = true },
-		"immobile":            func(f *firingFixture) { f.u.Def.CanMove = false },
-		"stunned":             func(f *firingFixture) { f.u.Stunned = true },
-		"incomplete":          func(f *firingFixture) { f.u.Remaining = 1 },
-		"carried":             func(f *firingFixture) { f.u.Attachment.Carrier = 5 },
-		"stationary order":    func(f *firingFixture) { f.n.ID = Lookup("Attack_NoMove") },
+		"strict":                  func(f *firingFixture) { f.q.Binding().Rules = StrictRules{} },
+		"community":               func(f *firingFixture) { f.q.Binding().Rules = CommunityRules{} },
+		"dying shooter":           func(f *firingFixture) { f.u.Dying = true },
+		"dying target":            func(f *firingFixture) { f.target.Dying = true },
+		"non-ground mover":        func(f *firingFixture) { f.u.Move.Mode = 2 },
+		"no refusal":              func(f *firingFixture) { f.blocked = false },
+		"automatic hold position": func(f *firingFixture) { f.n.automaticAttack = true; f.u.Flags &^= 3 << units.StandingMoveShift },
+		"automatic hold fire":     func(f *firingFixture) { f.n.automaticAttack = true; f.u.Flags &^= 3 << units.StandingFireShift },
+		"air":                     func(f *firingFixture) { f.u.Def.CanFly = true },
+		"immobile":                func(f *firingFixture) { f.u.Def.CanMove = false },
+		"stunned":                 func(f *firingFixture) { f.u.Stunned = true },
+		"incomplete":              func(f *firingFixture) { f.u.Remaining = 1 },
+		"carried":                 func(f *firingFixture) { f.u.Attachment.Carrier = 5 },
+		"stationary order":        func(f *firingFixture) { f.n.ID = Lookup("Attack_NoMove") },
 		"hidden": func(f *firingFixture) {
 			f.q.Binding().SetDangerVisible(func(*units.Unit, *units.Unit) bool { return false })
 		},
@@ -128,6 +128,12 @@ func TestFiringPositionEligibility(t *testing.T) {
 	f.u.Flags &^= 3 << units.StandingFireShift
 	if !f.step(10) {
 		t.Fatal("explicit attack must keep its Hold Fire permission")
+	}
+	// An explicit chase already walks into range on Hold Position.
+	f = newFiringFixture()
+	f.u.Flags &^= 3 << units.StandingMoveShift
+	if !f.step(10) {
+		t.Fatal("explicit attack must reposition on Hold Position")
 	}
 }
 
@@ -175,7 +181,10 @@ func TestFiringPositionRetiresOnCompletionAndIdentityChanges(t *testing.T) {
 		"unit pending disengage":   func(f *firingFixture) { f.u.Pending |= pendDisengage },
 		"unit pending target loss": func(f *firingFixture) { f.u.Pending |= pendTargetGone },
 		"strict switch":            func(f *firingFixture) { f.q.Binding().Rules = StrictRules{} },
-		"hold position":            func(f *firingFixture) { f.u.Flags &^= 3 << units.StandingMoveShift },
+		"automatic hold position": func(f *firingFixture) {
+			f.n.automaticAttack = true
+			f.u.Flags &^= 3 << units.StandingMoveShift
+		},
 		"hidden": func(f *firingFixture) {
 			f.q.Binding().SetDangerVisible(func(*units.Unit, *units.Unit) bool { return false })
 		},
@@ -216,6 +225,12 @@ func TestFiringPositionRetiresOnCompletionAndIdentityChanges(t *testing.T) {
 	f.step(10)
 	if !f.step(189) || f.step(190) {
 		t.Fatal("travel timeout boundary changed")
+	}
+	f = newFiringFixture()
+	f.step(10)
+	f.u.Flags &^= 3 << units.StandingMoveShift
+	if !f.step(11) || f.destroys != 0 {
+		t.Fatal("Hold Position retired an explicit attack's maneuver")
 	}
 }
 

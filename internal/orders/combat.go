@@ -1,6 +1,7 @@
 package orders
 
 import (
+	"github.com/nanolathe-gg/nanolathe/internal/combat"
 	"github.com/nanolathe-gg/nanolathe/internal/pool"
 	"github.com/nanolathe-gg/nanolathe/internal/sim/numeric"
 	"github.com/nanolathe-gg/nanolathe/internal/units"
@@ -70,6 +71,9 @@ func clearSlotTarget(u *units.Unit, idx int) {
 		return // already empty: no reset and no notification [R-ORDER-02 §2]
 	}
 	s.Target = units.Target{Kind: units.TargetNone}
+	if rulesOfUnit(u).TargetClearDropsAim(u) {
+		combat.DropAimRequest(s)
+	}
 	arrangeDeferred(callbackBridgeFor(u), "TargetCleared", []int32{int32(idx)})
 }
 

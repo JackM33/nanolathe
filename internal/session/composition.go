@@ -1362,10 +1362,10 @@ func (s *Session) newOrderBinding() *orders.QueueBinding {
 				return s.Combat != nil && s.Combat.FiringPositionClear(u, target, tick, x, y, z, s.Units, s.World)
 			},
 			ReleaseSlot: func(u *units.Unit, idx int) bool {
-				return combat.ReleaseWeaponSlot(u, idx)
+				return s.orderSlotVerb(u, idx, combat.ReleaseWeaponSlot)
 			},
 			InhibitSlot: func(u *units.Unit, idx int) bool {
-				return combat.InhibitWeaponSlot(u, idx)
+				return s.orderSlotVerb(u, idx, combat.InhibitWeaponSlot)
 			},
 			SetManualTarget: func(u *units.Unit, idx int, target pool.Handle) bool {
 				return combat.SetManualWeaponTarget(u, idx, target)
@@ -1377,7 +1377,7 @@ func (s *Session) newOrderBinding() *orders.QueueBinding {
 				return combat.FireWeaponPoint(u, idx, x, z, tick)
 			},
 			StopFiring: func(u *units.Unit, idx int) bool {
-				return combat.StopWeaponFiring(u, idx)
+				return s.orderSlotVerb(u, idx, combat.StopWeaponFiring)
 			},
 			Acquire: func(u *units.Unit, idx int, limit uint32) (pool.Handle, bool) {
 				return s.Combat.AcquireWeaponTarget(u, idx, limit, s.Units, s.Vis, s.World, s.Econ, s.Catalog, s.SimRNG())
@@ -3116,4 +3116,18 @@ func (s *Session) appendStripFlameStream(from, to [3]numeric.Fixed) bool {
 	}
 	s.strips.append(stripTeleportFlame, o)
 	return true
+}
+
+// orderSlotVerb runs one of combat's order-side slot verbs. When the verb
+// emptied the slot's target, raising `TargetCleared`, and the bound order
+// rules drop the Aim request with it, the slot's request latch is cleared too.
+// Nanolathe Modern policy: docs/DESIGN_UNITS_ORDERS_COB.md "Modern aim re-issue".
+func (s *Session) orderSlotVerb(u *units.Unit, idx int, verb func(*units.Unit, int) bool) bool {
+	slot := u.SlotAt(idx)
+	held := slot != nil && slot.Target.Kind != units.TargetNone
+	ok := verb(u, idx)
+	if held && slot.Target.Kind == units.TargetNone && s.orderRules().TargetClearDropsAim(u) {
+		combat.DropAimRequest(slot)
+	}
+	return ok
 }

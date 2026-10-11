@@ -31,6 +31,13 @@ func (*ModernRules) HoldsFire(u *units.Unit) bool {
 	return u != nil && u.Flags>>stanceFireShift&stanceFieldMask == 0
 }
 
+// A script's `TargetCleared` commonly signals its Aim threads, and a killed
+// Aim thread never reports. Modern drops the request latch with the target,
+// as combat's own target-loss clear does, so a slot an order rebinds before
+// the next weapon visit asks again instead of waiting for that report.
+// Nanolathe Modern policy: docs/DESIGN_UNITS_ORDERS_COB.md "Modern aim re-issue".
+func (*ModernRules) TargetClearDropsAim(*units.Unit) bool { return true }
+
 // An accepted Modern bombing pass reaches release and finishes overflight
 // before its return-to-post leash applies. Phase 6 is dispatched after
 // overflight; ordinary completion then clears weapon targets and resumes the

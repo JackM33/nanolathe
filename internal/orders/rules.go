@@ -65,6 +65,10 @@ type Rules interface {
 	MarkAutomaticAttack(n *Node)
 	// PreserveAutomaticTarget avoids cancelling a same-target automatic handoff.
 	PreserveAutomaticTarget(u *units.Unit, slot int) bool
+	// TargetClearDropsAim selects whether an order-side weapon target clear
+	// that raises `TargetCleared` also drops the slot's Aim request latch, so
+	// the next weapon visit dispatches a fresh Aim.
+	TargetClearDropsAim(u *units.Unit) bool
 	// GuardTarget replaces the stationary guard scan when handled is true.
 	GuardTarget(u *units.Unit, n *Node) (target pool.Handle, handled bool)
 	// RetaliationOrder is retail's immediate damage edge; Modern defers order
@@ -285,7 +289,12 @@ func (StrictRules) RetaliationOrder(victim, attacker *units.Unit) bool {
 
 func (StrictRules) ReactionResult(_ *Queue, _ *Node, code Code, _ uint32) Code { return code }
 
-func (StrictRules) PreserveAutomaticTarget(*units.Unit, int) bool      { return false }
+func (StrictRules) PreserveAutomaticTarget(*units.Unit, int) bool { return false }
+
+// TargetClearDropsAim is retail's answer: the release, inhibit and stop verbs
+// reset the target words and raise `TargetCleared` but leave the asynchronous
+// Aim state alone [04 R-ORD-01 §7][06 R-WPN-05 §3].
+func (StrictRules) TargetClearDropsAim(*units.Unit) bool               { return false }
 func (StrictRules) GuardTarget(*units.Unit, *Node) (pool.Handle, bool) { return 0, false }
 
 func (StrictRules) MarkAutomaticAttack(*Node) {}

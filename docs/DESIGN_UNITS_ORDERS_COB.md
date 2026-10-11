@@ -577,12 +577,14 @@ same record and restarts its targeting phase without cancelling its Aim script.
 Retaining the target leaves its phase and Aim unchanged. Taking ownership of an
 already targeted slot likewise omits `TargetCleared` only for the exact current
 automatic/danger/guard head and its selected slot. It still clears autonomy.
-This prevents cancellation of the outstanding script while its request latch
-remains set. A changed target uses the normal setter's asynchronous Aim
+The outstanding script therefore keeps running and its answer is used, with no
+fresh aim. A changed target uses the normal setter's asynchronous Aim
 semantics; combat's drift check requests a fresh aim when the new geometry
 requires it [06 R-WPN-05 §3][06 R-WPN-05 §4]. Explicit orders keep their release
-callbacks. Producer tags and reconsideration timers add no retail save bytes;
-Strict neither marks these producers nor visits the new periodic policy.
+callbacks, and with them the Aim request drop of
+[Modern aim re-issue](#modern-aim-re-issue). Producer tags and
+reconsideration timers add no retail save bytes; Strict neither marks these
+producers nor visits the new periodic policy.
 
 Current construction, factories, construction assistance and direct repair
 are protected from both reaction insertion and the AI damage purge. A Modern
@@ -695,9 +697,12 @@ Orders retain the exact active attack node and target identity. `Attack_Chase`
 and a mobile automatic `Attack_NoMove` response qualify; an explicitly
 stationary attack remains stationary. Only
 live, complete, unstunned, uncarried ground movers with a visible hostile unit
-target qualify. Hold Position prevents repositioning. Automatic attacks also
-respect Hold Fire; explicit attack orders retain their existing permission to
-fire. Immobile defenses, aircraft maneuvers, ground-point attacks and work
+target qualify. Stances restrain only automatic attacks: Hold Position prevents
+their repositioning and Hold Fire their attack. An explicit attack order
+already chases into range on Hold Position and keeps its permission to fire,
+so it may also step to a clear firing position under either stance; a stance
+written while its maneuver runs leaves the maneuver in place (user-authorized
+2026-10-11). Immobile defenses, aircraft maneuvers, ground-point attacks and work
 orders keep their own behavior. The existing attack leash bounds candidate
 destinations. An automatic stationary response in Maneuver stance uses its
 existing danger anchor and return-to-post lifetime. User commands, target loss, transport and other control heads
@@ -751,6 +756,51 @@ Great Divide Flash/Weasel captured-position regression runs the full movement,
 COB and combat pipeline and compares the new policy with disabled repositioning
 and Strict. Run both repository gates, the simulation-cost benchmark and the
 focused path benchmark. No renderer changes are involved.
+
+### Modern aim re-issue
+
+**Nanolathe Modern policy — user-authorized 2026-10-11.** An order-side weapon
+target clear that raises `TargetCleared` also drops that slot's Aim request
+latch, so the slot's next weapon visit dispatches a fresh Aim instead of
+waiting for an answer the callback may have cancelled. It is not retail
+behavior.
+
+**Strict baseline.** The release, inhibit and stop verbs reset a non-empty
+target pair and raise `TargetCleared`, and leave the asynchronous Aim state
+alone [04 R-ORD-01 §7][06 R-WPN-05 §3]. A script's `TargetCleared` commonly
+signals its Aim threads, and a thread ended by a signal never reports
+[04 §4.2]. Combat re-issues Aim only while the request latch is clear, and its
+own target-loss clear resets that latch on the next visit that finds the slot
+empty [06 R-WPN-05 §3]. An order that releases a slot and binds it again in
+the same order step, as `Attack_Chase` phase 1 does when it takes slots 0 and
+2 and then binds slot `p1` [04 R-ORD-01 §3], hides the empty target from
+combat. The slot then waits indefinitely on a cancelled Aim, raises no
+could-not-fire notice, and its attack holds in range without shooting; a
+commander whose walking `AimPrimary` is cancelled this way stands beside its
+target. Strict 3.1 and Community 3.9 keep the retail answer.
+
+**Modern behavior.** `orders.Rules.TargetClearDropsAim` answers true under
+Modern. Each order-side clear of a non-empty target then clears the Aim request
+latch and its control-byte mirror (`combat.DropAimRequest`), the two fields
+combat's own target-loss clear resets. That covers the ground slot verbs in
+`internal/orders`, including record cleanup's inhibit walk, and the release,
+inhibit and stop verbs that the air executors reach through the composed
+weapon adapter. A clear of an already empty slot raises no callback and drops
+nothing. The Modern automatic handoff that omits `TargetCleared` (above) also
+keeps the request. A script that does not end its Aim thread on
+`TargetCleared` may receive a second Aim. Its answers address the slot's one
+receiver, and the drift gate still checks the newest geometry
+[04 R-CB-01 §6][06 R-WPN-05 §4].
+
+**Boundaries.** The policy adds no state, save bytes, RNG draw or resource
+debit. A switch of rule set takes effect at the next order-side clear. The
+fresh Aim is the slot's ordinary dispatch, with its normal callbacks.
+
+**Verification.** `automatic_target_modern_test.go` locks the drop for explicit
+releases and its absence for the preserved handoff and Strict.
+`modern_aim_reissue_test.go` in `internal/session` locks the composed adapter
+verbs under all three reserved rule sets, for targeted and empty slots.
+`rules_test.go` keeps the Strict answer and allocation-free dispatch.
 
 ### Modern infection
 

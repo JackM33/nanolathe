@@ -161,7 +161,7 @@ func TestModernAutomaticHandoffPreservesAimWithoutTargetCleared(t *testing.T) {
 				assignSlot(u, slot, 0x02, units.Target{Kind: units.TargetUnit, Unit: factory.Handle})
 			}
 			s := u.SlotAt(slot)
-			s.Flags |= units.SlotFlagAutonomous
+			s.Flags |= units.SlotFlagAutonomous | units.SlotFlagAimLatch
 			s.Aim.IssueBit = true
 			before := s.Aim
 			if kind == "danger" || kind == "producer" || kind == "explicit" || kind == "strict" {
@@ -173,8 +173,16 @@ func TestModernAutomaticHandoffPreservesAimWithoutTargetCleared(t *testing.T) {
 			if got := len(startedArgs(vm)); preserve && got != 0 || !preserve && got != 1 {
 				t.Fatalf("TargetCleared callbacks = %d, preserve=%v", got, preserve)
 			}
-			if s.Aim != before || s.Flags&units.SlotFlagAutonomous != 0 {
-				t.Fatal("handoff lost aim or retained autonomy")
+			// A Modern clear that raises TargetCleared drops the Aim request
+			// with it; Strict leaves the latch [04 R-ORD-01 §7]. Nanolathe
+			// Modern policy: DESIGN_UNITS_ORDERS_COB "Modern aim re-issue".
+			dropped := !preserve && kind != "strict"
+			want := before
+			if dropped {
+				want.IssueBit = false
+			}
+			if s.Aim != want || (s.Flags&units.SlotFlagAimLatch == 0) != dropped || s.Flags&units.SlotFlagAutonomous != 0 {
+				t.Fatal("handoff changed aim wrongly or retained autonomy")
 			}
 		})
 	}

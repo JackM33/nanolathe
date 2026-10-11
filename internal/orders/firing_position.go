@@ -72,7 +72,10 @@ func firingPositionEligible(q *Queue, u *units.Unit, n *Node, b *QueueBinding) *
 	if n.ID != Lookup("Attack_Chase") && !stationary {
 		return nil
 	}
-	if u.Flags>>stanceMoveShift&stanceFieldMask == 0 || automatic && u.Flags>>stanceFireShift&stanceFieldMask == 0 {
+	// Hold Position and Hold Fire restrain only automatic attacks. An explicit
+	// attack already chases into range on Hold Position, so it may also step
+	// aside for a clear shot.
+	if automatic && (u.Flags>>stanceMoveShift&stanceFieldMask == 0 || u.Flags>>stanceFireShift&stanceFieldMask == 0) {
 		return nil
 	}
 	if b.LookupHook() == nil || b.DangerVisibleHook() == nil || b.Weapons == nil || b.Weapons.FiringPositionBlockedHook() == nil || b.Weapons.FiringPositionClearHook() == nil || b.Movement == nil || b.Movement.InstallPointHook() == nil || b.Movement.DestroyHook() == nil || b.DangerRouteFeasibleHook() == nil || b.World == nil || b.World.TerrainHeightHook() == nil {

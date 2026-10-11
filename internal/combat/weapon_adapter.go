@@ -47,7 +47,8 @@ func InhibitWeaponSlot(u *units.Unit, idx int) bool {
 
 // The control-byte guard covers the target reset as well as its deferred
 // notification. Repeated air-leg visits must leave a retained target alone
-// [04 R-ORD-01 §7]. Neither operation changes the asynchronous Aim state.
+// [04 R-ORD-01 §7]. Neither operation changes the asynchronous Aim state; the
+// Modern order rules add DropAimRequest at their binding.
 func clearOrderWeaponTarget(u *units.Unit, s *units.Slot, idx int) {
 	if s.Target.Kind == units.TargetNone {
 		return
@@ -56,6 +57,18 @@ func clearOrderWeaponTarget(u *units.Unit, s *units.Slot, idx int) {
 	if binding := u.COBBinding(); binding != nil && binding.Callbacks != nil {
 		binding.Callbacks.TargetCleared(int32(idx))
 	}
+}
+
+// DropAimRequest clears a slot's Aim request latch and its control-byte
+// mirror, the two fields the weapon visit's own target-loss clear resets
+// [06 R-WPN-05 §3], so the next visit dispatches a fresh Aim. Retail's order
+// verbs never call it. A script's `TargetCleared` commonly signals its Aim
+// threads, and a killed Aim thread never reports, so Modern pairs it with
+// every order-side target clear that raises that callback.
+// Nanolathe Modern policy: docs/DESIGN_UNITS_ORDERS_COB.md "Modern aim re-issue".
+func DropAimRequest(s *units.Slot) {
+	s.Aim.IssueBit = false
+	s.Flags &^= units.SlotFlagAimLatch
 }
 
 // SetManualWeaponTarget installs a target on one slot, when target is nonzero,
