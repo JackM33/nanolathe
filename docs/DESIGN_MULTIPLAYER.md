@@ -2018,6 +2018,14 @@ at a second signal; a match still running then ends without a result. The room, 
 bounds are §16.5.1, so one misbehaving room fails alone. A separate health
 listener reports readiness outside the connection limit (§16.5.6).
 
+Drain, room admission and the transition from lobby to match share the
+server's lifecycle mutex. A join or Start already in flight cannot start a
+match after draining begins. The status match and lobby counts read that
+same lifecycle state, independently of the progress snapshots: a match is
+counted before any Started message is sent and remains counted until its
+room finishes flushing and is released. Shutdown therefore cannot mistake
+a started match awaiting snapshot publication for an empty relay.
+
 **Public status.** `/status` (an HTML page that refreshes itself) and
 `/status.json` on the relay's port show: players, matches, lobbies and
 connections; totals since start of rooms, matches started, completed and
@@ -6258,7 +6266,9 @@ checksum, which stops the match.
   socket contracts: TLS trust and refusal, identity mismatch, room
   isolation, full, expiry and close, bounded input and slow readers, a
   delayed checksum mismatch and final-grant handling; WebSocket framing and
-  handshake rejection, health, lifecycle and connection bounds; a headless
+  handshake rejection, health, lifecycle and connection bounds; draining
+  a join awaiting auto-start, and a started match counted before its
+  progress snapshot is published; a headless
   two-session match through WebSocket; a mixed version-7 and version-8
   room in which only version-8 seats exchange names and chat
   (`TestHostedChatMixedVersionRoom`); chat codecs, rate limits, malformed

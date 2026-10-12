@@ -214,7 +214,11 @@ func (s *HostedServer) Addr() string {
 // (DESIGN_MULTIPLAYER §12.5).
 func (s *HostedServer) Drain() {
 	if s != nil {
+		// Admission and match start use this same boundary, so neither can
+		// commit after Drain returns (DESIGN_MULTIPLAYER §12.5).
+		s.mu.Lock()
 		s.drainOnce.Do(func() { close(s.drain) })
+		s.mu.Unlock()
 	}
 }
 

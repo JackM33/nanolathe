@@ -264,6 +264,9 @@ func (r *hostedRoom) run() {
 		return p.enqueue(body, last)
 	}
 	finish := func(err error, reason string) {
+		if err == hostedDrainingError {
+			reason = finishServer
+		}
 		// Unblock producers first; then let each writer flush its last frame.
 		// Closing the room must never truncate the explicit done message.
 		close(r.done)
@@ -445,6 +448,12 @@ func (r *hostedRoom) run() {
 	// order, and each learns its slot before the first grant.
 	begin := func() error {
 		r.server.mu.Lock()
+		// A join or Start may already be in flight when Drain closes the
+		// admission boundary; that lobby must still close (§12.5).
+		if r.server.draining() {
+			r.server.mu.Unlock()
+			return hostedDrainingError
+		}
 		r.started = true
 		r.server.mu.Unlock()
 		started, opening = true, true

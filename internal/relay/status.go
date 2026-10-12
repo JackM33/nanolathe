@@ -278,6 +278,13 @@ func (s *HostedServer) Status() HostedStatus {
 	rooms := make([]*hostedRoom, 0, len(s.rooms))
 	for _, r := range s.rooms {
 		rooms = append(rooms, r)
+		// Shutdown needs the lifecycle count even before Started reaches
+		// every peer and the next progress snapshot is published (§12.5).
+		if r.started {
+			out.Matches++
+		} else {
+			out.Lobbies++
+		}
 	}
 	out.Recent = slices.Clone(s.stats.recent)
 	slices.Reverse(out.Recent)
@@ -296,9 +303,6 @@ func (s *HostedServer) Status() HostedStatus {
 			BytesIn: snap.bytesIn, BytesOut: snap.bytesOut, QueuedBytes: snap.queued, CheckedTick: snap.compared}
 		if snap.started {
 			rs.Phase, rs.DurationSeconds = "playing", now.Sub(snap.startedAt).Seconds()
-			out.Matches++
-		} else {
-			out.Lobbies++
 		}
 		for _, seat := range snap.seats {
 			rs.Seats = append(rs.Seats, SeatStatus{Seat: seat.seat, Slot: seat.slot, Ready: seat.ready, Team: int(seat.team), Side: int(seat.side),
