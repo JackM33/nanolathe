@@ -224,3 +224,52 @@ func TestFinishedRoomRecord(t *testing.T) {
 		t.Fatalf("records %+v", got)
 	}
 }
+
+// Required broadcasts identify the recipient whose output queue failed,
+// rather than the triggering sender or the grant timer (§12.5).
+func TestHostedFailedRecipientAttribution(t *testing.T) {
+	for _, playing := range []bool{false, true} {
+		name := "lobby-event"
+		if playing {
+			name = "grant-timer"
+		}
+		t.Run(name, func(t *testing.T) {
+			s, r, peers, _ := drainRoomTest(t, playing)
+			if !r.send(hostedEvent{peer: peers[1], join: true}) {
+				t.Fatal("join was not received")
+			}
+			deadline := time.Now().Add(time.Second)
+			for {
+				snap := r.status.get()
+				if len(snap.seats) == 2 && snap.started == playing && peers[0].queuedBytes() == 0 && peers[1].queuedBytes() == 0 {
+					break
+				}
+				if time.Now().After(deadline) {
+					t.Fatal("both peers did not finish their initial output")
+				}
+				time.Sleep(time.Millisecond)
+			}
+			// Hold the recipient's outstanding byte budget at its limit,
+			// so its next required frame fails as a slow reader's would.
+			peers[1].mu.Lock()
+			peers[1].bytes = hostedMaxQueuedBytes
+			peers[1].mu.Unlock()
+			if playing {
+				for _, p := range peers {
+					if !r.send(hostedEvent{peer: p, body: []byte{hostedOpeningReadyMessage}}) {
+						t.Fatal("opening readiness was not received")
+					}
+				}
+			} else {
+				body := append([]byte{hostedReadyMessage, 1}, make([]byte, 64)...)
+				if !r.send(hostedEvent{peer: peers[0], body: body}) {
+					t.Fatal("readiness was not received")
+				}
+			}
+			awaitHostedCapacity(t, s, 0, 0)
+			if st := s.Status(); len(st.Recent) != 1 || st.Recent[0].Outcome != finishDisconnected || st.Recent[0].Seat != 1 {
+				t.Fatalf("recipient seat 1 failed its output budget: %+v", st.Recent)
+			}
+		})
+	}
+}

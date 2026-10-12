@@ -252,9 +252,9 @@ type FinishedRoom struct {
 	Ticks           uint32  `json:"ticks"`
 	Orders          uint64  `json:"orders"`
 	Outcome         string  `json:"outcome"`
-	// Seat is the seat whose message, departure or silence ended the room,
-	// or -1: a completed match, an expired lobby or a closing relay. For a
-	// divergence it is the seat whose report revealed the disagreement,
+	// Seat is the seat whose message, departure, output queue or silence
+	// ended the room, or -1: a completed match, an expired lobby or a closing
+	// relay. For a divergence it is the seat whose report revealed the disagreement,
 	// which need not be the one that diverged.
 	Seat    int       `json:"seat"`
 	EndedAt time.Time `json:"ended_at"`

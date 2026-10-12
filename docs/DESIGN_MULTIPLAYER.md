@@ -1634,7 +1634,11 @@ owns the recording seams (`SetReplayRecorder`, `PrepareRecordedBattle`,
 - **Online.** The relay stream as granted: each tick's commands with their
   seats and stream positions. A recorder wraps the battle's
   `lockstep.Client`, so the relay, the driver and the network overlay are
-  unchanged.
+  unchanged. Empty command payloads have no effect under §7.2 and cannot be
+  encoded by replay version 1, so the recorder omits them. Every later
+  command retains its original stream position, and the tick's pump and
+  checksum are still recorded. Nonempty undecodable payloads remain in the
+  file and are skipped during playback as they were during the live battle.
 - **Checks.** `UnitStateChecksum` every 30 ticks, the cadence the online
   acknowledgement uses (§9.2), and the battle's initial checksum in the
   header.
@@ -2043,9 +2047,11 @@ process-level resource figure.
 
 **Operator log.** Once a minute the server writes one line with the same
 counts plus process heap, total memory and goroutines, and one line per
-ended room with its outcome and the seat whose message, departure or
-silence ended it (`FinishedRoom.Seat`). Routine logs carry
-no room codes, credentials, names or chat text. Later: stream retention for rejoin, archives
+ended room with its outcome and the seat whose message, departure, output
+queue or silence ended it (`FinishedRoom.Seat`). A required broadcast that
+fails a recipient's output queue names that recipient, regardless of which
+seat triggered the broadcast or whether a grant timer triggered it. Routine
+logs carry no room codes, credentials, names or chat text. Later: stream retention for rejoin, archives
 under a declared release policy, and the trusted roles of §12.6.
 
 ### 12.6 Competitive authority and future state delivery

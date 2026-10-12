@@ -261,7 +261,13 @@ func (r *hostedRoom) run() {
 	}
 	enqueue := func(p *hostedPeer, body []byte, last bool) error {
 		stats.bytesOut += uint64(len(body))
-		return p.enqueue(body, last)
+		err := p.enqueue(body, last)
+		if err != nil {
+			// A broadcast can fail on a different seat from its sender;
+			// attribute the failure to the recipient's queue (§12.5).
+			culprit = int(p.seat)
+		}
+		return err
 	}
 	finish := func(err error, reason string) {
 		if err == hostedDrainingError {

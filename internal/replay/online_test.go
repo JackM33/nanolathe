@@ -513,6 +513,27 @@ func TestOnlineRecorderUnderThePacedDriver(t *testing.T) {
 	}
 	const limit = 60
 	fake := &pacedRelay{limit: limit, closed: make(chan struct{})}
+	commander := commanders(t, s)[0]
+	// Queue before the reader starts, so both malformed payloads and a
+	// valid command are guaranteed to reach the first grant. Empty input is
+	// omitted from replay v1; the following commands keep positions 2 and 3
+	// (DESIGN_MULTIPLAYER §7.2, §10).
+	for _, payload := range [][]byte{nil, {0xff, 0xff}} {
+		if _, err := fake.Submit(payload); err != nil {
+			t.Fatal(err)
+		}
+	}
+	stop, err := s.CaptureOnlineCommand(session.HumanCommand{Kind: session.HumanStop, Stop: session.HumanStopCommand{Handles: []pool.Handle{commander.Handle}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	stopPayload, err := session.EncodeSeatCommand(session.OnlineCommand, stop)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fake.Submit(stopPayload); err != nil {
+		t.Fatal(err)
+	}
 	client, err := replay.NewOnlineRecorder(w, fake)
 	if err != nil {
 		t.Fatal(err)
@@ -521,7 +542,6 @@ func TestOnlineRecorderUnderThePacedDriver(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	commander := commanders(t, s)[0]
 	submitted := map[uint32]bool{}
 	deadline := time.Now().Add(20 * time.Second)
 	for s.Clock.GlobalTick < limit {
@@ -537,13 +557,6 @@ func TestOnlineRecorderUnderThePacedDriver(t *testing.T) {
 				Position: orders.ResolvePos{X: commander.X + numeric.Fixed(16+tick)<<16, Y: commander.Y, Z: commander.Z}}}
 			if _, err := driver.Submit(move); err != nil {
 				t.Fatal(err)
-			}
-			if tick == 20 {
-				// Bytes no replica decodes, as a modified client could
-				// send: the driver skips the entry and plays on (§7.2).
-				if _, err := fake.Submit([]byte{0xff, 0xff}); err != nil {
-					t.Fatal(err)
-				}
 			}
 		}
 		time.Sleep(2 * time.Millisecond)
@@ -562,7 +575,7 @@ func TestOnlineRecorderUnderThePacedDriver(t *testing.T) {
 	if p.Tick() != limit || p.Verified() != limit/30 || played.UnitStateChecksum() != final {
 		t.Fatalf("played to %d with %d checksums", p.Tick(), p.Verified())
 	}
-	commands := 0
+	var keptMalformed, keptStop bool
 	r, err := replay.NewReader(out.Bytes())
 	if err != nil {
 		t.Fatal(err)
@@ -573,11 +586,18 @@ func TestOnlineRecorderUnderThePacedDriver(t *testing.T) {
 			break
 		}
 		if e.Kind == replay.EntryCommand {
-			commands++
+			switch e.Position {
+			case 1:
+				t.Fatal("empty payload was recorded")
+			case 2:
+				keptMalformed = bytes.Equal(e.Payload, []byte{0xff, 0xff})
+			case 3:
+				keptStop = bytes.Equal(e.Payload, stopPayload)
+			}
 		}
 	}
-	if commands == 0 {
-		t.Fatal("no submitted command reached the recording")
+	if !keptMalformed || !keptStop {
+		t.Fatal("commands following the empty payload lost their stream positions")
 	}
 }
 
