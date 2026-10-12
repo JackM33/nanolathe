@@ -32,9 +32,14 @@ repository holds no app spec. `doctl apps spec get APP-ID` shows them.
   belong in this repository.
 
 **Keep instance count at 1.** Rooms live in this process's memory; a second
-instance could receive a join for a room on the first. A restart or deployment
-ends active matches, so push between play sessions. There is no persistent
-disk.
+instance could receive a join for a room on the first. There is no
+persistent disk.
+
+**Restarts drain.** On SIGTERM the relay refuses new rooms and lets running
+matches finish for at most `--drain-timeout` (100 s, under App Platform's
+default 120 s grace). For a longer drain raise the app's
+`grace_period_seconds` (at most 600) and the flag together. Longer matches
+still end, so push between play sessions when you can.
 
 ## Connect the local game
 

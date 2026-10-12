@@ -128,6 +128,18 @@ func (p *hostedProgress) compare() (bool, error) {
 	}
 }
 
+// stalled is the seat of the active slot whose last acknowledgement is
+// oldest, the one the progress bound expired waiting for, or -1.
+func (p *hostedProgress) stalled(players [HostedMaxSeats]*hostedPeer) int {
+	seat, oldest := -1, time.Time{}
+	for s := range p.n {
+		if p.active[s] && (seat < 0 || p.last[s].Before(oldest)) {
+			seat, oldest = int(players[s].seat), p.last[s]
+		}
+	}
+	return seat
+}
+
 // slowest is the lowest acknowledged tick and the oldest acknowledgement
 // time among active slots.
 func (p *hostedProgress) slowest() (uint32, time.Time) {
@@ -198,6 +210,9 @@ func (r *hostedRoom) run() {
 	var openingReady [HostedMaxSeats]bool // by slot
 	var configVersion uint32
 	stats := roomStats{created: r.created}
+	// culprit is the seat whose event is being handled, or the slowest
+	// seat when the progress bound expires; finish reports it.
+	culprit := -1
 
 	every := func(fn func(*hostedPeer)) {
 		if started {
@@ -246,9 +261,18 @@ func (r *hostedRoom) run() {
 	}
 	enqueue := func(p *hostedPeer, body []byte, last bool) error {
 		stats.bytesOut += uint64(len(body))
-		return p.enqueue(body, last)
+		err := p.enqueue(body, last)
+		if err != nil {
+			// A broadcast can fail on a different seat from its sender;
+			// attribute the failure to the recipient's queue (§12.5).
+			culprit = int(p.seat)
+		}
+		return err
 	}
 	finish := func(err error, reason string) {
+		if err == hostedDrainingError {
+			reason = finishServer
+		}
 		// Unblock producers first; then let each writer flush its last frame.
 		// Closing the room must never truncate the explicit done message.
 		close(r.done)
@@ -267,7 +291,7 @@ func (r *hostedRoom) run() {
 		for _, p := range peers {
 			<-p.written
 		}
-		r.server.recordFinished(r, &stats, started, progress.n, tick, reason)
+		r.server.recordFinished(r, &stats, started, progress.n, tick, reason, culprit)
 	}
 	// held reports a colour some present seat other than skip holds.
 	held := func(color uint8, skip int) bool {
@@ -430,6 +454,12 @@ func (r *hostedRoom) run() {
 	// order, and each learns its slot before the first grant.
 	begin := func() error {
 		r.server.mu.Lock()
+		// A join or Start may already be in flight when Drain closes the
+		// admission boundary; that lobby must still close (§12.5).
+		if r.server.draining() {
+			r.server.mu.Unlock()
+			return hostedDrainingError
+		}
 		r.started = true
 		r.server.mu.Unlock()
 		started, opening = true, true
@@ -464,21 +494,41 @@ func (r *hostedRoom) run() {
 		finish(err, finishProtocol)
 		return
 	}
+	drain := r.server.drain
 	for {
 		select {
 		case <-r.server.done:
 			finish(hostedError("server", "an open server"), finishServer)
 			return
+		case <-drain:
+			// A lobby closes so its players can recreate it on the relay
+			// that replaces this one; a running match plays on.
+			drain = nil
+			if !started {
+				finish(hostedDrainingError, finishServer)
+				return
+			}
 		case <-deadline.C:
 			if opening {
+				// Attribute the opening timeout to the first seat still
+				// awaiting its marker, rather than the last sender (§12.5).
+				culprit = -1
+				for slot := range progress.n {
+					if !openingReady[slot] {
+						culprit = int(players[slot].seat)
+						break
+					}
+				}
 				finish(hostedError("opening readiness", "every seat to finish its opening within 30 minutes"), finishExpired)
 			} else if started {
+				culprit = progress.stalled(players)
 				finish(hostedError("execution progress", "execution progress from every seat within ten seconds"), finishStalled)
 			} else {
 				finish(hostedError("room wait", "a started match within 30 minutes"), finishExpired)
 			}
 			return
 		case <-ready:
+			culprit = -1
 			ready = nil
 			if tick == ^uint32(0) {
 				finish(hostedError("grant tick", "a tick before uint32 exhaustion"), finishProtocol)
@@ -515,6 +565,7 @@ func (r *hostedRoom) run() {
 		case <-reporting:
 			report()
 		case e := <-r.events:
+			culprit = int(e.peer.seat)
 			stats.bytesIn += uint64(len(e.body))
 			if e.join {
 				// A joiner takes the lowest colour no present seat holds; a

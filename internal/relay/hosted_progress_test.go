@@ -121,7 +121,7 @@ func TestHostedProgressReachesEveryServedVersion(t *testing.T) {
 		}
 	}
 	awaitHostedCapacity(t, s, 0, 0)
-	if st := s.Status(); len(st.Recent) != 1 || st.Recent[0].Outcome != finishCompleted {
+	if st := s.Status(); len(st.Recent) != 1 || st.Recent[0].Outcome != finishCompleted || st.Recent[0].Seat != -1 {
 		t.Fatalf("recent rooms: %+v", st.Recent)
 	}
 }
@@ -209,5 +209,74 @@ func TestHostedProgressReportEncoding(t *testing.T) {
 		if _, err := decodeHostedProgress(bad); err == nil {
 			t.Fatalf("accepted malformed report %v", bad)
 		}
+	}
+}
+
+// The operator's record of an ended match carries its duration and the
+// seat that ended it; a completed match names no seat.
+func TestFinishedRoomRecord(t *testing.T) {
+	var got []FinishedRoom
+	s := &HostedServer{config: HostedConfig{Finished: func(f FinishedRoom) { got = append(got, f) }}}
+	stats := &roomStats{startedAt: time.Now().Add(-2 * time.Second)}
+	s.recordFinished(&hostedRoom{id: 1, size: 2}, stats, true, 2, 60, finishDisconnected, 1)
+	s.recordFinished(&hostedRoom{id: 2, size: 2}, stats, true, 2, 90, finishCompleted, 1)
+	if len(got) != 2 || got[0].Seat != 1 || got[0].DurationSeconds < 2 || got[1].Seat != -1 {
+		t.Fatalf("records %+v", got)
+	}
+	for _, started := range []bool{false, true} {
+		s.recordFinished(&hostedRoom{id: 3, size: 2}, stats, started, 2, 0, finishExpired, 1)
+		f := got[len(got)-1]
+		if (started && f.Seat != 1) || (!started && f.Seat != -1) {
+			t.Fatalf("expiry with started=%v: %+v", started, f)
+		}
+	}
+}
+
+// Required broadcasts identify the recipient whose output queue failed,
+// rather than the triggering sender or the grant timer (§12.5).
+func TestHostedFailedRecipientAttribution(t *testing.T) {
+	for _, playing := range []bool{false, true} {
+		name := "lobby-event"
+		if playing {
+			name = "grant-timer"
+		}
+		t.Run(name, func(t *testing.T) {
+			s, r, peers, _ := drainRoomTest(t, playing)
+			if !r.send(hostedEvent{peer: peers[1], join: true}) {
+				t.Fatal("join was not received")
+			}
+			deadline := time.Now().Add(time.Second)
+			for {
+				snap := r.status.get()
+				if len(snap.seats) == 2 && snap.started == playing && peers[0].queuedBytes() == 0 && peers[1].queuedBytes() == 0 {
+					break
+				}
+				if time.Now().After(deadline) {
+					t.Fatal("both peers did not finish their initial output")
+				}
+				time.Sleep(time.Millisecond)
+			}
+			// Hold the recipient's outstanding byte budget at its limit,
+			// so its next required frame fails as a slow reader's would.
+			peers[1].mu.Lock()
+			peers[1].bytes = hostedMaxQueuedBytes
+			peers[1].mu.Unlock()
+			if playing {
+				for _, p := range peers {
+					if !r.send(hostedEvent{peer: p, body: []byte{hostedOpeningReadyMessage}}) {
+						t.Fatal("opening readiness was not received")
+					}
+				}
+			} else {
+				body := append([]byte{hostedReadyMessage, 1}, make([]byte, 64)...)
+				if !r.send(hostedEvent{peer: peers[0], body: body}) {
+					t.Fatal("readiness was not received")
+				}
+			}
+			awaitHostedCapacity(t, s, 0, 0)
+			if st := s.Status(); len(st.Recent) != 1 || st.Recent[0].Outcome != finishDisconnected || st.Recent[0].Seat != 1 {
+				t.Fatalf("recipient seat 1 failed its output budget: %+v", st.Recent)
+			}
+		})
 	}
 }

@@ -231,6 +231,13 @@ func TestHostedOpeningRefusesEarlyMalformedAndDisconnectedSeats(t *testing.T) {
 				t.Fatalf("%s during opening: %+v %v", failure, g, err)
 			}
 			awaitHostedCapacity(t, s, 0, 0)
+			if failure == "expiry" {
+				// The match started, but seat 1 never sent OpeningReady.
+				// Its silence must retain its seat in the record (§12.5).
+				if st := s.Status(); len(st.Recent) != 1 || st.Recent[0].Seat != 1 {
+					t.Fatalf("unfinished opening seat was not recorded: %+v", st.Recent)
+				}
+			}
 		})
 	}
 }

@@ -169,7 +169,8 @@ const onlineGrantBacklog = 256
 // acknowledges every 30th tick. It records a grant when the driver
 // acknowledges it, so a grant read but never executed is never recorded. A
 // gap in the acknowledged ticks stops the recording; the stream itself is
-// passed through unchanged.
+// passed through unchanged. Empty payloads, which the driver skips, are
+// omitted from the file; every remaining command keeps its stream position.
 type OnlineRecorder struct {
 	client lockstep.Client
 	w      *Writer
@@ -237,6 +238,11 @@ func (o *OnlineRecorder) record(tick uint32, checksum [32]byte) {
 	g := o.grants[0]
 	o.grants = o.grants[1:]
 	for _, c := range g.Commands {
+		if len(c.Payload) == 0 {
+			// The driver skips an empty payload (§7.2), and replay v1
+			// cannot encode it. Keep later stream positions unchanged (§10).
+			continue
+		}
 		if o.w.Command(g.Tick, c.Seat, c.Position, c.Payload) != nil {
 			return
 		}

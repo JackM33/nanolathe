@@ -416,7 +416,8 @@ func TestHostedMalformedMessagesAndPendingBounds(t *testing.T) {
 		})
 	}
 	for _, byteLimit := range []bool{false, true} {
-		s := listenHostedTest(t, HostedConfig{InsecureLoopback: true}, hostedDefaultTimeouts)
+		finished := make(chan FinishedRoom, 1)
+		s := listenHostedTest(t, HostedConfig{InsecureLoopback: true, Finished: func(f FinishedRoom) { finished <- f }}, hostedDefaultTimeouts)
 		c, code := dialHostedTest(t, s, "", 0)
 		rawLocalSubmit(t, c, 1, []byte("first"))
 		rawLocalSubmit(t, c, 1, []byte("duplicate"))
@@ -437,6 +438,10 @@ func TestHostedMalformedMessagesAndPendingBounds(t *testing.T) {
 			t.Fatalf("room %s exceeded pending bound: %v", code, err)
 		}
 		awaitHostedCapacity(t, s, 0, 0)
+		// The operator's record names the flooding seat.
+		if f := <-finished; f.Outcome != finishFlooded || f.Seat != 0 {
+			t.Fatalf("finished room record: %+v", f)
+		}
 	}
 }
 

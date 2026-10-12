@@ -163,6 +163,17 @@ jobs:
             ./internal/movement/... \
             ./internal/construction/... \
             ./internal/combat/...
+      # The relay, its clients and the online host run the most goroutines:
+      # per-peer writers, the client's writer and grant reader, recorders.
+      - name: go test -race (multiplayer packages)
+        run: |
+          go test -race \
+            ./internal/netproto/... \
+            ./internal/relay/... \
+            ./internal/lockstep/... \
+            ./internal/replay/... \
+            ./cmd/nanolathe-server/...
+          go test -race -run 'Online|Hosted|Relay|Lobby|Multiplayer' ./cmd/nanolathe
 
   # The artifact users actually run.
   binary:

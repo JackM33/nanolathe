@@ -151,13 +151,15 @@ func (s *HostedServer) recordStarted() {
 	s.mu.Unlock()
 }
 
-func (s *HostedServer) recordFinished(r *hostedRoom, stats *roomStats, started bool, players int, ticks uint32, reason string) {
-	f := FinishedRoom{ID: r.id, Size: r.size, Players: players, Ticks: ticks, Orders: stats.orders, Outcome: reason, EndedAt: time.Now().UTC()}
+func (s *HostedServer) recordFinished(r *hostedRoom, stats *roomStats, started bool, players int, ticks uint32, reason string, seat int) {
+	if reason == finishCompleted || (reason == finishExpired && !started) || reason == finishServer {
+		seat = -1
+	}
+	f := FinishedRoom{ID: r.id, Size: r.size, Players: players, Ticks: ticks, Orders: stats.orders, Outcome: reason, Seat: seat, EndedAt: time.Now().UTC()}
 	if started {
 		f.DurationSeconds = time.Since(stats.startedAt).Seconds()
 	}
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	if reason == finishCompleted {
 		s.stats.completed++
 	} else if started {
@@ -170,6 +172,10 @@ func (s *HostedServer) recordFinished(r *hostedRoom, stats *roomStats, started b
 	s.stats.recent = append(s.stats.recent, f)
 	if len(s.stats.recent) > statusRecentRooms {
 		s.stats.recent = slices.Delete(s.stats.recent, 0, len(s.stats.recent)-statusRecentRooms)
+	}
+	s.mu.Unlock()
+	if s.config.Finished != nil {
+		s.config.Finished(f)
 	}
 }
 
@@ -185,6 +191,7 @@ type HostedStatus struct {
 	Totals        HostedTotals   `json:"totals"`
 	Rooms         []RoomStatus   `json:"rooms"`
 	Recent        []FinishedRoom `json:"recent"`
+	Draining      bool           `json:"draining"` // admission stopped for a restart
 }
 
 // HostedTotals counts rooms since the relay started. FailedBy counts started
@@ -238,14 +245,19 @@ type SeatStatus struct {
 
 // FinishedRoom is one of the most recently closed rooms.
 type FinishedRoom struct {
-	ID              uint64    `json:"id"`
-	Size            int       `json:"size"`
-	Players         int       `json:"players"`
-	DurationSeconds float64   `json:"duration_seconds"`
-	Ticks           uint32    `json:"ticks"`
-	Orders          uint64    `json:"orders"`
-	Outcome         string    `json:"outcome"`
-	EndedAt         time.Time `json:"ended_at"`
+	ID              uint64  `json:"id"`
+	Size            int     `json:"size"`
+	Players         int     `json:"players"`
+	DurationSeconds float64 `json:"duration_seconds"`
+	Ticks           uint32  `json:"ticks"`
+	Orders          uint64  `json:"orders"`
+	Outcome         string  `json:"outcome"`
+	// Seat is the seat whose message, departure, output queue or silence
+	// ended the room, or -1: a completed match, an expired lobby or a closing
+	// relay. For a divergence it is the seat whose report revealed the disagreement,
+	// which need not be the one that diverged.
+	Seat    int       `json:"seat"`
+	EndedAt time.Time `json:"ended_at"`
 }
 
 func millis(d time.Duration) float64 { return float64(d.Microseconds()) / 1000 }
@@ -254,7 +266,7 @@ func millis(d time.Duration) float64 { return float64(d.Microseconds()) / 1000 }
 // or process-level resource figure.
 func (s *HostedServer) Status() HostedStatus {
 	s.mu.Lock()
-	out := HostedStatus{Protocol: hostedVersion, UptimeSeconds: time.Since(s.stats.started).Seconds(), Connections: len(s.conns),
+	out := HostedStatus{Protocol: hostedVersion, UptimeSeconds: time.Since(s.stats.started).Seconds(), Connections: len(s.conns), Draining: s.draining(),
 		Totals: HostedTotals{Rooms: s.stats.rooms, Matches: s.stats.matches, Completed: s.stats.completed, Failed: s.stats.failed,
 			ChatRelayed: s.stats.chatRelayed, ChatDropped: s.stats.chatDropped}}
 	if len(s.stats.failedBy) != 0 {
@@ -266,6 +278,13 @@ func (s *HostedServer) Status() HostedStatus {
 	rooms := make([]*hostedRoom, 0, len(s.rooms))
 	for _, r := range s.rooms {
 		rooms = append(rooms, r)
+		// Shutdown needs the lifecycle count even before Started reaches
+		// every peer and the next progress snapshot is published (§12.5).
+		if r.started {
+			out.Matches++
+		} else {
+			out.Lobbies++
+		}
 	}
 	out.Recent = slices.Clone(s.stats.recent)
 	slices.Reverse(out.Recent)
@@ -284,9 +303,6 @@ func (s *HostedServer) Status() HostedStatus {
 			BytesIn: snap.bytesIn, BytesOut: snap.bytesOut, QueuedBytes: snap.queued, CheckedTick: snap.compared}
 		if snap.started {
 			rs.Phase, rs.DurationSeconds = "playing", now.Sub(snap.startedAt).Seconds()
-			out.Matches++
-		} else {
-			out.Lobbies++
 		}
 		for _, seat := range snap.seats {
 			rs.Seats = append(rs.Seats, SeatStatus{Seat: seat.seat, Slot: seat.slot, Ready: seat.ready, Team: int(seat.team), Side: int(seat.side),
@@ -331,6 +347,7 @@ th,td{text-align:left;padding:6px 8px;border-bottom:1px solid var(--line);white-
 <div class="tile"><b>{{.Totals.ChatRelayed}}</b>chat lines</div><div class="tile"><b>{{.Totals.ChatDropped}}</b>chat dropped</div>
 </div>
 {{if .Totals.FailedBy}}<p class="muted">Ended early: {{range $k, $v := .Totals.FailedBy}}{{$k}} {{$v}} · {{end}}</p>{{end}}
+{{if .Draining}}<p><b>Restarting:</b> no new rooms; running matches play on.</p>{{end}}
 <h2>Open rooms</h2>
 {{if not .Rooms}}<p class="muted">No open rooms.</p>{{end}}
 {{range .Rooms}}<div class="room wrap"><table>
@@ -343,8 +360,8 @@ th,td{text-align:left;padding:6px 8px;border-bottom:1px solid var(--line);white-
 </table></div>{{end}}
 <h2>Recently closed</h2>
 {{if not .Recent}}<p class="muted">None yet.</p>{{else}}<div class="wrap"><table>
-<tr><th>Room</th><th>Players</th><th>Duration</th><th>Ticks</th><th>Orders</th><th>Outcome</th><th>Ended (UTC)</th></tr>
-{{range .Recent}}<tr><td>{{.ID}}</td><td>{{.Players}}/{{.Size}}</td><td>{{secs .DurationSeconds}}</td><td>{{.Ticks}}</td><td>{{.Orders}}</td><td>{{.Outcome}}</td><td>{{.EndedAt.Format "15:04:05"}}</td></tr>{{end}}
+<tr><th>Room</th><th>Players</th><th>Duration</th><th>Ticks</th><th>Orders</th><th>Outcome</th><th>Seat</th><th>Ended (UTC)</th></tr>
+{{range .Recent}}<tr><td>{{.ID}}</td><td>{{.Players}}/{{.Size}}</td><td>{{secs .DurationSeconds}}</td><td>{{.Ticks}}</td><td>{{.Orders}}</td><td>{{.Outcome}}</td><td>{{if ge .Seat 0}}{{.Seat}}{{else}}—{{end}}</td><td>{{.EndedAt.Format "15:04:05"}}</td></tr>{{end}}
 </table></div>{{end}}
 </body></html>`))
 

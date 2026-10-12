@@ -863,7 +863,9 @@ only in the sending interface `[08 "Packet framing and dispatch"]`.
   The developer phrase and developer commands cannot widen the stream
   classes or bypass the permission. An invalid command has the same
   rejection and no partial effect on every honest replica; diagnostics are
-  drained outside the tick.
+  drained outside the tick. A payload no replica decodes is skipped by
+  every replica and every playback, so it cannot end the battle; only a
+  broken relay stamp does.
 - **The session validates the actors.** Phase 1 admits only units the
   entry's seat owns, inside the tick on identical state, so a forged or
   stale command is refused identically everywhere.
@@ -1632,7 +1634,11 @@ owns the recording seams (`SetReplayRecorder`, `PrepareRecordedBattle`,
 - **Online.** The relay stream as granted: each tick's commands with their
   seats and stream positions. A recorder wraps the battle's
   `lockstep.Client`, so the relay, the driver and the network overlay are
-  unchanged.
+  unchanged. Empty command payloads have no effect under §7.2 and cannot be
+  encoded by replay version 1, so the recorder omits them. Every later
+  command retains its original stream position, and the tick's pump and
+  checksum are still recorded. Nonempty undecodable payloads remain in the
+  file and are skipped during playback as they were during the live battle.
 - **Checks.** `UnitStateChecksum` every 30 ticks, the cadence the online
   acknowledgement uses (§9.2), and the battle's initial checksum in the
   header.
@@ -2007,11 +2013,22 @@ configuration `[08 R-SKIR-01 §12]`; a room has its own defaults
 
 ### 12.5 Operations
 
-One always-running relay instance; a restart or redeploy ends its live
-rooms without a result, and there is no cross-instance room lookup,
-database, autoscaling or reconnect. The room, connection, byte and time
+One always-running relay instance, with no cross-instance room lookup,
+database, autoscaling or reconnect. On SIGTERM the server drains
+(`HostedServer.Drain`): it refuses new rooms and closes lobbies, lets
+running matches play on, and exits when none remain, after
+`--drain-timeout` (100 seconds by default, below the platform's grace) or
+at a second signal; a match still running then ends without a result. The room, connection, byte and time
 bounds are §16.5.1, so one misbehaving room fails alone. A separate health
 listener reports readiness outside the connection limit (§16.5.6).
+
+Drain, room admission and the transition from lobby to match share the
+server's lifecycle mutex. A join or Start already in flight cannot start a
+match after draining begins. The status match and lobby counts read that
+same lifecycle state, independently of the progress snapshots: a match is
+counted before any Started message is sent and remains counted until its
+room finishes flushing and is released. Shutdown therefore cannot mistake
+a started match awaiting snapshot publication for an empty relay.
 
 **Public status.** `/status` (an HTML page that refreshes itself) and
 `/status.json` on the relay's port show: players, matches, lobbies and
@@ -2029,8 +2046,15 @@ page shows no room code (an invitation), address, name, chat text or
 process-level resource figure.
 
 **Operator log.** Once a minute the server writes one line with the same
-counts plus process heap, total memory and goroutines. Routine logs carry
-no room codes, credentials, names or chat text. Later: stream retention for rejoin, archives
+counts plus process heap, total memory and goroutines, and one line per
+ended room with its outcome and the seat whose message, departure, output
+queue or silence ended it (`FinishedRoom.Seat`). A required broadcast that
+fails a recipient's output queue names that recipient, regardless of which
+seat triggered the broadcast or whether a grant timer triggered it. Routine
+logs also identify the first seat still awaiting `OpeningReady` when a
+started match's opening expires; expiry without a started match names no
+seat. Routine logs carry no room codes, credentials, names or chat text.
+Later: stream retention for rejoin, archives
 under a declared release policy, and the trusted roles of §12.6.
 
 ### 12.6 Competitive authority and future state delivery
@@ -6246,11 +6270,14 @@ checksum, which stops the match.
   that frame, a battle menu open included.
 - **Relays and drivers.** Real loopback connections carrying both seats'
   commands, a cancellation before its stream position is assigned, race
-  tests, and a closed driver that cannot execute a buffered grant. Hosted
+  tests (CI runs the multiplayer packages under `-race`), and a closed
+  driver that cannot execute a buffered grant. Hosted
   socket contracts: TLS trust and refusal, identity mismatch, room
   isolation, full, expiry and close, bounded input and slow readers, a
   delayed checksum mismatch and final-grant handling; WebSocket framing and
-  handshake rejection, health, lifecycle and connection bounds; a headless
+  handshake rejection, health, lifecycle and connection bounds; draining
+  a join awaiting auto-start, and a started match counted before its
+  progress snapshot is published; a headless
   two-session match through WebSocket; a mixed version-7 and version-8
   room in which only version-8 seats exchange names and chat
   (`TestHostedChatMixedVersionRoom`); chat codecs, rate limits, malformed

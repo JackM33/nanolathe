@@ -24,6 +24,10 @@ type HostedConfig struct {
 	// MaxConnections bounds established and pending connections together.
 	// Zero selects 512; otherwise 2..1024, and at least two per room.
 	MaxConnections int
+	// Finished, when set, receives each room's record as it ends, on the
+	// room's goroutine, for the operator's log (DESIGN_MULTIPLAYER §12.5).
+	// It must return promptly and must not call back into the server.
+	Finished func(FinishedRoom)
 }
 
 // HostedDialOptions permits custom trusted roots, never skipped verification.
@@ -132,6 +136,9 @@ type HostedServer struct {
 	timeouts  hostedTimeouts
 	done      chan struct{}
 	once      sync.Once
+	// drain closes when Drain stops admission; drainOnce guards it.
+	drain     chan struct{}
+	drainOnce sync.Once
 	wg        sync.WaitGroup
 	mu        sync.Mutex
 	rooms     map[string]*hostedRoom
@@ -187,7 +194,7 @@ func listenHostedTransport(address string, config HostedConfig, timeouts hostedT
 	if err != nil {
 		return nil, localIOError("hosted listen", err)
 	}
-	s := &HostedServer{listener: listener, websocket: websocket, config: config, timeouts: timeouts, done: make(chan struct{}), rooms: make(map[string]*hostedRoom), conns: make(map[net.Conn]struct{}), stats: serverStats{started: time.Now()}}
+	s := &HostedServer{listener: listener, websocket: websocket, config: config, timeouts: timeouts, done: make(chan struct{}), drain: make(chan struct{}), rooms: make(map[string]*hostedRoom), conns: make(map[net.Conn]struct{}), stats: serverStats{started: time.Now()}}
 	s.wg.Add(1)
 	go s.accept()
 	return s, nil
@@ -198,6 +205,31 @@ func (s *HostedServer) Addr() string {
 		return ""
 	}
 	return s.listener.Addr().String()
+}
+
+// Drain prepares the relay to stop without ending the matches it hosts. It
+// refuses new rooms, joins and descriptions, and closes every room still in
+// its lobby, whose players lose nothing; running matches go on until they
+// end or Close. Status reports Draining and the matches still running
+// (DESIGN_MULTIPLAYER §12.5).
+func (s *HostedServer) Drain() {
+	if s != nil {
+		// Admission and match start use this same boundary, so neither can
+		// commit after Drain returns (DESIGN_MULTIPLAYER §12.5).
+		s.mu.Lock()
+		s.drainOnce.Do(func() { close(s.drain) })
+		s.mu.Unlock()
+	}
+}
+
+// draining reports whether Drain has been called.
+func (s *HostedServer) draining() bool {
+	select {
+	case <-s.drain:
+		return true
+	default:
+		return false
+	}
 }
 
 // Close releases listeners, pending handshakes, rooms and all peer goroutines.
@@ -346,6 +378,8 @@ func (s *HostedServer) describe(body []byte) []byte {
 	var config []byte
 	size := 0
 	switch {
+	case s.draining():
+		refusal = hostedDrainingError
 	case room == nil:
 		refusal = hostedError("room", "an existing invitation")
 	case room.started:
@@ -376,6 +410,9 @@ func (r *hostedRoom) free() int {
 	}
 	return -1
 }
+
+// hostedDrainingError refuses admission while the relay drains for a restart.
+var hostedDrainingError = hostedError("relay", "a relay that is not restarting; try again in a minute")
 
 // hostedVersionError is the relay's refusal of a version it does not serve.
 func hostedVersionError(sent uint16) error {
@@ -439,6 +476,9 @@ func (s *HostedServer) admit(code string, flags uint8, size int, config []byte, 
 	case <-s.done:
 		return nil, false, hostedError("admission", "an open server")
 	default:
+	}
+	if s.draining() {
+		return nil, false, hostedDrainingError
 	}
 	creator := code == ""
 	var room *hostedRoom
