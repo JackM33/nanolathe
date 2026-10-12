@@ -510,6 +510,15 @@ func (r *hostedRoom) run() {
 			}
 		case <-deadline.C:
 			if opening {
+				// Attribute the opening timeout to the first seat still
+				// awaiting its marker, rather than the last sender (§12.5).
+				culprit = -1
+				for slot := range progress.n {
+					if !openingReady[slot] {
+						culprit = int(players[slot].seat)
+						break
+					}
+				}
 				finish(hostedError("opening readiness", "every seat to finish its opening within 30 minutes"), finishExpired)
 			} else if started {
 				culprit = progress.stalled(players)

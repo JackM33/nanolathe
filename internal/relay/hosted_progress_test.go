@@ -223,6 +223,13 @@ func TestFinishedRoomRecord(t *testing.T) {
 	if len(got) != 2 || got[0].Seat != 1 || got[0].DurationSeconds < 2 || got[1].Seat != -1 {
 		t.Fatalf("records %+v", got)
 	}
+	for _, started := range []bool{false, true} {
+		s.recordFinished(&hostedRoom{id: 3, size: 2}, stats, started, 2, 0, finishExpired, 1)
+		f := got[len(got)-1]
+		if (started && f.Seat != 1) || (!started && f.Seat != -1) {
+			t.Fatalf("expiry with started=%v: %+v", started, f)
+		}
+	}
 }
 
 // Required broadcasts identify the recipient whose output queue failed,

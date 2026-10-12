@@ -152,7 +152,7 @@ func (s *HostedServer) recordStarted() {
 }
 
 func (s *HostedServer) recordFinished(r *hostedRoom, stats *roomStats, started bool, players int, ticks uint32, reason string, seat int) {
-	if reason == finishCompleted || reason == finishExpired || reason == finishServer {
+	if reason == finishCompleted || (reason == finishExpired && !started) || reason == finishServer {
 		seat = -1
 	}
 	f := FinishedRoom{ID: r.id, Size: r.size, Players: players, Ticks: ticks, Orders: stats.orders, Outcome: reason, Seat: seat, EndedAt: time.Now().UTC()}

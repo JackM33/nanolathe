@@ -2051,7 +2051,10 @@ ended room with its outcome and the seat whose message, departure, output
 queue or silence ended it (`FinishedRoom.Seat`). A required broadcast that
 fails a recipient's output queue names that recipient, regardless of which
 seat triggered the broadcast or whether a grant timer triggered it. Routine
-logs carry no room codes, credentials, names or chat text. Later: stream retention for rejoin, archives
+logs also identify the first seat still awaiting `OpeningReady` when a
+started match's opening expires; expiry without a started match names no
+seat. Routine logs carry no room codes, credentials, names or chat text.
+Later: stream retention for rejoin, archives
 under a declared release policy, and the trusted roles of §12.6.
 
 ### 12.6 Competitive authority and future state delivery
