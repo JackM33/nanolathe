@@ -117,8 +117,11 @@ type ModelTextureRegistry struct {
 	unitByID   map[uint16]modelTextureLoadKey
 	// trailDefs keeps the trail classifier's inputs per unit load
 	// (DESIGN_GPU_RENDERER §15).
-	trailDefs       map[modelTextureLoadKey]trailDefInfo
-	hullByName      map[string]*compiledmodel.Model
+	trailDefs  map[modelTextureLoadKey]trailDefInfo
+	hullByName map[string]*compiledmodel.Model
+	// hullBoxes keeps each hull model's bounds and reach, made once at
+	// binding so a pick reads them instead of the root vertices.
+	hullBoxes       map[*compiledmodel.Model]hullBox
 	projectileByID  map[int32]modelTextureLoadKey
 	featurePrepared map[string]*unitModel
 	featureDefs     map[string]*content.FeatureDef
@@ -224,6 +227,9 @@ func (r *ModelTextureRegistry) bindUnitModels(cat *content.Catalog) error {
 		name := ckey(def.ObjectName)
 		if m != nil && r.hullByName[name] == nil {
 			r.hullByName[name] = m.compiled
+			if hullModelValid(m.compiled) {
+				r.hullBoxes[m.compiled] = newHullBox(m.compiled)
+			}
 		}
 		key := def.CanonicalKey
 		if key == "" {
@@ -298,8 +304,8 @@ func emptyModelTextureRegistry(fs *vfs.FS, standalone bool, teamLogos ...string)
 		loads: map[modelTextureLoadKey]*unitModel{}, byCompiled: map[*compiledmodel.Model]modelTextureLoadKey{},
 		unitByName: map[string]modelTextureLoadKey{}, unitByID: map[uint16]modelTextureLoadKey{}, projectileByID: map[int32]modelTextureLoadKey{},
 		featurePrepared: map[string]*unitModel{}, featureDefs: map[string]*content.FeatureDef{},
-		hullByName: map[string]*compiledmodel.Model{},
-		bindings:   map[modelTexturePrimitiveKey]*modelTextureCursor{}, standalone: standalone,
+		hullByName: map[string]*compiledmodel.Model{}, hullBoxes: map[*compiledmodel.Model]hullBox{},
+		bindings: map[modelTexturePrimitiveKey]*modelTextureCursor{}, standalone: standalone,
 	}
 	r.teamLogos = "textures/logos.gaf"
 	if len(teamLogos) > 0 && teamLogos[0] != "" {

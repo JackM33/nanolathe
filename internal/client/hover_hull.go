@@ -81,15 +81,95 @@ func (c *Client) HullModel(name string) *compiledmodel.Model {
 // drawn quad already does. The two agree for every hull whose projected corners
 // fit a signed 16-bit pixel, so no on-screen hover result differs.
 func hoverHullCorners(m *compiledmodel.Model, v frame.UnitView, cam *camera.Camera) ([4][2]int32, bool) {
-	var out [4][2]int32
-	if m == nil || cam == nil || m.Root < 0 || m.Root >= len(m.Pieces) {
-		return out, false
+	if !hullModelValid(m) || cam == nil {
+		return [4][2]int32{}, false
 	}
-	for i, r := range selectionQuadCorners(m, v.Heading, v.Pitch, v.Bank) {
+	return hoverHullCornersOf(newHullBox(m), v, cam), true
+}
+
+func hoverHullCornersOf(box hullBox, v frame.UnitView, cam *camera.Camera) [4][2]int32 {
+	var out [4][2]int32
+	for i, r := range selectionQuadCornersOf(box.a, box.b, v.Heading, v.Pitch, v.Bank) {
 		sx, sy := cam.WorldToScreen(v.X.Add(r[0]), v.Y.Add(r[1]), v.Z.Sub(r[2]))
 		out[i] = [2]int32{sx - camera.OriginX, sy - camera.OriginY}
 	}
-	return out, true
+	return out
+}
+
+func hullModelValid(m *compiledmodel.Model) bool {
+	return m != nil && m.Root >= 0 && m.Root < len(m.Pieces)
+}
+
+// hullBox keeps one model's hull bounds (selectionQuadBounds) beside their
+// reach: no corner of the hull, under any orientation, lies farther than
+// reach from the model origin on any axis. Every corner coordinate is at most
+// m in magnitude, so a corner lies within √3·m of the origin; the orientation
+// transform keeps that length to within its per-axis rounding, and 2·m plus
+// four raw units covers both. A model too large for that sum to stay far from
+// the 16.16 range has no reach and is always tested in full.
+type hullBox struct {
+	a, b    [3]numeric.Fixed
+	reach   numeric.Fixed
+	bounded bool
+}
+
+// hullReachLimit keeps a unit's position plus its reach well inside the 16.16
+// range, so the bound's own arithmetic cannot wrap.
+const hullReachLimit = 1 << 27
+
+func newHullBox(m *compiledmodel.Model) hullBox {
+	a, b := selectionQuadBounds(m)
+	var most int64
+	for axis := 0; axis < 3; axis++ {
+		most = max(most, abs64(int64(a[axis])), abs64(int64(b[axis])))
+	}
+	box := hullBox{a: a, b: b}
+	if reach := 2*most + 4; reach <= hullReachLimit {
+		box.reach, box.bounded = numeric.Fixed(reach), true
+	}
+	return box
+}
+
+func abs64(v int64) int64 {
+	if v < 0 {
+		return -v
+	}
+	return v
+}
+
+// hullBoxSource is a hull model source that keeps every model's hullBox, so a
+// pick does not walk each candidate's root vertices again.
+type hullBoxSource interface {
+	hullBoxFor(m *compiledmodel.Model) hullBox
+}
+
+// hullBoxFor returns the box the registry made when it bound the model, or
+// builds one for a model it does not hold.
+func (c *Client) hullBoxFor(m *compiledmodel.Model) hullBox {
+	if c != nil && c.modelTextures != nil {
+		if box, ok := c.modelTextures.hullBoxes[m]; ok {
+			return box
+		}
+	}
+	return newHullBox(m)
+}
+
+// hullReachAdmits reports whether the pointer, in the same space as
+// hoverHullCorners, can lie inside the unit's hull. WorldToScreen does not
+// decrease with X or Z and does not increase with Y, so the cube of half-size
+// reach about the unit projects inside the screen box of its two extreme
+// corners, and every hull corner with it. A point the strict polygon test
+// admits lies inside the hull's corner box, so a false result skips only a
+// unit that test would reject [07 R-REV-01 §4].
+func hullReachAdmits(box hullBox, v frame.UnitView, cam *camera.Camera, px, py int32) bool {
+	if !box.bounded {
+		return true
+	}
+	r := box.reach
+	x0, y0 := cam.WorldToScreen(v.X.Sub(r), v.Y.Add(r), v.Z.Sub(r))
+	x1, y1 := cam.WorldToScreen(v.X.Add(r), v.Y.Sub(r), v.Z.Add(r))
+	px, py = px+camera.OriginX, py+camera.OriginY
+	return px >= x0 && px <= x1 && py >= y0 && py <= y1
 }
 
 // modelTotalHeight is the compiled definition's model total-height term

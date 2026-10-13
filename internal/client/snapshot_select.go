@@ -118,6 +118,7 @@ func PickSnapshotUnit(f *frame.Frame, sx, sy int32, cam *camera.Camera, viewer u
 	// expects beam pixels, shifted the pick by the view origin scaled through
 	// the factor, and a click off a rest step selected the wrong unit.
 	sx, sy = recordPoint(cam, sx, sy)
+	boxes, _ := src.(hullBoxSource)
 	best := pool.Handle(0)
 	var bestView frame.UnitView
 	// The reduction seeds its running best above every reachable score and
@@ -130,13 +131,27 @@ func PickSnapshotUnit(f *frame.Frame, sx, sy int32, cam *camera.Camera, viewer u
 		if v.Slot == 0 {
 			continue
 		}
+		m := src.HullModel(v.Model)
+		if !hullModelValid(m) {
+			continue
+		}
+		var box hullBox
+		if boxes != nil {
+			box = boxes.hullBoxFor(m)
+		} else {
+			box = newHullBox(m)
+		}
+		// A unit whose hull cannot reach the pointer fails the polygon test
+		// below whatever its visibility, so it is skipped before either.
+		if !hullReachAdmits(box, v, cam, sx, sy) {
+			continue
+		}
 		// Test 3: ownership, or the mode-selected committed coverage cell.
 		if !SnapshotVisible(f, v, viewer) {
 			continue
 		}
-		m := src.HullModel(v.Model)
-		corners, ok := hoverHullCorners(m, v, cam)
-		if !ok || !containsStrictPolygon(sx, sy, corners[:]) {
+		corners := hoverHullCornersOf(box, v, cam)
+		if !containsStrictPolygon(sx, sy, corners[:]) {
 			continue
 		}
 		score := hoverScore(m, v.FootX, v.FootZ)
