@@ -1264,8 +1264,9 @@ follows a draw. The minimap's rewrite, queued where the HUD drew it after the
 model lane's page passes, and the parameter image each held the render thread
 until the GPU had drawn everything queued before them; the GPU then idled while
 the next frame was built, so a frame cost the CPU's time plus the GPU's. In the
-3,000-unit Painted Desert field battle at 2x on an integrated Radeon 840M that
-was about 21 ms of a 49 ms frame. `Execute` now writes the identified surfaces
+3,000-unit Painted Desert field battle at 2x on an integrated Radeon 840M, a
+development build that timed each wait measured two a frame, about 21 ms of a
+49 ms frame. `Execute` now writes the identified surfaces
 and the parameter image before anything draws, and one one-pixel draw that
 reads them queues their uploads together ahead of the frame's first real draw
 (`upload_flush.go`). The one wait left is for the previous frame, which the
