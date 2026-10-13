@@ -216,7 +216,7 @@ func (b *battleSession) dispatchLocalCommand(text string) (cheat bool) {
 		b.spawnChatCommand(words)
 	case "atm":
 		if b.sess != nil && battleSessionKind(b) == 2 {
-			_ = b.sess.EnqueueHumanCommand(session.HumanCommand{Kind: session.HumanATM})
+			_ = b.enqueueLocalBattleCommand(session.HumanCommand{Kind: session.HumanATM})
 		}
 	case "musicmode":
 		if b.sess != nil && b.sess.Audio != nil && b.sess.Audio.Music != nil {
@@ -317,7 +317,7 @@ func (b *battleSession) dispatchLocalCommand(text string) (cheat bool) {
 		}
 	case "view":
 		if b.sess != nil && battleSessionKind(b) == 2 {
-			_ = b.sess.EnqueueHumanCommand(session.HumanCommand{Kind: session.HumanView, View: session.HumanViewCommand{Player: uint8(localCommandInt(words, 1))}})
+			_ = b.enqueueLocalBattleCommand(session.HumanCommand{Kind: session.HumanView, View: session.HumanViewCommand{Player: uint8(localCommandInt(words, 1))}})
 		}
 	case "give":
 		if b.sess == nil || len(words) < 4 {
@@ -332,7 +332,7 @@ func (b *battleSession) dispatchLocalCommand(text string) (cheat bool) {
 		default:
 			return
 		}
-		_ = b.sess.EnqueueHumanCommand(session.HumanCommand{Kind: session.HumanGive, Give: session.HumanGiveCommand{
+		_ = b.enqueueLocalBattleCommand(session.HumanCommand{Kind: session.HumanGive, Give: session.HumanGiveCommand{
 			Player: int(uint8(localCommandInt(words, 1))), Resource: resource, Amount: float32(localCommandInt(words, 2)),
 		}})
 	case "logo":
@@ -378,7 +378,7 @@ func (b *battleSession) dispatchLocalCommand(text string) (cheat bool) {
 		if strings.EqualFold(words[0], "noenergy") {
 			resource = economy.Energy
 		}
-		_ = b.sess.EnqueueHumanCommand(session.HumanCommand{
+		_ = b.enqueueLocalBattleCommand(session.HumanCommand{
 			Kind: session.HumanSetResource,
 			SetResource: session.HumanSetResourceCommand{
 				Player: player, Resource: resource, Amount: float32(localCommandInt(words, 2)),
@@ -386,13 +386,13 @@ func (b *battleSession) dispatchLocalCommand(text string) (cheat bool) {
 		})
 	case "selectable":
 		if b.sess != nil {
-			_ = b.sess.EnqueueHumanCommand(session.HumanCommand{Kind: session.HumanMakeSelectable})
+			_ = b.enqueueLocalBattleCommand(session.HumanCommand{Kind: session.HumanMakeSelectable})
 		}
 	case "los":
 		if b.sess == nil || battleSessionKind(b) != 2 {
 			return
 		}
-		_ = b.sess.EnqueueHumanCommand(session.HumanCommand{Kind: session.HumanVisibility, Visibility: session.HumanVisibilityCommand{ToggleMask: visibility.ModeCurrentEnabled}})
+		_ = b.enqueueLocalBattleCommand(session.HumanCommand{Kind: session.HumanVisibility, Visibility: session.HumanVisibilityCommand{ToggleMask: visibility.ModeCurrentEnabled}})
 		if b.shell != nil {
 			b.shell.saveSettings()
 		} else {
@@ -407,7 +407,7 @@ func (b *battleSession) dispatchLocalCommand(text string) (cheat bool) {
 		if b.sess == nil || battleSessionKind(b) != 2 {
 			return
 		}
-		_ = b.sess.EnqueueHumanCommand(session.HumanCommand{Kind: session.HumanVisibility, Visibility: session.HumanVisibilityCommand{ToggleMask: visibility.ModeHistoryEnabled}})
+		_ = b.enqueueLocalBattleCommand(session.HumanCommand{Kind: session.HumanVisibility, Visibility: session.HumanVisibilityCommand{ToggleMask: visibility.ModeHistoryEnabled}})
 		if b.shell != nil {
 			b.shell.saveSettings()
 		} else {
@@ -420,22 +420,25 @@ func (b *battleSession) dispatchLocalCommand(text string) (cheat bool) {
 		}
 	case "lostype":
 		if b.sess != nil {
-			_ = b.sess.EnqueueHumanCommand(session.HumanCommand{Kind: session.HumanVisibility, Visibility: session.HumanVisibilityCommand{ToggleMask: visibility.ModeTerrainRay}})
+			_ = b.enqueueLocalBattleCommand(session.HumanCommand{Kind: session.HumanVisibility, Visibility: session.HumanVisibilityCommand{ToggleMask: visibility.ModeTerrainRay}})
 		}
 	case "nowisee":
 		if b.sess != nil && battleSessionKind(b) == 2 {
-			_ = b.sess.EnqueueHumanCommand(session.HumanCommand{Kind: session.HumanVisibility, Visibility: session.HumanVisibilityCommand{ClearMask: visibility.ModeHistoryEnabled | visibility.ModeCurrentEnabled}})
+			_ = b.enqueueLocalBattleCommand(session.HumanCommand{Kind: session.HumanVisibility, Visibility: session.HumanVisibilityCommand{ClearMask: visibility.ModeHistoryEnabled | visibility.ModeCurrentEnabled}})
 		}
 	case "doubleshot":
 		if b.sess != nil && battleSessionKind(b) == 2 {
-			_ = b.sess.EnqueueHumanCommand(session.HumanCommand{Kind: session.HumanDoubleShot})
+			_ = b.enqueueLocalBattleCommand(session.HumanCommand{Kind: session.HumanDoubleShot})
 		}
 	case "halfshot":
 		if b.sess != nil && battleSessionKind(b) == 2 {
-			_ = b.sess.EnqueueHumanCommand(session.HumanCommand{Kind: session.HumanHalfShot})
+			_ = b.enqueueLocalBattleCommand(session.HumanCommand{Kind: session.HumanHalfShot})
 		}
 	case "radar":
 		if b.sess != nil && battleSessionKind(b) == 2 {
+			if b.survivalBest != nil {
+				b.survivalBest.excluded = "cheats used"
+			}
 			b.radarOptions ^= radarAllContactsOption
 			// The strategic marker layer answers the same gate (§16.11).
 			if b.cl != nil {
@@ -445,7 +448,7 @@ func (b *battleSession) dispatchLocalCommand(text string) (cheat bool) {
 	case "meteor":
 		if b.sess != nil && battleSessionKind(b) == 2 {
 			argumentPresent := len(words) > 1
-			_ = b.sess.EnqueueHumanCommand(session.HumanCommand{
+			_ = b.enqueueLocalBattleCommand(session.HumanCommand{
 				Kind: session.HumanMeteor,
 				Meteor: session.HumanMeteorCommand{
 					ArgumentPresent: argumentPresent,

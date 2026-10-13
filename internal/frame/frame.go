@@ -1086,6 +1086,15 @@ const (
 	SurvivalDowntime
 )
 
+// SurvivalApproach is one announced entry point in whole map pixels and its
+// bearing from the survivor base (east at zero, south at a quarter turn).
+// It is detached presentation geometry, not a spawn site or an attacker contact
+// (docs/DESIGN_SURVIVAL.md §6.7 and §9).
+type SurvivalApproach struct {
+	X, Z  int32
+	Angle uint16
+}
+
 // SurvivalStatus is one tick's Survival director state: the wave the phase
 // refers to, the phase, whole seconds to the phase's end and the attacker's
 // live units.
@@ -1096,6 +1105,11 @@ type SurvivalStatus struct {
 	SecondsLeft int32
 	Attackers   int32
 	Score       int64 // the team's Survival score so far
+	// Approaches contains only the current warning's announced directions, in
+	// plan order; it is empty in every other phase. The fixed array owns its
+	// geometry across frame reuse and covers the director's three directions.
+	Approaches    [3]SurvivalApproach
+	ApproachCount uint8
 }
 
 // SurvivalResult is the survivors' Survival outcome; the score and its

@@ -131,7 +131,8 @@ type loadResult struct {
 	detail *client.DetailArt
 	// replay is the battle's recording, attached before its first tick and
 	// handed to the battle at adoption (replay_record.go).
-	replay *replayRecording
+	replay       *replayRecording
+	survivalBest *survivalBestRun
 }
 
 // loadingState is the model behind the loading screen. The loader runs on its
@@ -440,8 +441,10 @@ func (g *gameShell) beginFreshBattleLoad(mapName string, back shellMode, request
 		// is attached here, before the battle's first tick
 		// (docs/DESIGN_MULTIPLAYER.md §10).
 		var recording *replayRecording
+		var survivalBest *survivalBestRun
 		if err == nil {
 			recording = recordFreshBattle(target, request.value, cs, authoritative.Session)
+			survivalBest = newSurvivalBestRun(request.value, cs, authoritative.Session)
 		}
 		// The load-time remaster runs here, on the loader goroutine, after the
 		// session composes and before the battle is adopted, and reports through
@@ -454,7 +457,7 @@ func (g *gameShell) beginFreshBattleLoad(mapName string, back shellMode, request
 		} else {
 			state.report(familyDetailArt, 100)
 		}
-		state.done <- loadResult{sess: authoritative.Session, err: err, detail: detail, replay: recording}
+		state.done <- loadResult{sess: authoritative.Session, err: err, detail: detail, replay: recording, survivalBest: survivalBest}
 	}()
 }
 
@@ -505,6 +508,7 @@ func (g *gameShell) stepLoading(delta float64) {
 			reportRetailMessageError(g.showRetailMessage(err.Error()))
 		} else {
 			g.battle.adoptReplayRecording(res.replay)
+			g.battle.survivalBest = res.survivalBest
 			clPtr.PrepareBattlePresentation()
 		}
 	default:

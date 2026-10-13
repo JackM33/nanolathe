@@ -66,7 +66,7 @@ func (b *battleSession) spawnAtPointer(unit, offWorld string) {
 		return
 	}
 	wx, wy, wz := b.cursorWorld(x, y)
-	_ = b.sess.EnqueueHumanCommand(session.HumanCommand{
+	_ = b.enqueueLocalBattleCommand(session.HumanCommand{
 		Kind:  session.HumanSpawn,
 		Spawn: session.HumanSpawnCommand{Unit: unit, X: wx, Y: wy, Z: wz},
 	})
@@ -85,7 +85,7 @@ func (b *battleSession) developerSpawnChatCommand(words []string) bool {
 		return true
 	}
 	wx, wy, wz := b.cursorWorld(x, y)
-	_ = b.sess.EnqueueHumanCommand(session.HumanCommand{
+	_ = b.enqueueLocalBattleCommand(session.HumanCommand{
 		Kind: session.HumanDeveloperSpawn,
 		DeveloperSpawn: session.HumanDeveloperSpawnCommand{
 			Pattern: content.CanonicalKey(words[0]), Owner: uint8(localCommandInt(words, 1)),

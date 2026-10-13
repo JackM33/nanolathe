@@ -673,7 +673,7 @@ func (h *retailBattleHUD) drawResultStats(c *client.Client, b *battleSession, vi
 			h.drawResultBar(c, rowIndex, column, current, max)
 		}
 	}
-	h.drawSurvivalResultLine(c, view, len(h.resultState.rows))
+	h.drawSurvivalResultLine(c, b, view, len(h.resultState.rows))
 }
 
 // resultNameWidth and resultNameColor are the two words each player's

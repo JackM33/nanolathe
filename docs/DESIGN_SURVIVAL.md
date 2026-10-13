@@ -681,6 +681,46 @@ choices for play-testing, recorded here so they change in one place.
   Survival options in the host settings directory, outside the simulation. A
   battle in which a cheat was used is shown but not recorded.
 
+### 8.1 Personal bests
+
+**Nanolathe host policy, user-authorized 2026-10-12.** A completed local
+single-player Survival defeat records the highest team score for its setup in
+`survival-bests.json`, beside the host settings file (including a
+`NANOLATHE_SETTINGS` override). The outcome retained with that score includes
+waves survived and ticks alive. A lower score or tie keeps the existing
+record. The result screen adds a third line reporting the personal best for
+this setup, with “New personal best” only after a successful improvement.
+
+Comparable setups use the resolved battle-entry configuration and the frozen
+simulation-content digest. This includes the map and schema, mod identity and
+effective content, content profile, rule set and Community table, mutators,
+unit restrictions, unit limit, commander-death and visibility options, every
+survivor's side and starting resources, each buddy's AI, difficulty and
+effective parameters, and the wave pace/air/naval options. Only seeds, player
+names, participant identifiers and colours are removed: a fresh attempt with
+the same setup can beat the previous one. The key has its own version for
+future scoring/comparison changes; an ordinary executable rebuild does not
+erase the comparison.
+
+Eligibility is host-owned and sticky for the battle. Accepted resource,
+visibility, perspective, shot, meteor, selectable and spawn cheat commands,
+the radar reveal toggle, negative resource gifts, enabling developer controls,
+or changing the rule set exclude the run even if the player undoes the
+change. Ordinary orders, positive gifts and presentation preferences do not.
+The result still shows its score and explains the exclusion. Online games,
+replays, captures, previews, automated runs and battles left before defeat
+never write a best. Both the menu and direct interactive `--survival` entry
+use this path, in every rule set. No authoritative state, RNG call, checkpoint
+or replay format changes.
+
+The records file is separate from the settings snapshot, so an options save
+cannot overwrite it. Completion rereads it, preserves other setups, and
+replaces it through a sibling temporary file and rename. Missing files are
+normal. An unreadable, malformed or unsupported-version file is left intact;
+the battle continues, logs the host error once and reports the unavailable
+record on the result screen. Record writes run on the host after the terminal
+committed result, never in a tick or a draw call.
+
 ## 9. Front end
 
 - **Entry.** A **Survival** button on the single-player menu, cloned from the
@@ -713,8 +753,20 @@ choices for play-testing, recorded here so they change in one place.
   The post-battle return and Restart go back to the Survival screen and
   setup.
 - **In battle.** The slide strip shows the wave number and state, and the
-  team's score on the line under it (§8). There is no
-  minimap marker today; an entry-edge marker is follow-up presentation work.
+  team's score on the line under it (§8). During the Warning phase, the
+  minimap shows a yellow, black-outlined inward arrow at each announced
+  approach's entry edge. These are public warning directions, not unit
+  contacts: they remain visible through fog without revealing attackers.
+  The arrows use the existing planned angles and nominal entry-cell centres
+  (§6.6), not the later placement search's final spawn cells. Every announced
+  approach is shown, including simultaneous approaches. No direction is
+  shown during grace or downtime before the next wave has been planned, or
+  after arrival. The committed frame owns a value copy of at most three
+  approaches (the director's direction cap); drawing never asks the live
+  director or draws RNG. Markers scale with the minimap, remain within its
+  fitted map rectangle on non-square maps, and disappear when no minimap is
+  available. This user-requested Nanolathe presentation policy applies in
+  every mode, online Survival and replay playback included.
 
 ## 10. Command line and headless
 
@@ -760,6 +812,16 @@ choices for play-testing, recorded here so they change in one place.
 - **Score.** Hits on one unit, split between shooters, sum to exactly its
   cost and overkill earns nothing; only a cleared wave earns the fast-clear
   bonus, and an earlier clear earns more.
+- **Personal bests.** Settings tests cover first records, improvement/tie
+  boundaries, reload, preserving other setups and malformed/future files.
+  Host tests cover comparable setup fields, cosmetic/seed equivalence,
+  sticky cheat and rule-change exclusions, one completion write, and
+  online/replay/preview isolation. A retail entry test covers all three rule
+  sets, including Strict with two buddies, and unchanged RNG/checksum values.
+- **Warning markers.** Session tests cover warning-only publication, detached
+  entry geometry and unchanged RNG. Presentation checks cover several
+  approaches, clearing, non-square letterboxing, minimap scaling and clipping;
+  inspect warning and post-arrival captures through the production renderer.
 - **Performance.** A long headless Survival run on a stock map stays within
   the simulation benchmark's per-tick budget at the unit limit.
 
@@ -783,7 +845,8 @@ The Modern AI's survival brain for Modern computer buddies (§16) is in,
 chosen per buddy in every gameplay mode: the scenario record and the published warnings, the
 composition, the survival layer, its keys, and its tests.
 
-Not yet: best scores; an entry-edge minimap marker.
+Personal bests for comparable single-player setups (§8.1) and warning-phase
+entry-edge minimap markers (§9) are implemented.
 
 ## 14. Proposals awaiting confirmation
 
@@ -796,7 +859,7 @@ Not yet: best scores; an entry-edge minimap marker.
 | P5 | Waves patrol to the nearest human-team unit, structures first, and are retargeted when idle (§6.7). |
 | P6 | Superseded by D10 (§8). |
 | P7 | Buddies do not extend the battle after the human's defeat (§8). |
-| P8 | Cheats allowed but the result is not recorded as a best score (§8). |
+| P8 | Adopted 2026-10-12: cheats remain allowed but exclude the result from personal bests (§8.1). |
 
 ## 15. Open
 
@@ -805,7 +868,6 @@ Not yet: best scores; an entry-edge minimap marker.
   completes rather than cycling, the retarget cadence already covers it; the
   prototype records the observed behaviour here.
 - Reachability flood fills per class and their rebuild cost on large maps.
-- An entry-edge minimap marker.
 - Balance: every §7 value is a starting point for play-testing.
 - The survival brain's open items are in §16.7.
 

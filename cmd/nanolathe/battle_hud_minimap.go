@@ -348,6 +348,7 @@ func (h *retailBattleHUD) drawMinimap(c *client.Client, b *battleSession, cur *f
 			c.DrawMinimapViewportRect(dst, inset, color)
 		}
 	}
+	h.drawSurvivalMinimap(c, cur.Survival, layout, dst, playW, playH)
 }
 
 // detailRadar returns the magnified radar service for scale, building its

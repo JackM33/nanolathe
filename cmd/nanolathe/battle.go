@@ -39,8 +39,9 @@ type battleSession struct {
 	// (replay_record.go); playback is the replay this battle plays instead
 	// of taking the clock's budget (replay_playback.go). Both are nil for an
 	// unrecorded battle.
-	replay   *replayRecording
-	playback *replayPlayback
+	replay       *replayRecording
+	playback     *replayPlayback
+	survivalBest *survivalBestRun
 	// preview owns a silent, isolated Settings scene (interface design §3.17).
 	preview                                bool
 	hostPresentation                       *settings.Presentation
@@ -458,6 +459,7 @@ func newDirectBattleView(opts Options, cs *contentSet) (*gameShell, *client.Clie
 	var identity netproto.Identity
 	var playback *replayPlayback
 	var recording *replayRecording
+	var survivalBest *survivalBestRun
 	if opts.multiplayerPlaytest() {
 		authoritative, identity, err = composeLocalMultiplayer(opts, cs)
 	} else if opts.Replay != "" {
@@ -480,6 +482,7 @@ func newDirectBattleView(opts Options, cs *contentSet) (*gameShell, *client.Clie
 		// is not recorded (docs/DESIGN_MULTIPLAYER.md §10).
 		if err == nil && opts.LiveTrace == "" && opts.LiveScene == "" {
 			recording = recordFreshBattle(replayTarget{dir: opts.ReplayDir}, request.value, cs, authoritative.Session)
+			survivalBest = newSurvivalBestRun(request.value, cs, authoritative.Session)
 		}
 	}
 	if err != nil {
@@ -574,6 +577,7 @@ func newDirectBattleView(opts Options, cs *contentSet) (*gameShell, *client.Clie
 		return nil, nil, err
 	}
 	shell.battle.adoptReplayRecording(recording)
+	shell.battle.survivalBest = survivalBest
 	if opts.multiplayerPlaytest() {
 		if err := shell.battle.startLocalMultiplayer(opts, identity); err != nil {
 			return nil, nil, err
