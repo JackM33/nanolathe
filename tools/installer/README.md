@@ -69,6 +69,13 @@ install or update refreshes the existing Mac app bundle or Windows shortcut.
 The Windows icon stays in its installed release directory, so deleting the
 temporary download and build files cannot remove it.
 
+The Windows shortcut uses a short, fixed encoded loader and stores the install
+path in its working-directory property. The loader reads `<install>/launch.ps1`,
+which validates `current.txt` and invokes the selected release's launcher. This
+keeps paths and release-selection logic out of the shortcut argument string,
+without changing execution policy. Rerun the installer to refresh an older
+shortcut; updating engine source alone does not replace an installed shortcut.
+
 Within the installation directory:
 
 - `saves`: newly written `.SAV` files.
@@ -175,6 +182,22 @@ a separate publisher signature.
    public installer scripts and their checksums. Future installs and launch-time
    update checks resolve engine `main`; new main commits need no manifest change.
    Prior builds stay installed until the user removes them.
+
+`test-install.ps1` also runs `test-shortcut.ps1`. On native Windows this creates
+temporary production shortcuts and opens the saved `.lnk` through the shell
+in Windows PowerShell 5.1. Shortcut creation uses the Unicode `IShellLinkW`
+interface so both the link file name and its stored paths preserve Unicode.
+Authored release launchers write sentinels, so no game, network, or retail data
+is needed. It covers path quoting/Unicode, a long installation path within
+Windows PowerShell 5.1's ordinary path limits, shortcut refresh before release
+promotion, and selection of a new release without rewriting the shortcut. It
+checks both WSH arguments and `System.Link.Arguments` from the shell property
+store: a shortened WSH readback alone is not evidence that stored arguments or
+execution were truncated (see [Microsoft's GetArguments guidance](https://learn.microsoft.com/en-us/windows/win32/api/shobjidl_core/nf-shobjidl_core-ishelllinkw-getarguments)).
+On other platforms the test runs the loader in a child PowerShell process and
+explicitly skips `.lnk` execution and COM checks. That does not establish native
+Windows shortcut behavior; run the Windows x64 and ARM64 installer jobs and a
+desktop Start Menu launch before promoting the fix.
 
 The first install has a cold compiler/dependency cache, so measure its time
 separately from updates. No first-install duration is promised.
