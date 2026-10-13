@@ -471,6 +471,13 @@ func vtolPatrolHandler(u *units.Unit, n *Node, satisfied uint32, tick uint32) Co
 					n.DynamicGate = 0
 					return 0 // *restart*: the landing record now holds the head
 				}
+			} else if _, handled := airRunnerOffer(u, n, satisfied, tick); handled {
+				// With no pad in reach a Modern aircraft may land beside a
+				// patrolling constructor instead; the runner declines under
+				// Strict 3.1. Nanolathe Modern policy: DESIGN_MOVEMENT_PATH
+				// "Modern aircraft tactics".
+				n.DynamicGate = 0
+				return 0 // *restart*: the repair record now holds the head
 			}
 		}
 		if target := opportunityScan(u); target != nil && autoEngage(u, target, false) {

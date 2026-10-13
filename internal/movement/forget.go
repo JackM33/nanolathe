@@ -24,6 +24,7 @@ func (s *System) ForgetUnit(h pool.Handle) {
 	if s == nil {
 		return
 	}
+	delete(s.airPilots, h)
 	for i := len(s.repairLandings) - 1; i >= 0; i-- {
 		if s.repairLandings[i].unit.Handle == h {
 			s.discardRepairLanding(s.repairLandings[i].node)

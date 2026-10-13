@@ -38,6 +38,12 @@ type Rules interface {
 	// The answer is pure; the System owns the queue, never the rule object.
 	RepairPadQueue(*System) bool
 
+	// AirTactics flies the Modern pilots of air_tactics.go for the bombing,
+	// strafing and hovering attack executors and the constructor-side repair
+	// landing. Nanolathe Modern policy: DESIGN_MOVEMENT_PATH "Modern aircraft
+	// tactics". The answer is pure; pilot state belongs to the System.
+	AirTactics(*System) bool
+
 	// ClaimConflict reports whether claimant displaces incumbent from one
 	// contested occupancy cell. ArbitrateOverlap asks it for every ground,
 	// air and building/yard stamp, including a restamp after a host vacates.
@@ -185,6 +191,9 @@ type CommunityRules struct{ StrictRules }
 
 func (StrictRules) RepairPadQueue(*System) bool  { return false }
 func (*ModernRules) RepairPadQueue(*System) bool { return true }
+
+func (StrictRules) AirTactics(*System) bool  { return false }
+func (*ModernRules) AirTactics(*System) bool { return true }
 
 // ClaimConflict preserves retail's owner-state branch under Strict 3.1.
 func (StrictRules) ClaimConflict(s *System, incumbent, _ int) bool {

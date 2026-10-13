@@ -954,6 +954,7 @@ func (s *Service) acquireTargetForSlotRange(u *units.Unit, slot *units.Slot, idx
 	if rangeLimit >= 0 && u.Def != nil {
 		acq.NoChaseMask = u.Def.NoChaseCategoryMask
 	}
+	acq.SightScan = rangeLimit >= 0
 	// acq.ShootAll stays false: it is the session mode-flags word's bit 10,
 	// whose only retail writer is the `+ShootAll` chat command, and the word is
 	// zero-filled with no loader, settings writer or save restore touching that

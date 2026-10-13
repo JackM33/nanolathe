@@ -161,3 +161,38 @@ func TestAirStrikeRetainsAttackIntent(t *testing.T) {
 		}
 	}
 }
+
+// Nanolathe Modern policy (DESIGN_MOVEMENT_PATH "Modern aircraft tactics"):
+// the Modern strafe and hover pilots start an attack as retail's phases 1 and
+// 2 do [04 R-AIR-01 §8]. Every slot is handed to its own scan and only slot
+// zero is bound, so a fighter's second launcher keeps choosing its own
+// targets, such as anti-air passed on the run.
+func TestModernAirAttackKeepsSecondaryScan(t *testing.T) {
+	for _, name := range []string{"AirToGround", "AirToGroundHover"} {
+		t.Run(name, func(t *testing.T) {
+			sys, w, u := wideAirFixture(t)
+			target := airTargetFor(t, sys, w, 30, 16)
+			q := orders.QueueForUnit(u)
+			q.Binding().Weapons = orders.NewWeaponAdapter(orders.WeaponAdapterConfig{InhibitSlot: combat.InhibitWeaponSlot, ReleaseSlot: combat.ReleaseWeaponSlot, SetManualTarget: combat.SetManualWeaponTarget, FireTarget: combat.FireWeaponTarget, FirePoint: combat.FireWeaponPoint, StopFiring: combat.StopWeaponFiring})
+			for i := range u.Slots {
+				u.InstallWeapon(i, &content.WeaponDef{Range: 1000})
+				combat.ReleaseWeaponSlot(u, i)
+			}
+			q.Push(orders.Lookup(name), orders.Node{Owner: u.Handle, Target: target.Handle, Phase: 1, GoalX: target.X, GoalY: target.Y, GoalZ: target.Z, GoalSupplied: true})
+			n := q.Head()
+			if name == "AirToGround" {
+				sys.legAirToGroundModern(u, n, 100)
+			} else {
+				sys.legAirToGroundHoverModern(u, n, 100)
+			}
+			if u.Slots[0].Target.Unit != target.Handle || u.Slots[0].Flags&units.SlotFlagAutonomous != 0 {
+				t.Fatalf("slot0 target=%v flags=%x, want bound to the attack", u.Slots[0].Target, u.Slots[0].Flags)
+			}
+			for i := 1; i < units.NumSlots; i++ {
+				if s := &u.Slots[i]; s.Target.Kind != units.TargetNone || s.Flags&units.SlotFlagAutonomous == 0 {
+					t.Fatalf("slot%d target=%v flags=%x, want free to scan", i, s.Target, s.Flags)
+				}
+			}
+		})
+	}
+}

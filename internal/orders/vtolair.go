@@ -54,6 +54,18 @@ const pendNoRoute uint32 = 0x40
 // drive, or a unit that belongs to a different world than the runner's.
 type AirLegRunner func(u *units.Unit, n *Node, satisfied uint32, tick uint32) (Code, bool)
 
+// airRunnerOffer asks the bound movement runner to run the record, and
+// reports whether it did. Unlike airHandOff it changes nothing when the
+// runner declines, so the caller's own body runs.
+func airRunnerOffer(u *units.Unit, n *Node, satisfied uint32, tick uint32) (Code, bool) {
+	if q := QueueForUnit(u); q != nil && q.Binding() != nil && q.Binding().Movement != nil {
+		if run := q.Binding().Movement.RunAirHook(); run != nil {
+			return run(u, n, satisfied, tick)
+		}
+	}
+	return 0, false
+}
+
 // airHandOff hands a record whose entry sequence did not end the order to the
 // air executor legs, and returns the leg's own result code.
 //
@@ -134,10 +146,17 @@ func vtolSeekHandler(u *units.Unit, n *Node, satisfied uint32, tick uint32) Code
 // [04 R-AIR-01 §7] states exactly two phases and phase 1 completes, so no
 // third phase is reachable; a record that somehow arrives at one is treated as
 // phase 1 rather than given an invented arm.
-func vtolGetRepairedHandler(u *units.Unit, n *Node, _ uint32, tick uint32) Code {
+func vtolGetRepairedHandler(u *units.Unit, n *Node, satisfied uint32, tick uint32) Code {
 	if n.Target == 0 || targetOf(u, n) == nil {
 		workStatus(u, statusCant, "Repair aborted.")
 		return Code(8) // *abandon* [04 R-AIR-01 §7]
+	}
+	// A Modern repair landing beside a constructor is flown by the movement
+	// legs; the runner declines every pad wait and every Strict record, which
+	// then run the retail body below. Nanolathe Modern policy:
+	// DESIGN_MOVEMENT_PATH "Modern aircraft tactics".
+	if code, handled := airRunnerOffer(u, n, satisfied, tick); handled {
+		return code
 	}
 	if n.Phase == 0 {
 		if maxDamageOf(u) <= healthOf(u) {

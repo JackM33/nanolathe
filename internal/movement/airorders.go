@@ -1456,11 +1456,36 @@ func (s *System) runAirOrderLeg(u *units.Unit, n *orders.Node, satisfied uint32,
 		}
 		return 0, false
 	case "AirStrike":
+		if s.airTacticsActive() {
+			return s.legAirStrikeModern(u, n, tick), true
+		}
 		return s.legAirStrike(u, n, satisfied, tick), true
 	case "AirToGround":
+		if s.airTacticsActive() {
+			return s.legAirToGroundModern(u, n, tick), true
+		}
 		return s.legAirToGround(u, n, tick), true
 	case "AirToGroundHover":
+		if s.airTacticsActive() {
+			return s.legAirToGroundHoverModern(u, n, tick), true
+		}
 		return s.legAirToGroundHover(u, n, tick), true
+	case "VTOL_GetRepaired":
+		// Only the Modern constructor-side repair landing runs here; a pad's
+		// repair wait, and every Strict wait, is the order package's body
+		// [04 R-AIR-01 §7].
+		if t := s.unitFor(n.Target); s.airTacticsActive() && t != nil && t.Def != nil && !t.Def.IsAirBase {
+			return s.legFieldRepairModern(u, n, satisfied, tick), true
+		}
+		return 0, false
+	case "VTOL_Patrol":
+		// Asked only by the patrol's low-health branch after its pad seek
+		// found nothing (Nanolathe Modern policy, DESIGN_MOVEMENT_PATH
+		// "Modern aircraft tactics"): land beside a patrolling constructor.
+		if s.airSeekFieldRepair(u, n, tick) {
+			return 0, true
+		}
+		return 0, false
 	case "AirToAir":
 		return s.legAirToAir(u, n, satisfied, tick), true
 	case "VTOL_Pickup":

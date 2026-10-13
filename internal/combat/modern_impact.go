@@ -9,6 +9,7 @@ import (
 // A victim can observe an impact without seeing its source. Session decides
 // whether that observation carries a visible contact or only the hit bearing.
 func (*ModernRules) ObserveImpact(s *Service, victim, attacker *units.Unit, in DamageInput, tick uint32) {
+	s.noteModernAirHit(victim, attacker, in.Nominal, tick)
 	if s == nil || s.ImpactNoticeHook() == nil || victim == nil || attacker == nil ||
 		victim == attacker || !victim.Alive || victim.Dying || victim.Def == nil || attacker.Def == nil ||
 		victim.Owner == attacker.Owner || s.Reaction == nil || s.Reaction.AlliedHook() == nil ||

@@ -831,6 +831,20 @@ bindings, Hold Fire and disabled-mode RNG equivalence. The session and AI
 observation tests lock live rebinding, inactive infectors and ordinary hosts;
 local squad tests retain sight, reach, air/defense safety and switching cooldown.
 
+**Aircraft anti-air preference.** An airborne shooter's Modern
+target choice adds a bonus for a candidate that has recently damaged its
+side's aircraft (by how much), a larger one for visible anti-air that prefers
+aircraft than for a ground weapon that only incidentally shoots them, and —
+on the sight-distance scan an order makes — also considers threatening
+anti-air beyond the aircraft's sight and ranks targets other aircraft of its
+side are already expected to destroy below the rest. It outranks the ordinary
+threat score but not the infection preference; the retention margin applies
+after it. The damage record and the attack claims are the transient
+`combat.AirBoard`, written by the Modern damage observer and by movement's
+pilots. The policy belongs to
+[DESIGN_MOVEMENT_PATH "Modern aircraft tactics"](DESIGN_MOVEMENT_PATH.md#modern-aircraft-tactics);
+`aircraft_antiair_test.go` locks it.
+
 ### 2.4 Aiming
 
 The composed unit-death observer releases combat's pending Aim tracking before

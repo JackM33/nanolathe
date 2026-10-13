@@ -220,6 +220,15 @@ import (
 // reproduces both preceding locks; letting explicit attacks reposition on Hold
 // Position moves no lock. Initial compositions, both Modern Ashap locks and
 // every Strict/Community lock remain unchanged.
+//
+// Modern aircraft tactics (DESIGN_MOVEMENT_PATH "Modern aircraft tactics")
+// fly the bombing, strafing and hovering attacks and the constructor-side
+// repair landing, and let aircraft and their attackers choose anti-air
+// targets beyond sight. The combat benchmark's Modern warm/final locks move
+// with the benchmark's aircraft. The build without these policies reproduces
+// both preceding locks; switching off the pilots alone does not, because the
+// anti-air target choices move them too. Initial compositions, both Modern
+// Ashap locks and every Strict/Community lock remain unchanged.
 // Modern's approved sight-circle, saved-return and recovery policies remain selected.
 const (
 	lockAshapMap                   = "ashap plateau"
@@ -244,10 +253,10 @@ const (
 	lockBenchModernInitial           = "partial-v1:55165c066f8b6eaa"
 	lockBenchStrictWarm              = "partial-v1:92288be0462952a2"
 	lockBenchCommunityWarm           = "partial-v1:9ca4bb1bae72a0e7"
-	lockBenchModernWarm              = "partial-v1:e4fd361fc8da8770"
+	lockBenchModernWarm              = "partial-v1:1f33b019b6af0f03"
 	lockBenchStrictFinal             = "partial-v1:4a9bfa48817da57c"
 	lockBenchCommunityFinal          = "partial-v1:a97cef8ec7ca358d"
-	lockBenchModernFinal             = "partial-v1:c20e6afaae5f287f"
+	lockBenchModernFinal             = "partial-v1:c48d1840a767b6ce"
 )
 
 // The expanded retail audit corrects active-search budget continuation

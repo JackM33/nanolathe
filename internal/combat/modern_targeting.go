@@ -486,12 +486,14 @@ func (*ModernRules) SelectTarget(s *Service, q *TargetQuery) (pool.Handle, bool)
 	var bestDistance int64
 	var bestOverage, retainedOverage bool
 	var bestBlocked, retainedBlocked bool
-	for _, c := range q.Candidates {
+	var bestCovered, retainedCovered bool
+	air := s.airTargetContext(q)
+	consider := func(c Candidate, extra bool) {
 		target := q.World.Unit(c.Handle)
 		if target == nil || target.Def == nil || !c.Hostile || s.allied(q.Shooter.Owner, target.Owner, q.Economy) ||
-			!q.Acquisition.admits(c) || q.Acquisition.rejectsNoChase(c) || q.Acquisition.rejectsStunned(c) ||
+			(!extra && (!q.Acquisition.admits(c) || q.Acquisition.rejectsNoChase(c) || q.Acquisition.rejectsStunned(c))) ||
 			s.effectiveDamage(q.Slot.Weapon, target, q.Shooter) <= 0 || (q.Slot.Weapon.Paralyzer && target.Def.ImmuneToParalyzer) {
-			continue
+			return
 		}
 		// A registry may be thirty ticks old. Recheck present contact knowledge;
 		// never acquire or retain a vanished contact merely because it scored well.
@@ -506,11 +508,11 @@ func (*ModernRules) SelectTarget(s *Service, q *TargetQuery) (pool.Handle, bool)
 		// read now: requiring direct sight here would silently cancel the
 		// Targeting Facility under Modern (issue #36).
 		if !visible && !(q.FromSecondary && status&visibility.SeenBit != 0) {
-			continue
+			return
 		}
 		incoming, shot := s.candidateCoverage(q, target)
 		if target.Health > 0 && incoming >= int64(target.Health) {
-			continue
+			return
 		}
 		score := s.threatScore(q, target)
 		// A visible active takeover capability is an additional local threat.
@@ -518,6 +520,12 @@ func (*ModernRules) SelectTarget(s *Service, q *TargetQuery) (pool.Handle, bool)
 		// Radar-only secondary contacts disclose no capability for this bonus.
 		if visible && s.InfectionThreatHook() != nil && s.InfectionThreatHook()(target) {
 			score += 12000
+		}
+		// An aircraft takes out what can shoot aircraft first, and what is
+		// shooting them before that, so later passes are safer. Nanolathe
+		// Modern policy: DESIGN_MOVEMENT_PATH "Modern aircraft tactics".
+		if air.active {
+			score += s.airScore(air, q, target, visible)
 		}
 		preferred := IsPreferredCategory(c.Category, q.Acquisition.BadMask)
 		if q.Acquisition.MaskResolved && c.CategoryMaskResolved {
@@ -532,19 +540,33 @@ func (*ModernRules) SelectTarget(s *Service, q *TargetQuery) (pool.Handle, bool)
 		if overage {
 			score = score * 4 / 5
 		}
+		// An aircraft looking for work ranks a target other aircraft of its
+		// side are already expected to destroy below every other candidate.
+		covered := air.sight && airCovered(air.claims, target)
 		dx, dz := q.Shooter.X.Int()-target.X.Int(), q.Shooter.Z.Int()-target.Z.Int()
 		distance := int64(dx)*int64(dx) + int64(dz)*int64(dz)
 		blocked := s.modernTargetObstructed(q, target)
-		if best == 0 || (bestBlocked && !blocked) || (bestBlocked == blocked &&
-			(score > bestScore || (score == bestScore && (distance < bestDistance || (distance == bestDistance && c.Handle < best))))) {
+		if best == 0 || (bestBlocked && !blocked) || (bestBlocked == blocked && ((bestCovered && !covered) || (bestCovered == covered &&
+			(score > bestScore || (score == bestScore && (distance < bestDistance || (distance == bestDistance && c.Handle < best))))))) {
 			best, bestScore, bestDistance = c.Handle, score, distance
 			bestOverage = overage
 			bestBlocked = blocked
+			bestCovered = covered
 		}
 		if q.Slot.Target.Kind == units.TargetUnit && q.Slot.Target.Unit == c.Handle {
 			retained, retainedScore = c.Handle, score
 			retainedOverage = overage
 			retainedBlocked = blocked
+			retainedCovered = covered
+		}
+	}
+	for _, c := range q.Candidates {
+		consider(c, false)
+	}
+	if air.sight && !q.FromSecondary {
+		s.airReachScratch = s.airThreatReach(q, air.friends, s.airReachScratch)
+		for _, c := range s.airReachScratch {
+			consider(c, true)
 		}
 	}
 	// A 25% improvement is required to leave a still-eligible automatic target.
@@ -555,8 +577,18 @@ func (*ModernRules) SelectTarget(s *Service, q *TargetQuery) (pool.Handle, bool)
 	// margin: an otherwise preferred non-overage alternative may take over.
 	// A physically obstructed target likewise cannot pin a clear alternative;
 	// when both are blocked, the ordinary retention margin still prevents churn.
-	if retained != 0 && retainedBlocked == bestBlocked && !(retainedOverage && !bestOverage) && bestScore*4 <= retainedScore*5 {
-		return retained, true
+	if retained != 0 && retainedBlocked == bestBlocked && retainedCovered == bestCovered && !(retainedOverage && !bestOverage) && bestScore*4 <= retainedScore*5 {
+		best = retained
+	}
+	if air.sight && bestCovered {
+		// Everything in reach is already expected to be destroyed by other
+		// aircraft of the side: keep looking rather than pile on.
+		best = 0
+	}
+	if air.sight && best != 0 {
+		// Claim the choice at once: wingmen scanning on this same tick must
+		// see it before this aircraft's pilot first runs.
+		s.AirBoard.Claim(q.Shooter, q.World.Unit(best), s.modernTick)
 	}
 	return best, best != 0
 }
