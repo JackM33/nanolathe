@@ -2935,9 +2935,10 @@ by a simulation phase, and is not saved [I6].
   with no modal open and the pointer off the minimap, and only while the modern
   executor presents, Smooth multiplies the target by 1.25 per upward
   notch or divides it by 1.25 per downward notch, clamped to full map..2×.
-  Pinch and wheel share a configurable snap band: near targets and crossings
-  land immediately on the preferred stop, defaulting to exactly 1×. Controls →
-  Mouse owns Zoom lock (`presentation.zoomLockPercent`, default 100); 120
+  Wheel targets near or crossing the preferred stop snap immediately to it,
+  defaulting to exactly 1×. Smooth pinch stops only on reaching or crossing
+  that factor, with no snap band or resistance to leaving on a fresh gesture.
+  Controls → Mouse owns Zoom lock (`presentation.zoomLockPercent`, default 100); 120
   chooses approximately 1.2× and replaces the native stop in both Smooth and
   Steps. Camera zoom also offers No zoom: fixed native 1×, no pinch, wheel,
   F9 or whole-map Tab zoom, with panning intact and Tab opening Options.

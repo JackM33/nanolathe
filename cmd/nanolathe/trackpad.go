@@ -9,10 +9,9 @@ import (
 
 // Modern feel choices (DESIGN_GPU_RENDERER §16.6). Magnification moves in
 // log space around the preferred lock; arriving there holds the rest of a
-// gesture, and a fresh gesture must overcome extra travel to leave it.
+// gesture, and a fresh gesture leaves it immediately.
 const (
 	pinchSensitivity = 2.0
-	pinchStickiness  = 0.20
 	pinchThreshold   = 0.12 // one stop per gesture in stepped and legacy controls
 )
 
@@ -69,7 +68,6 @@ func (b *battleSession) applyTrackpadGestures(mouse *input.MouseState, allowed b
 			g.pinchLatched = false
 			g.magnification = 0
 			live := b.cam.EffectiveZoom()
-			live = camera.SnapZoom(live, live, lock)
 			g.pinchZoom = live
 			g.pinchPosition = pinchPositionAt(live, lock)
 			g.anchorX, g.anchorY = beamAnchor(x, y)
@@ -107,20 +105,11 @@ func (b *battleSession) applyTrackpadGestures(mouse *input.MouseState, allowed b
 				g.pinchPosition += event.Delta * pinchSensitivity
 				// Discard excess at either limit so reversing responds immediately.
 				g.pinchPosition = min(max(g.pinchPosition, pinchPositionAt(b.cam.MinZoom(), lock)), pinchPositionAt(camera.ZoomMax, lock))
-				position := g.pinchPosition
-				switch {
-				case position > pinchStickiness:
-					position -= pinchStickiness
-				case position < -pinchStickiness:
-					position += pinchStickiness
-				default:
-					position = 0
-				}
-				want := camera.Zoom(math.Round(math.Exp(position) * float64(lock)))
-				want = camera.SnapZoom(g.pinchZoom, want, lock)
-				if want == lock && g.pinchZoom != lock {
-					// Catch a crossing even when one large event skips the entire snap
-					// band. Discard the rest of this gesture until the fingers lift.
+				want := camera.Zoom(math.Round(math.Exp(g.pinchPosition) * float64(lock)))
+				if g.pinchZoom < lock && want >= lock || g.pinchZoom > lock && want <= lock {
+					// Stop only on arrival or crossing, leaving nearby factors freely
+					// selectable (DESIGN_GPU_RENDERER §16.6). Hold until finger lift.
+					want = lock
 					g.pinchLatched = true
 				}
 				g.pinchZoom = want
@@ -137,14 +126,7 @@ func (b *battleSession) applyTrackpadGestures(mouse *input.MouseState, allowed b
 	}
 }
 
-// Invert the sticky stretch when a new gesture starts at an arbitrary factor.
+// Start each gesture from the live factor without snapping nearby positions.
 func pinchPositionAt(zoom, lock camera.Zoom) float64 {
-	position := math.Log(float64(zoom) / float64(lock))
-	if position > 0 {
-		return position + pinchStickiness
-	}
-	if position < 0 {
-		return position - pinchStickiness
-	}
-	return 0
+	return math.Log(float64(zoom) / float64(lock))
 }

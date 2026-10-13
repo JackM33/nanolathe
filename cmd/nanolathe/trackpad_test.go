@@ -163,27 +163,48 @@ func TestTrackpadCameraPassOwnership(t *testing.T) {
 	}
 }
 
-func TestSmoothPinchCatchesNativeAndRequiresFreshTravel(t *testing.T) {
-	b := zoomTestBattle()
-	b.cam.Zoom = camera.ZoomMax
-	feed := func(events ...input.PinchEvent) {
-		b.applyTrackpadGestures(&input.MouseState{Pinches: events}, true, 400, 250)
-	}
-	feed(input.PinchEvent{Began: true, Delta: -1})
-	if b.cam.EffectiveZoom() != camera.ZoomUnit {
-		t.Fatal("large crossing skipped native")
-	}
-	feed(input.PinchEvent{Delta: -1}, input.PinchEvent{Delta: 1, Ended: true})
-	if b.cam.EffectiveZoom() != camera.ZoomUnit {
-		t.Fatal("same gesture escaped the native latch")
-	}
-	feed(input.PinchEvent{Began: true, Delta: -0.05})
-	if b.cam.EffectiveZoom() != camera.ZoomUnit {
-		t.Fatal("fresh gesture left native too easily")
-	}
-	feed(input.PinchEvent{Delta: -0.2, Ended: true})
-	if z := b.cam.EffectiveZoom(); z >= camera.ZoomUnit-camera.ZoomNativeSnapRadius || z <= b.cam.MinZoom() {
-		t.Fatalf("fresh gesture did not leave the snap band continuously: %v", z)
+func TestSmoothPinchStopsAtLockWithoutStickiness(t *testing.T) {
+	for _, percent := range []int{100, 120} {
+		for _, direction := range []float64{-1, 1} {
+			b := preferredZoomTestBattle(percent)
+			lock := b.zoomLock()
+			start := camera.ZoomMax
+			if direction > 0 {
+				start = lock / 2
+			}
+			b.cam.SetZoomAbout(400, 250, start)
+			feed := func(events ...input.PinchEvent) {
+				b.applyTrackpadGestures(&input.MouseState{Pinches: events}, true, 400, 250)
+			}
+			feed(input.PinchEvent{Began: true, Delta: direction})
+			if b.cam.EffectiveZoom() != lock || !b.gestures.pinchLatched {
+				t.Fatal("large crossing skipped the lock")
+			}
+			feed(input.PinchEvent{Delta: direction}, input.PinchEvent{Delta: -direction, Ended: true})
+			if b.cam.EffectiveZoom() != lock {
+				t.Fatal("same gesture escaped the lock")
+			}
+			feed(input.PinchEvent{Began: true, Delta: direction * .01, Ended: true})
+			near := b.cam.EffectiveZoom()
+			if direction < 0 && (near >= lock || near <= lock*97/100) ||
+				direction > 0 && (near <= lock || near >= lock*103/100) {
+				t.Fatalf("small fresh gesture could not settle near lock %d: %d", lock, near)
+			}
+			feed(input.PinchEvent{Began: true})
+			if b.cam.EffectiveZoom() != near || b.gestures.pinchLatched {
+				t.Fatal("gesture start snapped a nearby factor")
+			}
+			feed(input.PinchEvent{Delta: -direction * .002, Ended: true})
+			closer := b.cam.EffectiveZoom()
+			if direction < 0 && (closer <= near || closer >= lock) ||
+				direction > 0 && (closer >= near || closer <= lock) || b.gestures.pinchLatched {
+				t.Fatalf("approach snapped early: %d -> %d, lock %d", near, closer, lock)
+			}
+			feed(input.PinchEvent{Began: true, Delta: -direction * .02})
+			if b.cam.EffectiveZoom() != lock || !b.gestures.pinchLatched {
+				t.Fatal("return crossing failed to stop at the lock")
+			}
+		}
 	}
 }
 

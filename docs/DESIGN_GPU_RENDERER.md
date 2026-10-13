@@ -3559,11 +3559,12 @@ the battle's camera pass. Easing uses host Updates and the lock's wheel hold use
 supplied monotonic host milliseconds; neither reads simulation time [I6].
 
 * **Smooth policy.** Pinch is continuous; the wheel makes small
-  proportional changes. Both share `SnapZoom` and `ZoomSnapPercent`: targets
-  within ±15% of the active lock, and input crossing the lock in either
+  proportional changes. Wheel input uses `SnapZoom` and `ZoomSnapPercent`:
+  targets within ±15% of the active lock, and input crossing the lock in either
   direction, snap immediately to it. At the default this is approximately
-  0.85×..1.15× and snaps to exactly 1×. These are user-authorized renderer
-  preferences, not retail findings. The previous preset list {0.25, 1, 2}
+  0.85×..1.15× and snaps to exactly 1×. Smooth pinch stops only when reaching
+  or crossing the lock, so nearby factors remain selectable. These are
+  user-authorized renderer preferences, not retail findings. The previous preset list {0.25, 1, 2}
   remains available through `ZoomSteps` and `NextZoomStep`, but no longer drives
   Modern's wheel or F9.
 * **Stepped policy.** The four usable stops are the full-map floor,
@@ -3619,17 +3620,14 @@ supplied monotonic host milliseconds; neither reads simulation time [I6].
 * **macOS smooth pinch.** Pinch/spread continuously requests
   arbitrary factors from the full-map floor to 2×, anchored at the pointer
   sampled when the gesture began. Signed magnification moves a logarithmic
-  position relative to the lock at `pinchSensitivity` (2.0); a flat interval
-  of ±`pinchStickiness` (0.20) around zero resists leaving the lock. Factors
-  within its ±15% snap band reach it directly, bypassing the ease. At the
-  default the picture immediately uses the native projection. A gesture
-  approaching the band from either side snaps to the lock and stays there
-  until finger lift, including
-  a single large event that crosses the whole band. A fresh gesture can leave
-  the lock after overcoming the resistance and snap band; nearby factors are never
-  final targets. A new gesture starts from the live factor, snapping nearby
-  factors to the lock, and excess travel at either limit is discarded so reversal
-  responds immediately. Pinch writes the live factor directly, without the
+  position relative to the lock at `pinchSensitivity` (2.0). **User-authorized
+  2026-10-12:** there is no resistance interval or snap band for pinch. Reaching
+  or crossing the lock from either side stops exactly there and holds until
+  finger lift, including a single large crossing event. A fresh gesture leaves
+  immediately in either direction. Factors arbitrarily near the lock remain
+  selectable within the camera's 1/1024 precision. A new gesture starts from
+  the live factor without snapping it, and excess travel at either limit is
+  discarded so reversal responds immediately. Pinch writes the live factor directly, without the
   wheel's ease, and clears camera follow. End and cancel events retire the gesture;
   cancellation does not undo an already accepted target. Ordered pinch events
   survive host batching and the semantic input copy. Blocked camera input cancels
