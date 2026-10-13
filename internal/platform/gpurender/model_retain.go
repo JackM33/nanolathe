@@ -82,12 +82,16 @@ import (
 const (
 	// modelRetainCap bounds the store's entries, stubs included. A 1080p
 	// battle frame has about four hundred subjects, each on up to four
-	// half-pixel keys (§17.3).
-	modelRetainCap = 2048
+	// half-pixel keys (§17.3); a 1600x1200 view of a 3,000-unit battle at
+	// 1x, with its wrecks and debris, has about two thousand.
+	modelRetainCap = 4096
 	// modelRetainBodyCap bounds the body index: one entry per retained
 	// object's lane, whatever its revisions, so a frame's subjects and their
-	// projected shadows fit with room for what scrolled off.
-	modelRetainBodyCap = 1024
+	// projected shadows fit with room for what scrolled off. It is also the
+	// most keyed packets a frame may place in parallel (modelPlaceKeyCap):
+	// at 1,024 that mass-battle frame, about 1,400 keyed packets, fell back
+	// to placing every subject on the game goroutine, 8 ms a frame.
+	modelRetainBodyCap = 2048
 )
 
 // modelRetainStore is the lane's retained-lane store: the map for lookup,
