@@ -62,7 +62,7 @@ func (c *Client) HullModel(name string) *compiledmodel.Model {
 	return m.compiled
 }
 
-// hoverHullCorners projects the four hull corners into the indexed battle
+// hoverHullCornersOf projects the four hull corners into the indexed battle
 // surface, the same space PickSnapshotUnit's pointer arrives in.
 //
 // The corner set, its minimum-Y plane and its orientation transform come from
@@ -80,13 +80,6 @@ func (c *Client) HullModel(name string) *compiledmodel.Model {
 // and the viewport bias; camera.WorldToScreen keeps int32 throughout, as the
 // drawn quad already does. The two agree for every hull whose projected corners
 // fit a signed 16-bit pixel, so no on-screen hover result differs.
-func hoverHullCorners(m *compiledmodel.Model, v frame.UnitView, cam *camera.Camera) ([4][2]int32, bool) {
-	if !hullModelValid(m) || cam == nil {
-		return [4][2]int32{}, false
-	}
-	return hoverHullCornersOf(newHullBox(m), v, cam), true
-}
-
 func hoverHullCornersOf(box hullBox, v frame.UnitView, cam *camera.Camera) [4][2]int32 {
 	var out [4][2]int32
 	for i, r := range selectionQuadCornersOf(box.a, box.b, v.Heading, v.Pitch, v.Bank) {

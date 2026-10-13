@@ -9,6 +9,14 @@ import (
 	"github.com/nanolathe-gg/nanolathe/internal/sim/numeric"
 )
 
+// hoverHullCorners adapts authored models to the cached-bounds projector for tests.
+func hoverHullCorners(m *compiledmodel.Model, v frame.UnitView, cam *camera.Camera) ([4][2]int32, bool) {
+	if !hullModelValid(m) || cam == nil {
+		return [4][2]int32{}, false
+	}
+	return hoverHullCornersOf(newHullBox(m), v, cam), true
+}
+
 // hullTestModel is the same synthetic root piece TestSelectionQuadProjectsRootBounds
 // uses: vertices spanning x -8..16, y 0..20, z -12..24 with a one-vertex `wake`
 // child that must contribute nothing [07 R-REV-01 §1][03 R-WATER-01 §1].
