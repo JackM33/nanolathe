@@ -173,6 +173,7 @@ func (s *Service) Settle(p int, tick uint32, w *units.World) {
 	// resource forms its pool [R-ECO-01 §6].
 	totals := s.preparePassAggregates(p, w)
 	s.Players[p].commitPassCounters()
+	s.archiveActivityReport(p, tick, w, totals)
 	// 4. Energy and metal settle independently; there is no combined shortage
 	// ratio [05 "Two-stage settlement algorithm"] C8. Energy goes first because
 	// that is the documented aggregation order — the gather walks energy

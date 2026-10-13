@@ -88,6 +88,7 @@ var ErrSeatCommandNoWireForm = errors.New("nanolathe: seat command has no wire f
 const (
 	seatSchemaV1 uint16 = 1
 	seatSchemaV2 uint16 = 2
+	seatSchemaV3 uint16 = 3
 )
 
 // seatAreaEntryMinBytes and seatActorMinBytes are the smallest encodings of
@@ -232,6 +233,11 @@ func seatCodecKind(sc seatCodec, k SeatCommandKind) string {
 			return "a kind with a version-1 payload; the sharing and alliance kinds 35..44 have payloads from command schema version 2"
 		case context != OnlineCommand:
 			return "a kind with a single-player replay payload; sharing and alliance commands act only in a networked session"
+		}
+		return ""
+	case SeatEconomyActivity:
+		if sc.version < seatSchemaV3 {
+			return "economy activity controls from command schema version 3"
 		}
 		return ""
 	case SeatShootAll:
@@ -439,6 +445,10 @@ func checkSeatWire(sc seatCodec, c *SeatCommand) error {
 		}
 		if _, ok := LookupRuleSet(name); !ok {
 			return fail("gameplay.mode", fmt.Sprintf("a rule set this build registered, got %q", name))
+		}
+	case SeatEconomyActivity:
+		if !validEconomyActivity(c.EconomyActivity.Activity) {
+			return fail("economyActivity.activity", "an activity from Generation through Reclaim")
 		}
 	}
 	return nil
@@ -724,6 +734,9 @@ func writeSeatCommand(w *netproto.Writer, context CommandContext, c *SeatCommand
 		w.Bool(c.SharedVictory.On)
 	case SeatGameplay:
 		w.Key(string(c.Gameplay.Mode))
+	case SeatEconomyActivity:
+		w.U8(uint8(c.EconomyActivity.Activity))
+		w.Bool(c.EconomyActivity.Pause)
 	}
 }
 
@@ -908,6 +921,9 @@ func readSeatCommand(r *netproto.Reader, sc seatCodec) SeatCommand {
 		c.SharedVictory.On = r.Bool()
 	case SeatGameplay:
 		c.Gameplay.Mode = gameplay.Mode(r.Key())
+	case SeatEconomyActivity:
+		c.EconomyActivity.Activity = economy.Activity(r.U8())
+		c.EconomyActivity.Pause = r.Bool()
 	}
 	if r.Err() != nil {
 		return SeatCommand{}

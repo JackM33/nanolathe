@@ -377,18 +377,22 @@ func (c *Client) drawInterface(cur *frame.Frame) {
 	if c == nil || len(c.indexed) != c.width*c.height {
 		return
 	}
+	resources := c.displayedResources
+	if c.recordNextResources {
+		resources = c.nextDisplayedResources()
+	}
+	presented := UIFrame{Committed: cur, Resources: resources}
 	if c.uiStage != nil {
-		resources := c.displayedResources
-		if c.recordNextResources {
-			resources = c.nextDisplayedResources()
-		}
-		c.uiStage.DrawUI(c, UIFrame{Committed: cur, Resources: resources})
+		c.uiStage.DrawUI(c, presented)
 	}
 	// The battle composer owns the column, including paused frames. Menus
 	// and briefings have no committed battle frame; ENDMSN owns a separate
 	// result surface after the battle ends [07 R-HUD-03 §14.3].
 	if cur != nil && !cur.Result.Ended {
 		c.drawMessageLines()
+	}
+	if overlay, ok := c.uiStage.(UIOverlayStage); ok {
+		overlay.DrawUIOverlay(c, presented)
 	}
 }
 

@@ -3,6 +3,7 @@ package construction
 import (
 	"github.com/nanolathe-gg/nanolathe/internal/combat"
 	"github.com/nanolathe-gg/nanolathe/internal/content"
+	"github.com/nanolathe-gg/nanolathe/internal/economy"
 	"github.com/nanolathe-gg/nanolathe/internal/frame"
 	"github.com/nanolathe-gg/nanolathe/internal/orders"
 	"github.com/nanolathe-gg/nanolathe/internal/sim/numeric"
@@ -338,6 +339,11 @@ func (s *Service) unitReclaimVisit(builder *units.Unit, node *orders.Node, satis
 		return 0 // restart, retaining the row's explicit wait [04 §3.3]
 	}
 	node.MoveState = orders.MoveArrived
+	if s.Economy.ActivityHeld(builder.Owner, economy.ActivityReclaim) {
+		node.DynamicGate |= 1
+		node.Deadline = int32(tick + 1)
+		return 2
+	}
 	// The order's second accumulator is cadence, not a resource fraction. The
 	// visit order is [05 R-WORK-01 §4]'s: the pulse test comes FIRST, on the
 	// counter as the visit found it; a firing visit zeroes the counter; then

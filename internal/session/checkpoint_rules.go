@@ -7,6 +7,7 @@ import (
 	"github.com/nanolathe-gg/nanolathe/internal/combat"
 	"github.com/nanolathe-gg/nanolathe/internal/community"
 	"github.com/nanolathe-gg/nanolathe/internal/construction"
+	"github.com/nanolathe-gg/nanolathe/internal/economy"
 	"github.com/nanolathe-gg/nanolathe/internal/gameplay"
 	"github.com/nanolathe-gg/nanolathe/internal/movement"
 	"github.com/nanolathe-gg/nanolathe/internal/orders"
@@ -63,6 +64,9 @@ func (s *Session) validateCheckpointRuleBindings(c checkpointRuleContext) error 
 	}
 	if k, err := combat.CheckpointRulesKind(s.Rules.Combat); err != nil || k != ruleKind {
 		return checkpointRuleBindingError("session.Rules.Combat")
+	}
+	if k, err := economy.CheckpointRulesKind(s.Rules.Economy); s.Rules.Economy == nil || err != nil || k != ruleKind {
+		return checkpointRuleBindingError("session.Rules.Economy")
 	}
 	// The standalone kernel classifier permits a nil retail fallback; an
 	// admitted reserved set must retain its explicit bound implementation.
@@ -191,6 +195,11 @@ func (s *Session) validateCheckpointRuleBindings(c checkpointRuleContext) error 
 	}
 	if s.Econ != nil && s.Econ.Community != (community.Features{AIDifficultyIncome: f.AIDifficultyIncome}) {
 		return checkpointRuleBindingError("session.Econ.Community")
+	}
+	if s.Econ != nil {
+		if k, err := economy.CheckpointRulesKind(s.Econ.Rules); s.Econ.Rules == nil || err != nil || k != ruleKind {
+			return checkpointRuleBindingError("session.Econ.Rules")
+		}
 	}
 	wantAI := community.Features{
 		AIStockpileProducts: f.AIStockpileProducts, AIApplianceEnergy: f.AIApplianceEnergy,

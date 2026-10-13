@@ -168,6 +168,7 @@ func (s *Service) PerUnitProductionFills(player int, w *units.World) {
 		buildingActive := def.BMCode == 0 && u.Activated
 		branchActive := buildingActive || (def.BMCode != 0 && (u.Activated || u.MoveTier != 0))
 		upkeepAdmitted := false
+		generationHeld := s.ActivityHeld(u.Owner, ActivityGeneration)
 		if branchActive {
 			switch {
 			// The refund branch includes unordered values [05 R-ECO-01 §1].
@@ -181,28 +182,48 @@ func (s *Service) PerUnitProductionFills(player int, w *units.World) {
 				// difficulty factor into a float32 of its own and that float32
 				// added plain, so the value was narrowed twice. That is the
 				// factored form §3 warns rounds differently.
-				addContribution(s, p, energy, -float64(float32(def.EnergyUse)))
+				refund := -float64(float32(def.EnergyUse))
+				if !generationHeld || !(refund > 0) {
+					before := s.ActivitySnapshot(u.Handle)
+					addContribution(s, p, energy, refund)
+					s.ObserveActivity(u, ActivityGeneration, before)
+				}
 				// A refund never admits the unit's production branch.
 				upkeepAdmitted = false
 			default:
+				before := s.ActivitySnapshot(u.Handle)
 				upkeepAdmitted = AdmitOneResource(&ue.Buckets, float32(def.EnergyUse))
+				s.ObserveActivity(u, ActivityUpkeep, before)
 			}
 		}
 
+		beforeGeneration := s.ActivitySnapshot(u.Handle)
 		if buildingActive {
 			switch {
 			case def.ExtractsMetal > 0 && upkeepAdmitted:
-				addContribution(s, p, metal, float64(ExtractorProduction(u.SpotMetal, energy.Carry)))
+				contribution := float64(ExtractorProduction(u.SpotMetal, energy.Carry))
+				if !generationHeld || !(contribution > 0) {
+					addContribution(s, p, metal, contribution)
+				}
 			case def.MakesMetal != 0 && upkeepAdmitted:
-				addContribution(s, p, metal, float64(MakerProduction(def.MakesMetal, energy.Carry)))
+				contribution := float64(MakerProduction(def.MakesMetal, energy.Carry))
+				if !generationHeld || !(contribution > 0) {
+					addContribution(s, p, metal, contribution)
+				}
 			// Wind and tidal are the two "product just formed" contributions:
 			// one multiply of the published scalar by the record's single-float
 			// generator value, with no intermediate narrowing before the
 			// discount and the store [R-ECO-01 §2][R-ECO-01 §3].
 			case def.ExtractsMetal <= 0 && def.MakesMetal == 0 && def.WindGenerator > 0:
-				addContribution(s, p, energy, float64(s.WindScalar())*float64(float32(def.WindGenerator)))
+				contribution := float64(s.WindScalar()) * float64(float32(def.WindGenerator))
+				if !generationHeld || !(contribution > 0) {
+					addContribution(s, p, energy, contribution)
+				}
 			case def.ExtractsMetal <= 0 && def.MakesMetal == 0 && def.TidalGenerator > 0:
-				addContribution(s, p, energy, float64(s.TidalScalar())*float64(float32(def.TidalGenerator)))
+				contribution := float64(s.TidalScalar()) * float64(float32(def.TidalGenerator))
+				if !generationHeld || !(contribution > 0) {
+					addContribution(s, p, energy, contribution)
+				}
 			}
 		}
 
@@ -211,9 +232,17 @@ func (s *Service) PerUnitProductionFills(player int, w *units.World) {
 			// operational bit [05 "Completed-unit eligibility"]. Both are
 			// authored values, single floats in the record [02 "Unit record"],
 			// so the record load is their one narrowing.
-			addContribution(s, p, energy, float64(float32(def.EnergyMake)))
-			addContribution(s, p, metal, float64(float32(def.MetalMake)))
+			e, m := float64(float32(def.EnergyMake)), float64(float32(def.MetalMake))
+			// The hold forfeits new income only: signed drains and unordered
+			// content retain their existing arithmetic and cannot become free.
+			if !generationHeld || !(e > 0) {
+				addContribution(s, p, energy, e)
+			}
+			if !generationHeld || !(m > 0) {
+				addContribution(s, p, metal, m)
+			}
 		}
+		s.ObserveActivity(u, ActivityGeneration, beforeGeneration)
 
 	})
 }

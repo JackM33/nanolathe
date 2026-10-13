@@ -1859,6 +1859,7 @@ func createAndBindServices(s *Session) error {
 	if s.Econ == nil {
 		s.Econ = &economy.Service{}
 	}
+	s.Econ.EnableActivityReport()
 	// Worlds with an authored source use one binder before battle entry so
 	// scenario, construction, and forced-slot creation resolve the same model
 	// and script path. Account initialization is part of that same pre-Create

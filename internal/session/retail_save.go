@@ -45,6 +45,10 @@ type RetailSaveInputs struct {
 	// entry writes the unit's own retained words [08 R-SAVE-02 §6].
 	// RetailBattleSaveInputs fills this from the live services.
 	UnitMirrors map[pool.Handle]RetailUnitMirrors
+	// ResumeEconomyUpkeep identifies only allocations switched off by a
+	// retained activity hold. The save resumes them on detached unit/VM
+	// copies so loads start without holds; manual off intent stays off.
+	ResumeEconomyUpkeep []pool.UnitRef
 	// LocalInterface is the saving client's local interface state, written
 	// into the status words where the session-held selection used to be.
 	// Nil — a battle with no host — writes each word as the session holds it.
@@ -180,6 +184,10 @@ func ProjectRetailSession(s *Session, in RetailSaveInputs) (save.RetailProjectio
 func projectUnitImage(w *units.World, econ *economy.Service, movement *movement.System, in RetailSaveInputs) (save.UnitImage, error) {
 	image := save.UnitImage{Version: save.UnitsVersionRetail}
 	localInterface := in.LocalInterface.index()
+	resumeUpkeep := make(map[pool.UnitRef]bool, len(in.ResumeEconomyUpkeep))
+	for _, ref := range in.ResumeEconomyUpkeep {
+		resumeUpkeep[ref] = true
+	}
 	resolve := func(h pool.Handle) (uint16, bool) {
 		id, ok := in.StableIDs[h]
 		return id, ok && id != 0 && w.Unit(h) != nil
@@ -200,6 +208,14 @@ func projectUnitImage(w *units.World, econ *economy.Service, movement *movement.
 			mirrored := *u
 			mirrors.applyTo(&mirrored)
 			record = &mirrored
+		}
+		resume := !u.Activated && resumeUpkeep[w.Reference(h)]
+		if resume {
+			if record == u {
+				detached := *u
+				record = &detached
+			}
+			record.Activated = true
 		}
 		// The client's selection and page fields go into the same detached
 		// copy, never the live word (RetailLocalInterface).
@@ -231,6 +247,21 @@ func projectUnitImage(w *units.World, econ *economy.Service, movement *movement.
 		script, err := cob.RetailScriptImage(vm)
 		if err != nil {
 			return save.UnitImage{}, fmt.Errorf("nanolathe: retail save projection: unit %04x Script%d: %w", h, len(image.Records), err)
+		}
+		if resume {
+			// Modern fresh-load policy: retain the existing script state and
+			// schedule the ordinary rising-edge callback on a detached VM.
+			// Activate is deferred without a wake barrier [04 R-UNIT-06 §2];
+			// no script, bound handler or RNG runs while taking the save.
+			detached := cob.NewVM(vm.Program())
+			if err := cob.RetailScriptRestore(detached, script); err != nil {
+				return save.UnitImage{}, fmt.Errorf("nanolathe: retail save projection: unit %04x resume script: %w", h, err)
+			}
+			cob.NewCallbackBridge(detached).Activate()
+			script, err = cob.RetailScriptImage(detached)
+			if err != nil {
+				return save.UnitImage{}, fmt.Errorf("nanolathe: retail save projection: unit %04x resumed script: %w", h, err)
+			}
 		}
 		var mover []byte
 		if record.HasMover {
@@ -483,6 +514,12 @@ func (s *Session) RetailBattleSaveInputs(summary save.Summary, camera save.Camer
 		in.UnitWriterScratch[h] = units.RetailUnitWriterScratch{}
 	}
 	in.UnitMirrors = retailUnitMirrors(s)
+	for _, r := range s.economyUpkeepRestore {
+		u := s.Units.LookupReference(r.Unit)
+		if economyUpkeepCandidate(u) && u.Owner == r.Owner && !u.Activated {
+			in.ResumeEconomyUpkeep = append(in.ResumeEconomyUpkeep, r.Unit)
+		}
+	}
 	return in, nil
 }
 

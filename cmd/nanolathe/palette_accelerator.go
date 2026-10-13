@@ -132,6 +132,13 @@ func (h *retailBattleHUD) servicePaletteFrame(b *battleSession, in *input.State,
 	defer restore()
 
 	frame := b.railPointerFrame(pointerFrame(in, nil, false))
+	if b.cl != nil && b.cl.Enhanced() && (b.economyPanel.open || b.economyPanel.captured) {
+		// The explanation owns its click and the outside click that closes
+		// it, including where a compact layout overlaps the command palette.
+		// Keyboard shortcuts remain available while reading the breakdown.
+		frame.PointerX, frame.PointerY = -1, -1
+		frame.PointerEvents, frame.HeldButtons = nil, 0
+	}
 	frame.DisableQuickKeys = b != nil && b.developer.quickkeysDisabled
 	// The earlier GUI fetch consumes an inside down before it tests gadgets.
 	// Blank, hidden and greyed window space therefore also owns that down;

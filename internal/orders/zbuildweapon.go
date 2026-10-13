@@ -65,6 +65,9 @@ func buildWeaponHandler(u *units.Unit, n *Node, satisfied uint32, tick uint32) C
 		// (community-patch-engine.md CP-DMG-5).
 		return Code(7)
 	}
+	if queueEconomy(QueueForUnit(u)).ActivityHeld(u.Owner, economy.ActivityWeapons) {
+		return deadlineHold(n, tick, 1)
+	}
 	// The node's slot index is used VERBATIM to select the weapon slot; the
 	// handler tests neither that the slot's weapon carries `stockpile` nor that
 	// it is a real weapon [06 R-WPN-05 §2]. The slot search this used to do —
@@ -136,7 +139,10 @@ func buildWeaponHandler(u *units.Unit, n *Node, satisfied uint32, tick uint32) C
 		energyCarry := (*buckets)[economy.Energy].Carry
 		metalCarry := (*buckets)[economy.Metal].Carry
 		wasAccepted := energyCarry <= 0 && metalCarry <= 0
+		econ := queueEconomy(q)
+		before := econ.ActivitySnapshot(u.Handle)
 		economy.AdmitTwoResource(buckets, e, m)
+		econ.ObserveActivity(u, economy.ActivityWeapons, before)
 		return wasAccepted
 	}
 	nextTick, _, completedRounds := combat.TickStockpile(ce, cs, tick, admit)

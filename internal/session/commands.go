@@ -27,6 +27,16 @@ const HumanGameplay HumanCommandKind = 255
 // the Modern exact-name command and the reserved online kinds 35..45.
 const HumanDeveloperSpawn HumanCommandKind = 46
 
+// HumanEconomyActivity is an issuer-owned temporary activity control.
+const HumanEconomyActivity HumanCommandKind = 47
+
+// HumanEconomyActivityCommand pauses until an explicit resume.
+// The selected activity controls both resources.
+type HumanEconomyActivityCommand struct {
+	Activity economy.Activity
+	Pause    bool
+}
+
 const (
 	HumanSelectionReplace HumanCommandKind = iota + 1
 	HumanSelectionToggle
@@ -343,10 +353,11 @@ type HumanGroupCommand struct {
 // HumanCommand is an immutable-at-boundary command value. EnqueueHumanCommand
 // copies handle slices and strings so callers may reuse their input buffers.
 type HumanCommand struct {
-	BuilderOptions HumanBuilderOptionsCommand
-	Gameplay       gameplay.Mode
-	Spawn          HumanSpawnCommand
-	DeveloperSpawn HumanDeveloperSpawnCommand
+	BuilderOptions  HumanBuilderOptionsCommand
+	Gameplay        gameplay.Mode
+	Spawn           HumanSpawnCommand
+	DeveloperSpawn  HumanDeveloperSpawnCommand
+	EconomyActivity HumanEconomyActivityCommand
 	// Sequence and DueTick are session-owned metadata. Callers leave both zero;
 	// EnqueueHumanCommand assigns them when the value enters the session queue.
 	Sequence           uint64
@@ -577,6 +588,9 @@ func (s *Session) EnqueueHumanCommandWithSequence(c HumanCommand) (uint64, error
 	c.seat = nil
 	c.refs = localRefs{}
 	s.captureLocalRefs(&c)
+	if c.Kind == HumanEconomyActivity && !validEconomyActivity(c.EconomyActivity.Activity) {
+		return 0, economyActivityError("command", "an activity from Generation through Reclaim")
+	}
 	if c.Kind == HumanBuilderOptions {
 		if err := s.validateBuilderOptions(c.BuilderOptions); err != nil {
 			return 0, err
@@ -1166,6 +1180,9 @@ func (s *Session) applyBound(b *boundCommand, tick uint32) CommandOutcome {
 		s.seatCommands.issuer, s.seatCommands.issuing = b.issuer, true
 		defer func() { s.seatCommands.issuer, s.seatCommands.issuing = prevIssuer, prevIssuing }()
 	}
+	if b.c.Kind == HumanEconomyActivity {
+		return s.applyEconomyActivity(b.issuer, b.c.EconomyActivity)
+	}
 	if s.applyBoundPlayerCommand(b, tick) {
 		return CommandApplied
 	}
@@ -1205,6 +1222,9 @@ func (s *Session) applyBound(b *boundCommand, tick uint32) CommandOutcome {
 		if u.Def == nil || !u.Def.OnOffable {
 			return CommandApplied
 		}
+		// Explicit activation intent supersedes this hold's restoration,
+		// including an explicit off request or a queued transition.
+		s.forgetEconomyUpkeepRestore(b.unit)
 		name := "Deactivate"
 		if c.Activation.Activate {
 			name = "Activate"

@@ -44,6 +44,7 @@ package orders
 
 import (
 	"github.com/nanolathe-gg/nanolathe/internal/combat"
+	"github.com/nanolathe-gg/nanolathe/internal/economy"
 	"github.com/nanolathe-gg/nanolathe/internal/sim/numeric"
 	"github.com/nanolathe-gg/nanolathe/internal/units"
 	"github.com/nanolathe-gg/nanolathe/internal/world"
@@ -353,6 +354,9 @@ func vtolRepairUnitHandler(u *units.Unit, n *Node, satisfied uint32, tick uint32
 			return deadlineRestart(n, tick, 15)
 		}
 		if health16(target) < uint32(target.Def.MaxDamage) {
+			if queueEconomy(QueueForUnit(u)).ActivityHeld(u.Owner, economy.ActivityHealing) {
+				return deadlineHold(n, tick, 1)
+			}
 			if _, bound := boundRepair(QueueForUnit(u), u, target, n, tick); !bound {
 				return 7
 			}
@@ -411,6 +415,9 @@ func vtolReclaimHandler(u *units.Unit, n *Node, satisfied uint32, tick uint32) C
 	}
 	if !def.Reclaimable {
 		return 8 // abandon, silently
+	}
+	if n.Phase >= 3 && queueEconomy(QueueForUnit(u)).ActivityHeld(u.Owner, economy.ActivityReclaim) {
+		return deadlineHold(n, tick, 1)
 	}
 	switch n.Phase {
 	case 0:

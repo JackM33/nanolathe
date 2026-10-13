@@ -186,20 +186,23 @@ type Session struct {
 	// phase; see SetFeatureSequenceResolver.
 	featureSequence featureSequenceResolver
 
-	Clock    *clock.State
-	Catalog  *content.Catalog
-	World    *world.Terrain
-	Units    *units.World
-	Vis      *visibility.Service
-	Path     *path.Scheduler
-	Econ     *economy.Service
-	Build    *construction.Service
-	Features *features.Service
-	Movement *movement.System // Gate-5 integration: ground steering/routes [PLAN_14 C5 movement integration]
-	Combat   *combat.Service
-	AI       [10]*ai.Manager // fixed player-indexed, nil holes per RS-02 [08] I4 single stream
-	Mission  *mission.Mission
-	Snapshot *frame.Buffer
+	Clock   *clock.State
+	Catalog *content.Catalog
+	World   *world.Terrain
+	Units   *units.World
+	Vis     *visibility.Service
+	Path    *path.Scheduler
+	Econ    *economy.Service
+	// Activity holds are authoritative; report scratch is presentation only.
+	economyUpkeepRestore   []economyUpkeepRestore
+	economyActivityScratch []economy.ActivityContribution
+	Build                  *construction.Service
+	Features               *features.Service
+	Movement               *movement.System // Gate-5 integration: ground steering/routes [PLAN_14 C5 movement integration]
+	Combat                 *combat.Service
+	AI                     [10]*ai.Manager // fixed player-indexed, nil holes per RS-02 [08] I4 single stream
+	Mission                *mission.Mission
+	Snapshot               *frame.Buffer
 
 	// aiShared is the battle's one slot for what a Modern controller derives
 	// from the map alone, given to every computer player's manager
@@ -945,6 +948,7 @@ func handleTeardownB(s *Session) {
 // (docs/DESIGN_GAMEPLAY_RULES.md "The Modern AI controller").
 func (s *Session) teardown(variant int) {
 	_ = variant
+	s.releaseEconomyActivityHolds()
 	s.strips.release()
 	s.closeAIControllers()
 }

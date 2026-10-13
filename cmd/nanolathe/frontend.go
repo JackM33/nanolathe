@@ -375,6 +375,13 @@ func (s battleHUDUIStage) DrawUI(c *client.Client, presented client.UIFrame) {
 	}
 }
 
+func (s battleHUDUIStage) DrawUIOverlay(c *client.Client, presented client.UIFrame) {
+	if s.battle != nil && s.battle.battleState().Modal() == ui.BattleModalClosed &&
+		!s.battle.isTalkGUIActive() && !unitInfoOpen() && !s.battle.isResultVisible() {
+		s.hud.drawEconomyPanel(c, s.battle, presented.Committed)
+	}
+}
+
 func (s battleHUDUIStage) ScreenOnly(cur *frame.Frame) bool {
 	return s.battle != nil && s.battle.resultScreenActive(cur)
 }

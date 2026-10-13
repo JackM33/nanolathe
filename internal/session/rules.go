@@ -15,6 +15,7 @@ import (
 	"github.com/nanolathe-gg/nanolathe/internal/community"
 	"github.com/nanolathe-gg/nanolathe/internal/construction"
 	"github.com/nanolathe-gg/nanolathe/internal/content"
+	"github.com/nanolathe-gg/nanolathe/internal/economy"
 	"github.com/nanolathe-gg/nanolathe/internal/gameplay"
 	"github.com/nanolathe-gg/nanolathe/internal/movement"
 	"github.com/nanolathe-gg/nanolathe/internal/orders"
@@ -51,6 +52,7 @@ type RuleSet struct {
 	Visibility   visibility.Rules
 	Orders       orders.Rules
 	Construction construction.Rules
+	Economy      economy.Rules
 	UnitLimit    UnitLimitRules
 	ScriptPorts  ScriptPortRules
 	// Movement is the movement system's policy seam: what a rejected step
@@ -219,6 +221,7 @@ func StrictRuleSet() RuleSet {
 		Visibility:     visibility.StrictRules{},
 		Orders:         orders.StrictRules{},
 		Construction:   construction.StrictRules{},
+		Economy:        economy.StrictRules{},
 		UnitLimit:      StrictUnitLimit{},
 		ScriptPorts:    StrictScriptPorts{},
 		Movement:       movement.StrictRules{},
@@ -242,6 +245,7 @@ func CommunityRuleSet() RuleSet {
 		Visibility:     visibility.CommunityRules{},
 		Orders:         &orders.CommunityRules{},
 		Construction:   &construction.CommunityRules{},
+		Economy:        economy.CommunityRules{},
 		UnitLimit:      ModernUnitLimit{},
 		ScriptPorts:    CommunityScriptPorts{},
 		Movement:       &movement.CommunityRules{},
@@ -267,6 +271,7 @@ func ModernRuleSet() RuleSet {
 		Visibility:   visibility.ModernRules{},
 		Orders:       &orders.ModernRules{},
 		Construction: &construction.ModernRules{},
+		Economy:      economy.ModernRules{},
 		UnitLimit:    ModernUnitLimit{},
 		ScriptPorts:  ModernScriptPorts{},
 		Movement:     &movement.ModernRules{},
@@ -418,6 +423,9 @@ func completeRuleSet(name string, set RuleSet) RuleSet {
 	if set.Construction == nil {
 		set.Construction = base.Construction
 	}
+	if set.Economy == nil {
+		set.Economy = base.Economy
+	}
 	if set.UnitLimit == nil {
 		set.UnitLimit = base.UnitLimit
 	}
@@ -535,6 +543,12 @@ func (s *Session) BindRules(set RuleSet) {
 
 func (s *Session) bindRuleServices(set RuleSet) {
 	s.Rules = set
+	if s.Econ != nil {
+		s.Econ.Rules = set.Economy
+		if !s.economyActivityHoldsAllowed() {
+			s.releaseEconomyActivityHolds()
+		}
+	}
 	s.projectCommunity()
 	s.projectComputerIncome()
 	if s.Vis != nil {

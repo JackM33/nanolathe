@@ -772,6 +772,7 @@ type EconomyView struct {
 	EnergyProduced float32
 	EnergyConsumed float32
 	DisplayTimer   uint32 // saved presentation deadline, seeded at battle entry [05 R-ECO-01 §1]
+	ActivityTick   uint32 // last settlement observed by the economy explanation
 	// MetalShareThreshold and EnergyShareThreshold are the player's automatic
 	// sharing thresholds [05 R-SHARE-01 §3]. The top strip marks each one on
 	// its bar [07 R-HUD-03 §4]; presentation reads the committed copy rather
@@ -1298,17 +1299,20 @@ type Frame struct {
 	// vector order [03 §1][03 R-STRIP-01 §2]. Strip objects are authoritative
 	// simulation state swept in phase 11, so presentation cannot read them
 	// directly; this is the committed copy it draws from [I6].
-	Strips      []StripView
-	OrderQueues []OrderQueueView
-	Economy     []EconomyView
-	Selection   SelectionView
-	CommandPage CommandPageView
-	Builds      []BuildProgressView
-	Visibility  VisibilityView
-	Radar       RadarView
-	Events      []EventView
-	Fog         FogView
-	Result      ResultView
+	Strips              []StripView
+	OrderQueues         []OrderQueueView
+	Economy             []EconomyView
+	EconomyFlows        []EconomyFlowView
+	EconomyHolds        []EconomyHoldView
+	EconomyHoldsAllowed bool
+	Selection           SelectionView
+	CommandPage         CommandPageView
+	Builds              []BuildProgressView
+	Visibility          VisibilityView
+	Radar               RadarView
+	Events              []EventView
+	Fog                 FogView
+	Result              ResultView
 	// Survival is the Survival director's committed state for the HUD
 	// (docs/DESIGN_SURVIVAL.md §9); zero outside Survival.
 	Survival SurvivalStatus
@@ -1463,6 +1467,9 @@ func (f *Frame) Reset() {
 	f.Strips = f.Strips[:0]
 	f.OrderQueues = f.OrderQueues[:0]
 	f.Economy = f.Economy[:0]
+	f.EconomyFlows = f.EconomyFlows[:0]
+	f.EconomyHolds = f.EconomyHolds[:0]
+	f.EconomyHoldsAllowed = false
 	f.Builds = f.Builds[:0]
 	f.Events = f.Events[:0]
 	f.Tick = 0

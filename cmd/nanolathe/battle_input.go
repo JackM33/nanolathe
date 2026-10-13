@@ -128,6 +128,10 @@ func (b *battleSession) handleInput(in *input.State, cl *client.Client) {
 	kbd := in.Kbd
 	mouse, pointerModifiers := publishedPointer(in)
 	mx, my := int32(mouse.X), int32(mouse.Y)
+	if b.serviceEconomyPanel(in, cl, mouse) {
+		shortcutsServiced = battleShortcutKeyboard(in).KeyDown(input.KeyEscape)
+		return
+	}
 	// The playback overlay's controls take their own presses
 	// (replay_overlay.go).
 	if b.serviceReplayOverlayPointer(&mouse, mx, my) {

@@ -24,6 +24,9 @@ func (s *Session) CaptureOnlineCommand(c HumanCommand) (SeatCommand, error) {
 	s.captureLocalRefs(&c)
 	var out SeatCommand
 	switch c.Kind {
+	case HumanEconomyActivity:
+		out.Kind = SeatEconomyActivity
+		out.EconomyActivity = EconomyActivityPayload(c.EconomyActivity)
 	case HumanOrder:
 		p := c.Order
 		if p.StagedCount != 0 {

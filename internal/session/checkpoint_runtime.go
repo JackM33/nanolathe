@@ -119,6 +119,9 @@ func (s *Session) writeCheckpointRuntime(e *checkpoint.Encoder, keys *content.Ch
 	if s.onlineResults != nil {
 		tag |= 2
 	}
+	if len(s.economyUpkeepRestore) != 0 {
+		tag |= 4
+	}
 	e.U8(tag)
 	if s.Wind != nil {
 		if err := s.Wind.WriteCheckpoint(e); err != nil {
@@ -145,6 +148,15 @@ func (s *Session) writeCheckpointRuntime(e *checkpoint.Encoder, keys *content.Ch
 	e.Bool(s.deathmatchExhausted)
 	e.Field("runtime.deathsWithNoRecordedCause")
 	e.I64(int64(s.deathsWithNoRecordedCause))
+	if len(s.economyUpkeepRestore) != 0 {
+		e.Field("runtime.economyUpkeepRestore")
+		e.Count(len(s.economyUpkeepRestore))
+		for _, r := range s.economyUpkeepRestore {
+			e.U8(r.Owner)
+			e.U16(uint16(r.Unit.Handle))
+			e.U64(r.Unit.Serial)
+		}
+	}
 	e.Field("runtime.noShake")
 	e.Bool(s.noShake)
 	if s.onlineResults != nil {
@@ -360,6 +372,15 @@ func (s *Session) appendCheckpointRuntimeSummary(out *checkpoint.Summary) error 
 	next.Word(uint64(s.Meteor.NextHit))
 	next.Word(checkpointRuntimeBool(s.shakeActive))
 	next.Word(uint64(int64(s.shakeRemaining)))
+	if len(s.economyUpkeepRestore) != 0 {
+		next.Word(4) // runtime's optional upkeep-restoration extension
+		next.Word(uint64(len(s.economyUpkeepRestore)))
+		for _, r := range s.economyUpkeepRestore {
+			next.Word(uint64(r.Owner))
+			next.Word(uint64(r.Unit.Handle))
+			next.Word(r.Unit.Serial)
+		}
+	}
 	*out = next
 	return nil
 }
