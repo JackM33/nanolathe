@@ -87,7 +87,11 @@ installations in the PowerShell window: type a number or paste the full game-fol
 path, then press Enter. This prompt appears after installation and from the Start
 Menu shortcut when a choice is needed. Invalid choices can be retried; blank input
 cancels without changing the remembered folder. A single usable detected folder
-is selected automatically. Starting the installed `nanolathe` executable directly,
+is selected automatically. The Windows shortcut explicitly opens a normal
+PowerShell window. It announces startup, update checks, game-folder searches and
+game-data validation before starting that work, and names the update window when
+waiting for an update choice. Startup errors stay visible until Enter is pressed.
+Starting the installed `nanolathe` executable directly,
 without the shortcut, also uses the remembered folder while it still holds game data.
 `--check-install` validates startup mounts and required products, not
 every asset in the game. A later content error is recorded in the game log.
