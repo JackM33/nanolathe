@@ -336,33 +336,58 @@ try {
     return $template.Replace('UPDATE_HELPERS', ($helpers -join "`n"))
 }
 
-function Get-NanolatheLaunchCommand([string]$Base) {
-    # Encode a fixed command plus a quoted literal path, avoiding cmd.exe and
-    # execution-policy changes. current.txt and root.txt are only read as data.
-    $literal = "'" + $Base.Replace("'", "''") + "'"
-    $command = @'
+function Get-NanolatheBootstrap {
+    # Keep release selection out of the shortcut's length-sensitive arguments.
+    # This stable loader still follows current.txt after each successful update.
+    return @'
+param([Parameter(Mandatory=$true)][string]$Base)
 $ErrorActionPreference = 'Stop'
+$release = [IO.File]::ReadAllText((Join-Path $Base 'current.txt'))
+if ($release -cnotmatch '^[A-Za-z0-9][A-Za-z0-9._-]+$') { throw 'Invalid current release pointer.' }
+$launcher = Join-Path (Join-Path (Join-Path $Base 'releases') $release) 'launch.ps1'
+& ([scriptblock]::Create([IO.File]::ReadAllText($launcher))) -Base $Base
+'@
+}
+
+function Get-NanolatheLaunchCommand {
+    # WSH supplies Base as the process working directory, never as source text.
+    # Use the OS directory (not PowerShell's independent provider location).
+    # Only this fixed loader is encoded; no cmd.exe or execution-policy changes.
+    $command = @'
+$ErrorActionPreference='Stop'
 try {
     Write-Host 'Opening Nanolathe...'
-    $base = BASE_LITERAL
-    $release = [IO.File]::ReadAllText((Join-Path $base 'current.txt'))
-    if ($release -cnotmatch '^[A-Za-z0-9][A-Za-z0-9._-]+$') { throw 'Invalid current release pointer.' }
-    $launcher = Join-Path (Join-Path (Join-Path $base 'releases') $release) 'launch.ps1'
-    & ([scriptblock]::Create([IO.File]::ReadAllText($launcher))) -Base $base
+    $b=[Environment]::CurrentDirectory
+    & ([scriptblock]::Create([IO.File]::ReadAllText((Join-Path $b 'launch.ps1')))) -Base $b
 } catch { Write-Host $_ -ForegroundColor Red; [void](Read-Host 'Press Enter to close'); exit 1 }
 '@
-    $command = $command.Replace('BASE_LITERAL', $literal)
     return '-NoProfile -STA -WindowStyle Normal -EncodedCommand ' + [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($command))
 }
 
 function Set-NanolatheShortcutProperties($Shortcut, [string]$Base, [string]$Release) {
     $Shortcut.TargetPath = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
-    $Shortcut.Arguments = Get-NanolatheLaunchCommand $Base
+    $Shortcut.Arguments = Get-NanolatheLaunchCommand
     $Shortcut.WorkingDirectory = $Base
     $Shortcut.WindowStyle = 1
     $Shortcut.Description = 'Play Nanolathe using your Total Annihilation game assets'
     # The icon lives beside the selected release, outside the temporary build.
     $Shortcut.IconLocation = (Join-Path $Release 'Nanolathe.ico') + ',0'
+}
+
+function Write-NanolatheShortcut([string]$Path, [string]$Base, [string]$Release) {
+    # Atomic replacement leaves existing shortcuts usable while preparing an
+    # update. The bootstrap reads the old pointer until promotion succeeds.
+    Write-NanolatheData (Join-Path $Base 'launch.ps1') (Get-NanolatheBootstrap)
+    $shell = New-Object -ComObject WScript.Shell
+    $shortcut = $null
+    try {
+        $shortcut = $shell.CreateShortcut($Path)
+        Set-NanolatheShortcutProperties $shortcut $Base $Release
+        $shortcut.Save()
+    } finally {
+        if ($shortcut) { [void][Runtime.InteropServices.Marshal]::ReleaseComObject($shortcut) }
+        [void][Runtime.InteropServices.Marshal]::ReleaseComObject($shell)
+    }
 }
 
 function Invoke-NanolatheInstaller {
@@ -495,14 +520,9 @@ Builds the latest commit on main with a checksum-verified private Go compiler. O
             param($destination)
             # Finish shortcut creation before promotion. The shortcut's fixed
             # loader continues to use the previous current.txt until the switch.
-            $shell = New-Object -ComObject WScript.Shell
-            try {
-                $temporaryShortcut = Join-Path $work 'Nanolathe.lnk'
-                $shortcut = $shell.CreateShortcut($temporaryShortcut)
-                Set-NanolatheShortcutProperties $shortcut $base $destination
-                $shortcut.Save()
-                [IO.File]::Copy($temporaryShortcut, (Join-Path ([Environment]::GetFolderPath('Programs')) 'Nanolathe.lnk'), $true)
-            } finally { [void][Runtime.InteropServices.Marshal]::ReleaseComObject($shell) }
+            $temporaryShortcut = Join-Path $work 'Nanolathe.lnk'
+            Write-NanolatheShortcut $temporaryShortcut $base $destination
+            [IO.File]::Copy($temporaryShortcut, (Join-Path ([Environment]::GetFolderPath('Programs')) 'Nanolathe.lnk'), $true)
         }
         $stage = $null
         Write-Host "Installed $version. Launch Nanolathe from the Start Menu."
