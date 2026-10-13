@@ -94,7 +94,10 @@ const (
 	// each, model_quads.go) and the per-subject verdict entries (one slot
 	// each). The image grows to what a frame uses; a frame past the bound
 	// draws its remaining faces linearly. modelDirectParamCap is in slots.
-	modelDirectParamMaxRows = 2048
+	// The parallel placer's pre-check (modelPlaceParamBound) counts two slots
+	// for every face a packet carries, culled or not, so the bound is sized
+	// for the roughly 95,000 faces a 3,000-unit battle's 1x frame carries.
+	modelDirectParamMaxRows = 4096
 	modelDirectParamCap     = modelDirectParamMaxRows * modelQuadParamWidth / modelQuadTexels
 	// modelDirectFatten is how far the water reflection pushes a face corner
 	// from its centroid, in atlas texels (water_reflections.go). The body
