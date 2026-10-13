@@ -79,6 +79,11 @@ type Renderer struct {
 	// placeholder backs an image slot no op in a run requested, for the case
 	// where no palette (and so no table atlas) has been installed.
 	placeholder *ebiten.Image
+	// uploaded lists the images this frame wrote before its first draw, and
+	// uploadTarget is the one-pixel image the draw that queues their uploads
+	// writes (upload_flush.go).
+	uploaded     []*ebiten.Image
+	uploadTarget *ebiten.Image
 	// textureAtlas packs every resolved 3DO texture frame the model lane samples
 	// (model_atlas.go).
 	textureAtlas modelTextureAtlas
@@ -371,6 +376,7 @@ func (r *Renderer) Execute(list *drawlist.List, w, h int) *ebiten.Image {
 	r.arrival.packet = drawlist.Arrival{}
 	r.modelPrep.reset()
 	defer r.modelPrep.reset()
+	r.uploadSurfacesFirst(list)
 	// These prepare passes walk the whole list before Replay commits any of it,
 	// so each layer's device cost is a fixed handful of passes rather than one
 	// set per subject (§11.2). prepareModelDirect is the largest: every eligible

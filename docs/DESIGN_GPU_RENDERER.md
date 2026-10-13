@@ -1257,6 +1257,23 @@ frame boundary, including dormant overflow pages; numeric arenas retain their
 capacity and contents. The recorded list is the contract and must not change:
 classic output stays byte-identical.
 
+**Uploads come first.** Ebitengine holds an image's `WritePixels` until the
+first draw that reads or writes that image and queues the upload there, and its
+OpenGL backend finishes every earlier draw on the device before an upload that
+follows a draw. The minimap's rewrite, queued where the HUD drew it after the
+model lane's page passes, and the parameter image each held the render thread
+until the GPU had drawn everything queued before them; the GPU then idled while
+the next frame was built, so a frame cost the CPU's time plus the GPU's. In the
+3,000-unit Painted Desert field battle at 2x on an integrated Radeon 840M that
+was about 21 ms of a 49 ms frame. `Execute` now writes the identified surfaces
+and the parameter image before anything draws, and one one-pixel draw that
+reads them queues their uploads together ahead of the frame's first real draw
+(`upload_flush.go`). The one wait left is for the previous frame, which the
+GPU ran while this one was built. Other uploads (a surface without an identity,
+a sprite seen for the first time, the lit point plane) keep their place. No
+pixel changes: each source is written once, with the same bytes, before the
+draws that read it.
+
 **Hidden-frame command lifetime.** Ebitengine 2.10.1 is the minimum backend
 version: it completes graphics frames even when the window is hidden or
 occluded, without presenting them. An earlier release candidate called Draw but
