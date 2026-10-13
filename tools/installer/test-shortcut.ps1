@@ -112,7 +112,9 @@ param([string]$Base)
             [IO.File]::WriteAllText((Join-Path $directory 'launch.ps1'), $fixture.Replace('RELEASE_NAME', $release))
         }
         Write-NanolatheData (Join-Path $base 'current.txt') 'old-release'
-        $temporaryLink = Join-Path $work 'temporary.lnk'
+        # The installer prepares its link under Base, so the link's own path
+        # must also survive Unicode and long directory names before copying.
+        $temporaryLink = Join-Path $base 'temporary.lnk'
         $savedLink = Join-Path $work 'Nanolathe.lnk'
         $arguments = Get-NanolatheLaunchCommand
         if ($arguments.Length -ge 1023) { throw 'Shortcut loader no longer fits a 1023-character argument reader.' }

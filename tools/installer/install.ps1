@@ -380,13 +380,30 @@ function Write-NanolatheShortcut([string]$Path, [string]$Base, [string]$Release)
     Write-NanolatheData (Join-Path $Base 'launch.ps1') (Get-NanolatheBootstrap)
     $shell = New-Object -ComObject WScript.Shell
     $shortcut = $null
+    $application = $null
+    $folder = $null
+    $item = $null
+    $shellLink = $null
     try {
         $shortcut = $shell.CreateShortcut($Path)
         Set-NanolatheShortcutProperties $shortcut $Base $Release
         $shortcut.Save()
+        # WSH can persist path characters through the active ANSI code page.
+        # Finish path properties through the Shell's Unicode automation API;
+        # the bootstrap depends on an exact working directory, not its spelling
+        # with unsupported characters replaced. Arguments contain only ASCII.
+        $application = New-Object -ComObject Shell.Application
+        $folder = $application.Namespace([IO.Path]::GetDirectoryName($Path))
+        $item = $folder.ParseName([IO.Path]::GetFileName($Path))
+        $shellLink = $item.GetLink
+        $shellLink.Path = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
+        $shellLink.WorkingDirectory = $Base
+        $shellLink.SetIconLocation((Join-Path $Release 'Nanolathe.ico'), 0)
+        $shellLink.Save()
     } finally {
-        if ($shortcut) { [void][Runtime.InteropServices.Marshal]::ReleaseComObject($shortcut) }
-        [void][Runtime.InteropServices.Marshal]::ReleaseComObject($shell)
+        foreach ($com in @($shellLink, $item, $folder, $application, $shortcut, $shell)) {
+            if ($com) { [void][Runtime.InteropServices.Marshal]::ReleaseComObject($com) }
+        }
     }
 }
 
