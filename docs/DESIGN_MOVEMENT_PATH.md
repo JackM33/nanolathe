@@ -1279,9 +1279,264 @@ Session tests cover command-boundary mode changes and existing/new queues.
 Run `tools/check`, `tools/check-retail` and the live battle performance checks
 from [BATTLE_BENCHMARK.md](BATTLE_BENCHMARK.md).
 
+### Modern aircraft tactics
+
+**Nanolathe Modern policy (user-authorized 2026-10-13).** The bombing, strafing and hovering attack executors and the
+constructor-side repair landing fly Modern pilots in `internal/movement`
+(`air_tactics.go`); automatic target choice by an aircraft prefers anti-air
+(`internal/combat`). `movement.Rules.AirTactics` selects the pilots through
+the existing `session.RuleSet`: Modern answers yes, Strict 3.1 and Community
+3.9 answer no and run the retail legs of [04 R-AIR-01 §8] unchanged.
+This section implements the goals of §3.4.2 within one seam; where §3.4.2
+proposed placing the decision in `orders.Rules`, the legs it governs are
+movement's, so the seam is movement's.
+
+**What does not change.** Speed, acceleration, braking, turn rate, cruise
+altitude, the flight integrator [04 §10.1], the command producer
+[04 R-AIR-01 §1], weapons, aiming, reload, burst, damage and costs. A pilot
+only chooses the goals an executor installs, so aircraft keep their authored
+handling: gunships hover and slide, fixed-wing aircraft fly through and turn.
+Explicit attacks keep their target; the maneuver leash, the bomber pass
+completion of §3.4.1, Hold Fire and the retail low-health pad seek keep their
+contracts. Dogfights (`AirToAir`) and the seek, guard, patrol and landing legs
+are unchanged.
+
+**Steering.** The integrator accelerates toward its command point, adds the
+point's own motion to the velocity it seeks, and brakes on the curve that
+would stop it there [04 §10.1]. A retail run that ends at a point marker
+therefore brakes, and a turn back toward a goal behind the aircraft slows it
+to about one world unit a tick while it pivots. A pilot keeps its goal ahead
+of the nose: never more than thirty degrees off it, so the turn runs at the
+authored rate while the integrator still pulls along the flight path, and at
+least the braking distance from full speed plus 160 world units away (never
+less than 420, beyond the producer's 320-unit consultation range). The goal
+is fixed in the world while the turn catches up with it; it moves only when
+the nose has caught up, the turn wants something else, or the aircraft has
+closed on it. Turns are flown at speed: a Thunder holds six to seven world
+units a tick round a reversal instead of stalling.
+
+**Anti-air picture.** Per player, rebuilt at most every 15 ticks on demand:
+every live, finished, hostile unit the session's ordinary contact test shows
+the player whose enabled weapons can engage an aircraft — ranged, not dropped,
+command-fired, interceptor, water-only or paralyzing, and either direct or an
+authored anti-air ballistic weapon. Each contact records its longest such
+range plus 48 world units, its summed damage per second and, when every such
+weapon is a tracking missile, the slowest missile's speed. A contact that
+leaves sight keeps its frozen last position for 900 ticks while the unit
+lives; hidden positions are never read. Exposure of a straight leg is the
+length inside each circle times its damage rate, weighted by how the leg
+passes the launcher (see Runs).
+
+**Runs.** A pilot attacks along a run at the target. While the run is long it
+compares running in from where it is with planned runs: fly to a turn point
+out from the target on one of sixteen bearings — at the distance the run
+needs unless that lies under cover, or just outside the anti-air cover on
+that bearing — then turn and run in. Each is priced as estimated flight time — legs, both turns at the
+current turn radius, and the extra length of going round circles neither end
+lies in — plus expected damage at 3,000 ticks per whole aircraft lost:
+exposure along the legs, inside circles turned in (weighted three times: a
+turning aircraft is slower and was measured to be hit more often than one
+crossing cover straight at speed), and along the run to where the aircraft
+turns away. A leg passing close over a turret counts up to double one
+grazing the edge of its reach — except against a launcher whose tracking
+missiles are less than twice as fast as the aircraft. A tracking missile
+pursues the aircraft's current position after a leading launch [06 §6.7],
+and the lab measured Hawks at full speed against Pulverizer and Crasher
+missiles hit by about 15% of launches with the launcher within 45 degrees
+of the nose, 60–70% at 45 to 90 degrees, 25–35% at 90 to 135 and 1–5%
+behind. Against such a launcher each part of a leg is weighted by where the
+launcher then sits off the nose: a quarter head-on, whole from 45 to 90
+degrees, seven sixteenths from 90 to 135, a sixteenth behind, all at double
+the plain rate. A run straight over a launcher is then cheaper than one
+passing it a few hundred units off, and it puts the launcher in front of
+the fighter's own weapons. A Freedom Fighter at ten world units a tick,
+under half the missile's speed, and the bombers were hit about as often
+from every side, so slower aircraft keep the plain rule. A run heading within about 17 degrees of a
+wingman's on the same target costs 90 ticks, so a flight spreads instead of
+bunching under one blast. A planned run replaces the direct one when it is
+10% cheaper; a held plan is replaced only by one at least 15% cheaper, and is
+reconsidered every 240 ticks or when the picture changes. On the way the pilot bends its
+heading round the circles ahead that contain neither it nor its goal, keeping
+the side it chose; a reversal turns the way whose turning circle is less
+exposed and keeps that side until the nose comes round. A run starts at the
+turn point, or earlier when the aircraft is already lined up with room to
+spare and is no more exposed there than at the turn point.
+
+**Bombers (`AirStrike`).** Phase 0 is retail's takeoff preamble, but the
+pilot steers from the next tick rather than after the vertical climb. Each
+tick of the approach the pilot predicts where a bomb released on the next
+tick would land, with the dropped motion's own arithmetic [06 §6.4]: the
+carrier's heading and current scalar speed, the battle's wind added each
+tick, the terrain's per-tick gravity, and contact with the ground, the sea or
+a target body eight world units above its base. It aims so that line passes
+through the target's position at impact time (current position plus current
+velocity times the fall), corrected for wind. The string is retail's whole
+string: at release the pilot binds point fire and installs retail's
+overflight marker — `attackrunlength` plus 960 world units ahead, laid along
+the heading, with a 960-unit arrival radius — and holds fire until the marker
+is reached [04 R-AIR-01 §8] phase 5, so a pass drops as many bombs as
+retail's at the same speed (a slower bomber covers the run length in more
+reloads and drops more). The pilot predicts where that string's middle bomb
+lands by flying the bomber's speed forward on the integrator's approach to
+full speed [04 §10.1], so a string released while still accelerating out of
+a turn, whose later bombs carry further, stays centred. Release starts when
+the middle bomb will land on the target, within one tick's travel early or
+two late (at least 24 world units), and only when the impact line passes
+within the target's half footprint (20 to 48 world units). A bomber that
+lines up too close to centre its string releases anyway while the target
+still lies inside it, at least half a bomb spacing past the first impact,
+rather than going round; one that cannot even do that, or reaches the window
+badly aligned, goes round. Runs are planned for the fall from cruise altitude
+at three quarters of maximum speed or more, with 160 world units of settled
+flight before release. After the string, phase 6 runs the entry's leash test
+and the retail low-health pad seek, then plans the next run. As in retail,
+a string whose target is destroyed is cut short only by the next attack's
+slot inhibition: the attack order ends with its target and a patrol that
+resumes does not inhibit the bound slot.
+
+**Strafers (`AirToGround`).** As retail's phases 1 and 2 do, the attack
+first hands every weapon slot to its own scan and then binds slot zero to
+the target [04 R-AIR-01 §8], so a fighter's second launcher keeps choosing
+its own targets, anti-air passed on the run among them. Slot zero stays bound
+for the whole pass, so ordinary aiming fires whenever range and facing
+allow. Once inside nine tenths of its range with the target within 45
+degrees of the nose, the pilot holds its line at speed, as retail's run does
+[04 R-AIR-01 §8]. It breaks away at a fifth of its first weapon's range,
+or — when the target sits under anti-air and the weapon still reaches it
+from there — a turn radius beyond the outer edge, along the run, of every
+circle over the target, so the break is flown in the clear. A target the
+weapon cannot reach from outside all of its cover is overflown: breaking
+short of one circle would fly the turn, slowly, inside another. A pass that
+ends under cover flies on at speed until it is out, as retail's fly-through
+does, when its heading leaves the cover within three weapon ranges at a
+point on the map; the next run is planned from there. A turn flown under
+cover bleeds the speed that keeps missiles from catching the aircraft. Runs
+start three quarters of the weapon's range out. A fixed-wing fighter no
+longer flies three ranges past a target nothing covers before turning.
+
+**Gunships (`AirToGroundHover`).** The attack hands over its weapon slots as
+the strafer's does. The gunship keeps retail's frozen marker
+about its target, so it faces the target as it settles [04 R-AIR-01 §8], but
+chooses the point: on rings at two thirds and seventeen twentieths of its
+weapon range on sixteen bearings, by least anti-air exposure, then clear of
+the points and bearings other gunships of its owner hold near the same
+target (so wingmen neither stack nor fire through one another), then a real
+move — 64 world units, 120 when under fire — then the shortest. It slides on
+to the next point 45 ticks after arriving, at once when it has lost health in
+the last 90 ticks or its point is covered, and after 240 ticks regardless,
+as retail's orbit keeps a gunship moving. Far from the point it flies there
+round anti-air that does not cover the point. Two refused engagement checks
+move it to half range.
+
+**Repair beside a constructor.** When a damaged aircraft's retail pad seek
+finds no pad (`AirStrike` phase 6, `AirToGround`'s break, a covered gunship,
+and `VTOL_Patrol` phase 2 through the order runner), it looks for a friendly
+or mutually allied mobile ground constructor whose current order is a patrol,
+within 0xF00 world units, preferring the nearest and least covered. It
+head-inserts an ordinary `VTOL_GetRepaired` naming the constructor. The
+Modern leg flies to a landable point on the near side of it, inside half its
+sight distance (at most 96 world units), lands as `VTOL_LandIfCan` does
+[04 R-AIR-01 §6], and waits; a patrolling constructor repairs grounded units
+in its sight [04 R-ORD-02 §4]. The record completes when the aircraft is
+whole, when the constructor is gone, or after 600 ticks without healing, and
+the suspended order then resumes and takes off. A pad's `VTOL_GetRepaired`,
+and every Strict record, runs the order package's retail wait.
+
+**Anti-air first.** Modern's automatic target choice [06 §3.2], asked for an
+airborne shooter, adds to a candidate's score: 6,000 plus up to 4,000 more,
+four points per point of decayed damage, for one that has recently damaged
+this side's aircraft (its own or an ally's; the damage halves every 150 ticks
+and is forgotten after 900); 8,000 for a directly visible candidate with a
+weapon that prefers aircraft — direct or authored anti-air, not dropped,
+command-fired or an interceptor, with damage against the aircraft and
+passing the medium gate [06 §3.1] — and 2,000 for one whose such weapon
+lists aircraft in its bad-target category, a ground weapon that shoots
+aircraft only when it has no ground target (a Storm, a laser tower). Range
+and readiness do not matter. Whatever is hurting the side's aircraft
+therefore comes first, then dedicated anti-air, then ground weapons that can
+still shoot back. The bonuses outrank ordinary threat scores but not the
+infection preference, and the 25% retention margin still applies.
+
+The sight-distance scan an order makes for work [04 R-STANCE-01 §3] — a
+patrolling, seeking or idle aircraft at Fire at Will — searches the
+aircraft's `sightdistance`, which for stock aircraft is 350 world units:
+less than the reach of the anti-air shooting at it. For an aircraft that
+scan also offers visible hostile anti-air outside its radius, up to 1,536
+world units away, that can engage the aircraft and either has it within its
+weapon's range plus 48 world units or has recently damaged this side's
+aircraft, admitted by the physical gate without its range clause; the
+aircraft flies to it. Stock bombers are authored to hold fire, so a
+patrolling bomber attacks only once a player sets Fire at Will.
+
+**Shared attacks.** Each pilot posts the target its attack is flying at on a
+board shared with combat, renewed every tick it runs and void after 60
+ticks without renewal; a scan's own choice is posted at once, so wingmen
+scanning on the same tick see it. The sight-distance scan counts what the
+other aircraft of the side posted on each candidate are expected to deal —
+for a bomber half of one retail string's bombs, otherwise 150 ticks of fire
+— and ranks a candidate they are expected to destroy below every one they
+are not, and when every candidate in reach is covered it chooses nothing
+and keeps looking: its next scan, 30 ticks on, sees further, and a claim
+lapses once its attack ends, so a target that survives is offered again. A
+flight looking for work therefore spreads over small targets instead of all
+bombing the same one.
+
+**Giving way to anti-air.** An attack the aircraft's own orders issued
+automatically (not a player's attack order) ends when the aircraft has lost
+health in the last 90 ticks to a visible unit in its side's anti-air picture
+that is not its target, while the target itself is not in that picture. The
+issuing order then chooses again, and the choice above puts that anti-air
+first; the aircraft keeps whatever it is given next for at least 90 ticks.
+
+**State, save and switching.** Pilot state lives on the movement system, keyed
+by unit and bound to the exact order record; the anti-air pictures are per
+player; the board of attacks and recent damage to aircraft is one
+`combat.AirBoard` the session gives both combat and movement. None of it is
+saved: a restored or re-ordered aircraft starts a fresh pilot, the picture is
+rebuilt on first use, and the board refills as pilots run and aircraft are
+hit. `ForgetUnit` drops a pilot.
+Switching to Strict leaves the record in a Modern phase that the retail leg
+then runs; switching back starts fresh pilots. The pilots draw no random
+numbers and charge no resources; executing the ordinary flight and weapons
+keeps their effects. Bomb strings, landing and repair keep their ordinary
+costs and draws.
+
+**Boundaries.** This is local, visible-information planning, not a promise of
+safety: an aircraft ordered onto a target under heavy anti-air is still shot,
+and a target that drives under cover is followed. Against a target ringed by
+anti-air on every side, fighters flying these runs pass more often than
+retail's and take more damage over the same time, while destroying the
+target and the anti-air around it sooner. Bomb prediction assumes the
+target keeps its current velocity and the wind holds; a target that turns,
+or a wind change mid-fall, can still cause a miss. All distances, times and
+weights here are Modern tuning, not retail constants.
+
+**Verification.** `internal/airdiag/tactics_lab_test.go` runs authored
+scenarios on retail content (bomb accuracy against stationary and moving
+targets, close targets, defended targets, gunships and strafers with and
+without anti-air, fighter, gunship and bomber patrols over defended and
+undefended ground, constructor repair) over eight seeds that also rotate the
+geometry, and reports kills, damage, losses, anti-air exposure, the order
+anti-air and other targets die in, every bomb's impact geometry, bombs per
+string, the shortest interval between a bomber's bombs, strings dropped on
+targets already destroyed, and how far off the nose every gun or missile
+shot left. Its optional traces add every anti-air missile's launch geometry
+and whether it hit, the evidence for the missile pricing above. It compiles on a baseline checkout with
+`go test -overlay`, which is how before/after comparisons are made. Focused
+tests lock the prediction against combat's dropped-motion kernel, the Strict
+bypass, the anti-air preference, shared attacks, the attacker preference,
+the slot hand-off, the strafe break, flying out of cover and the missile
+pricing.
+
+**Open.** The missile weights were measured against Pulverizer and Crasher
+missiles; other launchers inherit them through the half-speed rule. Field
+repair is not offered by `VTOL_SeekAttack`,
+`VTOL_SeekGuard` or `VTOL_RepairPatrol`. Pilot state is not saved.
+
 ### 3.4.2 Modern aircraft tactics — design proposal for issue 101
 
-**Status: design first, requested 2026-10-08; implementation and tuning pending.**
+**Status: design first, requested 2026-10-08. [Modern aircraft
+tactics](#modern-aircraft-tactics) above implements these goals.**
 The goal is useful firing opportunities with less time in avoidable danger.
 This proposal changes decisions about flight goals, not unit speed, turning,
 weapon reload, burst count, damage, ammunition or resource costs. It is a

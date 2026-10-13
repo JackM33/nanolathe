@@ -5,6 +5,7 @@ import (
 	"github.com/nanolathe-gg/nanolathe/internal/drawlist"
 	"github.com/nanolathe-gg/nanolathe/internal/hud"
 	"github.com/nanolathe-gg/nanolathe/internal/render"
+	"github.com/nanolathe-gg/nanolathe/internal/sim/numeric"
 )
 
 // appendMinimapPoint appends one framebuffer-clipped single-pixel write to the
@@ -160,6 +161,81 @@ func (c *Client) DrawMinimapViewportRect(dst hud.Rect, marker hud.Rect, color by
 		}
 	}
 	c.emitPoints(off, drawlist.PointPlain)
+}
+
+// DrawMinimapEntryMarker draws an outlined triangle pointing inward from the
+// announced entry at canonical canvas x,y. Bearing points from the base toward
+// the entry (east at zero, south at a quarter turn). Fit the whole marker into
+// the radar picture where possible, and clip to its letterbox interior and the
+// framebuffer. Its canonical pixels magnify with the minimap destination, so
+// every UI scale keeps the same shape (DESIGN_SURVIVAL §9).
+func (c *Client) DrawMinimapEntryMarker(dst hud.Rect, layout camera.Minimap, x, y int32, bearing uint16, color, outline byte) {
+	if c == nil || layout.W <= 0 || layout.H <= 0 {
+		return
+	}
+	dl, dt, dr, db := dst.Ordered()
+	dw, dh := dr-dl+1, db-dt+1
+	if dw <= 0 || dh <= 0 {
+		return
+	}
+	x = max(layout.PadX, min(x, layout.Right()))
+	y = max(layout.PadY, min(y, layout.Bottom()))
+	ux, uy := -numeric.Cos(numeric.Angle(bearing)), -numeric.Sin(numeric.Angle(bearing))
+	vx, vy := -uy, ux
+	// A twelve-pixel-long arrowhead with a five-pixel half-width. The one
+	// canonical-pixel outline separates it from both terrain and black fog.
+	triangle := [3][2]int32{
+		{x + numeric.MulRound(ux, 8), y + numeric.MulRound(uy, 8)},
+		{x + numeric.MulRound(ux, -4) + numeric.MulRound(vx, 5), y + numeric.MulRound(uy, -4) + numeric.MulRound(vy, 5)},
+		{x + numeric.MulRound(ux, -4) - numeric.MulRound(vx, 5), y + numeric.MulRound(uy, -4) - numeric.MulRound(vy, 5)},
+	}
+	x0, x1, y0, y1 := triangle[0][0], triangle[0][0], triangle[0][1], triangle[0][1]
+	for _, p := range triangle[1:] {
+		x0, x1 = min(x0, p[0]), max(x1, p[0])
+		y0, y1 = min(y0, p[1]), max(y1, p[1])
+	}
+	shiftX := max(layout.PadX-x0, min(int32(0), layout.Right()-x1))
+	shiftY := max(layout.PadY-y0, min(int32(0), layout.Bottom()-y1))
+	for i := range triangle {
+		triangle[i][0] += shiftX
+		triangle[i][1] += shiftY
+	}
+	x0, x1 = max(x0+shiftX, layout.PadX), min(x1+shiftX, layout.Right())
+	y0, y1 = max(y0+shiftY, layout.PadY), min(y1+shiftY, layout.Bottom())
+	off := len(c.pointArena)
+	for py := y0; py <= y1; py++ {
+		for px := x0; px <= x1; px++ {
+			if !minimapTriangleContains(triangle, px, py) {
+				continue
+			}
+			ink := color
+			for dy := int32(-1); dy <= 1; dy++ {
+				for dx := int32(-1); dx <= 1; dx++ {
+					if !minimapTriangleContains(triangle, px+dx, py+dy) {
+						ink = outline
+					}
+				}
+			}
+			left, right := minimapPictureSpan(dl, dw, px, 1, int32(c.width), camera.MinimapLongSide)
+			top, bottom := minimapPictureSpan(dt, dh, py, 1, int32(c.height), camera.MinimapLongSide)
+			for sy := top; sy < bottom; sy++ {
+				for sx := left; sx < right; sx++ {
+					c.appendMinimapPoint(dl+sx, dt+sy, ink)
+				}
+			}
+		}
+	}
+	c.emitPoints(off, drawlist.PointPlain)
+}
+
+func minimapTriangleContains(triangle [3][2]int32, x, y int32) bool {
+	for i, a := range triangle {
+		b := triangle[(i+1)%len(triangle)]
+		if (b[0]-a[0])*(y-a[1])-(b[1]-a[1])*(x-a[0]) < 0 {
+			return false
+		}
+	}
+	return true
 }
 
 // CameraIntent is a presentation-only camera target. The client computes the

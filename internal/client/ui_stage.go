@@ -24,6 +24,13 @@ type UIStage interface {
 	DrawUI(*Client, UIFrame)
 }
 
+// UIOverlayStage paints host overlays above the battle message column. It
+// shares the UI stage's committed frame and never owns simulation state.
+// Enhanced dropdowns use this so incoming captions cannot obscure controls.
+type UIOverlayStage interface {
+	DrawUIOverlay(*Client, UIFrame)
+}
+
 // UIPreparationStage optionally prepares host-owned layout before a presented
 // frame's audio, validity digests and world recording. It runs only at the
 // joined host boundary, never during speculative composition [I6]

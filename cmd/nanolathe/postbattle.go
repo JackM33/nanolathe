@@ -59,6 +59,7 @@ func (b *battleSession) ensurePostBattleController() {
 	if !view.Ended || b.sess == nil {
 		return
 	}
+	b.finishSurvivalBest(view)
 	cfg := session.PostBattleConfig{
 		Kind:         session.PostBattleSkirmish,
 		MissionIndex: -1,

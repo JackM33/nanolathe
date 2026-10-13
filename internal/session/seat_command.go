@@ -80,6 +80,7 @@ const (
 	SeatSharedVictory      SeatCommandKind = 44 // D, online, schema 2
 	SeatShootAll           SeatCommandKind = 45 // D, cheat, reserved: no payload
 	SeatDeveloperSpawn     SeatCommandKind = 46 // R: authorized local developer submission
+	SeatEconomyActivity    SeatCommandKind = 47 // S, Modern, schema 3
 	SeatGameplay           SeatCommandKind = 255
 )
 
@@ -365,6 +366,13 @@ type DeveloperSpawnPayload struct {
 	Position CommandPoint
 }
 
+// EconomyActivityPayload is kind 47: the issuer's activity and pause intent.
+// It names no resource, unit or player and needs no cheat permission.
+type EconomyActivityPayload struct {
+	Activity economy.Activity
+	Pause    bool
+}
+
 // GameplayPayload is kind 255, a single-player replay record; online it is
 // lobby-only.
 type GameplayPayload struct {
@@ -410,6 +418,7 @@ type SeatCommand struct {
 	DeclareAlliance    DeclareAlliancePayload
 	SharedVictory      SharedVictoryPayload
 	Gameplay           GameplayPayload
+	EconomyActivity    EconomyActivityPayload
 }
 
 // clone deep-copies the variable payload storage, so a caller may reuse its

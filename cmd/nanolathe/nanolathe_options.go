@@ -28,7 +28,7 @@ func (g *gameShell) setGameplay(mode gameplay.Mode) {
 	mode = mode.Normalize()
 	changed := g.gameplay.Normalize() != mode
 	if changed && g.battle != nil && g.battle.sess != nil {
-		if err := g.battle.sess.EnqueueHumanCommand(session.HumanCommand{Kind: session.HumanGameplay, Gameplay: mode}); err != nil {
+		if err := g.battle.enqueueLocalBattleCommand(session.HumanCommand{Kind: session.HumanGameplay, Gameplay: mode}); err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			return
 		}

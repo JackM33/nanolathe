@@ -255,7 +255,7 @@ func onlineKindAdmission(k SeatCommandKind) string {
 	switch k {
 	case SeatOrder, SeatStop, SeatActivation, SeatFactoryBuild, SeatCancelProduction, SeatStockpile,
 		SeatGroupAssign, SeatStance, SeatCloak, SeatSelfDestruct, SeatATM, SeatSetResource, SeatGive,
-		SeatMakeSelectable, SeatMeteor, SeatCancelQueuedMove, SeatSpawn, SeatBuilderOptions, SeatCommunityKickout:
+		SeatMakeSelectable, SeatMeteor, SeatCancelQueuedMove, SeatSpawn, SeatBuilderOptions, SeatCommunityKickout, SeatEconomyActivity:
 		return ""
 	case SeatMobileBuild, SeatCommunityOrderDrag:
 		return m5Gate + ": known-site admission reads the issuing seat's map knowledge"
@@ -291,7 +291,7 @@ func replayKindAdmission(k SeatCommandKind) string {
 		SeatStockpile, SeatGroupAssign, SeatStance, SeatCloak, SeatSelfDestruct, SeatNoShake, SeatATM,
 		SeatSetResource, SeatSetLogo, SeatView, SeatGive, SeatMakeSelectable, SeatVisibility, SeatDoubleShot,
 		SeatHalfShot, SeatMeteor, SeatCancelQueuedMove, SeatSpawn, SeatBuilderOptions, SeatCommunityOrderDrag,
-		SeatCommunityKickout, SeatDeveloperSpawn, SeatGameplay:
+		SeatCommunityKickout, SeatDeveloperSpawn, SeatEconomyActivity, SeatGameplay:
 		return ""
 	case SeatSelectionReplace, SeatSelectionToggle, SeatSelectionClear, SeatBuildPage, SeatGroupRecall, SeatBigBrother, SeatShiftState:
 		return "a recorded kind; local interface state has no replay payload"
@@ -559,6 +559,10 @@ func (s *Session) seatSchema(context CommandContext, c *SeatCommand) string {
 		if c.DeclareAlliance.Target > 9 {
 			return "a target seat 0..9"
 		}
+	case SeatEconomyActivity:
+		if !validEconomyActivity(c.EconomyActivity.Activity) {
+			return "an activity from Generation through Reclaim"
+		}
 	}
 	return ""
 }
@@ -568,6 +572,10 @@ func (s *Session) seatSchema(context CommandContext, c *SeatCommand) string {
 // extension command.
 func (s *Session) seatAvailability(context CommandContext, c *SeatCommand) string {
 	switch c.Kind {
+	case SeatEconomyActivity:
+		if !s.economyActivityHoldsAllowed() {
+			return "a rule set with temporary economy activity holds"
+		}
 	case SeatMobileBuild:
 		return s.admittedUnitKey(c.MobileBuild.Product)
 	case SeatFactoryBuild:
@@ -814,6 +822,8 @@ func (c *SeatCommand) unselectedZero() bool {
 		d.CommunityKickout = CommunityKickoutPayload{}
 	case SeatGameplay:
 		d.Gameplay = GameplayPayload{}
+	case SeatEconomyActivity:
+		d.EconomyActivity = EconomyActivityPayload{}
 	}
 	o := &d.Order
 	return len(o.Actors) == 0 && o.Code == 0 && o.Target == (pool.UnitRef{}) && o.Position == (CommandPosition{}) &&
@@ -840,7 +850,8 @@ func (c *SeatCommand) unselectedZero() bool {
 		d.BuilderOptions == (BuilderOptionsPayload{}) &&
 		d.CommunityOrderDrag == (CommunityOrderDragPayload{}) &&
 		d.CommunityKickout == (CommunityKickoutPayload{}) &&
-		d.Gameplay == (GameplayPayload{})
+		d.Gameplay == (GameplayPayload{}) &&
+		d.EconomyActivity == (EconomyActivityPayload{})
 }
 
 // bindSeatCommand widens an admitted seat command into the shared payload
@@ -967,6 +978,9 @@ func (s *Session) bindSeatCommand(q *seatQueued, issuer uint8) boundCommand {
 	case SeatGameplay:
 		h.Kind = HumanGameplay
 		h.Gameplay = c.Gameplay.Mode
+	case SeatEconomyActivity:
+		h.Kind = HumanEconomyActivity
+		h.EconomyActivity = HumanEconomyActivityCommand(c.EconomyActivity)
 	}
 	return b
 }

@@ -50,6 +50,7 @@ func (h *retailBattleHUD) drawResources(c *client.Client, f *frame.Frame, displa
 	h.drawTextAt(c, hud.AnchorEnergyConsumed, h.anchorNumber(hud.AnchorEnergyConsumed, rates.EnergyConsumed, hud.FormatEnergyConsumed), h.guiColor(12))
 	h.drawTextAt(c, hud.AnchorMetalProduced, h.anchorNumber(hud.AnchorMetalProduced, rates.MetalProduced, hud.FormatMetalProduced), h.guiColor(10))
 	h.drawTextAt(c, hud.AnchorMetalConsumed, h.anchorNumber(hud.AnchorMetalConsumed, rates.MetalConsumed, hud.FormatMetalConsumed), h.guiColor(12))
+	h.drawEconomyPauseIndicators(c, f)
 }
 
 // drawResourceBar paints one top-strip stock bar [07 R-HUD-03 §4]. With S the

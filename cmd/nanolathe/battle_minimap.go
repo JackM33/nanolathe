@@ -76,7 +76,7 @@ func (b *battleSession) classifyPointer(x, y int32) battlePointerRegion {
 	// A covering battle child window owns the pointer record. In particular the
 	// unit-information window can cover the radar, so its underlying contact
 	// must not reach the cursor, footer, or command classifier [07 §3].
-	if unitInfoCovers(x, y) || b.battleState().Modal() != ui.BattleModalClosed {
+	if unitInfoCovers(x, y) || b.economyPanelCovers(x, y) || b.battleState().Modal() != ui.BattleModalClosed {
 		return battlePointerChrome
 	}
 	if b.modernDrag == nil && !b.battleState().Input.DragActive && b.isOnRadar(x, y) {

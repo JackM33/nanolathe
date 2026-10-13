@@ -136,6 +136,7 @@ function Confirm-NanolatheUpdate([string]$Version) {
     if (![Environment]::UserInteractive -or
         @([Environment]::GetCommandLineArgs() | Where-Object { $_ -match '^-noni' }).Count -gt 0) { return $false }
     try {
+        Write-Host 'An update is available. Choose Update & play or Play current version in the Nanolathe update window.'
         Add-Type -AssemblyName System.Windows.Forms
         $dialog = New-Object Windows.Forms.Form
         try {
@@ -175,6 +176,7 @@ function Confirm-NanolatheUpdate([string]$Version) {
 
 function Invoke-NanolatheUpdate([string]$Base, [string]$Release) {
     if ($env:NANOLATHE_SKIP_UPDATE_CHECK -eq '1') { return $null }
+    Write-Host 'Checking for Nanolathe updates...'
     $temporary = $null
     $installDirBefore = [Environment]::GetEnvironmentVariable('NANOLATHE_INSTALL_DIR', 'Process')
     $ProgressPreference = 'SilentlyContinue'
@@ -230,6 +232,7 @@ $ErrorActionPreference = 'Stop'
 $settingsBefore = [Environment]::GetEnvironmentVariable('NANOLATHE_SETTINGS', 'Process')
 $log = Join-Path $Base ('logs\game-' + (Get-Date -Format 'yyyyMMdd-HHmmss') + '.log')
 try {
+    Write-Host "Preparing Nanolathe. Log: $log"
     $release = [IO.File]::ReadAllText((Join-Path $Base 'current.txt'))
     if ($release -cnotmatch '^[A-Za-z0-9][A-Za-z0-9._-]+$') { throw 'Invalid current release pointer.' }
     $exe = Join-Path (Join-Path (Join-Path $Base 'releases') $release) 'nanolathe.exe'
@@ -248,6 +251,7 @@ try {
     if (!$explicitRoot -and [IO.File]::Exists($remembered)) { $Root = [IO.File]::ReadAllText($remembered) }
     function Test-GameRoot([string]$Candidate) {
         if ([string]::IsNullOrWhiteSpace($Candidate) -or !(Test-Path -LiteralPath $Candidate -PathType Container)) { return $false }
+        Write-Host "Checking Total Annihilation game data: $Candidate"
         $ErrorActionPreference = 'Continue'
         & $exe --check-install --root $Candidate 2>&1 | ForEach-Object {
             [IO.File]::AppendAllText($log, $_.ToString() + [Environment]::NewLine)
@@ -257,6 +261,7 @@ try {
     if (!(Test-GameRoot $Root)) {
         if ($explicitRoot) { throw "The selected Total Annihilation folder is not usable: $Root. See $log" }
         $Root = ''
+        Write-Host 'Searching for Total Annihilation installations...'
         $ErrorActionPreference = 'Continue'
         $discovery = @(& $exe --list-installs 2>&1)
         $discoveryExit = $LASTEXITCODE
@@ -269,22 +274,38 @@ try {
         })
         if ($candidates.Count -eq 1 -and (Test-GameRoot $candidates[0])) { $Root = $candidates[0] }
         else {
-            if ($candidates.Count -gt 1) {
-                Write-Host 'Several installations were found. Choose the one to use:'
-                $candidates | ForEach-Object { Write-Host "  $_" }
+            # Both the installer and Start Menu shortcut have a console. Keep
+            # selection there: an unowned folder dialog can leave that console
+            # waiting with no visible way to choose (issue #112).
+            Write-Host 'Choose one Total Annihilation installation. Game assets are not included.'
+            for ($i = 0; $i -lt $candidates.Count; $i++) {
+                Write-Host ('  {0}) {1}' -f ($i + 1), $candidates[$i])
             }
-            Write-Host 'Choose your existing Total Annihilation game folder. Game assets are not included.'
-            try {
-                Add-Type -AssemblyName System.Windows.Forms
-                $picker = New-Object System.Windows.Forms.FolderBrowserDialog
-                try {
-                    $picker.Description = 'Select your Total Annihilation game folder'
-                    $picker.ShowNewFolderButton = $false
-                    if ($picker.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { $Root = $picker.SelectedPath }
-                } finally { $picker.Dispose() }
-            } catch { Write-Host 'Folder picker unavailable; enter the path below.' }
-            if ([string]::IsNullOrWhiteSpace($Root)) { $Root = Read-Host 'Total Annihilation folder (blank to cancel)' }
-            if (!(Test-GameRoot $Root)) { throw "No usable game folder selected. Launch again to choose a folder. See $log" }
+            $prompt = 'Paste the full game-folder path, then press Enter (blank to cancel)'
+            if ($candidates.Count -gt 0) {
+                $prompt = 'Type an installation number or paste the full game-folder path, then press Enter (blank to cancel)'
+            }
+            while ([string]::IsNullOrWhiteSpace($Root)) {
+                $answer = Read-Host $prompt
+                if ([string]::IsNullOrWhiteSpace($answer)) {
+                    Write-Host 'No game folder selected. Launch Nanolathe again to choose.'
+                    return
+                }
+                $candidate = $answer.Trim()
+                if ($candidate -match '^[0-9]+$') {
+                    $number = 0
+                    if (![int]::TryParse($candidate, [ref]$number) -or $number -lt 1 -or $number -gt $candidates.Count) {
+                        Write-Host 'Choose a number from the list or paste the full game-folder path.'
+                        continue
+                    }
+                    $candidate = $candidates[$number - 1]
+                } elseif (($candidate.StartsWith('"') -and $candidate.EndsWith('"')) -or
+                    ($candidate.StartsWith("'") -and $candidate.EndsWith("'"))) {
+                    if ($candidate.Length -ge 2) { $candidate = $candidate.Substring(1, $candidate.Length - 2) }
+                }
+                if (Test-GameRoot $candidate) { $Root = $candidate }
+                else { Write-Host "That folder is not a usable Total Annihilation installation. Choose again. Details: $log" }
+            }
         }
     }
     [IO.File]::WriteAllText($remembered, $Root, (New-Object Text.UTF8Encoding($false)))
@@ -315,31 +336,129 @@ try {
     return $template.Replace('UPDATE_HELPERS', ($helpers -join "`n"))
 }
 
-function Get-NanolatheLaunchCommand([string]$Base) {
-    # Encode a fixed command plus a quoted literal path, avoiding cmd.exe and
-    # execution-policy changes. current.txt and root.txt are only read as data.
-    $literal = "'" + $Base.Replace("'", "''") + "'"
-    $command = @'
+function Get-NanolatheBootstrap {
+    # Keep release selection out of the shortcut's length-sensitive arguments.
+    # This stable loader still follows current.txt after each successful update.
+    return @'
+param([Parameter(Mandatory=$true)][string]$Base)
 $ErrorActionPreference = 'Stop'
+$release = [IO.File]::ReadAllText((Join-Path $Base 'current.txt'))
+if ($release -cnotmatch '^[A-Za-z0-9][A-Za-z0-9._-]+$') { throw 'Invalid current release pointer.' }
+$launcher = Join-Path (Join-Path (Join-Path $Base 'releases') $release) 'launch.ps1'
+& ([scriptblock]::Create([IO.File]::ReadAllText($launcher))) -Base $Base
+'@
+}
+
+function Get-NanolatheLaunchCommand {
+    # The shortcut supplies Base as the working directory, never as source text.
+    # Use the OS directory (not PowerShell's independent provider location).
+    # Only this fixed loader is encoded; no cmd.exe or execution-policy changes.
+    $command = @'
+$ErrorActionPreference='Stop'
 try {
-    $base = BASE_LITERAL
-    $release = [IO.File]::ReadAllText((Join-Path $base 'current.txt'))
-    if ($release -cnotmatch '^[A-Za-z0-9][A-Za-z0-9._-]+$') { throw 'Invalid current release pointer.' }
-    $launcher = Join-Path (Join-Path (Join-Path $base 'releases') $release) 'launch.ps1'
-    & ([scriptblock]::Create([IO.File]::ReadAllText($launcher))) -Base $base
+    Write-Host 'Opening Nanolathe...'
+    $b=[Environment]::CurrentDirectory
+    & ([scriptblock]::Create([IO.File]::ReadAllText((Join-Path $b 'launch.ps1')))) -Base $b
 } catch { Write-Host $_ -ForegroundColor Red; [void](Read-Host 'Press Enter to close'); exit 1 }
 '@
-    $command = $command.Replace('BASE_LITERAL', $literal)
-    return '-NoProfile -STA -EncodedCommand ' + [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($command))
+    return '-NoProfile -STA -WindowStyle Normal -EncodedCommand ' + [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($command))
 }
 
 function Set-NanolatheShortcutProperties($Shortcut, [string]$Base, [string]$Release) {
     $Shortcut.TargetPath = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
-    $Shortcut.Arguments = Get-NanolatheLaunchCommand $Base
+    $Shortcut.Arguments = Get-NanolatheLaunchCommand
     $Shortcut.WorkingDirectory = $Base
+    $Shortcut.WindowStyle = 1
     $Shortcut.Description = 'Play Nanolathe using your Total Annihilation game assets'
     # The icon lives beside the selected release, outside the temporary build.
     $Shortcut.IconLocation = (Join-Path $Release 'Nanolathe.ico') + ',0'
+}
+
+function Initialize-NanolatheShortcutInterop {
+    if ('Nanolathe.WindowsShortcut' -as [type]) { return }
+    # Use IShellLinkW and IPersistFile directly. WSH loses characters outside
+    # the ANSI code page in both path properties and the shortcut file name.
+    # These are built-in Windows COM APIs, compiled by PowerShell's Add-Type.
+    Add-Type -TypeDefinition @'
+using System;
+using System.Text;
+using System.Runtime.InteropServices;
+using System.Runtime.InteropServices.ComTypes;
+namespace Nanolathe {
+    [ComImport, Guid("00021401-0000-0000-C000-000000000046")]
+    internal class ShellLink { }
+    [ComImport, Guid("000214F9-0000-0000-C000-000000000046"),
+     InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    internal interface IShellLinkW {
+        void GetPath([Out, MarshalAs(UnmanagedType.LPWStr)] StringBuilder path, int count, IntPtr data, uint flags);
+        void GetIDList(out IntPtr list);
+        void SetIDList(IntPtr list);
+        void GetDescription([Out, MarshalAs(UnmanagedType.LPWStr)] StringBuilder text, int count);
+        void SetDescription([MarshalAs(UnmanagedType.LPWStr)] string text);
+        void GetWorkingDirectory([Out, MarshalAs(UnmanagedType.LPWStr)] StringBuilder path, int count);
+        void SetWorkingDirectory([MarshalAs(UnmanagedType.LPWStr)] string path);
+        void GetArguments([Out, MarshalAs(UnmanagedType.LPWStr)] StringBuilder text, int count);
+        void SetArguments([MarshalAs(UnmanagedType.LPWStr)] string text);
+        void GetHotkey(out ushort hotkey);
+        void SetHotkey(ushort hotkey);
+        void GetShowCmd(out int command);
+        void SetShowCmd(int command);
+        void GetIconLocation([Out, MarshalAs(UnmanagedType.LPWStr)] StringBuilder path, int count, out int index);
+        void SetIconLocation([MarshalAs(UnmanagedType.LPWStr)] string path, int index);
+        void SetRelativePath([MarshalAs(UnmanagedType.LPWStr)] string path, uint reserved);
+        void Resolve(IntPtr window, uint flags);
+        void SetPath([MarshalAs(UnmanagedType.LPWStr)] string path);
+    }
+    public sealed class WindowsShortcut {
+        public string TargetPath { get; set; }
+        public string Arguments { get; set; }
+        public string WorkingDirectory { get; set; }
+        public int WindowStyle { get; set; }
+        public string Description { get; set; }
+        public string IconLocation { get; set; }
+        public void Save(string path) {
+            var link = (IShellLinkW)new ShellLink();
+            try {
+                link.SetPath(TargetPath);
+                link.SetArguments(Arguments);
+                link.SetWorkingDirectory(WorkingDirectory);
+                link.SetShowCmd(WindowStyle);
+                link.SetDescription(Description);
+                int comma = IconLocation.LastIndexOf(',');
+                link.SetIconLocation(IconLocation.Substring(0, comma),
+                    int.Parse(IconLocation.Substring(comma + 1), System.Globalization.CultureInfo.InvariantCulture));
+                ((IPersistFile)link).Save(path, true);
+            } finally { Marshal.ReleaseComObject(link); }
+        }
+        public static WindowsShortcut Read(string path) {
+            var link = (IShellLinkW)new ShellLink();
+            try {
+                ((IPersistFile)link).Load(path, 0);
+                var result = new WindowsShortcut();
+                var text = new StringBuilder(32768);
+                link.GetPath(text, text.Capacity, IntPtr.Zero, 0); result.TargetPath = text.ToString();
+                text.Clear(); link.GetArguments(text, text.Capacity); result.Arguments = text.ToString();
+                text.Clear(); link.GetWorkingDirectory(text, text.Capacity); result.WorkingDirectory = text.ToString();
+                text.Clear(); link.GetDescription(text, text.Capacity); result.Description = text.ToString();
+                int value; link.GetShowCmd(out value); result.WindowStyle = value;
+                text.Clear(); link.GetIconLocation(text, text.Capacity, out value);
+                result.IconLocation = text.ToString() + "," + value.ToString(System.Globalization.CultureInfo.InvariantCulture);
+                return result;
+            } finally { Marshal.ReleaseComObject(link); }
+        }
+    }
+}
+'@
+}
+
+function Write-NanolatheShortcut([string]$Path, [string]$Base, [string]$Release) {
+    # Atomic replacement leaves existing shortcuts usable while preparing an
+    # update. The bootstrap reads the old pointer until promotion succeeds.
+    Write-NanolatheData (Join-Path $Base 'launch.ps1') (Get-NanolatheBootstrap)
+    Initialize-NanolatheShortcutInterop
+    $shortcut = New-Object Nanolathe.WindowsShortcut
+    Set-NanolatheShortcutProperties $shortcut $Base $Release
+    $shortcut.Save($Path)
 }
 
 function Invoke-NanolatheInstaller {
@@ -472,14 +591,9 @@ Builds the latest commit on main with a checksum-verified private Go compiler. O
             param($destination)
             # Finish shortcut creation before promotion. The shortcut's fixed
             # loader continues to use the previous current.txt until the switch.
-            $shell = New-Object -ComObject WScript.Shell
-            try {
-                $temporaryShortcut = Join-Path $work 'Nanolathe.lnk'
-                $shortcut = $shell.CreateShortcut($temporaryShortcut)
-                Set-NanolatheShortcutProperties $shortcut $base $destination
-                $shortcut.Save()
-                [IO.File]::Copy($temporaryShortcut, (Join-Path ([Environment]::GetFolderPath('Programs')) 'Nanolathe.lnk'), $true)
-            } finally { [void][Runtime.InteropServices.Marshal]::ReleaseComObject($shell) }
+            $temporaryShortcut = Join-Path $work 'Nanolathe.lnk'
+            Write-NanolatheShortcut $temporaryShortcut $base $destination
+            [IO.File]::Copy($temporaryShortcut, (Join-Path ([Environment]::GetFolderPath('Programs')) 'Nanolathe.lnk'), $true)
         }
         $stage = $null
         Write-Host "Installed $version. Launch Nanolathe from the Start Menu."

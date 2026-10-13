@@ -152,6 +152,11 @@ func seatWireLayouts() []seatWireCase {
 		cat(34, 2, 3, 20, 0, 19))
 	replay("developer spawn", SeatCommand{Kind: SeatDeveloperSpawn, DeveloperSpawn: DeveloperSpawnPayload{Pattern: "arm*", Owner: 255, Position: CommandPoint{X: 1, Z: -1}}}, cat(46, 4, "arm*", 255, 2, 0, 1))
 	replay("gameplay", SeatCommand{Kind: SeatGameplay, Gameplay: GameplayPayload{Mode: gameplay.Strict31}}, cat(255, 10, "strict-3.1"))
+	for _, context := range []CommandContext{OnlineCommand, SinglePlayerReplay} {
+		cases = append(cases, seatWireCase{name: "economy activity", context: context,
+			command: SeatCommand{Kind: SeatEconomyActivity, EconomyActivity: EconomyActivityPayload{Activity: economy.ActivityConstruction, Pause: true}},
+			wire:    cat(47, 2, 1), since: seatSchemaV3})
+	}
 
 	sharing("share metal", SeatCommand{Kind: SeatShareMetal, ShareMetal: ShareMetalPayload{On: true}}, cat(35, 1))
 	sharing("share energy off", SeatCommand{Kind: SeatShareEnergy}, cat(36, 0))
@@ -259,15 +264,16 @@ func decodeSeatChecked(t testing.TB, version uint16, context CommandContext, pay
 }
 
 // checkSeatDecodeEverywhere holds checkSeatDecode in every schema version and
-// context, and the version property of §7.4.1: version 2 accepts exactly
-// version 1's payloads, to the same values, plus the sharing and alliance
-// kinds online. It reports whether any decode accepted the payload.
+// context, and the version property of §7.4.1: each new version accepts
+// earlier payloads unchanged, plus only the new kinds in that version.
+// It reports whether any decode accepted the payload.
 func checkSeatDecodeEverywhere(t testing.TB, payload []byte) bool {
 	t.Helper()
 	accepted := false
 	for _, context := range []CommandContext{OnlineCommand, SinglePlayerReplay} {
 		v1, ok1 := decodeSeatChecked(t, seatSchemaV1, context, payload)
 		v2, ok2 := decodeSeatChecked(t, seatSchemaV2, context, payload)
+		v3, ok3 := decodeSeatChecked(t, seatSchemaV3, context, payload)
 		sharing := ok2 && slices.Contains(seatSharingKinds, v2.Kind)
 		if ok1 != (ok2 && !sharing) || ok1 && !sameSeatCommand(v1, v2) {
 			t.Fatalf("payload %x in context %d: version 1 accepted %v (%+v), version 2 accepted %v (%+v)", payload, context, ok1, v1, ok2, v2)
@@ -275,7 +281,11 @@ func checkSeatDecodeEverywhere(t testing.TB, payload []byte) bool {
 		if sharing && context != OnlineCommand {
 			t.Fatalf("payload %x: a sharing kind decoded in context %d", payload, context)
 		}
-		accepted = accepted || ok2
+		activity := ok3 && v3.Kind == SeatEconomyActivity
+		if ok2 != (ok3 && !activity) || ok2 && !sameSeatCommand(v2, v3) {
+			t.Fatalf("payload %x in context %d: version 2 accepted %v (%+v), version 3 accepted %v (%+v)", payload, context, ok2, v2, ok3, v3)
+		}
+		accepted = accepted || ok3
 	}
 	return accepted
 }
@@ -325,11 +335,11 @@ func TestSeatCommandWireLayouts(t *testing.T) {
 }
 
 // The version-1 golden layouts encode identically through the unversioned
-// entry points, which speak netproto.CommandSchemaVersion, and the sharing
-// layouts are the only ones version 1 refuses.
-func TestSeatCommandVersionTwoKeepsVersionOne(t *testing.T) {
-	if netproto.CommandSchemaVersion != seatSchemaV2 {
-		t.Fatalf("this build speaks command schema version %d, want 2", netproto.CommandSchemaVersion)
+// entry points, which speak netproto.CommandSchemaVersion. Older versions
+// refuse exactly the kinds added after them.
+func TestSeatCommandNewVersionsKeepEarlierPayloads(t *testing.T) {
+	if netproto.CommandSchemaVersion != seatSchemaV3 {
+		t.Fatalf("this build speaks command schema version %d, want 3", netproto.CommandSchemaVersion)
 	}
 	for _, c := range seatWireLayouts() {
 		got, err := EncodeSeatCommand(c.context, c.command)
@@ -339,9 +349,11 @@ func TestSeatCommandVersionTwoKeepsVersionOne(t *testing.T) {
 		if !checkSeatDecodeEverywhere(t, c.wire) {
 			t.Fatalf("%s: decoded nowhere", c.name)
 		}
-		v1 := checkSeatDecode(t, seatSchemaV1, c.context, c.wire)
-		if v1 != (c.first() == seatSchemaV1) || v1 == slices.Contains(seatSharingKinds, c.command.Kind) {
-			t.Fatalf("%s: version 1 accepted %v", c.name, v1)
+		for _, version := range seatSchemaVersions() {
+			accepted := checkSeatDecode(t, version, c.context, c.wire)
+			if accepted != (version >= c.first()) {
+				t.Fatalf("%s: version %d accepted %v", c.name, version, accepted)
+			}
 		}
 	}
 	for _, v := range []uint16{0, netproto.CommandSchemaVersion + 1, math.MaxUint16} {
@@ -506,7 +518,7 @@ func TestSeatCommandContextIsNotThePayloads(t *testing.T) {
 		}
 	}
 	for _, k := range []SeatCommandKind{0, SeatSelectionReplace, SeatSelectionToggle, SeatSelectionClear, SeatBuildPage, SeatGroupRecall,
-		SeatBigBrother, SeatShiftState, SeatShootAll, 47, 128, 254} {
+		SeatBigBrother, SeatShiftState, SeatShootAll, 48, 128, 254} {
 		for _, v := range seatSchemaVersions() {
 			for _, context := range []CommandContext{OnlineCommand, SinglePlayerReplay} {
 				if _, err := EncodeSeatCommandVersion(v, context, SeatCommand{Kind: k}); err == nil {
@@ -678,7 +690,7 @@ func TestSeatCommandCodecRefusals(t *testing.T) {
 		for _, context := range contexts {
 			if _, err := EncodeSeatCommand(context, tc.c); err == nil {
 				t.Errorf("%s: encoded in context %d", tc.name, context)
-			} else if !strings.Contains(err.Error(), "logical path ") || !strings.Contains(err.Error(), "providers searched [command schema v2 ") {
+			} else if !strings.Contains(err.Error(), "logical path ") || !strings.Contains(err.Error(), fmt.Sprintf("providers searched [command schema v%d ", netproto.CommandSchemaVersion)) {
 				t.Errorf("%s: diagnostic shape %q", tc.name, err)
 			}
 		}

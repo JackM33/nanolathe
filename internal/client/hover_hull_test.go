@@ -9,6 +9,14 @@ import (
 	"github.com/nanolathe-gg/nanolathe/internal/sim/numeric"
 )
 
+// hoverHullCorners adapts authored models to the cached-bounds projector for tests.
+func hoverHullCorners(m *compiledmodel.Model, v frame.UnitView, cam *camera.Camera) ([4][2]int32, bool) {
+	if !hullModelValid(m) || cam == nil {
+		return [4][2]int32{}, false
+	}
+	return hoverHullCornersOf(newHullBox(m), v, cam), true
+}
+
 // hullTestModel is the same synthetic root piece TestSelectionQuadProjectsRootBounds
 // uses: vertices spanning x -8..16, y 0..20, z -12..24 with a one-vertex `wake`
 // child that must contribute nothing [07 R-REV-01 §1][03 R-WATER-01 §1].
@@ -188,6 +196,40 @@ func TestPickSnapshotUnitConvertsThePresentedPointerOffARestStep(t *testing.T) {
 		// beam-pixel bridge put a surface point, is off the hull entirely.
 		if _, _, ok := PickSnapshotUnit(f, px+camera.OriginX, py+camera.OriginY, cam, 0, src); ok {
 			t.Errorf("at %s a click one view origin away from the unit still selected it", z)
+		}
+	}
+}
+
+// TestHullReachBoundsEveryOrientation locks the picker's early skip: every
+// projected hull corner, at any orientation and either record step, lies in
+// the box hullReachAdmits tests, so skipping a unit outside it can never drop
+// a unit the strict polygon test would admit [07 R-REV-01 §4].
+func TestHullReachBoundsEveryOrientation(t *testing.T) {
+	m := hullTestModel()
+	box := newHullBox(m)
+	if !box.bounded {
+		t.Fatal("synthetic hull has no reach")
+	}
+	for _, scale := range []camera.ViewScale{camera.ViewScaleNative, camera.ViewScaleDetail} {
+		cam := &camera.Camera{X: 40, Z: 60, ViewW: 640, ViewH: 480, MapW: 4096, MapH: 4096, Scale: scale}
+		v := hullTestView()
+		v.Y = fixedUnits(37)
+		for heading := 0; heading < 65536; heading += 4093 {
+			for pitch := 0; pitch < 65536; pitch += 8191 {
+				for bank := 0; bank < 65536; bank += 8191 {
+					v.Heading, v.Pitch, v.Bank = uint16(heading), uint16(pitch), uint16(bank)
+					for _, corner := range hoverHullCornersOf(box, v, cam) {
+						if !hullReachAdmits(box, v, cam, corner[0], corner[1]) {
+							t.Fatalf("scale %v orientation (%d,%d,%d): corner %v outside the reach box", scale, heading, pitch, bank, corner)
+						}
+					}
+				}
+			}
+		}
+		far := v
+		far.X = fixedUnits(400)
+		if hullReachAdmits(box, far, cam, 60, 140) {
+			t.Fatalf("scale %v: a unit 300 world pixels from the pointer was admitted", scale)
 		}
 	}
 }

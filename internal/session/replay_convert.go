@@ -72,7 +72,7 @@ func (s *Session) replayCommand(c HumanCommand) (SeatCommand, error) {
 // which a playback refusal would not.
 func (s *Session) replayRefusalChangesNothing(k SeatCommandKind) bool {
 	switch k {
-	case SeatMobileBuild:
+	case SeatMobileBuild, SeatEconomyActivity:
 		return true
 	case SeatSpawn:
 		return s.Gameplay.Normalize() != gameplay.Modern
@@ -425,6 +425,9 @@ func (k *replayConversion) convert(c *HumanCommand) (SeatCommand, error) {
 		// carries only a registered name.
 		out.Kind = SeatGameplay
 		out.Gameplay.Mode = c.Gameplay.Normalize()
+	case HumanEconomyActivity:
+		out.Kind = SeatEconomyActivity
+		out.EconomyActivity = EconomyActivityPayload(c.EconomyActivity)
 	default:
 		return out, fmt.Errorf("a kind with a replay form, got %d", c.Kind)
 	}

@@ -99,13 +99,14 @@ composition field.
 
 | Seam | Owner | Carries |
 |---|---|---|
+| `economy.Rules` | `internal/economy` | `TemporaryActivityHolds`: Modern alone permits the issuer's activity holds until explicit Play (DESIGN_ECONOMY_CONSTRUCTION "Modern economy explanation and temporary activity holds"). This owner covers production and upkeep, which no combat, construction or order interface owns. |
 | `combat.Rules` | `internal/combat` | terrain admission ([DESIGN_WEAPONS_PROJECTILES §2.3.1](DESIGN_WEAPONS_PROJECTILES.md#231-modern-terrain-admission)), [friendly/feature obstruction](DESIGN_WEAPONS_PROJECTILES.md#232-modern-friendly-and-feature-obstruction), [submerged target release](DESIGN_WEAPONS_PROJECTILES.md#modern-submerged-target-release), the launch-gate half of Hold Fire (§2.6.1), and Modern threat targeting/incoming-fire coordination, including the [infector target preference](DESIGN_WEAPONS_PROJECTILES.md#modern-infector-target-preference), which asks `orders.Rules.Infection` through a composition callback |
 | `orders.Rules` | `internal/orders` | [Hold Fire](DESIGN_UNITS_ORDERS_COB.md#modern-hold-fire) at a combat join, the deferred bomber leash ([DESIGN_MOVEMENT_PATH §3.4.1](DESIGN_MOVEMENT_PATH.md#341-modern-bomber-pass-completion)), the three guard-assistance legs, Modern danger response/protected work, [Modern AI move retention](DESIGN_UNITS_ORDERS_COB.md#modern-ai-move-retention) (a Modern AI player's running move survives the damage purge), [crowded arrival](DESIGN_UNITS_ORDERS_COB.md#modern-crowded-arrival), which records may finish as [unreachable moves](DESIGN_UNITS_ORDERS_COB.md#modern-unreachable-moves), and the per-definition [infection](DESIGN_UNITS_ORDERS_COB.md#modern-infection) policy (Modern grants it to definitions compiled with the `NANOLATHE_INFECTOR` category; Strict 3.1 and Community answer zero), which the Survival [infection hunters](DESIGN_SURVIVAL.md#modern-infection-hunters), combat preference and Modern AI infector focus also read |
 | `construction.Rules` | `internal/construction` | [factory-exit](DESIGN_ECONOMY_CONSTRUCTION.md#modern-factory-exit-yielding) and [construction-site](DESIGN_ECONOMY_CONSTRUCTION.md#modern-construction-site-yielding) clearance; [authored build membership](DESIGN_ECONOMY_CONSTRUCTION.md#modern-authored-build-membership) |
 | `visibility.Rules` | `internal/visibility` | Community allied-jammer suppression and aircraft border visibility (DESIGN_COMMUNITY_PATCH §4.4), and committed admission of [Modern main-view radar dots](DESIGN_INTERFACE_HUD_INPUT.md#modern-radar-dots) |
 | `session.ScriptPortRules` | `internal/session` | Community recorder ports 32 and 69–75 (DESIGN_COMMUNITY_PATCH §4.5) |
 | `session.UnitLimitRules` | `internal/session` | [Modern save unit limits](DESIGN_SESSIONS_AI_SAVE.md#modern-save-unit-limits) |
-| `movement.Rules` | `internal/movement` | [learned terrain](DESIGN_MOVEMENT_PATH.md#modern-learned-terrain): a ground mover rejected by static ground teaches its owner, and the owner's next search reads what it learned; [prompt re-routing](DESIGN_MOVEMENT_PATH.md#modern-prompt-re-routing): a re-route throttle of fifteen ticks; [group-order spreading](DESIGN_MOVEMENT_PATH.md#modern-group-order-spreading): a same-tick group's first requests admitted over three ticks, nearest first; [bounded path work](DESIGN_MOVEMENT_PATH.md#modern-bounded-path-work): carried search work capped at four shares and a futile polling sweep ends the player's call; [group destination slots](DESIGN_INTERFACE_HUD_INPUT.md#modern-group-destination-slots): each actor of an ordinary group move gets its own free destination footprint; [unreachable moves](DESIGN_MOVEMENT_PATH.md#modern-unreachable-moves): a goal certified sealed by a static re-run of the setup ray finishes its eligible move at the frontier after a 90-tick dwell and a closing probe; [wedge escape](DESIGN_MOVEMENT_PATH.md#modern-wedge-escape): a ground mover a wreck was stamped over may step off the rejected cells it already covers, its own search reads them as passable, and a mover wedged under a route planned elsewhere re-plans at once; [repair-pad queue](DESIGN_MOVEMENT_PATH.md#modern-repair-pad-queue): approaching aircraft reserve landing pieces, circle the base on retail's landing loiter while they wait, and vacate after repair; and [traffic](DESIGN_MOVEMENT_PATH.md#modern-traffic): friendly units never share cells, a ground mover steers round what is ahead of it, its searches are weighed by the load, pay for the routes friends hold and, for a unit its friends have boxed in, read them as absent, and the units of a group are given places and settle where they may. Strict 3.1 and Community answer the zero value, retail's blocked response. The seam also carries allied pass-through, jam release and pocket release, which Modern traffic retired: every reserved set answers them off, and `movement.OverlapRules` answers them for the pathfinding laboratory's baseline ([PATHFINDING_LAB](PATHFINDING_LAB.md)) |
+| `movement.Rules` | `internal/movement` | [learned terrain](DESIGN_MOVEMENT_PATH.md#modern-learned-terrain): a ground mover rejected by static ground teaches its owner, and the owner's next search reads what it learned; [prompt re-routing](DESIGN_MOVEMENT_PATH.md#modern-prompt-re-routing): a re-route throttle of fifteen ticks; [group-order spreading](DESIGN_MOVEMENT_PATH.md#modern-group-order-spreading): a same-tick group's first requests admitted over three ticks, nearest first; [bounded path work](DESIGN_MOVEMENT_PATH.md#modern-bounded-path-work): carried search work capped at four shares and a futile polling sweep ends the player's call; [group destination slots](DESIGN_INTERFACE_HUD_INPUT.md#modern-group-destination-slots): each actor of an ordinary group move gets its own free destination footprint; [unreachable moves](DESIGN_MOVEMENT_PATH.md#modern-unreachable-moves): a goal certified sealed by a static re-run of the setup ray finishes its eligible move at the frontier after a 90-tick dwell and a closing probe; [wedge escape](DESIGN_MOVEMENT_PATH.md#modern-wedge-escape): a ground mover a wreck was stamped over may step off the rejected cells it already covers, its own search reads them as passable, and a mover wedged under a route planned elsewhere re-plans at once; [repair-pad queue](DESIGN_MOVEMENT_PATH.md#modern-repair-pad-queue): approaching aircraft reserve landing pieces, circle the base on retail's landing loiter while they wait, and vacate after repair;; [aircraft tactics](DESIGN_MOVEMENT_PATH.md#modern-aircraft-tactics) (prototype): bombing, strafing and hovering attacks fly Modern pilots that steer at speed, plan runs round visible anti-air, time bomb strings on the dropped motion and land damaged aircraft beside patrolling constructors; and [traffic](DESIGN_MOVEMENT_PATH.md#modern-traffic): friendly units never share cells, a ground mover steers round what is ahead of it, its searches are weighed by the load, pay for the routes friends hold and, for a unit its friends have boxed in, read them as absent, and the units of a group are given places and settle where they may. Strict 3.1 and Community answer the zero value, retail's blocked response. The seam also carries allied pass-through, jam release and pocket release, which Modern traffic retired: every reserved set answers them off, and `movement.OverlapRules` answers them for the pathfinding laboratory's baseline ([PATHFINDING_LAB](PATHFINDING_LAB.md)) |
 | `path.Kernel` | `internal/path` | the search a route request is opened with ("The path search kernel" below); Strict 3.1 and Community bind `path.RetailKernel`, Modern binds `path.SmoothKernel` ([route straightening](DESIGN_MOVEMENT_PATH.md#modern-route-straightening) and [route smoothing](DESIGN_MOVEMENT_PATH.md#modern-route-smoothing)) |
 | `ai.Planner` | `internal/ai` | the computer player's per-tick think step ("The computer player's think step" below); Strict 3.1 and Community bind `ai.RetailPlanner`, Modern binds `ai.ModernPlanner` ([wave air targets](DESIGN_SESSIONS_AI_SAVE.md#modern-wave-air-targets)); a computer player marked Modern takes the step `mods/aikit` installs, the [Modern AI computer player](DESIGN_SESSIONS_AI_SAVE.md#modern-ai-computer-player), under any bound set, and no set binds it ("The Modern AI controller" below) |
 | `session.ComputerIncomeRules` | `internal/session` | the word the Classic computer players' difficulty discount selects on; every reserved set answers retail's difficulty word, and the AI arena's research set composes `FullComputerIncome`; a player marked Modern is paid in full whatever the set answers ([Modern AI full income](DESIGN_ECONOMY_CONSTRUCTION.md#modern-ai-full-income)) |
@@ -352,7 +353,7 @@ they are checked by tests rather than trusted:
    what makes an identity fingerprint the correct gate for a seam unit.
 4. **Strict policy answers add no randomness or state writes.** The policy
    methods in `combat.Rules`, `orders.Rules`, `construction.Rules`,
-   `movement.Rules`, `UnitLimitRules`, `ComputerIncomeRules` and `SeatRules`
+   `movement.Rules`, `economy.Rules`, `UnitLimitRules`, `ComputerIncomeRules` and `SeatRules`
    preserve the retail path without extra work. The whole
    subsystem seams still execute retail search and planner behavior, including
    their established state writes and RNG consumption; they are not no-ops.
@@ -392,14 +393,22 @@ front end enqueues the change as a human command, the command boundary binds
 the new set, and the tick that follows runs entirely under it. Presentation
 never rebinds a service directly.
 
-A switch does not unwind state a Modern rule already staged. Movement
+Except for temporary activity holds below, a switch does not unwind state a Modern rule already staged. Movement
 clearance hints and guard retry deadlines created under Modern run out under
 their own existing expiry rules after a switch to Strict; Strict simply stops
 creating new ones. There is deliberately no detach or rollback step: an
 unwind would be new behaviour in both directions and would need its own
 contract and its own tests. A player who wants a clean Strict run starts one.
 
-Two pieces of state do follow a switch, both in both directions:
+These pieces of state follow a switch:
+
+- **Temporary economy activity holds.** The economy service owns the active
+  bits; the session owns the upkeep
+  allocation references and original owners. Rebinding a supporting set
+  preserves them. Binding a set whose `economy.Rules` refuses holds releases
+  every hold and restores only the live, same-owner allocations still under
+  its control, using ordinary activation edges. Teardown releases them too.
+  Strict and Community never start holds. No stream draws are added.
 
 - **The computer-income word.** Every bind re-projects the bound set's
   `ComputerIncomeRules` answer onto the ledger and construction selectors, so
@@ -450,7 +459,15 @@ settle the metadata format, versioning, missing-set behavior and restoration
 contract in the owning save design. The current omission is a limitation,
 not permission to invent save bytes or infer a set from loaded content.
 
-Three consequences are worth stating because they are observable:
+The state owners have these save contracts:
+
+- Economy holds are not saved: every load starts with all activities resumed.
+  The save projects retained, same-owner upkeep shutdowns as activated on
+  detached unit copies, and queues their ordinary deferred `Activate` callbacks
+  on detached copies of the saved COB state. Script execution waits for the
+  restored world's normal drain; saving changes no live state or random stream.
+  Existing script threads remain present. Genuine/manual off intent stays off.
+  No hold metadata or new sidecar schema is written.
 
 - Modern transient state that is not in the save is simply absent after a
   load, whichever set is bound. Staged movement clearance routes and the
@@ -641,7 +658,7 @@ to ask for the same approval again.
    ordering, RNG/resource effects and boundaries before implementing it.
 2. **Use the existing interface.** Compose a shipped implementation when it
    already answers the question. Add a method to the owning `combat.Rules`,
-   `orders.Rules`, `construction.Rules`, `movement.Rules`,
+   `orders.Rules`, `construction.Rules`, `movement.Rules`, `economy.Rules`,
    `session.UnitLimitRules`, `session.ComputerIncomeRules` or
    `session.SeatRules` when the package needs a new decision. Implement Strict, Community and Modern
    defaults in their derivation chain, with each layer promoting the lower

@@ -1247,7 +1247,7 @@ func (s *Session) survivalFrameStatus(tick uint32) frame.SurvivalStatus {
 		return frame.SurvivalStatus{}
 	}
 	wave, _, left := s.SurvivalStatus(tick)
-	return frame.SurvivalStatus{
+	status := frame.SurvivalStatus{
 		Active:      true,
 		Wave:        int32(wave),
 		Phase:       uint8(st.phase),
@@ -1255,6 +1255,17 @@ func (s *Session) survivalFrameStatus(tick uint32) frame.SurvivalStatus {
 		Attackers:   int32(s.Units.LiveCountForPlayer(int(st.attacker))),
 		Score:       st.survivalScore(),
 	}
+	// The warning has already planned these directions. Publish their announced
+	// entry points, not terrain-adjusted spawn sites or a future wave prediction;
+	// the HUD reads only this detached copy (DESIGN_SURVIVAL §6.7, §9)[I6].
+	if st.phase == survivalWarning {
+		for i, g := range st.plan.Groups[:min(len(st.plan.Groups), len(status.Approaches))] {
+			x, z := s.survivalEntryCell(g.Angle)
+			status.Approaches[i] = frame.SurvivalApproach{X: x*16 + 8, Z: z*16 + 8, Angle: g.Angle}
+			status.ApproachCount++
+		}
+	}
+	return status
 }
 
 // survivalShareIncome splits the survivors' income evenly (DESIGN_SURVIVAL

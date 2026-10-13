@@ -58,6 +58,7 @@ func (s *Service) WriteCheckpoint(e *checkpoint.Encoder, c *CheckpointContext) e
 	}
 	seats := s.hasPlayerSelectors()
 	radar := s.hasShareRadar()
+	holds := s.hasActivityHolds()
 	var tag uint8
 	if s.EconomySelector != nil {
 		tag |= 1
@@ -67,6 +68,9 @@ func (s *Service) WriteCheckpoint(e *checkpoint.Encoder, c *CheckpointContext) e
 	}
 	if radar {
 		tag |= 4
+	}
+	if holds {
+		tag |= 8
 	}
 	e.Field("economy.Service.EconomySelector")
 	e.U8(tag)
@@ -91,7 +95,55 @@ func (s *Service) WriteCheckpoint(e *checkpoint.Encoder, c *CheckpointContext) e
 	for slot := range s.unitBuckets {
 		writeCheckpointUnitEconomy(e, &s.unitBuckets[slot], slot)
 	}
+	// Bit 3 announces the optional Modern activity state. Report buffers are
+	// presentation-only and add no bytes.
+	if holds {
+		for owner := range s.HoldActive {
+			for a := ActivityOther; a < ActivityCount; a++ {
+				e.FieldIndex("economy.Service.HoldActive", owner, fmt.Sprintf("[%d]", a))
+				e.Bool(s.HoldActive[owner][a])
+			}
+		}
+	}
 	return e.Err()
+}
+
+func (s *Service) hasActivityHolds() bool {
+	for owner := range s.HoldActive {
+		for _, active := range s.HoldActive[owner] {
+			if active {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// CheckpointRulesKind identifies only reviewed stateless economy rules.
+// Nil is the standalone service's Strict fallback; session admission still
+// requires its reserved set's explicit concrete binding.
+func CheckpointRulesKind(r Rules) (uint8, error) {
+	switch v := r.(type) {
+	case nil, StrictRules:
+		return 1, nil
+	case *StrictRules:
+		if v != nil {
+			return 1, nil
+		}
+	case CommunityRules:
+		return 2, nil
+	case *CommunityRules:
+		if v != nil {
+			return 2, nil
+		}
+	case ModernRules:
+		return 3, nil
+	case *ModernRules:
+		if v != nil {
+			return 3, nil
+		}
+	}
+	return 0, economyCheckpointError("economy.Service.Rules", "a reviewed concrete economy rule binding")
 }
 
 // Player fields: AIConsumption, AIProduction, Allies, ArchivedMirror,
@@ -275,6 +327,9 @@ func (s *Service) checkpointBindings(c *CheckpointContext) error {
 	if s == nil {
 		return economyCheckpointError("economy.Service", "a present service")
 	}
+	if _, err := CheckpointRulesKind(s.Rules); err != nil {
+		return err
+	}
 	if c == nil || c.World == nil {
 		return economyCheckpointError("economy.context", "a world checkpoint context")
 	}
@@ -341,6 +396,14 @@ func (s *Service) AppendCheckpointSummary(summary *checkpoint.Summary) error {
 	for slot := range s.unitBuckets {
 		if err := appendCheckpointBuckets(&next, s.unitBuckets[slot].Buckets, "unitBuckets", slot, "Buckets"); err != nil {
 			return err
+		}
+	}
+	if s.hasActivityHolds() {
+		next.Word(8) // the economy payload's activity extension tag
+		for owner := range s.HoldActive {
+			for _, active := range s.HoldActive[owner] {
+				next.Word(checkpointBoolWord(active))
+			}
 		}
 	}
 	*summary = next

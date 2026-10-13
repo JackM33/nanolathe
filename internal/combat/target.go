@@ -352,7 +352,11 @@ type Acquisition struct {
 	// §3.1-only admission (SlotAcquisitionAdmits) and the order handlers all
 	// leave it zero and bypass check 4, which is what [06 §3.2] requires. A
 	// zero mask never rejects.
-	NoChaseMask   content.CategoryMask
+	NoChaseMask content.CategoryMask
+	// SightScan marks that same caller-supplied-radius form, the order-work
+	// scan of [04 R-STANCE-01 §3]. Strict ignores it; Modern aircraft target
+	// choice reads it (modern_air.go).
+	SightScan     bool
 	BadMask       uint32
 	BadTargetMask content.CategoryMask
 	MaskResolved  bool

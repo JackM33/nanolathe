@@ -15,6 +15,50 @@ tick, and the citation routing that names this document as the home of
 `[P0-I14]` — picking, selection and HUD commands — and, jointly with
 DESIGN_PRESENTATION_CLIENT, of `[F-P1-008]`, defined in §3.5 below.
 
+## Modern economy breakdown
+
+The Enhanced presentation's metal and energy readout areas open an anchored
+dropdown. This is an explanation of the last settled resource report, not a
+claim that the ledger is wrong. Production and demand have separate percentage
+denominators. Demand means requests, not necessarily payments; immediate costs,
+unpaid carry, sharing and storage overflow can explain differences from the
+change in stock. An explicit note carries this distinction.
+
+Generation, reclaim, construction, weapons, upkeep, healing and cloaking are
+reported from observed ledger activity. Rows show amount, percentage and
+contributor count, with the largest contributors emphasized. Clicking a row's
+label selects and centers successive current owned contributors in descending
+amount order, with allocation identity as a stable tie-break. Reopening or
+switching resource begins with the largest. Dead, captured and reused slots
+cannot become navigation targets. The panel never navigates to another
+player's hidden units; an unattributed balance is explanatory text, not a
+fabricated unit.
+
+Each activity row begins with a separate media-style control: two pause bars
+while running, an amber play triangle while paused. Holds have no time limit,
+and paused rows are explicitly labelled. Pause bars beside both resource
+labels pulse between yellow and dim grey once per second while the viewing
+player has any paused activity. The pulse uses sampled host time, independently
+of game speed, and never hides the reminder entirely. Clicking either reminder
+opens its dropdown to identify the paused activities. Metal and energy share
+the same activity hold. This control is available only when the selected
+gameplay rule set permits it and the viewer controls that player; playback and
+observer views are read-only. Upkeep explains that only switchable structures
+are shut down and remaining mandatory costs still apply. Generation explains
+that operating costs continue. The underlying policy is
+[Modern economy explanation and temporary activity holds](DESIGN_ECONOMY_CONSTRUCTION.md#modern-economy-explanation-and-temporary-activity-holds).
+
+The panel paints above battle captions so messages cannot obscure its controls.
+It captures its entire pointer gesture, including release outside the
+panel, so it cannot issue an order behind itself. Escape, outside click or
+clicking the same resource again closes it; switching resources changes the
+open report. Closing the panel does not cancel holds. The Original renderer
+keeps its existing HUD input and appearance. Geometry uses the same chrome
+transform for painting and hit testing, with a smaller integer overlay scale
+when the rail's chosen magnification would clip the dropdown. Tests cover sorting, percentages,
+identity/ownership, capture, independent row controls, mode gates and visual
+inspection at compact and scaled HUD sizes.
+
 ## 1. Purpose and boundary
 
 These packages answer three questions, and nothing else:
@@ -2935,9 +2979,10 @@ by a simulation phase, and is not saved [I6].
   with no modal open and the pointer off the minimap, and only while the modern
   executor presents, Smooth multiplies the target by 1.25 per upward
   notch or divides it by 1.25 per downward notch, clamped to full map..2×.
-  Pinch and wheel share a configurable snap band: near targets and crossings
-  land immediately on the preferred stop, defaulting to exactly 1×. Controls →
-  Mouse owns Zoom lock (`presentation.zoomLockPercent`, default 100); 120
+  Wheel targets near or crossing the preferred stop snap immediately to it,
+  defaulting to exactly 1×. Smooth pinch stops only on reaching or crossing
+  that factor, with no snap band or resistance to leaving on a fresh gesture.
+  Controls → Mouse owns Zoom lock (`presentation.zoomLockPercent`, default 100); 120
   chooses approximately 1.2× and replaces the native stop in both Smooth and
   Steps. Camera zoom also offers No zoom: fixed native 1×, no pinch, wheel,
   F9 or whole-map Tab zoom, with panning intact and Tab opening Options.

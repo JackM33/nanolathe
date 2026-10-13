@@ -402,6 +402,11 @@ func (b *battleSession) serviceMegamapPointer(in *input.State, sample input.Samp
 	if b == nil || !b.megamap.shown || in == nil {
 		return sample
 	}
+	// The dropdown also owns the outside click that closes it and the rest
+	// of that captured gesture. Pass those records to its later input stage.
+	if cl != nil && cl.Enhanced() && (b.economyPanel.open || b.economyPanel.captured) {
+		return sample
+	}
 	lens := b.megamapLens()
 	if !lens.Valid() {
 		return sample

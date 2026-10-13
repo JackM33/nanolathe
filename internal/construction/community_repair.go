@@ -64,12 +64,21 @@ func (CommunityRules) RepairContribution(s *Service, builder, target *units.Unit
 	if builder == nil || target == nil || target.Def == nil {
 		return false
 	}
+	if s.Economy.ActivityHeld(builder.Owner, economy.ActivityHealing) {
+		return false
+	}
 	d := target.Def
 	if int32(int16(target.Health)) >= d.MaxDamage || d.BuildTime <= 0 {
 		return false
 	}
 	energy := communityRepairEnergy(d.BuildCostEnergy, worker, d.BuildTime)
-	if s.Economy == nil || !economy.AdmitOneResource(s.Economy.UnitBuckets(builder.Handle), float32(energy)) {
+	if s.Economy == nil {
+		return false
+	}
+	before := s.Economy.ActivitySnapshot(builder.Handle)
+	admitted := economy.AdmitOneResource(s.Economy.UnitBuckets(builder.Handle), float32(energy))
+	s.Economy.ObserveActivity(builder, economy.ActivityHealing, before)
+	if !admitted {
 		return false
 	}
 	// Resource admission precedes every bank access, including zero work.

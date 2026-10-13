@@ -13,6 +13,61 @@ that document owns package boundaries, the tick, and the citation routing that
 makes a bare `[Cn]` in `internal/economy` or `internal/construction` resolve to
 the contract list in §3 below.
 
+## Modern economy explanation and temporary activity holds
+
+**Nanolathe Modern policy (user-authorized 2026-10-12).** The Enhanced HUD's
+economy explanation reports observed production and requested demand from the
+most recent settlement. It does not reinterpret demand as money paid, change
+settlement, forgive carry, or diagnose an accounting error. The observer records
+the existing ledger writes by activity and allocation reference. Restored or
+unattributed amounts remain explicitly unattributed; a unit's current order is
+never used to guess what it spent earlier. Observation is presentation data,
+excluded from saves and authoritative fingerprints.
+
+Rows distinguish generation, construction, weapons (including ammunition
+stockpiling), upkeep, healing, cloaking and reclaim. Each activity has a
+pause/play control in Modern gameplay. Pauses have no time limit: only an
+explicit Play action re-enables the activity (user refinement, 2026-10-12).
+A hold belongs to the issuing player and activity, applies to both resources,
+and covers newly starting work until resumed. It preserves
+queued orders. Construction still wakes its nanoframe while refusing progress;
+weapons stop before launching; healing stops before charging or applying a
+healing packet; cloak requests remain set but cannot pay for hidden state;
+reclaim stops before progress or payout. Generation holds forfeit newly
+generated positive income, including passive production, but do not waive
+operating costs, suppress negative or unordered authored contributions, or
+undo income already earned. No hold erases old debt, so an existing
+obligation may still reduce stock while its activity is paused.
+
+Upkeep uses actual activation transitions on currently active, switchable
+building-class units. A temporary hold remembers their allocation identities
+and restores only its own changes; a subsequent manual activation command,
+or one already queued when paused, supersedes that restoration.
+Non-switchable and moving-unit costs continue
+under ordinary accounting. The UI explicitly describes this limited coverage;
+it must never make an operating sensor or other service free by suppressing its
+bill. A generation hold is independent of this operational shutdown.
+
+Strict 3.1 and Community 3.9 retain their ordinary activity and have no holds.
+The economy-owned rule seam is composed through the existing `session.RuleSet`:
+none of the existing combat, construction or order seams owns income and
+upkeep. Rule objects remain stateless; authoritative paused activities and
+temporary activation ownership belong to the session/economy owner, with
+checkpoint, seat-command and replay handling. Closing the dropdown does not
+resume activity. Switching to a rule set that disallows holds releases them.
+
+Loading a save resumes all activities (user refinement, 2026-10-12); paused
+activities are not persisted. The save projection resumes the retained
+temporary upkeep shutdowns through detached unit/script state, preserving
+ordinary activation callbacks without changing the running battle or its RNG.
+An explicit/manual off state remains off. No pause sidecar schema is needed.
+
+Verification covers observational equivalence, attribution across settlement
+and allocation reuse, category-specific resource effects, retained construction
+and debt, strict bypass, explicit resume and manual overrides, fresh-on-load
+behavior, serialization and seat ownership. The interface contract is
+[Modern economy breakdown](DESIGN_INTERFACE_HUD_INPUT.md#modern-economy-breakdown).
+
 ## 1. Purpose and boundary
 
 These three packages answer three questions:

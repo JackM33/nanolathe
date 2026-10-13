@@ -949,7 +949,9 @@ payload; online admission refuses them.
 #### 7.4.1 Primitives and limits
 
 **Nanolathe protocol contracts**, not retail findings. The command schema
-version is `2`, negotiated outside the payload. Version 2 adds the sharing
+version is `3`, negotiated outside the payload. Version 3 adds Modern economy
+activity holds (kind 47); earlier payloads keep their bytes and semantics.
+Version 2 adds the sharing
 and alliance kinds 35–44 and changes nothing version 1 encodes, so a
 version-1 payload decodes to the same command and a version-1 replay still
 plays (§10). A payload starts with one kind byte; its context comes from
@@ -1055,9 +1057,10 @@ Fields are in wire order. Records are named `<Kind>Payload` under
 | 44 | SharedVictory / S, online only, v2 | On `bool` |
 | 45 | ShootAll / D, cheat | Reserved; no payload in any version |
 | 46 | DeveloperSpawn / R | Pattern `key` (wildcards allowed), Owner `u8` (the typed integer's low byte), Position `point`; replay only (DESIGN_DEVELOPER_TOOLS §8). Online codecs and receivers reject it. |
+| 47 | EconomyActivity / S, v3 | Activity `u8` 1 generation, 2 construction, 3 weapons, 4 upkeep, 5 healing, 6 cloaking, 7 reclaim; Pause `bool`. Acts only on the issuer, requires the bound economy hold rule, and needs no cheat permission. |
 | 255 | Gameplay / R; lobby-only online | Mode name `key`, resolved through the registered rule sets |
 
-Every unlisted number is invalid. Kinds 35–44 exist only in version 2 and
+Every unlisted number is invalid. Kinds 35–44 exist from version 2 and
 only online: retail runs them only in a networked session
 `[07 R-CAM-01 §6]` `[05 R-SHARE-01 §5]`, so the single-player replay
 context has neither their bytes nor their application. Their receiver
@@ -1068,6 +1071,31 @@ amounts and the negative-amount edge `[05 R-SHARE-01 §2]`; online uses the
 stamp and §7.4.1's bound. Replay `SetLogo`, `NoShake`, `View`,
 `BuilderOptions` and `Gameplay` keep their single-player effects; online
 context cannot request replay-only fields or bypass cheat checks.
+
+**Modern activity controls (user-authorized 2026-10-12).** Kind 47 sets a
+hold on both resources for the issuing player and activity until explicit Play.
+Repeated pause or resume intent is idempotent; no clock expires a hold.
+Strict and Community refuse
+the command. Single-player replay carries the same two fields. Upkeep switches
+off currently active, complete, switchable building-class units with positive
+authored energy use through their ordinary activation edge. Restoration retains
+allocation identity and owner; an explicit activation command, including off,
+supersedes it. An activation order already queued when the hold starts also
+keeps its intent: the hold switches the unit off but retains no restoration for
+it. New units and non-switchable/mobile costs remain ordinary. The owning
+policy is DESIGN_ECONOMY_CONSTRUCTION "Modern economy explanation and temporary
+activity holds".
+
+The canonical checkpoint carries active holds in economy's optional tag bit 3:
+ten fixed activity rows of active bits. Runtime's wind tag bit 2 announces the optional
+upkeep-restoration list: count, then each stored owner, handle and allocation
+serial. Existing no-hold bytes and summaries remain unchanged; observed resource
+attribution is excluded. Save/load starts fresh with no holds. Save projection
+resumes only retained same-owner upkeep intent on detached unit and COB copies:
+the saved unit is activated and its saved VM has the ordinary deferred Activate
+callback queued after existing work. No live script or random stream runs while
+saving, and manual off intent remains off. No hold metadata is persisted and
+sidecar schemas remain 1 and 2.
 
 Online counted production accepts −32767..−1 and 1..32767; the local
 adapter normalizes Count 0 to 1 before recording. Single-player replay

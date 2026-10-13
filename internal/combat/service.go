@@ -202,6 +202,11 @@ func (s *Service) StepWeaponsForUnit(u *units.Unit, tick uint32, w *units.World,
 	if !u.Alive {
 		return sum
 	}
+	// Modern activity holds stop aim/launch work before it can spend, draw or
+	// emit a projectile; the session still drains COB and handles unit death.
+	if econ.ActivityHeld(u.Owner, economy.ActivityWeapons) {
+		return sum
+	}
 	s.rules().CombatTick(s, tick, false)
 	// The stunned mark is neither raised nor lowered here any more (WU-19-80).
 	// Its one setter is the stun task's first visit and its one clearer is that
@@ -489,7 +494,9 @@ func (s *Service) firePreparedSlot(u *units.Unit, slot *units.Slot, idx int, pre
 		u.Pending |= 0x400
 	}
 	if !weapon.Stockpile && econ != nil && (weapon.EnergyPerShot != 0 || weapon.MetalPerShot != 0) {
+		before := econ.ActivitySnapshot(u.Handle)
 		economy.ImmediateDebit(&econ.Players[u.Owner], econ.UnitBuckets(u.Handle), float32(weapon.EnergyPerShot), float32(weapon.MetalPerShot))
+		econ.ObserveActivity(u, economy.ActivityWeapons, before)
 	}
 	sum.Fired++
 }
@@ -947,6 +954,7 @@ func (s *Service) acquireTargetForSlotRange(u *units.Unit, slot *units.Slot, idx
 	if rangeLimit >= 0 && u.Def != nil {
 		acq.NoChaseMask = u.Def.NoChaseCategoryMask
 	}
+	acq.SightScan = rangeLimit >= 0
 	// acq.ShootAll stays false: it is the session mode-flags word's bit 10,
 	// whose only retail writer is the `+ShootAll` chat command, and the word is
 	// zero-filled with no loader, settings writer or save restore touching that
@@ -1648,6 +1656,13 @@ func (s *Service) TickProjectiles(tick uint32, w *units.World, terrain *world.Te
 		h := pool.Handle(i + 1)
 		p := &s.Records[i]
 		if p.BurstRemaining > 0 {
+			// A resource-row hold retains the parked burst and its remaining
+			// ammunition; previously launched projectiles continue normally.
+			if w != nil {
+				if shooter := w.Unit(p.Shooter); shooter != nil && econ.ActivityHeld(shooter.Owner, economy.ActivityWeapons) {
+					continue
+				}
+			}
 			// Cancel only the unlaunched remainder. The parked template never
 			// becomes a moving shot, and previously cloned pellets continue.
 			// A burst an ordered shot began completes whatever becomes of the

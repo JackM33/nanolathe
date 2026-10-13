@@ -91,7 +91,7 @@ func TestReservedRuleSetsMatchTheModeVocabulary(t *testing.T) {
 // binding composed before the switch. An unbound session answers Strict at the
 // order seam, which is the fallback a reconstructed queue relies on.
 func TestBindRulesProjectsEverySeam(t *testing.T) {
-	s := &Session{Combat: &combat.Service{}, Vis: &visibility.Service{}, Build: &construction.Service{OrderBinding: &orders.QueueBinding{}}, Movement: &movement.System{}}
+	s := &Session{Econ: &economy.Service{}, Combat: &combat.Service{}, Vis: &visibility.Service{}, Build: &construction.Service{OrderBinding: &orders.QueueBinding{}}, Movement: &movement.System{}}
 	if _, strict := s.orderRules().(orders.StrictRules); !strict {
 		t.Fatal("an unbound session must answer Strict at the order seam")
 	}
@@ -108,6 +108,9 @@ func TestBindRulesProjectsEverySeam(t *testing.T) {
 		}
 		if s.Movement.Rules != set.Movement {
 			t.Fatalf("%s did not reach the movement policy seam", set.Name)
+		}
+		if s.Econ.Rules != set.Economy || s.Econ.Rules.TemporaryActivityHolds() != (set.Base == gameplay.Modern) {
+			t.Fatalf("%s did not project its economy policy", set.Name)
 		}
 		if s.orderRules() != set.Orders || s.unitLimitRules() != set.UnitLimit || s.computerIncomeRules() != set.ComputerIncome {
 			t.Fatalf("%s accessors did not read the bound set", set.Name)

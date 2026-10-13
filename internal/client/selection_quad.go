@@ -61,6 +61,12 @@ func selectionQuadBounds(m *compiledmodel.Model) (a, b [3]numeric.Fixed) {
 // [03 R-WATER-01 §1] rules 2 and 3.
 func selectionQuadCorners(m *compiledmodel.Model, heading, pitch, bank uint16) [4][3]numeric.Fixed {
 	a, b := selectionQuadBounds(m)
+	return selectionQuadCornersOf(a, b, heading, pitch, bank)
+}
+
+// selectionQuadCornersOf is selectionQuadCorners for bounds already taken, so
+// a caller that keeps a model's bounds does not walk its root vertices again.
+func selectionQuadCornersOf(a, b [3]numeric.Fixed, heading, pitch, bank uint16) [4][3]numeric.Fixed {
 	corners := [4][3]numeric.Fixed{
 		{a[0], a[1], a[2]},
 		{b[0], a[1], a[2]},

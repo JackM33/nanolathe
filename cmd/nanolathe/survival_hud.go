@@ -104,13 +104,19 @@ func survivalResultLines(view frame.ResultView) []string {
 	return []string{first, second}
 }
 
-func (h *retailBattleHUD) drawSurvivalResultLine(c *client.Client, view frame.ResultView, rows int) {
+func (h *retailBattleHUD) drawSurvivalResultLine(c *client.Client, b *battleSession, view frame.ResultView, rows int) {
 	if h == nil || c == nil || h.console == nil {
 		return
 	}
 	width, _ := c.Size()
 	y := resultRowsTop + resultRowPitch*rows + 8
-	for _, text := range survivalResultLines(view) {
+	lines := survivalResultLines(view)
+	if view.Survival != nil {
+		if text := b.survivalBestResultLine(); text != "" {
+			lines = append(lines, text)
+		}
+	}
+	for _, text := range lines {
 		w := client.MeasureText(h.console, text)
 		c.UIText(h.console, text, (width-w)/2, y, h.guiColor(15))
 		y += int(h.console.Height) + 4

@@ -115,8 +115,8 @@ func TestPinchPreferredZoomLockAndDeparture(t *testing.T) {
 		t.Fatal("a held pinch passed the configured stop")
 	}
 	apply(input.PinchEvent{Began: true, Delta: -.01, Ended: true})
-	if b.cam.EffectiveZoom() != lock {
-		t.Fatal("a small new pinch lost the sticky resistance")
+	if got := b.cam.EffectiveZoom(); got >= lock || got <= lock*97/100 {
+		t.Fatalf("a small new pinch did not leave the lock immediately: %d", got)
 	}
 	apply(input.PinchEvent{Began: true, Delta: -.4, Ended: true})
 	if got := b.cam.EffectiveZoom(); got >= lock*85/100 || got <= b.cam.MinZoom() {

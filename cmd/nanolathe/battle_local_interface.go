@@ -319,6 +319,9 @@ func (b *battleSession) submitHumanCommand(c session.HumanCommand) (uint64, erro
 		due = b.sess.Clock.GlobalTick + 1
 	}
 	seq, err := b.sess.EnqueueHumanCommandWithSequence(c)
+	if err == nil {
+		b.noteSurvivalCommand(c)
+	}
 	if err == nil && c.Kind == session.HumanGroupAssign {
 		// A recall before this assignment is published sees the membership
 		// it produces, as phase 1 applied both in order.

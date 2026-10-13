@@ -798,6 +798,7 @@ func (s *Session) publishFrame(tick uint32, paused bool) {
 				EnergyProduced: pl.PassProduced[economy.Energy],
 				EnergyConsumed: pl.PassConsumed[economy.Energy],
 				DisplayTimer:   pl.DisplayTimer,
+				ActivityTick:   s.Econ.ActivityReportTick(uint8(p)),
 				// The top strip marks each automatic-sharing threshold on its
 				// bar [07 R-HUD-03 §4][05 R-SHARE-01 §3].
 				MetalShareThreshold:  pl.MetalShareThreshold,
@@ -810,6 +811,7 @@ func (s *Session) publishFrame(tick uint32, paused bool) {
 	} else {
 		published.Economy = published.Economy[:0]
 	}
+	s.publishEconomyActivities(published)
 	publishPlayerRows(s, published)
 	s.publishOnlineSharing(published)
 	// The tick's local-interface facts; none at the paused-input boundary,

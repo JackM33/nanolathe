@@ -257,6 +257,12 @@ type Service struct {
 	// ProjectileWind is the session-owned wind used by ballistic admission.
 	// Its phase-8 deadline bounds future wind knowledge [01 §7.3].
 	ProjectileWind *world.Wind
+	// AirBoard is the Modern aircraft tactics' shared board (modern_air.go),
+	// the same one movement's pilots write. Only ModernRules reads or writes
+	// it; it is transient and never saved.
+	AirBoard        *AirBoard `json:"-"`
+	airClaimScratch []airClaimView
+	airReachScratch []Candidate
 
 	Slots   pool.Projectiles // sole count/dead authority (I5) [06 §5.1]
 	Records []Projectile     // named records parallel to Slots

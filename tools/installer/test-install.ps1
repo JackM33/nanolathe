@@ -86,7 +86,7 @@ try {
     Assert-Equal ([IO.File]::ReadAllText((Join-Path $old 'nanolathe.exe'))) 'working binary' 'Shortcut failure preserves old binary'
     $iconSource = Join-Path $PSScriptRoot 'windows\Nanolathe.ico'
     [IO.File]::Copy($iconSource, (Join-Path $stage 'Nanolathe.ico'))
-    $shortcut = [pscustomobject]@{ TargetPath = ''; Arguments = ''; WorkingDirectory = ''; Description = ''; IconLocation = '' }
+    $shortcut = [pscustomobject]@{ TargetPath = ''; Arguments = ''; WorkingDirectory = ''; WindowStyle = 7; Description = ''; IconLocation = '' }
     $systemRootBefore = $env:SystemRoot
     if ([string]::IsNullOrEmpty($env:SystemRoot)) { $env:SystemRoot = Join-Path $base 'authored Windows' }
     try {
@@ -102,6 +102,8 @@ try {
     Assert-Equal ([IO.File]::ReadAllText((Join-Path $base 'current.txt'))) 'new-release' 'Success switches active release'
     Assert-Equal ([IO.File]::ReadAllText((Join-Path $old 'nanolathe.exe'))) 'working binary' 'Success retains previous binary'
     Assert-Equal $published (Join-Path (Join-Path $base 'releases') 'new-release') 'Published directory'
+    Assert-Equal $shortcut.WindowStyle 1 'Start Menu opens a normal window'
+    Assert-Equal $shortcut.Arguments.Contains('-WindowStyle Normal') $true 'PowerShell opens a normal window'
     $iconPath = $shortcut.IconLocation.Substring(0, $shortcut.IconLocation.LastIndexOf(','))
     Assert-Equal ([IO.Path]::GetDirectoryName($iconPath)) $published 'Shortcut icon belongs to the published release'
     Assert-Equal $shortcut.IconLocation.Substring($shortcut.IconLocation.LastIndexOf(',')) ',0' 'Shortcut selects the ICO image'
@@ -121,25 +123,31 @@ try {
             Set-NanolatheShortcutProperties $nativeShortcut $base $published
             $nativeShortcut.Save()
             Assert-Equal ($shell.CreateShortcut($shortcutPath)).IconLocation $shortcut.IconLocation 'Saved Start Menu icon'
+            Assert-Equal ($shell.CreateShortcut($shortcutPath)).WindowStyle 1 'Saved Start Menu shortcut requests a normal window'
             $next = Join-Path (Join-Path $base 'releases') 'next-release'
             [void][IO.Directory]::CreateDirectory($next)
             [IO.File]::Copy($iconSource, (Join-Path $next 'Nanolathe.ico'))
+            $nativeShortcut.WindowStyle = 7
             Set-NanolatheShortcutProperties $nativeShortcut $base $next
             $nativeShortcut.Save()
             Assert-Equal ($shell.CreateShortcut($shortcutPath)).IconLocation ((Join-Path $next 'Nanolathe.ico') + ',0') 'Update refreshes the same shortcut icon'
+            Assert-Equal ($shell.CreateShortcut($shortcutPath)).WindowStyle 1 'Update restores a normal shortcut window'
         } finally { [void][Runtime.InteropServices.Marshal]::ReleaseComObject($shell) }
     }
 
     $launcher = Get-NanolatheLauncher
     [void][Management.Automation.Language.Parser]::ParseInput($launcher, [ref]$tokens, [ref]$errors)
     if ($errors.Count) { throw ($errors | Out-String) }
-    # Run the encoded shortcut command against an authored launcher, proving the
-    # base path survives spaces, apostrophes, brackets and shell metacharacters.
+    # The installed bootstrap retains the literal Base argument and pointer
+    # validation. test-shortcut.ps1 exercises the encoded loader in a child host.
     [IO.File]::WriteAllText((Join-Path $published 'launch.ps1'), 'param($Base); $Base')
-    $arguments = $shortcut.Arguments
-    $encoded = ($arguments -split ' ')[-1]
-    $command = [Text.Encoding]::Unicode.GetString([Convert]::FromBase64String($encoded))
-    Assert-Equal (& ([scriptblock]::Create($command))) $base 'Shortcut literal path round trip'
+    $bootstrap = [scriptblock]::Create((Get-NanolatheBootstrap))
+    Assert-Equal (& $bootstrap -Base $base) $base 'Bootstrap literal path round trip'
+    foreach ($invalidPointer in @('../new-release', "`$(throw 'must stay inert')")) {
+        Write-NanolatheData (Join-Path $base 'current.txt') $invalidPointer
+        Assert-Throws { & $bootstrap -Base $base } 'Bootstrap rejects invalid release pointers as data'
+    }
+    Write-NanolatheData (Join-Path $base 'current.txt') 'new-release'
     # A real child host with -NonInteractive must never display an update UI.
     $installerLiteral = "'" + $installer.Replace("'", "''") + "'"
     $noninteractiveCommand = ". $installerLiteral; if (Confirm-NanolatheUpdate 'alpha-1') { throw 'Noninteractive update accepted.' }"
@@ -183,6 +191,7 @@ if (`$updateTest.Mode -eq 'new-game-failed') { throw 'Authored new game failed.'
     $installerHash = (Get-FileHash -LiteralPath $authoredPath -Algorithm SHA256).Hash
     $updateTest.Manifest = $manifest + "`ninstaller_ps1_sha256=$installerHash"
     function Get-NanolatheUpdateDownload([string]$Url, [string]$Path, [int]$TimeoutSeconds, [string]$Accept = 'application/octet-stream') {
+        Assert-Equal ($updateTest.Messages -contains 'Checking for Nanolathe updates...') $true 'Update feedback precedes network work'
         $updateTest.Downloads += $Url
         if ($Url -ceq 'https://nanolathe.gg/install/release.txt') {
             Assert-Equal $TimeoutSeconds 3 'Manifest wait is bounded'
@@ -224,6 +233,7 @@ if (`$updateTest.Mode -eq 'new-game-failed') { throw 'Authored new game failed.'
         $global:LASTEXITCODE = 0
     }
     function Read-Host { return '' }
+    function Write-Host([string]$Object) { $updateTest.Messages += $Object }
     $testLauncher = (Get-NanolatheLauncher).Replace('& $exe ', '& Invoke-TestGame ')
     $environmentBefore = @{}
     foreach ($key in @('NANOLATHE_INSTALL_DIR', 'NANOLATHE_SKIP_UPDATE_CHECK', 'NANOLATHE_SETTINGS')) {
@@ -235,6 +245,7 @@ if (`$updateTest.Mode -eq 'new-game-failed') { throw 'Authored new game failed.'
             $updateTest.Mode = $mode
             $updateTest.Accept = $mode -notin @('unchanged', 'offline', 'malformed', 'missing-hash', 'decline')
             $updateTest.Downloads = @()
+            $updateTest.Messages = @()
             $updateTest.Offers = 0
             $updateTest.Installed = $false
             $updateTest.CurrentLaunches = 0
@@ -269,7 +280,110 @@ if (`$updateTest.Mode -eq 'new-game-failed') { throw 'Authored new game failed.'
         }
     } finally {
         foreach ($key in $environmentBefore.Keys) { [Environment]::SetEnvironmentVariable($key, $environmentBefore[$key], 'Process') }
+        Remove-Item function:Write-Host
     }
+
+    # Issue #112: exercise the generated launcher's real selection loop, both
+    # directly (post-install) and through the encoded Start Menu command. Only
+    # native game calls and console input are authored; any dialog is a failure.
+    & {
+        $firstRoot = Join-Path $base 'retail game'
+        $secondRoot = Join-Path $base "TA O'Brien & `$literal; [custom]"
+        $unusableRoot = Join-Path $base 'incomplete game'
+        foreach ($folder in @($firstRoot, $secondRoot, $unusableRoot)) { [void][IO.Directory]::CreateDirectory($folder) }
+        $remembered = Join-Path $base 'root.txt'
+        $selection = @{}
+        function Add-Type { $selection.Dialogs++; throw 'Game-folder selection must not open a dialog.' }
+        function Read-Host([string]$Prompt) {
+            if ($Prompt -eq 'Press Enter to close') { return '' }
+            $selection.Prompts += $Prompt
+            if ($selection.Answers.Count -eq 0) { throw 'Unexpected selection prompt.' }
+            return $selection.Answers.Dequeue()
+        }
+        function Write-Host([string]$Object) { $selection.Messages += $Object }
+        function Invoke-SelectionGame {
+            $global:LASTEXITCODE = 0
+            if ($args[0] -eq '--list-installs') {
+                Assert-Equal $selection.Messages[-1] 'Searching for Total Annihilation installations...' 'Discovery feedback precedes native scan'
+                $selection.Discoveries++
+                return $selection.Candidates
+            }
+            if ($args[0] -eq '--check-install') {
+                Assert-Equal $selection.Messages[-1] "Checking Total Annihilation game data: $($args[2])" 'Validation feedback precedes native check'
+                $selection.Checks += $args[2]
+                if ($args[2] -eq $unusableRoot) { $global:LASTEXITCODE = 1; return 'Authored unusable game data.' }
+                Assert-Equal ($args[2] -in @($firstRoot, $secondRoot)) $true 'Only the chosen folder is validated'
+                return
+            }
+            Assert-Equal $args[0] '--root' 'Game starts with one selected root'
+            Assert-Equal $args.Count 4 'Selection never overlays installations'
+            $selection.Launches += $args[1]
+        }
+        $selectionLauncher = (Get-NanolatheLauncher).Replace('& $exe ', '& Invoke-SelectionGame ')
+        [IO.File]::WriteAllText((Join-Path $old 'launch.ps1'), $selectionLauncher)
+        Write-NanolatheData (Join-Path $base 'current.txt') 'old-release'
+        Write-NanolatheData (Join-Path $base 'launch.ps1') (Get-NanolatheBootstrap)
+        $shortcutCommand = [Text.Encoding]::Unicode.GetString([Convert]::FromBase64String(((Get-NanolatheLaunchCommand) -split ' ')[-1]))
+        $skipBefore = $env:NANOLATHE_SKIP_UPDATE_CHECK
+        $settingsBefore = $env:NANOLATHE_SETTINGS
+        $env:NANOLATHE_SKIP_UPDATE_CHECK = '1'
+        $env:NANOLATHE_SETTINGS = 'authored-settings-before-selection'
+        try {
+            $cases = @(
+                @{ Name = 'post-install number'; Candidates = @($firstRoot, $secondRoot); Answers = @('2'); Expected = $secondRoot },
+                @{ Name = 'shortcut number'; Candidates = @($firstRoot, $secondRoot); Answers = @('1'); Expected = $firstRoot; Shortcut = $true },
+                @{ Name = 'bad numbers retry'; Candidates = @($firstRoot, $secondRoot); Answers = @('0', '3', '999999999999999999999', '2'); Expected = $secondRoot },
+                @{ Name = 'invalid folder retry'; Candidates = @($firstRoot, $unusableRoot); Answers = @('2', '1'); Expected = $firstRoot },
+                @{ Name = 'pasted quoted path'; Candidates = @(); Answers = @('  "' + $secondRoot + '"  '); Expected = $secondRoot },
+                @{ Name = 'pasted single-quoted path'; Candidates = @($firstRoot, $secondRoot); Answers = @("'" + $secondRoot + "'"); Expected = $secondRoot },
+                @{ Name = 'single usable folder'; Candidates = @($secondRoot); Answers = @(); Expected = $secondRoot },
+                @{ Name = 'single unusable folder'; Candidates = @($unusableRoot); Answers = @($firstRoot); Expected = $firstRoot },
+                @{ Name = 'cancel'; Candidates = @($firstRoot, $secondRoot); Answers = @(''); Expected = '' },
+                @{ Name = 'stale memory cancellation'; Candidates = @($firstRoot, $secondRoot); Answers = @(' '); Expected = ''; Remembered = $unusableRoot; Shortcut = $true },
+                @{ Name = 'stale memory replacement'; Candidates = @($firstRoot, $secondRoot); Answers = @('2'); Expected = $secondRoot; Remembered = $unusableRoot },
+                @{ Name = 'remembered choice'; Candidates = @(); Answers = @(); Expected = $secondRoot; Remembered = $secondRoot; Shortcut = $true }
+            )
+            foreach ($case in $cases) {
+                if ([IO.File]::Exists($remembered)) { [IO.File]::Delete($remembered) }
+                if ($case.ContainsKey('Remembered')) { Write-NanolatheData $remembered $case.Remembered }
+                $selection = @{
+                    Candidates = $case.Candidates; Answers = (New-Object Collections.Queue)
+                    Prompts = @(); Messages = @(); Checks = @(); Launches = @(); Discoveries = 0; Dialogs = 0
+                }
+                foreach ($answer in $case.Answers) { $selection.Answers.Enqueue($answer) }
+                if ($case.ContainsKey('Shortcut')) {
+                    $directoryBefore = [Environment]::CurrentDirectory
+                    try {
+                        [Environment]::CurrentDirectory = $base
+                        & ([scriptblock]::Create($shortcutCommand))
+                    } finally { [Environment]::CurrentDirectory = $directoryBefore }
+                }
+                else { & ([scriptblock]::Create($selectionLauncher)) -Base $base }
+                if ($case.ContainsKey('Shortcut')) { Assert-Equal $selection.Messages[0] 'Opening Nanolathe...' "$($case.Name): shortcut announces startup" }
+                Assert-Equal $selection.Prompts.Count $case.Answers.Count "$($case.Name): consumes expected choices"
+                Assert-Equal ($selection.Launches -join '') $case.Expected "$($case.Name): launches only selected data"
+                Assert-Equal $selection.Launches.Count ([int]($case.Expected -ne '')) "$($case.Name): starts once or cancels"
+                Assert-Equal $selection.Dialogs 0 "$($case.Name): never attempts a dialog"
+                Assert-Equal $env:NANOLATHE_SETTINGS 'authored-settings-before-selection' "$($case.Name): restores settings"
+                if ($case.Expected -ne '') {
+                    Assert-Equal ([IO.File]::ReadAllText($remembered)) $case.Expected "$($case.Name): remembers validated choice"
+                } elseif ($case.ContainsKey('Remembered')) {
+                    Assert-Equal ([IO.File]::ReadAllText($remembered)) $case.Remembered "$($case.Name): cancellation preserves memory"
+                } else { Assert-Equal ([IO.File]::Exists($remembered)) $false "$($case.Name): cancellation writes no memory" }
+                if ($selection.Prompts.Count -gt 0) {
+                    Assert-Equal $selection.Prompts[0].Contains('press Enter') $true "$($case.Name): explains how to submit"
+                    for ($i = 0; $i -lt $case.Candidates.Count; $i++) {
+                        Assert-Equal ($selection.Messages -contains ('  {0}) {1}' -f ($i + 1), $case.Candidates[$i])) $true "$($case.Name): numbers each installation"
+                    }
+                }
+                if ($case.Name -eq 'remembered choice') { Assert-Equal $selection.Discoveries 0 'Valid memory bypasses discovery and prompting' }
+            }
+        } finally {
+            $env:NANOLATHE_SKIP_UPDATE_CHECK = $skipBefore
+            $env:NANOLATHE_SETTINGS = $settingsBefore
+        }
+    }
+    & (Join-Path $PSScriptRoot 'test-shortcut.ps1')
     Write-Host 'Windows installer offline tests: OK'
 } finally {
     if ([IO.Directory]::Exists($base)) { Remove-Item -LiteralPath $base -Recurse -Force }

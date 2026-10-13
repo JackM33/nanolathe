@@ -164,6 +164,11 @@ func (s *Service) sharedStep(builder, target *units.Unit, quantum float32, tick 
 	forward := quantum >= 0 && !unordered
 	if forward {
 		raiseUnderConstructionWake(target)
+		// A Modern hold preserves the build's wake and queue while refusing
+		// both progress and its resource request (DESIGN_ECONOMY_CONSTRUCTION).
+		if builder != nil && s.Economy.ActivityHeld(builder.Owner, economy.ActivityConstruction) {
+			return false
+		}
 	}
 	// `if (worker == 0.0f) return notCommitted`, the compare an unordered
 	// quantum also takes [05 R-WORK-01 §11].
@@ -177,7 +182,10 @@ func (s *Service) sharedStep(builder, target *units.Unit, quantum float32, tick 
 		if builder == nil || s.Economy == nil {
 			return false
 		}
-		if !economy.AdmitTwoResource(s.Economy.UnitBuckets(builder.Handle), energy, metal) {
+		before := s.Economy.ActivitySnapshot(builder.Handle)
+		admitted := economy.AdmitTwoResource(s.Economy.UnitBuckets(builder.Handle), energy, metal)
+		s.Economy.ObserveActivity(builder, economy.ActivityConstruction, before)
+		if !admitted {
 			return false
 		}
 		health := target.Health + healthGain
@@ -241,6 +249,9 @@ func (StrictRules) RepairContribution(s *Service, builder, target *units.Unit, w
 	if s == nil || builder == nil || target == nil || target.Def == nil {
 		return false
 	}
+	if s.Economy.ActivityHeld(builder.Owner, economy.ActivityHealing) {
+		return false
+	}
 	def := target.Def
 	if def.MaxDamage <= int32(int16(target.Health)) {
 		return false
@@ -250,7 +261,10 @@ func (StrictRules) RepairContribution(s *Service, builder, target *units.Unit, w
 		return false
 	}
 	buckets := s.Economy.UnitBuckets(builder.Handle)
-	if !economy.AdmitOneResource(buckets, float32(energy)) {
+	before := s.Economy.ActivitySnapshot(builder.Handle)
+	admitted := economy.AdmitOneResource(buckets, float32(energy))
+	s.Economy.ObserveActivity(builder, economy.ActivityHealing, before)
+	if !admitted {
 		return false
 	}
 	if s.Combat == nil || s.World == nil {

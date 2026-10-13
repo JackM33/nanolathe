@@ -174,6 +174,21 @@ type System struct {
 	// It is rebuilt after load; exact record and unit identities prevent reuse.
 	repairLandings []*repairLanding
 
+	// airPilots and airThreats are the Modern aircraft pilots' transient
+	// state and each player's visible anti-air picture (air_tactics.go). They
+	// are never saved: a restored battle starts fresh pilots and rebuilds the
+	// picture on first use. The map is only ever keyed, never ranged [I1].
+	airPilots  map[pool.Handle]*airPilot
+	airThreats []airThreatPicture
+	airScratch []*units.Unit
+
+	// AirWind is the battle's wind, the same record combat drifts dropped
+	// projectiles by [06 §6.4]; Modern bombers read it to predict impacts.
+	AirWind *world.Wind
+	// AirBoard is the board Modern pilots post their attack targets on and
+	// Modern target choice reads, shared with combat by the session.
+	AirBoard *combat.AirBoard
+
 	// pathFailures is a publication diagnostic only. It never gates, counts, or
 	// schedules recovery; WantsRepath/LastRequestTick on Route own that state
 	// [04 R-MOV-01 §7][04 R-PATH-01 §8].

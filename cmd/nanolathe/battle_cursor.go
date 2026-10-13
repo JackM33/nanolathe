@@ -151,7 +151,7 @@ func (b *battleSession) overWorld(x, y int32) bool {
 	// battle child window this shell draws over the view, and without this test
 	// F1 pressed with the pointer over the open screen would resolve a unit
 	// behind it and rebuild the screen [07 R-HUD-03 §8].
-	if unitInfoCovers(x, y) {
+	if unitInfoCovers(x, y) || b.economyPanelCovers(x, y) {
 		return false
 	}
 	if b.hud != nil {

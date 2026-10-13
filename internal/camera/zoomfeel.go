@@ -28,10 +28,8 @@ const (
 	// notches in one frame travel further without queuing extra motion (§16.6).
 	ZoomWheelRatio = 1.25
 
-	// The snap band is proportional to the chosen lock. The native radius
-	// retains the default value for callers checking the 1x band (§16.6).
-	ZoomSnapPercent      = 15
-	ZoomNativeSnapRadius = ZoomUnit * ZoomSnapPercent / 100
+	// The wheel's snap band is proportional to the chosen lock (§16.6).
+	ZoomSnapPercent = 15
 
 	// ZoomEaseFraction is how much of the remaining gap the live factor closes
 	// per host Update. 0.50 closes 87.5% in three Updates, a tenth of a second

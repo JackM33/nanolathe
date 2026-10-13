@@ -89,7 +89,7 @@ func checkpointRuleFixture(entry, current gameplay.Mode) (*Session, checkpointRu
 	}}}
 	s.Movement = &movement.System{Rules: s.Rules.Movement, Kernel: s.Rules.Path,
 		Community: community.Features{GridClaimTieBreak: f.GridClaimTieBreak}}
-	s.Econ = &economy.Service{Community: community.Features{AIDifficultyIncome: f.AIDifficultyIncome}}
+	s.Econ = &economy.Service{Rules: s.Rules.Economy, Community: community.Features{AIDifficultyIncome: f.AIDifficultyIncome}}
 	step := checkpointModernStep{}
 	s.modernAI, s.modernAICheckpointWitness = step, ai.NewCheckpointModernPlanner(step)
 	for _, player := range []int{0, 9} {

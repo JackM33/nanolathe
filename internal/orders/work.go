@@ -542,6 +542,9 @@ func selfRepairHandler(u *units.Unit, n *Node, _ uint32, tick uint32) Code {
 		// The stamp precedes the repair step and lands on the PATIENT — the
 		// unit running this order — not on the repairer [04 R-ORD-01 §2]
 		// ("stamp nanolathe-active `tick + 150` on itself")[05 R-WORK-01 §3].
+		if queueEconomy(QueueForUnit(u)).ActivityHeld(repairer.Owner, economy.ActivityHealing) {
+			return deadlineHold(n, tick, 1)
+		}
 		stampNanolatheActive(u, tick, nanolatheStampRepair)
 		if accepted, bound := boundRepair(QueueForUnit(u), repairer, u, n, tick); !bound {
 			return 7
@@ -657,6 +660,9 @@ func repairUnitHandler(u *units.Unit, n *Node, satisfied uint32, tick uint32) Co
 		// The stamp precedes the helper call: "otherwise it pushes the
 		// builder's cloak deadline to `tick + 150`, calls the helper"
 		// [05 R-WORK-01 §3][04 R-ORD-01 §5].
+		if queueEconomy(QueueForUnit(u)).ActivityHeld(u.Owner, economy.ActivityHealing) {
+			return deadlineHold(n, tick, 1)
+		}
 		stampNanolatheActive(u, tick, nanolatheStampRepair)
 		if accepted, bound := boundRepair(QueueForUnit(u), u, target, n, tick); !bound {
 			return 7
@@ -717,6 +723,9 @@ func repairUnitNoMoveHandler(u *units.Unit, n *Node, _ uint32, tick uint32) Code
 		// "`RepairUnitNoMove` 36 is the same work visit with no approach phases
 		// and with only the null-target entry guard" — stamp included
 		// [05 R-WORK-01 §3][04 R-ORD-01 §5].
+		if queueEconomy(QueueForUnit(u)).ActivityHeld(u.Owner, economy.ActivityHealing) {
+			return deadlineHold(n, tick, 1)
+		}
 		stampNanolatheActive(u, tick, nanolatheStampRepair)
 		if accepted, bound := boundRepair(QueueForUnit(u), u, target, n, tick); !bound {
 			return 7
@@ -1228,6 +1237,9 @@ func reclaimHandler(u *units.Unit, n *Node, satisfied uint32, tick uint32) Code 
 	if !def.Reclaimable {
 		return 8 // abandon, silently
 	}
+	if n.Phase >= 4 && queueEconomy(QueueForUnit(u)).ActivityHeld(u.Owner, economy.ActivityReclaim) {
+		return deadlineHold(n, tick, 1)
+	}
 	switch n.Phase {
 	case 0:
 		if !hasMover(u) || u.Def == nil || !u.Def.CanReclamate {
@@ -1341,6 +1353,9 @@ func finishFeatureReclaim(u *units.Unit, cx, cz int) {
 	if econ == nil {
 		return
 	}
+	if econ.ActivityHeld(u.Owner, economy.ActivityReclaim) {
+		return
+	}
 	// The cell goes through the FEATURE SERVICE when the session bound one, so
 	// the transition of [05 R-FEAT-01 §5] runs: a definition naming
 	// `seqnamereclamate` plays that sequence and the feature phase stamps the
@@ -1364,7 +1379,9 @@ func finishFeatureReclaim(u *units.Unit, cx, cz int) {
 	if !ok {
 		return
 	}
+	before := econ.ActivitySnapshot(u.Handle)
 	econ.CreditFeatureReclaim(u.Handle, u.Owner, metal, energy)
+	econ.ObserveActivity(u, economy.ActivityReclaim, before)
 }
 
 // ---------------------------------------------------------------------------

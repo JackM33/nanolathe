@@ -47,6 +47,9 @@ func (b *battleSession) developerCommand(words []string) bool {
 	default:
 		return false
 	}
+	if b.developer.authorized && b.survivalBest != nil {
+		b.survivalBest.excluded = "developer controls enabled"
+	}
 	b.syncDeveloperView()
 	return true
 }
