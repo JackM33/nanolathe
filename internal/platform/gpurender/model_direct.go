@@ -457,6 +457,8 @@ func modelFrameLanes(ox, oy float32) (fx, fy int, fits bool) {
 // device sees the order the sequential lane gave it.
 func (r *Renderer) prepareModelDirect(l *drawlist.List) {
 	if !r.placeModelDirectFrame(l) {
+		// Nothing of this frame has drawn yet (upload_flush.go).
+		r.flushUploads()
 		return
 	}
 	d := &r.modelDirect
@@ -468,6 +470,14 @@ func (r *Renderer) prepareModelDirect(l *drawlist.List) {
 			d.ensurePage(int32(p))
 		}
 	}
+	// The parameter image is written here, and its upload queued with the
+	// surfaces', before the page passes or Replay draw anything of this frame
+	// (upload_flush.go).
+	d.params.upload()
+	if d.params.img != nil {
+		r.uploaded = append(r.uploaded, d.params.img)
+	}
+	r.flushUploads()
 	a := &d.pageAcct
 	a.stats, a.draws, a.lastDest = ModelStats{}, 0, r.lastDest
 	d.pagesPending = true
@@ -523,7 +533,6 @@ func (d *modelDirectLane) bindsModelPage(imgs *[4]*ebiten.Image) bool {
 func (r *Renderer) drawModelPages(fill *ebiten.Image) {
 	d := &r.modelDirect
 	a := &d.pageAcct
-	d.params.upload()
 	params := d.params.img
 	if params == nil {
 		params = fill

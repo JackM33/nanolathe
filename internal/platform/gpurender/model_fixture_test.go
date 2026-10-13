@@ -106,6 +106,7 @@ func (g *modelFixtureGame) Draw(screen *ebiten.Image) {
 		checkPausedCompositePixels,
 		checkFeatureShadowDevicePixels,
 		checkMinimapSurfaceDevicePixels,
+		checkUploadFlushDeviceAccounting,
 		checkFogDevicePixels,
 		checkWorldMarginDevicePixels,
 		checkRowScaleDevicePixels,

@@ -776,6 +776,14 @@ func (l *List) VisitSprites(visit func(Sprite)) {
 	}
 }
 
+// VisitSurfaces borrows the surface commands for synchronous read-only
+// preparation, in record order.
+func (l *List) VisitSurfaces(visit func(Surface)) {
+	for _, s := range l.surface {
+		visit(s)
+	}
+}
+
 // VisitLines borrows commands for synchronous read-only preparation.
 func (l *List) VisitLines(visit func(Line)) {
 	for _, line := range l.line {
