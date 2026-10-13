@@ -28,13 +28,17 @@ function Assert-ShortcutLaunch([string]$Path, [string]$Base, [string]$Release) {
     }
     $process = [Diagnostics.Process]::Start($start)
     try {
-        if (!$process -or !$process.WaitForExit(15000)) {
+        # Hosted ARM64 machines can take longer to cold-start Windows PowerShell.
+        if (!$process -or !$process.WaitForExit(60000)) {
             if ($process) { $process.Kill(); $process.WaitForExit() }
-            throw "Shortcut did not finish within 15 seconds: $Path"
+            throw "Shortcut did not finish within 60 seconds (sentinel exists: $([IO.File]::Exists($sentinel))): $Path"
         }
         Assert-ShortcutEqual $process.ExitCode 0 'Shortcut child exit code'
         if (![IO.File]::Exists($sentinel)) { throw "Shortcut did not write a sentinel: $Path" }
         Assert-ShortcutEqual ([IO.File]::ReadAllText($sentinel)) ($Base + "`n" + $Release) 'Shortcut selected Base and release'
+        $hostVersion = [IO.File]::ReadAllText((Join-Path $Base 'host-version.txt'))
+        if ($nativeWindows -and $hostVersion -notlike '5.1.*') { throw "Expected Windows PowerShell 5.1 child, got $hostVersion" }
+        Write-Host "Sentinel child PowerShell $hostVersion selected $Release"
     } finally { if ($process) { $process.Dispose() } }
 }
 
@@ -44,10 +48,12 @@ function Assert-SavedShortcut([string]$Path, [string]$Base, [string]$Release) {
     $link = $null
     $folder = $null
     $item = $null
+    $shellLink = $null
     try {
         $link = $wsh.CreateShortcut($Path)
         $folder = $shell.Namespace([IO.Path]::GetDirectoryName($Path))
         $item = $folder.ParseName([IO.Path]::GetFileName($Path))
+        $shellLink = $item.GetLink
         # GetArguments readers can truncate silently. Inspect the property store
         # as well as WSH, and still require an actual launch below (issue #117).
         $fullArguments = $item.ExtendedProperty('System.Link.Arguments')
@@ -55,17 +61,23 @@ function Assert-SavedShortcut([string]$Path, [string]$Base, [string]$Release) {
         Write-Host "Saved shortcut arguments: expected=$($expected.Length), WSH=$($link.Arguments.Length), property store=$($fullArguments.Length)"
         Assert-ShortcutEqual $fullArguments $expected 'Full stored shortcut arguments'
         Assert-ShortcutEqual $link.Arguments $expected 'Short arguments survive WSH readback'
-        Assert-ShortcutEqual $link.WorkingDirectory $Base 'Saved shortcut working directory'
+        # WSH's path getter can return a lossy ANSI spelling. Check the Shell
+        # link reader as well, then prove the path through actual execution.
+        Write-Host "Working directory readback: WSH=$($link.WorkingDirectory); Shell=$($shellLink.WorkingDirectory)"
+        Assert-ShortcutEqual $shellLink.WorkingDirectory $Base 'Saved shortcut working directory'
         Assert-ShortcutEqual $link.TargetPath (Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe') 'Saved shortcut target'
         Assert-ShortcutEqual $link.WindowStyle 1 'Saved shortcut has a visible console for folder selection'
         $iconPath = Join-Path (Join-Path (Join-Path $Base 'releases') $Release) 'Nanolathe.ico'
-        Assert-ShortcutEqual $link.IconLocation ($iconPath + ',0') 'Saved shortcut release icon'
+        $savedIconPath = ''
+        $savedIconIndex = $shellLink.GetIconLocation([ref]$savedIconPath)
+        Assert-ShortcutEqual $savedIconPath $iconPath 'Saved shortcut release icon'
+        Assert-ShortcutEqual $savedIconIndex 0 'Saved shortcut icon index'
         Add-Type -AssemblyName System.Drawing
         $icon = New-Object Drawing.Icon($iconPath)
         try { if ($icon.Width -le 0) { throw 'Windows could not load the icon.' } }
         finally { $icon.Dispose() }
     } finally {
-        foreach ($com in @($item, $folder, $link, $shell, $wsh)) {
+        foreach ($com in @($shellLink, $item, $folder, $link, $shell, $wsh)) {
             if ($com) { [void][Runtime.InteropServices.Marshal]::ReleaseComObject($com) }
         }
     }
@@ -94,6 +106,7 @@ try {
             [IO.File]::Copy((Join-Path $PSScriptRoot 'windows/Nanolathe.ico'), (Join-Path $directory 'Nanolathe.ico'))
             $fixture = @'
 param([string]$Base)
+[IO.File]::WriteAllText((Join-Path $Base 'host-version.txt'), $PSVersionTable.PSVersion.ToString())
 [IO.File]::WriteAllText((Join-Path $Base 'sentinel.txt'), ($Base + "`n" + 'RELEASE_NAME'))
 '@
             [IO.File]::WriteAllText((Join-Path $directory 'launch.ps1'), $fixture.Replace('RELEASE_NAME', $release))
