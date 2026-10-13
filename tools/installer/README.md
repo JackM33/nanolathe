@@ -82,9 +82,13 @@ Within the installation directory:
 The launcher validates and explicitly selects one content root. Several detected
 installations require a selection; they are not automatically overlaid. Missing
 or moved data triggers selection again. Mac app launches use a native picker;
-Terminal/Linux launches can prompt in the terminal; Windows offers a folder
-picker. Starting the installed `nanolathe` executable directly, without the
-shortcut, also uses the remembered folder while it still holds game data.
+Terminal/Linux launches can prompt in the terminal. Windows lists numbered
+installations in the PowerShell window: type a number or paste the full game-folder
+path, then press Enter. This prompt appears after installation and from the Start
+Menu shortcut when a choice is needed. Invalid choices can be retried; blank input
+cancels without changing the remembered folder. A single usable detected folder
+is selected automatically. Starting the installed `nanolathe` executable directly,
+without the shortcut, also uses the remembered folder while it still holds game data.
 `--check-install` validates startup mounts and required products, not
 every asset in the game. A later content error is recorded in the game log.
 
