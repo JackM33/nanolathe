@@ -66,6 +66,11 @@ func (r *Renderer) flushUploads() {
 		var opts ebiten.DrawTrianglesShaderOptions
 		n := copy(opts.Images[:], imgs)
 		imgs = imgs[n:]
+		// This private destination is a real pass and submission, so it must
+		// appear in the frame's diagnostics (DESIGN_GPU_RENDERER §11.5).
+		r.beginPass(r.uploadTarget)
+		r.recordSubmission(len(vertices), len(indices))
 		r.uploadTarget.DrawTrianglesShader32(vertices[:], indices[:], shader, &opts)
+		r.frameDraws++
 	}
 }

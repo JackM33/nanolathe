@@ -467,8 +467,6 @@ func (r *Renderer) prepareModelDirect(l *drawlist.List) {
 			d.ensurePage(int32(p))
 		}
 	}
-	a := &d.pageAcct
-	a.stats, a.draws, a.lastDest = ModelStats{}, 0, r.lastDest
 	// The parameter image is written here, and its upload queued with the
 	// surfaces', before the page passes or Replay draw anything of this frame
 	// (upload_flush.go).
@@ -477,6 +475,8 @@ func (r *Renderer) prepareModelDirect(l *drawlist.List) {
 		r.uploaded = append(r.uploaded, d.params.img)
 	}
 	r.flushUploads()
+	a := &d.pageAcct
+	a.stats, a.draws, a.lastDest = ModelStats{}, 0, r.lastDest
 	d.pagesPending = true
 	if d.pagesInline {
 		r.drawModelPages(fill)

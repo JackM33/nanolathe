@@ -57,3 +57,27 @@ func checkMinimapSurfaceDevicePixels() error {
 	}
 	return nil
 }
+
+// A durable surface submits a flush triangle before its scene quad. Both draws
+// and destinations belong in the frame diagnostics (DESIGN_GPU_RENDERER §11.5).
+func checkUploadFlushDeviceAccounting() error {
+	pal := fixturePalette()
+	r, err := NewChecked(&pal, 8, 6)
+	if err != nil {
+		return err
+	}
+	var list drawlist.List
+	list.RecordSurface(drawlist.Surface{Pixels: []byte{7}, SrcW: 1, SrcH: 1,
+		Dst: drawlist.Rect{W: 1, H: 1}, Identity: 17, Revision: 1})
+	list.RecordExpand()
+	if r.Execute(&list, 8, 6) == nil {
+		return fmt.Errorf("upload accounting fixture returned no image")
+	}
+	stats := r.ModelStats()
+	if r.DeviceDraws() != 2 || stats.DeviceDraws != 2 || stats.Passes != 2 ||
+		stats.SubmittedVertices != 7 || stats.SubmittedIndices != 9 {
+		return fmt.Errorf("upload flush accounting: draws=%d stats-draws=%d passes=%d vertices=%d indices=%d, want 2, 2, 2, 7, 9",
+			r.DeviceDraws(), stats.DeviceDraws, stats.Passes, stats.SubmittedVertices, stats.SubmittedIndices)
+	}
+	return nil
+}
