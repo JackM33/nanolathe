@@ -281,7 +281,7 @@ if (`$updateTest.Mode -eq 'new-game-failed') { throw 'Authored new game failed.'
         foreach ($folder in @($firstRoot, $secondRoot, $unusableRoot)) { [void][IO.Directory]::CreateDirectory($folder) }
         $remembered = Join-Path $base 'root.txt'
         $selection = @{}
-        function Add-Type { throw 'Game-folder selection must not open a dialog.' }
+        function Add-Type { $selection.Dialogs++; throw 'Game-folder selection must not open a dialog.' }
         function Read-Host([string]$Prompt) {
             if ($Prompt -eq 'Press Enter to close') { return '' }
             $selection.Prompts += $Prompt
@@ -333,7 +333,7 @@ if (`$updateTest.Mode -eq 'new-game-failed') { throw 'Authored new game failed.'
                 if ($case.ContainsKey('Remembered')) { Write-NanolatheData $remembered $case.Remembered }
                 $selection = @{
                     Candidates = $case.Candidates; Answers = (New-Object Collections.Queue)
-                    Prompts = @(); Messages = @(); Checks = @(); Launches = @(); Discoveries = 0
+                    Prompts = @(); Messages = @(); Checks = @(); Launches = @(); Discoveries = 0; Dialogs = 0
                 }
                 foreach ($answer in $case.Answers) { $selection.Answers.Enqueue($answer) }
                 if ($case.ContainsKey('Shortcut')) { & ([scriptblock]::Create($shortcutCommand)) }
@@ -341,6 +341,7 @@ if (`$updateTest.Mode -eq 'new-game-failed') { throw 'Authored new game failed.'
                 Assert-Equal $selection.Prompts.Count $case.Answers.Count "$($case.Name): consumes expected choices"
                 Assert-Equal ($selection.Launches -join '') $case.Expected "$($case.Name): launches only selected data"
                 Assert-Equal $selection.Launches.Count ([int]($case.Expected -ne '')) "$($case.Name): starts once or cancels"
+                Assert-Equal $selection.Dialogs 0 "$($case.Name): never attempts a dialog"
                 Assert-Equal $env:NANOLATHE_SETTINGS 'authored-settings-before-selection' "$($case.Name): restores settings"
                 if ($case.Expected -ne '') {
                     Assert-Equal ([IO.File]::ReadAllText($remembered)) $case.Expected "$($case.Name): remembers validated choice"
