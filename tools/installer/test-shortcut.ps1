@@ -1,9 +1,11 @@
-# No network, compiler, game, or real Start Menu changes. On Windows this opens
+# No network, Go compiler, game, or real Start Menu changes. Windows opens
 # real production-generated .lnk files; elsewhere only the child loader runs.
 [CmdletBinding()]
 param()
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'install.ps1')
+# Compile the interop even on portable hosts; COM execution remains Windows-only.
+Initialize-NanolatheShortcutInterop
 
 function Assert-ShortcutEqual($Actual, $Expected, [string]$Message) {
     if ($Actual -cne $Expected) { throw "$Message (actual: $Actual; expected: $Expected)" }
@@ -48,12 +50,11 @@ function Assert-SavedShortcut([string]$Path, [string]$Base, [string]$Release) {
     $link = $null
     $folder = $null
     $item = $null
-    $shellLink = $null
     try {
         $link = $wsh.CreateShortcut($Path)
         $folder = $shell.Namespace([IO.Path]::GetDirectoryName($Path))
         $item = $folder.ParseName([IO.Path]::GetFileName($Path))
-        $shellLink = $item.GetLink
+        $wide = [Nanolathe.WindowsShortcut]::Read($Path)
         # GetArguments readers can truncate silently. Inspect the property store
         # as well as WSH, and still require an actual launch below (issue #117).
         $fullArguments = $item.ExtendedProperty('System.Link.Arguments')
@@ -61,23 +62,20 @@ function Assert-SavedShortcut([string]$Path, [string]$Base, [string]$Release) {
         Write-Host "Saved shortcut arguments: expected=$($expected.Length), WSH=$($link.Arguments.Length), property store=$($fullArguments.Length)"
         Assert-ShortcutEqual $fullArguments $expected 'Full stored shortcut arguments'
         Assert-ShortcutEqual $link.Arguments $expected 'Short arguments survive WSH readback'
-        # WSH's path getter can return a lossy ANSI spelling. Check the Shell
-        # link reader as well, then prove the path through actual execution.
-        Write-Host "Working directory readback: WSH=$($link.WorkingDirectory); Shell=$($shellLink.WorkingDirectory)"
-        Assert-ShortcutEqual $shellLink.WorkingDirectory $Base 'Saved shortcut working directory'
-        Assert-ShortcutEqual $link.TargetPath (Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe') 'Saved shortcut target'
-        Assert-ShortcutEqual $link.WindowStyle 1 'Saved shortcut has a visible console for folder selection'
+        # WSH path getters can return a lossy ANSI spelling. Read through the
+        # Unicode interface, then prove the path through actual execution.
+        Write-Host "Working directory readback: WSH=$($link.WorkingDirectory); Unicode=$($wide.WorkingDirectory)"
+        Assert-ShortcutEqual $wide.WorkingDirectory $Base 'Saved shortcut working directory'
+        Assert-ShortcutEqual $wide.TargetPath (Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe') 'Saved shortcut target'
+        Assert-ShortcutEqual $wide.WindowStyle 1 'Saved shortcut has a visible console for folder selection'
         $iconPath = Join-Path (Join-Path (Join-Path $Base 'releases') $Release) 'Nanolathe.ico'
-        $savedIconPath = ''
-        $savedIconIndex = $shellLink.GetIconLocation([ref]$savedIconPath)
-        Assert-ShortcutEqual $savedIconPath $iconPath 'Saved shortcut release icon'
-        Assert-ShortcutEqual $savedIconIndex 0 'Saved shortcut icon index'
+        Assert-ShortcutEqual $wide.IconLocation ($iconPath + ',0') 'Saved shortcut release icon'
         Add-Type -AssemblyName System.Drawing
         $icon = New-Object Drawing.Icon($iconPath)
         try { if ($icon.Width -le 0) { throw 'Windows could not load the icon.' } }
         finally { $icon.Dispose() }
     } finally {
-        foreach ($com in @($shellLink, $item, $folder, $link, $shell, $wsh)) {
+        foreach ($com in @($item, $folder, $link, $shell, $wsh)) {
             if ($com) { [void][Runtime.InteropServices.Marshal]::ReleaseComObject($com) }
         }
     }

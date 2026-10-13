@@ -184,7 +184,9 @@ a separate publisher signature.
    Prior builds stay installed until the user removes them.
 
 `test-install.ps1` also runs `test-shortcut.ps1`. On native Windows this creates
-temporary production shortcuts and opens the saved `.lnk` through the shell.
+temporary production shortcuts and opens the saved `.lnk` through the shell
+in Windows PowerShell 5.1. Shortcut creation uses the Unicode `IShellLinkW`
+interface so both the link file name and its stored paths preserve Unicode.
 Authored release launchers write sentinels, so no game, network, or retail data
 is needed. It covers path quoting/Unicode, a long installation path within
 Windows PowerShell 5.1's ordinary path limits, shortcut refresh before release
