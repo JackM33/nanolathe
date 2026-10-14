@@ -42,8 +42,8 @@ import (
 // quantized (the battle light, the finish response) or integer-valued, and the
 // two agree; either way the hash must not move under a refactor of placement.
 var modelPlaceGolden = map[string]string{
-	"arm64": "1b1b6d12a5780d879f5e475d5cf18d0c499e047bb6b26ed1141fd7d62a6be3fa",
-	"amd64": "1b1b6d12a5780d879f5e475d5cf18d0c499e047bb6b26ed1141fd7d62a6be3fa",
+	"arm64": "7ff5c885dd3d4c56d58e8859020464b3f2100085eb3eb4e9de8c780580d4ef33",
+	"amd64": "7ff5c885dd3d4c56d58e8859020464b3f2100085eb3eb4e9de8c780580d4ef33",
 }
 
 // modelPlaceFrames is the scenario's frame count.

@@ -4,9 +4,11 @@ import (
 	"testing"
 
 	"github.com/nanolathe-gg/nanolathe/formats"
+	"github.com/nanolathe-gg/nanolathe/internal/camera"
 	"github.com/nanolathe-gg/nanolathe/internal/drawlist"
 	"github.com/nanolathe-gg/nanolathe/internal/frame"
 	"github.com/nanolathe-gg/nanolathe/internal/palette"
+	presentationrender "github.com/nanolathe-gg/nanolathe/internal/render"
 	"github.com/nanolathe-gg/nanolathe/internal/sim/numeric"
 )
 
@@ -217,5 +219,105 @@ func testFeatureModelIsRetainedAndKeyed(t *testing.T, id uint64) {
 	c.pruneCachedModelBodies(&frame.Frame{Tick: c.frameTick + featureRetainTicks + 1})
 	if c.cachedModelBodies[bodyKey] != nil {
 		t.Fatal("an aged-out feature body survived the prune")
+	}
+}
+
+// A 3DO feature keeps its projected shadow in the ordinary view and casts none
+// in the strategic view, where it would be a second full raster of every wreck
+// for a few pixels of shade (docs/DESIGN_GPU_RENDERER.md §16.10).
+func TestStrategicViewDropsFeatureModelShadows(t *testing.T) {
+	c := wreckFixtureClient(t)
+	c.shadows = true
+	f := frame.FeatureView{Model: "wreck", X: numeric.Fixed(100 << 16), Z: numeric.Fixed(100 << 16), Heading: 3000}
+	if g := recordFeature(t, c, f, true); g.Shadow == nil {
+		t.Fatal("the ordinary view's feature carries no shadow; the fixture proves nothing")
+	}
+	c.cam.Zoom = strategicModelCut
+	if g := recordFeature(t, c, f, true); g.Shadow != nil {
+		t.Fatal("the strategic view's feature still carries its model shadow")
+	}
+}
+
+// A strategic sprite's texel density is the smallest power of two at or above
+// twice the live factor, up to the level bound (DESIGN_GPU_RENDERER §16.13), and
+// only a retained feature with nothing per frame about it is offered.
+func TestFeatureSpriteLevel(t *testing.T) {
+	for _, tc := range []struct {
+		zoom camera.Zoom
+		want uint8
+	}{
+		{camera.ZoomUnit / 2, 1}, {camera.ZoomUnit / 4, 1}, {camera.ZoomUnit/4 - 1, 1},
+		{camera.ZoomUnit / 8, 2}, {123, 2}, {camera.ZoomUnit / 16, 3}, {camera.ZoomUnit / 32, 4}, {8, 4},
+	} {
+		if got := strategicSpriteLevel(tc.zoom); got != tc.want {
+			t.Errorf("zoom %d: level %d, want %d", tc.zoom, got, tc.want)
+		}
+	}
+	c := wreckFixtureClient(t)
+	f := frame.FeatureView{Model: "wreck", X: numeric.Fixed(100 << 16), Z: numeric.Fixed(100 << 16)}
+	if g := recordFeature(t, c, f, true); g.SpriteLevel != 0 {
+		t.Fatalf("the ordinary view offered a sprite at level %d", g.SpriteLevel)
+	}
+	c.cam.Zoom = camera.ZoomUnit / 8
+	if g := recordFeature(t, c, f, true); g.SpriteLevel != 2 {
+		t.Fatalf("the strategic view offered level %d, want 2", g.SpriteLevel)
+	}
+	if g := recordFeature(t, c, f, false); g.SpriteLevel != 0 {
+		t.Fatal("a packet projected per frame, with no retained key, was offered")
+	}
+}
+
+// An unchanged 3DO feature is recorded from its retained body without building
+// a draw (featureGeometryFast), and the packet is the full recording's: the
+// same faces and header at this frame's placement, the same retained shadow.
+// Every input of the record it skips — the orientation, the height a sinking
+// wreck falls through, the team colour, the Shading option, the shadow's cast
+// verdict — sends it back to the full path.
+func TestFeatureFastPathIsTheFullRecording(t *testing.T) {
+	c := wreckFixtureClient(t)
+	c.shadows = true
+	// Above the water, so it keeps casting its shadow as it sinks.
+	f := frame.FeatureView{Model: "wreck", X: numeric.Fixed(100 << 16), Y: numeric.Fixed(10 << 16), Z: numeric.Fixed(100 << 16), Heading: 3000}
+	record := func(want int, what string) *drawlist.ModelGeometry {
+		t.Helper()
+		g := recordFeature(t, c, f, true)
+		if c.modelScratch.drawNext != want {
+			t.Fatalf("%s built %d draws, want %d", what, c.modelScratch.drawNext, want)
+		}
+		return g
+	}
+	record(1, "the first recording")
+	// A scrolled view, so the fast packet's placement is this frame's own.
+	c.cam.X, c.cam.Z = c.cam.X+3, c.cam.Z+5
+	fast := record(0, "an unchanged feature").Clone()
+	if fast.Shadow == nil {
+		t.Fatal("the feature casts no shadow; the fixture proves nothing")
+	}
+	c.cachedModelBodies[featureBodyID(0, f.X, f.Z)].featureFastOK = false
+	if full := record(1, "a feature with no fast record"); !c.sameModelPacket(fast, full) {
+		t.Fatal("the fast path's packet is not the full recording's")
+	}
+
+	previousShading := presentationrender.Shading
+	t.Cleanup(func() { presentationrender.Shading = previousShading })
+	for _, change := range []struct {
+		name  string
+		apply func()
+	}{
+		{"a turned feature", func() { f.Heading += 100 }},
+		{"a sinking feature", func() { f.Y -= numeric.Fixed(1 << 16) }},
+		{"a recoloured feature", func() {
+			fr := c.buffer.BeginWrite()
+			fr.Players[0] = frame.PlayerRow{Present: true, Logo: 4}
+			if err := c.buffer.Publish(2); err != nil {
+				t.Fatal(err)
+			}
+		}},
+		{"the Shading option", func() { presentationrender.Shading = !presentationrender.Shading }},
+		{"the shadow switch", func() { c.shadows = false }},
+	} {
+		change.apply()
+		record(1, change.name)
+		record(0, change.name+", unchanged again")
 	}
 }

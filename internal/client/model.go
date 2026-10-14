@@ -267,6 +267,27 @@ func (c *Client) drawFeatureModel(f frame.FeatureView) bool {
 	if m == nil || m.compiled == nil || c.cam == nil {
 		return false
 	}
+	// A structure-class pseudo-unit reaches the structure shadow branch, which
+	// re-rasterizes the model and caches the punched result. Its gate is the
+	// master shadow bit plus the branch's own ordinal-0 waterline suppression,
+	// so a wreck at or above the waterline casts a building-shaped shadow and a
+	// submerged one casts none [03 R-REN-03D §1][03 R-RAST-01 §4]. The strategic
+	// view drops it (DESIGN_GPU_RENDERER §16.10): a few pixels of shadow cost a
+	// second full raster of every wreck in view.
+	castsShadow := c.featureCastsModelShadow(f.Y) && !c.strategicView()
+	// The nanoframe reveal is a construction-fraction contract; a sinking
+	// feature is not an unfinished unit and takes the ordinary model path.
+	// The cleared pseudo-unit retains owner slot zero through each feature
+	// draw; its LOGOS faces read that player's current colour [03 R-RAST-01 §3].
+	selector := c.featureTeamColor()
+	// A feature whose record has not changed since it was last recorded in
+	// full is recorded from its retained body without building a draw.
+	if c.geometryOnlyModels {
+		if g := c.featureGeometryFast(f, m.compiled, selector, castsShadow); g != nil {
+			c.recordFeatureGeometry(g, f)
+			return true
+		}
+	}
 	// The pseudo-unit is filled with "model pointer, position and the slot's
 	// orientation words" [03 R-RAST-01 §6], so the committed record's triple
 	// goes in exactly where drawUnitModel puts a unit's — heading, pitch, bank.
@@ -285,7 +306,16 @@ func (c *Client) drawFeatureModel(f frame.FeatureView) bool {
 	// renderer exactly while the `Shading` display option is on, and unshaded
 	// when the player clears it [03 R-RND-02A]. The standalone constructor
 	// ignored that option and shaded a wreck either way.
-	draw := presentationrender.BuildUnitDrawInto(m.compiled, nil, f.Heading, f.Pitch, f.Bank,
+	// A geometry recording leaves the pieces unbuilt: a feature whose retained
+	// lane and shadow are current reads none of them, and featureGeometry
+	// materializes the whole model before anything that does. Building every
+	// piece of every wreck on every frame was most of a zoomed-out frame's
+	// recording.
+	build := presentationrender.BuildUnitDrawInto
+	if c.geometryOnlyModels {
+		build = presentationrender.BuildUnitDrawDeferredInto
+	}
+	draw := build(m.compiled, nil, f.Heading, f.Pitch, f.Bank,
 		frame.UnitView{X: f.X, Y: f.Y, Z: f.Z}, nil, c.borrowDrawScratch())
 	if draw == nil {
 		return false
@@ -294,32 +324,30 @@ func (c *Client) drawFeatureModel(f frame.FeatureView) bool {
 	// structure class bit and the height-plane bit unconditionally at
 	// construction, so 3DO wrecks anti-alias like buildings [R-REN-03A §2].
 	draw.Structure, draw.KeyPlane = true, true
-	// A structure-class pseudo-unit reaches the structure shadow branch, which
-	// re-rasterizes the model and caches the punched result. Its gate is the
-	// master shadow bit plus the branch's own ordinal-0 waterline suppression,
-	// so a wreck at or above the waterline casts a building-shaped shadow and a
-	// submerged one casts none [03 R-REN-03D §1][03 R-RAST-01 §4].
-	draw.CastsShadow = c.featureCastsModelShadow(f.Y)
+	draw.CastsShadow = castsShadow
 	// The shadow shears by the terrain height under the subject rather than by
 	// the subject's own height, which is what slides it across a slope
 	// [03 R-REN-03D §3]. Without this the feature shadow would shear against
 	// world height zero, as the unit path's own GroundY assignment avoids.
 	draw.GroundY = c.groundHeightUnder(f.X, f.Z)
-	// The nanoframe reveal is a construction-fraction contract; a sinking
-	// feature is not an unfinished unit and takes the ordinary model path.
-	// The cleared pseudo-unit retains owner slot zero through each feature
-	// draw; its LOGOS faces read that player's current colour [03 R-RAST-01 §3].
-	selector := c.featureTeamColor()
 	if c.geometryOnlyModels {
 		g := c.prepareModelGeometry(draw, 0, selector, featurePresentationID(f), modelCursorFeature, nil, 0)
 		if g == nil {
 			return false
 		}
-		c.applyWreckHeat(g, f)
-		c.list.RecordModel(drawlist.Model{Geometry: g})
+		c.noteFeatureFast(f, draw, g)
+		c.recordFeatureGeometry(g, f)
 		return true
 	}
 	return c.drawModel(draw, 0, selector, featurePresentationID(f), modelCursorFeature, nil, 0)
+}
+
+// recordFeatureGeometry records a 3DO feature's packet with its per-frame
+// presentation: the wreck's heat and the strategic sprite offer.
+func (c *Client) recordFeatureGeometry(g *drawlist.ModelGeometry, f frame.FeatureView) {
+	c.applyWreckHeat(g, f)
+	g.SpriteLevel = c.featureSpriteLevel(g)
+	c.list.RecordModel(drawlist.Model{Geometry: g})
 }
 
 func (c *Client) drawProjectileModel(p frame.ProjectileView) bool {

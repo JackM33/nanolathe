@@ -438,11 +438,20 @@ func (r *Renderer) Terrain(c drawlist.Terrain) {
 	if r.sched.worldOn {
 		filter = 1
 	}
-	// TODO(question): below the strategic threshold the 1x tiles are sampled
-	// down by the world transform, nearest, one tile quad at a time
-	// (DESIGN_GPU_RENDERER §16.10). A half-resolution tile set would sample
-	// better and cost a quarter of the atlas; whether the load-time synthesis
-	// is worth it is unmeasured, so this draws the 1x set for now.
+	// In the strategic view the record offers the map at the density it is
+	// seen, drawn as one quad from the tile set averaged down to it (§16.15).
+	// Every other frame of the modern view, at either view scale, starts that
+	// build early, so the strategic view finds it done.
+	if c.Level == 0 && !r.sparseTerrain {
+		r.terrainLevelSet(t, tileMapW, tileMapH, false)
+	}
+	if c.Level != 0 && r.terrainLevel(c, dstW, dstH) {
+		r.drawWaterBed(c)
+		r.drawWater(c)
+		r.drawWaterReflections(c)
+		r.drawGroundLighting()
+		return
+	}
 
 	// Visible tile range. Screen column c shows world pixel originX +
 	// Inverse(c), the inverse the camera's ScreenToWorld computes (§14.2), so

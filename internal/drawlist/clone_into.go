@@ -72,6 +72,7 @@ func (l *List) CloneInto(dst *List) {
 	dst.flash = append(dst.flash[:0], l.flash...)
 	dst.halo = append(dst.halo[:0], l.halo...)
 	dst.lens = append(dst.lens[:0], l.lens...)
+	dst.featureLayers = append(dst.featureLayers[:0], l.featureLayers...)
 	dst.surfaceWakes = resizeClone(dst.surfaceWakes, len(l.surfaceWakes))
 	for i, wakes := range l.surfaceWakes {
 		dst.surfaceWakes[i] = SurfaceWakes{Marks: appendOwned(dst.surfaceWakes[i].Marks, wakes.Marks)}

@@ -128,7 +128,16 @@ func (r *Renderer) resetSources(release func(*ebiten.Image)) {
 	// use, and survive like the output surfaces.
 	r.reflections = waterReflections{disabled: r.reflections.disabled, sourceShader: r.reflections.sourceShader, resolveShader: r.reflections.resolveShader, softResolveShader: r.reflections.softResolveShader,
 		source: r.reflections.source, height: r.reflections.height}
-	r.modelDirect = modelDirectLane{shared: r.modelDirect.shared, keyShader: r.modelDirect.keyShader, colourShader: r.modelDirect.colourShader, shaderErr: r.modelDirect.shaderErr, groups: modelGroupMergeLane{shader: r.modelDirect.groups.shader}}
+	for _, p := range r.modelDirect.sprites.pages {
+		retire(p.img)
+	}
+	for _, p := range r.layers.pages {
+		retire(p.img)
+	}
+	r.terrainLevels.release(retire)
+	r.terrainLevels = terrainLevelSet{}
+	r.layers = featureLayerStore{shader: r.layers.shader, shaderErr: r.layers.shaderErr}
+	r.modelDirect = modelDirectLane{shared: r.modelDirect.shared, keyShader: r.modelDirect.keyShader, colourShader: r.modelDirect.colourShader, shaderErr: r.modelDirect.shaderErr, groups: modelGroupMergeLane{shader: r.modelDirect.groups.shader}, sprites: modelSpriteStore{shader: r.modelDirect.sprites.shader}}
 	for i, pg := range pages {
 		r.modelDirect.pages[i] = modelDirectPage{key: pg.key, colour: pg.colour}
 	}

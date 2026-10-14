@@ -4,6 +4,7 @@ import (
 	"github.com/nanolathe-gg/nanolathe/internal/drawlist"
 	"github.com/nanolathe-gg/nanolathe/internal/frame"
 	presentationrender "github.com/nanolathe-gg/nanolathe/internal/render"
+	"github.com/nanolathe-gg/nanolathe/internal/sim/numeric"
 
 	"slices"
 )
@@ -143,16 +144,22 @@ func (c *Client) setModelLightingHeight(g *drawlist.ModelGeometry, draw *present
 	if g == nil || draw == nil {
 		return
 	}
+	c.setModelLightingHeightAt(g, draw.WorldPos, draw.GroundY, draw.Airborne)
+}
+
+// setModelLightingHeightAt is setModelLightingHeight for a body standing at
+// pos over groundY.
+func (c *Client) setModelLightingHeightAt(g *drawlist.ModelGeometry, pos [3]numeric.Fixed, groundY numeric.Fixed, airborne bool) {
 	scale := float32(c.modelScale().Float())
-	g.WorldHeight = float32(draw.WorldPos[1].Raw()) / 65536 * scale
+	g.WorldHeight = float32(pos[1].Raw()) / 65536 * scale
 	g.AircraftShadowHeight, g.AircraftShadowScale = 0, scale
 	// A zero clearance selects the ordinary silhouette route, which is the
 	// shadow the player's soft shadow switch asks for when it is off (§34).
-	if c.enhanced && draw.Airborne && c.effects.SoftShadows {
-		receiver := max(draw.GroundY, c.seaLevel())
-		g.AircraftShadowHeight = max(0, float32(draw.WorldPos[1].Sub(receiver).Raw())/65536*scale)
+	if c.enhanced && airborne && c.effects.SoftShadows {
+		receiver := max(groundY, c.seaLevel())
+		g.AircraftShadowHeight = max(0, float32(pos[1].Sub(receiver).Raw())/65536*scale)
 	}
-	g.ReflectWater = c.reflectionWaterAt(draw.WorldPos[0], draw.WorldPos[2])
+	g.ReflectWater = c.reflectionWaterAt(pos[0], pos[2])
 	g.ReflectionSea = float32(c.seaLevel().Raw()) / 65536 * scale
 	if g.Supersample != nil {
 		g.Supersample.WorldHeight = g.WorldHeight
@@ -361,14 +368,24 @@ func (c *Client) prepareModelGeometry(draw *presentationrender.UnitDraw, owner u
 // the rebase and configureModelGeometryFor each frame, exactly as for a
 // unit. The rebased packet is therefore the packet the per-frame projection
 // builds, corner for corner (verified by the battle capture).
+//
+// draw may be deferred (drawFeatureModel): its pieces are materialized here
+// before the projection, the per-frame fallback or a shadow re-projection
+// reads them, and a frame that only rebases the retained lane and shadow
+// builds none.
 func (c *Client) featureGeometry(draw *presentationrender.UnitDraw, selector teamColor, id uint64) (*drawlist.ModelGeometry, bool) {
-	if draw == nil || draw.Model == nil || !c.modelScratch.active || !shadowPoseComplete(draw) || c.modelHasAnimatedTexture(draw.Model) {
+	if draw == nil {
+		return nil, false
+	}
+	if draw.Model == nil || !c.modelScratch.active || !shadowPoseComplete(draw) || c.modelHasAnimatedTexture(draw.Model) {
+		draw.Materialize(presentationrender.PieceLaneAll)
 		return nil, false
 	}
 	key := featureBodyID(id, draw.WorldPos[0], draw.WorldPos[2])
 	body := c.cachedBody(key)
 	in := c.featureBodyInputs(draw, selector)
 	if body == nil || body.geometry == nil || body.featureInputs != in || !slices.Equal(body.featurePose, draw.PieceStates) {
+		draw.Materialize(presentationrender.PieceLaneAll)
 		w, h, ox, oy, visible := c.projectedModelExtent(draw, presentationrender.PieceLaneAll, false)
 		if !visible {
 			return nil, true
@@ -389,11 +406,38 @@ func (c *Client) featureGeometry(draw *presentationrender.UnitDraw, selector tea
 	ax, ay, hx, hy := c.modelPlacement(draw)
 	g := c.rebaseRetained(&body.store, src, src.Width, src.Height, src.OriginX, src.OriginY, ax, ay, hx, hy)
 	if g == nil {
+		draw.Materialize(presentationrender.PieceLaneAll)
 		return nil, false
 	}
 	g.Cache = body.cacheKey(hx, hy)
-	c.configureModelGeometryFor(body, g, draw, 0, modelCursorFeature, nil, 0)
+	if !c.retainedShadowReusable(body, draw) {
+		draw.Materialize(presentationrender.PieceLaneAll)
+	}
+	c.configureFeatureGeometry(body, g, draw.WorldPos, draw.GroundY, draw)
 	return g, true
+}
+
+// configureFeatureGeometry is configureModelGeometryFor for a 3DO feature's
+// retained packet. The feature-backed pseudo-unit is structure class, keyed,
+// grounded and never a Digger, and has no reveal or outline; its submerged part
+// is always tinted [03 R-RAST-01 §6]. So it reads only the feature's position,
+// the ground under it and its retained shadow. With a draw, a stale shadow is
+// projected again from the draw's pose (retainedShadowGeometry); without one
+// (featureGeometryFast) the caller has established the retained shadow is
+// current, and it is placed as it stands.
+func (c *Client) configureFeatureGeometry(body *cachedModelBody, g *drawlist.ModelGeometry, pos [3]numeric.Fixed, groundY numeric.Fixed, draw *presentationrender.UnitDraw) {
+	c.setModelLightingHeightAt(g, pos, groundY, false)
+	if g.KeyPlane {
+		if threshold, submerged := waterlineThreshold(c.seaLevel(), pos[1], false); submerged {
+			g.Waterline, g.WaterlineKey = drawlist.ModelWaterlineBlue, threshold
+		}
+		g.Digger, g.DiggerKey = false, uint8(diggerEraseThreshold)
+	}
+	if draw != nil {
+		g.Shadow = c.retainedShadowGeometry(body, draw)
+		return
+	}
+	g.Shadow = c.rebasedShadow(body, pos[0], groundY, pos[2])
 }
 
 // unitGeometryPair records the native counterpart of the retained classic

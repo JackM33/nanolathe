@@ -283,6 +283,12 @@ type ModelGeometry struct {
 	// Cache identifies the retained cached-lane raster this packet carries, or
 	// is zero when the packet is not reusable across frames (§13.12).
 	Cache ModelCacheKey
+	// SpriteLevel, when nonzero, offers the packet to the strategic view's
+	// sprites (DESIGN_GPU_RENDERER §16.13): the recorder vouches that its
+	// committed look holds while Cache holds, and an executor may draw it from
+	// a retained image at 2^-SpriteLevel texels per record pixel instead of
+	// rasterizing it. Zero is every other packet.
+	SpriteLevel uint8
 }
 
 // Clone returns a packet with independently owned face and vertex slices.

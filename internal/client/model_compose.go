@@ -642,10 +642,15 @@ func (c *Client) modelAnchorDoubled(pos [3]numeric.Fixed) (ax, ay, hx, hy int32)
 // geometry: the doubled placement when the subject is supersampled, retail's
 // anchor with no offset otherwise.
 func (c *Client) modelPlacement(draw *presentationrender.UnitDraw) (ax, ay, hx, hy int32) {
+	return c.modelPlacementAt(draw.WorldPos)
+}
+
+// modelPlacementAt is modelPlacement for a body standing at pos.
+func (c *Client) modelPlacementAt(pos [3]numeric.Fixed) (ax, ay, hx, hy int32) {
 	if c.supersampleGeometry() {
-		return c.modelAnchorDoubled(draw.WorldPos)
+		return c.modelAnchorDoubled(pos)
 	}
-	ax, ay = c.modelAnchor(draw)
+	ax, ay = c.modelAnchorAt(pos)
 	return ax, ay, 0, 0
 }
 
@@ -653,11 +658,16 @@ func (c *Client) modelPlacement(draw *presentationrender.UnitDraw) (ax, ay, hx, 
 // and the five-pixel X offset of shadowAnchor applies to the whole pixel
 // [R-REN-03D §3].
 func (c *Client) shadowPlacement(draw *presentationrender.UnitDraw) (ax, ay, hx, hy int32) {
+	return c.shadowPlacementAt(draw.WorldPos[0], draw.GroundY, draw.WorldPos[2])
+}
+
+// shadowPlacementAt is shadowPlacement for the ground point (x, groundY, z).
+func (c *Client) shadowPlacementAt(x, groundY, z numeric.Fixed) (ax, ay, hx, hy int32) {
 	if c.supersampleGeometry() {
-		ax, ay, hx, hy = c.modelAnchorDoubled([3]numeric.Fixed{draw.WorldPos[0], draw.GroundY, draw.WorldPos[2]})
+		ax, ay, hx, hy = c.modelAnchorDoubled([3]numeric.Fixed{x, groundY, z})
 		return ax + c.viewScale().Px(shadowXOffset), ay, hx, hy
 	}
-	ax, ay = c.shadowAnchor(draw)
+	ax, ay = c.shadowAnchorAt(x, groundY, z)
 	return ax, ay, 0, 0
 }
 
@@ -1063,10 +1073,18 @@ func (c *Client) recordModelGeometryOnly(draw *presentationrender.UnitDraw, owne
 // lands on. Position enters the model path here and nowhere else
 // [03 §5.2][R-REN-03A §1].
 func (c *Client) modelAnchor(draw *presentationrender.UnitDraw) (int32, int32) {
-	if c == nil || c.cam == nil || draw == nil {
+	if draw == nil {
 		return 0, 0
 	}
-	sx, sy := c.cam.WorldToScreen(draw.WorldPos[0], draw.WorldPos[1], draw.WorldPos[2])
+	return c.modelAnchorAt(draw.WorldPos)
+}
+
+// modelAnchorAt is modelAnchor for a body standing at pos.
+func (c *Client) modelAnchorAt(pos [3]numeric.Fixed) (int32, int32) {
+	if c == nil || c.cam == nil {
+		return 0, 0
+	}
+	sx, sy := c.cam.WorldToScreen(pos[0], pos[1], pos[2])
 	return sx - camera.OriginX, sy - camera.OriginY
 }
 

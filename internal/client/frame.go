@@ -311,7 +311,7 @@ func (c *Client) drawTerrainPrep() {
 		// scale it was projected at and the 2x tile set when one is installed, so
 		// an executor that cannot reach client state builds the same picture
 		// (DESIGN_GPU_RENDERER §14.2, §14.3).
-		c.emitTerrain(drawlist.Terrain{
+		t := drawlist.Terrain{
 			Water:   c.waterSurfaceMetadata(),
 			Terrain: c.terrain,
 			Cam:     c.cam,
@@ -321,7 +321,13 @@ func (c *Client) drawTerrainPrep() {
 			DstH:    int32(recH),
 			Scale:   c.viewScale(),
 			Detail:  c.detailTiles(),
-		})
+		}
+		// The strategic view offers the map at the density it is seen
+		// (DESIGN_GPU_RENDERER §16.15).
+		if c.strategicLayersApply() {
+			t.Level = strategicTerrainLevel(c.liveZoom())
+		}
+		c.emitTerrain(t)
 	}
 	// A frontend without terrain remains the cleared indexed surface. Retail
 	// does not define a synthetic gradient fallback [I9].

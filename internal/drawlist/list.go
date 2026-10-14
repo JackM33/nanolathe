@@ -569,6 +569,12 @@ type Terrain struct {
 	// immutable after load, so Clone copies the slice header and shares the
 	// tiles [I6].
 	Detail [][DetailTilePixels]byte
+	// Level, when nonzero, offers the strategic view's terrain at 2^-Level
+	// texels per record pixel (DESIGN_GPU_RENDERER §16.15): an executor that
+	// keeps the tile set averaged down to that density draws the map from it
+	// instead of one quad per tile. It is additive: an executor that ignores
+	// it draws the tiles.
+	Level uint8
 }
 
 // DetailTilePixels is the pixel count of one detail tile slot, 64x64, the
@@ -616,6 +622,7 @@ const (
 	familySurfaceWakes
 	familyScorchMarks
 	familyLens
+	familyFeatureLayer
 )
 
 // tag is one ordering entry: which family, and which element of that family's
@@ -650,6 +657,9 @@ type List struct {
 	surfaceWakes []SurfaceWakes
 	scorchMarks  []ScorchMarks
 	lens         []Lens
+	// featureLayers' Items are shared, never copied: the recorder does not
+	// write a recorded slice again (FeatureLayer).
+	featureLayers []FeatureLayer
 
 	classicImages    []*ClassicModelImage
 	classicImageNext int
@@ -875,6 +885,8 @@ func (l *List) Reset() {
 	l.flash = l.flash[:0]
 	l.halo = l.halo[:0]
 	l.lens = l.lens[:0]
+	clear(l.featureLayers)
+	l.featureLayers = l.featureLayers[:0]
 	clear(l.surfaceWakes)
 	l.surfaceWakes = l.surfaceWakes[:0]
 	clear(l.scorchMarks)
@@ -896,6 +908,7 @@ func (l *List) Replay(s Sink) {
 	// (docs/DESIGN_GPU_RENDERER.md §16.3).
 	world, _ := s.(WorldSink)
 	markers, _ := s.(MarkerSink)
+	layers, _ := s.(FeatureLayerSink)
 	for _, t := range l.order {
 		switch t.fam {
 		case familyClear:
@@ -950,6 +963,8 @@ func (l *List) Replay(s Sink) {
 			if lenses != nil {
 				lenses.Lens(l.lens[t.idx])
 			}
+		case familyFeatureLayer:
+			replayFeatureLayer(s, layers, l.featureLayers[t.idx])
 		}
 	}
 }
@@ -1027,6 +1042,7 @@ func (l *List) Clone() List {
 	c.flash = append([]Flash(nil), l.flash...)
 	c.halo = append([]Halo(nil), l.halo...)
 	c.lens = append([]Lens(nil), l.lens...)
+	c.featureLayers = append([]FeatureLayer(nil), l.featureLayers...)
 	c.surfaceWakes = make([]SurfaceWakes, len(l.surfaceWakes))
 	for i, wakes := range l.surfaceWakes {
 		c.surfaceWakes[i] = SurfaceWakes{Marks: append([]SurfaceWake(nil), wakes.Marks...)}

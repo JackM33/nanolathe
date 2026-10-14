@@ -2541,7 +2541,7 @@ A 3DO feature — a wreck, or a map-authored model feature — is retained the w
 unit's cached lane is: its projected faces are stored beside an identity and
 rebased onto this frame's placement, so its packet carries a key and the
 recorder projects the model only when an input of the projection changes
-(`featureGeometry`, `internal/client/model_cached_live.go`). The inputs are
+(`featureGeometry`, `internal/client/model_geometry.go`). The inputs are
 exactly the unit lane's: the model by name, the folded piece pose — which is
 what carries a corpse's orientation triple [03 R-RAST-01 §6] — the published team
 colour for LOGOS faces, the shading option, the supersample gate, the view
@@ -2553,6 +2553,28 @@ corner. The retained path is not taken, and the per-frame projection kept, for a
 draw with no frame arena, a pose that does not describe every piece, or a model
 with an **animated** texture, whose frames the per-frame walk advances and a
 retained lane would freeze.
+
+The geometry recording builds a feature's draw **deferred**, as it does a
+unit's (`render.BuildUnitDrawDeferredInto`): the pose, the transforms and the
+piece headers are complete, and the pieces' corners, shade rows and primitives
+are built only before something reads them — the projection, the per-frame
+fallback, or a structure shadow whose retained projection is stale. A feature
+whose retained lane and shadow are both current builds no piece. Building every
+wreck's pieces eagerly was about three quarters of a zoomed-out battle frame's
+recording (12.0 → 5.1 ms for 2,700 wrecks at 0.12×).
+
+A feature whose record is unchanged builds **no draw at all**
+(`featureGeometryFast`). After a full recording takes the retained path, the
+body keeps the record it was recorded from — the compiled model, the
+orientation triple, the position, the shadow's cast verdict and the `Shading`
+option, which with the model and the pose decides the shade verdict the body's
+inputs hold. A later frame whose record, projection inputs and shadow inputs
+still match takes the body's lane and retained shadow as they stand, rebased at
+this frame's placement and configured from the same position by the same
+function the full path uses (`configureFeatureGeometry`); any difference takes
+the full path. A wreck lies where it fell, so this is nearly every wreck on
+nearly every frame: on a 1,900-wreck battle at 0.12× in a 1600×1034 window the
+recording fell from 4.1 to 3.3 ms and the frame rate from about 109 to 119.
 
 The identity is the **map position**, because the session publishes no feature
 `InstanceID` (§35): one feature stands at a cell and never moves off its anchor
@@ -3440,7 +3462,8 @@ tile atlas's own border, so they need no clamp of their own, and the choice ride
 a vertex lane rather than a second shader, so the terrain still merges into the
 frame's own opaque run. At a rest step the lane is zero and the fetch is the
 nearest one this pass has always made, which is what keeps the §6 parity gate
-exact. The fog atlas stays nearest.
+exact. In the strategic view the terrain is drawn from its averaged levels
+instead (§16.15). The fog atlas stays nearest.
 
 **Fractional-zoom filtering (2026-09-30).** Between 1× and 2×,
 keyed and tinted world sprites resolve each of four texels through PAL and
@@ -3798,27 +3821,33 @@ free passage through native, settings changes, overview return and mode bypass.
 | 2× … 1× | everything, recorded at the 2× step |
 | 1× … 0.625× | everything, recorded at the 1× step |
 | 0.625× … 0.5× (exclusive) | everything, plus the marker/icon layer fading in |
-| 0.5× and below | terrain, fog, features and their shadows, selection fills, the build ghost and queue overlay, drag rectangle, dotted paths, icons |
+| 0.5× and below | terrain, fog, features (sprite shadows, no 3DO model shadows), selection fills, the build ghost and queue overlay, drag rectangle, dotted paths, icons |
 
 ### 16.10 What the strategic view drops — contract Z7
 
 At and below `strategicModelCut` (0.5×) — inclusive, so the 0.25× tactical target
 is a marker view — or at the clamped Enhanced tactical stop of §16.7, the
 recorder does not emit unit models, projectiles, effect strips, trails, unit
-labels or health bars. Terrain, fog, **the features** — sprite and 3DO alike,
-with their shadows — the selection quad, the build ghost, the order-queue
-overlay, the drag rectangle and the dotted paths still record: they are the map,
-and the map is what the strategic view is for. Features were originally dropped
-with the units; a play test found that jarring and it is — a marker stands in for
-a unit and nothing stands in for a rock, a tree or a wreck, so the map lost its
-landmarks at exactly the factor a player pulls out to read them by.
+labels or health bars. Terrain, fog, **the features** — sprite and 3DO alike —
+the selection quad, the build ghost, the order-queue overlay, the drag rectangle
+and the dotted paths still record: they are the map, and the map is what the
+strategic view is for. Features were originally dropped with the units; a play
+test found that jarring and it is — a marker stands in for a unit and nothing
+stands in for a rock, a tree or a wreck, so the map lost its landmarks at exactly
+the factor a player pulls out to read them by.
 
-Terrain below 0.5× is the 1× tile set sampled down by the transform.
-`TODO(question)`: a half-resolution tile set would sample better and cost a
-quarter of the atlas; whether the load-time cost is worth it is unmeasured. The
-recorder emits many more tiles and fog cells at a low factor. That path is
-allocation-free per frame as the rest of the recorder is, but the per-frame tile
-and cell counts grow with 1/factor², which is the cost of the view.
+A sprite feature keeps its shadow frame; a **3DO feature casts no model shadow**
+here. A wreck's projected shadow is a second full raster of the model through
+the lane (§22), so it doubled the lane's work for a few pixels of shade: on a
+2,700-wreck battle at 0.12× it was half the packets, all of the atlas overflow
+and about half the executor's time (16.0 → 8.8 ms, 41 → 65 fps).
+
+Terrain below 0.5× is drawn from the tile set averaged down to the density it
+is seen at, as one quad over the map (§16.15), on the modern executor; the
+classic executor never draws below its step. The recorder emits many more fog
+cells at a low factor. That path is allocation-free per frame as the rest of
+the recorder is, but the per-frame cell count grows with 1/factor², which is the
+cost of the view.
 
 ### 16.11 The marker layer — contract Z8
 
@@ -3882,6 +3911,192 @@ minimap's 4×4 `radlogo` blip so it reads against the world.
    HUD unscaled, features present at every factor, icons present and unit models
    absent below 0.5×; and a seam sweep across many factors before and after the
    atlas borders.
+
+### 16.13 Strategic sprites
+
+In the strategic view a long battle's wrecks are most of the model lane's work,
+and none of it changes between frames: every face of every wreck is rasterized
+onto the frame's atlas page (§22) to be shrunk to a few screen pixels by the
+world transform. The strategic view draws such a subject from a **sprite**
+instead — its finished image, baked once and drawn as one quad.
+
+**The offer.** The recorder offers a packet (`ModelGeometry.SpriteLevel`) when
+it is in the strategic view, is a 3DO feature on its retained lane (its cache
+key holds exactly while its faces do), and carries nothing per frame: no shadow
+(§16.10), reflection, waterline, Digger clip, reveal, outline, live faces,
+children, cloak or wreck heat. The level names the sprite's texel density,
+2^-level texels per record pixel: the smallest power of two at or above twice
+the live factor, so a screen pixel spans two to four sprite texels
+(`featureSpriteLevel`, `internal/client/world_zoom.go`). At one texel per
+screen pixel the bilinear draw blurred a wreck across two pixels; at two to four
+it reads each wreck's own averaged detail.
+
+**The bake.** An offered packet is drawn through the lane on its first frame as
+any other. After the page passes, its region of the colour page is averaged into
+a sprite on a retained page (`model_sprite.go`): every doubled texel a sprite
+texel covers — sixteen at level one, a thousand at level four — contributes its
+colour where covered, giving premultiplied colour and coverage, with a
+transparent one-texel border. The sprite is the lane's finished colour —
+palette, shading, finish and glint — supersampled at the size it is seen.
+
+**The draw.** From the next frame the packet takes no region and appends no
+faces. Its commit, in its own place in record order, is one quad over the
+sprite's world rectangle that the world transform shrinks to the screen, sampled
+bilinearly (`sceneOpModelSprite`).
+
+**What stays live.** A battle light near the subject this frame keeps it on the
+lane, unbaked and undrawn from any sprite: the colour pass lights faces per
+frame. A change of the finish switches drops every sprite, as it drops the
+retained store (§22), and so does a change of the display palette — the gamma
+setting — which rewrites the table atlas's PAL row in place, so the renderer
+counts its changes rather than comparing the atlas. A sprite is keyed on the cache key less its half-pixel
+offset — half a record pixel, at most a quarter of a sprite texel — and on its
+level, so a zoom across an octave bakes again.
+
+**Storage.** Sprites are shelf-packed on 2048² RGBA pages, at most four (64 MiB),
+created on demand. A full set gives up its least recently drawn page, never one
+drawn from this frame; a view holding more sprites than the pages draws the rest
+through the lane.
+
+**Effect.** On a 1,900-wreck battle at 0.12×: 120 frames a second at the cap
+against 64 (the executor 8.8 → 4.0 ms, placement 2.2 → 0.2 ms, 1.3 M → 0.24 M
+submitted vertices, about 1,150 → 10 device draws). Compared with the lane, a
+wreck reads as its averaged shape rather than the one texel nearest each pixel,
+so a wreck field no longer sparkles as the view moves.
+
+**Verification.** `model_sprite_test.go`: the offer is baked on its first frame
+and drawn from its sprite on the next, a subject under a battle light stays on
+the lane, a finish switch bakes again, a display palette change drops the
+sprites and the feature layers, and a page drawn from this frame is never
+evicted; the device fixture checks a flat face's interior is the lane's colour
+exactly and its edge spends the same ink. `TestFeatureSpriteLevel` locks the
+density rule and the offer.
+
+### 16.14 Strategic feature layers
+
+Zoomed out, the whole map's trees, rocks and other sprite features are in view,
+and the feature passes recorded every one as sprite commands on every frame,
+though almost none changes. In the strategic view the **static** sprite
+features are drawn as **feature layers** instead: one per map area, a fixed
+square of 32 × 32 cells, recorded as a `drawlist.FeatureLayer` that an executor
+bakes once into an image and draws as one quad (`internal/client/
+feature_layers.go`, `internal/platform/gpurender/feature_layer.go`).
+
+**Static.** A sprite feature resting on its definition's first frame: not
+burning, animating, sinking or running a live event cursor (the burn, death and
+reclaim animations). Everything else — those, every 3DO feature (§16.13) and a
+sprite whose frame has subframes — is drawn live as before. In the strategic
+view no feature is promoted beneath the water (`SubmergedGround`), so a static
+sprite records nothing but its shadow and body sprites.
+
+**Membership and revisions.** Each frame the recorder takes every static
+feature that passes the gate of its own pass — the short pass's, or the tall
+pass's with its owner-11 hook — into its area, over the whole map rather than
+the frame window, so scrolling changes no area; a `nodrawundergray` feature joins
+and leaves as the view's sight of it changes [03 R-RAST-01 §6]. An area whose
+members are, record for record, the features it was last built from keeps its
+items; any difference rebuilds it under a new revision (a client-wide serial,
+so no two builds share one), as does a change of the shadow preference, the art
+generation or the terrain. A rebuilt area's items are a new slice: recorded
+lists share the old one, which is never written again.
+
+**Items and placement.** An area's items are the sprite commands the feature
+pass records for its members — shadow then body, with the same frames, kinds
+and tint selectors — in the coordinates of a camera at the world origin. At the
+native step a feature's record position is that less the camera's
+(`featureScreenPos`), so the layer is placed at (−camera X, −camera Z) and every
+item lands on the pixel the live pass would draw it at. An executor without the
+hook replays the items as those sprites (`FeatureLayerSink`).
+
+**Order.** The layers are recorded where the short-feature pass begins, in area
+row order, under every feature drawn live, and both passes skip what a layer
+drew. No unit model is drawn in the strategic view, so a tall feature loses only
+its interleaving with other features across area edges.
+
+**The bake.** At 2^-level texels per record pixel, the level being the smallest
+power of two at or above the live factor (so a screen pixel spans one to two
+layer texels — the coarser of the strategic densities, because a layer covers
+the map and its texels are its memory). Each item is drawn over the transparent
+image in paint order under source-over; a texel averages the k × k record
+pixels it covers, writing PAL[index] where the frame is opaque — the keyed copy
+— or the premultiplied half-colour for the ALP tint [03 R-RAST-01 §6][03 §5.3.1].
+Layers share the strategic sprites' page kind and eviction (§16.13); a change of
+table atlas or of display palette drops them. At most 64 layers bake in one frame; a layer not baked
+is drawn as its items, so a feature is never missing.
+
+**Effect.** On the 1,900-wreck save at 0.12×, alternating runs: 1600 × 1034 from
+109 to 120 frames a second (frames over 8.8 ms 78–81 % → 2–3 %; recording 3.6
+→ 2.7 ms, which then fits entirely beside the previous frame's work, so the
+executor no longer waits for it), and the same at 1728 × 1117. Trees and rocks
+read as their averaged shapes, as wrecks do (§16.13). Exact 1× and 2× frames are
+unchanged: no layer is recorded above the strategic cut.
+
+**Verification.** `TestStrategicFeatureLayers`: the layers' items are exactly
+the live passes' sprites, a burning feature stays live, an unchanged area keeps
+its revision and items across frames and scrolling, a moved feature rebuilds its
+own area alone, and the ordinary view records no layer. `TestFeatureLayerReplay`:
+the sprite replay without the hook and the shared items of a clone. The device
+fixture draws a keyed and a tinted flat sprite both ways and checks the
+interiors agree (the tint to rounding), and that a second frame bakes nothing.
+
+### 16.15 Strategic terrain levels
+
+Zoomed out, the whole map is in view, and the tile pass drew it as one quad per
+visible tile: on a 256 × 256-tile map at 0.12× that is 65,536 quads — 262 k
+vertices recorded, transformed and submitted every frame — each shrunk to a few
+pixels, sampled from the 1× tiles four texels at a time, so the map read as
+crawling noise. In the strategic view the terrain is drawn instead as **one
+quad over the map**, from the tile set averaged down to the density it is seen
+at (`internal/platform/gpurender/terrain_level.go`).
+
+**The offer.** The recorder sets `drawlist.Terrain.Level` in the strategic view
+on the modern recording at the native step — the feature layers' gate
+(`strategicLayersApply`) — to the level whose density, 2^-level texels per
+record pixel, is the smallest power of two at or above the live factor, from 1
+(0.25–0.5×) to 5 (`strategicTerrainLevel`). An executor that ignores it draws
+the tiles.
+
+**The levels.** A level texel never straddles two tiles — a tile is 32 record
+pixels and a level texel 2 to 32 — so the map averaged down is exactly its tiles
+averaged down. The executor keeps two things per tile set and display palette:
+the tile map as an image (each texel a tile index), and every tile averaged
+to 16 × 16, 8 × 8, 4 × 4, 2 × 2 and 1 × 1 texels, each texel the rounded mean
+of the PAL colours of the record pixels it covers. Nothing per map area or per
+level is stored, so every level costs a third of the native tile set's texels
+together: about 3 MB for a 2,347-tile set and about 16 MB for the largest
+retail set. They are built on the CPU — 6 ms for the 2,347 tiles, 31 ms for
+the 11,561 of the largest set — on a goroutine started by the first terrain
+frame at any factor or view scale, and again when the display palette (the gamma
+setting) changes, so the strategic view normally finds them done; a strategic
+frame that arrives first waits for the build rather than draw a level of the
+wrong colours. A tile index past the tile set names a void cell of PAL[0], the
+index the tile pass leaves.
+
+**The draw.** One quad over the map's record rectangle, clipped to the record
+extent as each tile was (`sceneOpTerrainLevel`). Each fragment blends the four
+level texels around its sample point, each resolved through its own tile, and
+clamps at the map's edge as the tile atlas's duplicated border does, so the
+level is seamless at every factor and offset. Water, the water bed and the
+ground lighting follow as they follow the tiles.
+
+**Effect.** On the 1,900-wreck save (a 256 × 256-tile map) at 1600 × 1034,
+alternating runs against the tile pass: at 0.12× the executor 4.7–5.4 → 1.2–1.3
+ms, 281 k → 20 k submitted vertices, frames over 8.8 ms 1–23 % → 0; at 0.25×
+1.6–1.7 → 0.5 ms; at 0.375×, from level one, 0.7 → 0.2 ms, where without
+level one it is the tile pass's 0.7. Per pixel it makes the tile pass's eight
+fetches — four taps, each two dependent reads — so the vertices go at no added
+fill; device time itself was not measured.
+The map reads as itself shrunk rather than as the grain of its 1× texels; at
+0.5× the two are nearly indistinguishable, a four-tap blend at half scale
+being the 2 × 2 mean.
+
+**Verification.** `TestTerrainLevelsAverageTheirPixels`: every texel of every
+level is the rounded mean of its pixels, though each level is folded from the
+one before in place, and the void cell is PAL[0]. `TestStrategicTerrainLevel`:
+the density rule and the gate. The device fixture draws a map of three tiles
+and a void index at a quarter from level two, where each pixel centre is a
+level texel's centre, after a frame of tiles has started the build, and checks
+every pixel against the reference mean, again after a display palette change.
 
 ## 17. Model antialiasing: subject-wide supersampling with a coverage resolve
 
@@ -7496,8 +7711,7 @@ back should be heard before the lane becomes permanent.
 - The glow's cost is resolution-dependent and was measured only at 1080p and at
   the Survival capture's 1280×827 (§19.3).
 - The terrain atlas stores one index per RGBA8 texel; storing it in one channel
-  would cut the texture to a quarter (§14.5). A half-resolution tile set for the
-  strategic range is unmeasured (`TODO(question)` in `terrain.go`, §16.10).
+  would cut the texture to a quarter (§14.5).
 - A keyed source cannot take the filtered sampling of §16.3 without an
   antialiased sprite edge, which is a look to approve (`TODO(question)` in
   `schedule.go`).

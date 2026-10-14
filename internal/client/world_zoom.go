@@ -213,6 +213,38 @@ func (c *Client) strategicViewAtZoom(z camera.Zoom) bool {
 	return z <= strategicModelCut || (c.enhanced && c.cam.TacticalAtFloor() && z <= c.cam.MinZoom())
 }
 
+// strategicSpriteLevelMax bounds the strategic sprites' level: at 2^-4 texels
+// per record pixel a sprite texel averages 32×32 texels of the lane's doubled
+// raster.
+const strategicSpriteLevelMax = 4
+
+// featureSpriteLevel offers a 3DO feature's packet to the strategic sprites
+// (§16.13): in the strategic view, a packet whose committed look holds while
+// its cache key holds — the retained lane with no shadow, no reflection, no
+// waterline and no wreck heat — is offered at the level whose texel density,
+// 2^-level texels per record pixel, is the smallest power of two at or above
+// twice the live factor, so a screen pixel spans two to four sprite texels and
+// the bilinear draw reads the subject's own averaged detail rather than blurring
+// a texel across pixels. Every other packet is offered at zero.
+func (c *Client) featureSpriteLevel(g *drawlist.ModelGeometry) uint8 {
+	if g == nil || !c.strategicView() || !g.Cache.Reusable() || g.Shadow != nil || g.ReflectWater ||
+		g.Waterline != drawlist.ModelWaterlineNone || g.Digger || g.Cloaked || g.Reveal != nil ||
+		len(g.LiveFaces) != 0 || len(g.Outline) != 0 || len(g.Children) != 0 ||
+		g.WreckEmission != ([3]float32{}) || g.WreckHeatStrength != 0 {
+		return 0
+	}
+	return strategicSpriteLevel(c.liveZoom())
+}
+
+// strategicSpriteLevel is featureSpriteLevel's density rule for a live factor.
+func strategicSpriteLevel(z camera.Zoom) uint8 {
+	level := uint8(1)
+	for level < strategicSpriteLevelMax && z <= camera.ZoomUnit>>(level+2) {
+		level++
+	}
+	return level
+}
+
 // markerAlphaAtZoom is the strategic layer's fade: zero at and above
 // strategicMarkerOn, full at and below strategicModelCut, linear between
 // (§16.11).

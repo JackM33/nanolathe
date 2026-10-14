@@ -101,6 +101,23 @@ type cachedModelBody struct {
 	// featureSeenTick is the committed tick the feature was last recorded on;
 	// pruneCachedModelBodies drops a feature body unseen for featureRetainTicks.
 	featureSeenTick uint32
+	// featureFast is the feature's own record as of its last full recording
+	// (noteFeatureFast); a frame whose record and inputs still match it is
+	// recorded from the body without building a draw (featureGeometryFast).
+	featureFast   featureFastKey
+	featureFastOK bool
+}
+
+// featureFastKey is what a 3DO feature's retained packet follows from beyond
+// the projection inputs the body keeps (featureInputs) and this frame's
+// placement: the published record's model, orientation triple and position,
+// the shadow's cast verdict, and the Shading option, which with the model and
+// the pose decides the shade verdict the body's inputs hold.
+type featureFastKey struct {
+	compiled             *model.Model
+	heading, pitch, bank uint16
+	x, y, z              numeric.Fixed
+	castsShadow, shading bool
 }
 
 // featureRetainTicks is how long a 3DO feature's retained lane outlives its
@@ -150,6 +167,78 @@ func (c *Client) featureBodyInputs(draw *presentationrender.UnitDraw, selector t
 		in.model = draw.Model.Name
 	}
 	return in
+}
+
+// featureBodyInputsFor is featureBodyInputs for the pseudo-unit of the named
+// model — structure class, as drawFeatureModel builds it — with its pose's
+// shade verdict.
+func (c *Client) featureBodyInputsFor(model string, selector teamColor, shaded bool) featureBodyInputs {
+	in := featureBodyInputs{model: model, teamColor: selector, inputs: c.cachedBodyInputsFor(true, shaded)}
+	if c != nil {
+		in.texGen = c.texGen
+	}
+	return in
+}
+
+// noteFeatureFast records a 3DO feature's own record beside its body after a
+// full recording that took the retained path (g carries the body's key), so a
+// later frame with the same record can take featureGeometryFast.
+func (c *Client) noteFeatureFast(f frame.FeatureView, draw *presentationrender.UnitDraw, g *drawlist.ModelGeometry) {
+	if g == nil || !g.Cache.Reusable() || draw == nil {
+		return
+	}
+	body := c.cachedBody(featureBodyID(featurePresentationID(f), f.X, f.Z))
+	if body == nil || body.geometry == nil {
+		return
+	}
+	body.featureFast = featureFastKey{
+		compiled: draw.Model, heading: f.Heading, pitch: f.Pitch, bank: f.Bank,
+		x: f.X, y: f.Y, z: f.Z, castsShadow: draw.CastsShadow, shading: presentationrender.Shading,
+	}
+	body.featureFastOK = true
+}
+
+// featureGeometryFast records a 3DO feature from its retained body without
+// building its draw. A wreck lies where it fell: from one frame to the next its
+// record, and so its pose, its projection and its shadow, do not change, and
+// building the pseudo-unit's draw only to compare its pose with the body's was
+// most of what a battlefield of wrecks cost the recorder every frame. The
+// packet is the one featureGeometry records — the same retained lane rebased at
+// this frame's placement and configured from the same position — when the
+// record matches the one the body was last fully recorded from
+// (featureFastKey), the projection inputs the body keeps still hold, and its
+// retained shadow is current. Otherwise it returns nil and the caller takes
+// the full path.
+func (c *Client) featureGeometryFast(f frame.FeatureView, compiled *model.Model, selector teamColor, castsShadow bool) *drawlist.ModelGeometry {
+	if c == nil || compiled == nil || !c.modelScratch.active {
+		return nil
+	}
+	body := c.cachedBody(featureBodyID(featurePresentationID(f), f.X, f.Z))
+	if body == nil || !body.featureFastOK || body.geometry == nil || !body.shadowValid {
+		return nil
+	}
+	k := &body.featureFast
+	if k.compiled != compiled || k.heading != f.Heading || k.pitch != f.Pitch || k.bank != f.Bank ||
+		k.x != f.X || k.y != f.Y || k.z != f.Z || k.castsShadow != castsShadow || k.shading != presentationrender.Shading {
+		return nil
+	}
+	// The shade verdict follows from the model, the pose and the Shading
+	// option, which the key holds; every other input is this frame's.
+	if body.featureInputs != c.featureBodyInputsFor(compiled.Name, selector, body.featureInputs.inputs.shaded) ||
+		body.shadowInputs != c.cachedShadowInputsFor(castsShadow, compiled.Name) {
+		return nil
+	}
+	body.featureSeenTick = c.frameTick
+	pos := [3]numeric.Fixed{f.X, f.Y, f.Z}
+	src := body.geometry
+	ax, ay, hx, hy := c.modelPlacementAt(pos)
+	g := c.rebaseRetained(&body.store, src, src.Width, src.Height, src.OriginX, src.OriginY, ax, ay, hx, hy)
+	if g == nil {
+		return nil
+	}
+	g.Cache = body.cacheKey(hx, hy)
+	c.configureFeatureGeometry(body, g, pos, c.groundHeightUnder(f.X, f.Z), nil)
+	return g
 }
 
 // modelHasAnimatedTexture reports whether any primitive of m resolves to an
@@ -432,18 +521,24 @@ type cachedBodyInputs struct {
 }
 
 func (c *Client) cachedBodyInputs(draw *presentationrender.UnitDraw) cachedBodyInputs {
+	if draw == nil {
+		return c.cachedBodyInputsFor(false, false)
+	}
+	return c.cachedBodyInputsFor(draw.Structure, draw.ShadedFaces())
+}
+
+// cachedBodyInputsFor is cachedBodyInputs for a structure-class or mobile
+// subject whose pose is or is not drawn shaded.
+func (c *Client) cachedBodyInputsFor(structure, shaded bool) cachedBodyInputs {
 	if c == nil {
 		return cachedBodyInputs{scale: camera.ViewScaleNative}
 	}
-	input := cachedBodyInputs{palette: c.pal, scale: camera.ViewScaleNative}
+	input := cachedBodyInputs{palette: c.pal, scale: camera.ViewScaleNative, shaded: shaded}
 	if c.cam != nil {
 		input.scale = c.cam.EffectiveScale()
 	}
-	input.supersampled = c.supersampleModel(draw != nil && draw.Structure)
+	input.supersampled = c.supersampleModel(structure)
 	input.geometrySupersampled = c.supersampleGeometry()
-	if draw != nil {
-		input.shaded = draw.ShadedFaces()
-	}
 	return input
 }
 
@@ -471,17 +566,25 @@ type cachedShadowInputs struct {
 }
 
 func (c *Client) cachedShadowInputs(draw *presentationrender.UnitDraw) cachedShadowInputs {
+	if draw == nil {
+		return c.cachedShadowInputsFor(false, "")
+	}
+	name := ""
+	if draw.Model != nil {
+		name = draw.Model.Name
+	}
+	return c.cachedShadowInputsFor(draw.CastsShadow, name)
+}
+
+// cachedShadowInputsFor is cachedShadowInputs for a subject of the named model
+// whose shadow is or is not cast.
+func (c *Client) cachedShadowInputsFor(casts bool, model string) cachedShadowInputs {
 	in := cachedShadowInputs{scale: camera.ViewScaleNative}
 	if c == nil {
 		return in
 	}
 	in.scale, in.doubled = c.modelScale(), c.supersampleGeometry()
-	if draw != nil {
-		in.casts = draw.CastsShadow && c.pal != nil
-		if draw.Model != nil {
-			in.model = draw.Model.Name
-		}
-	}
+	in.casts, in.model = casts && c.pal != nil, model
 	return in
 }
 
@@ -501,11 +604,18 @@ func (c *Client) retainedShadowGeometry(body *cachedModelBody, draw *presentatio
 		!slices.Equal(body.shadowPose, drawPieceStates(draw)) {
 		c.replaceCachedShadow(body, draw, in)
 	}
+	return c.rebasedShadow(body, draw.WorldPos[0], draw.GroundY, draw.WorldPos[2])
+}
+
+// rebasedShadow is a body's retained shadow projection placed under the
+// ground point (x, groundY, z) this frame, carrying its cache key, or nil for
+// a body that casts none.
+func (c *Client) rebasedShadow(body *cachedModelBody, x, groundY, z numeric.Fixed) *drawlist.ModelGeometry {
 	if body.shadow == nil {
 		return nil
 	}
 	src := body.shadow
-	ax, ay, hx, hy := c.shadowPlacement(draw)
+	ax, ay, hx, hy := c.shadowPlacementAt(x, groundY, z)
 	g := c.rebaseRetained(&body.shadowStore, src, src.Width, src.Height, src.OriginX, src.OriginY, ax, ay, hx, hy)
 	if g == nil {
 		return nil

@@ -235,10 +235,15 @@ func (c *Client) buildSilhouetteShadow(draw *presentationrender.UnitDraw, body *
 // unit's own height, which is what slides a shadow across a slope
 // [R-REN-03D §3].
 func (c *Client) shadowAnchor(draw *presentationrender.UnitDraw) (int32, int32) {
+	return c.shadowAnchorAt(draw.WorldPos[0], draw.GroundY, draw.WorldPos[2])
+}
+
+// shadowAnchorAt is shadowAnchor for the ground point (x, groundY, z).
+func (c *Client) shadowAnchorAt(x, groundY, z numeric.Fixed) (int32, int32) {
 	if c == nil || c.cam == nil {
 		return 0, 0
 	}
-	sx, sy := c.cam.WorldToScreen(draw.WorldPos[0], draw.GroundY, draw.WorldPos[2])
+	sx, sy := c.cam.WorldToScreen(x, groundY, z)
 	// This is a screen-space offset between two projected points, so it follows
 	// the view scale regardless of whether Original doubles the image later or
 	// Enhanced rasterizes doubled geometry (DESIGN_GPU_RENDERER §14.2). The

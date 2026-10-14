@@ -97,6 +97,16 @@ type ModelStats struct {
 	DirectColdNoKey, DirectColdNoKeyOutline, DirectColdNoKeyLive int
 	DirectColdGroup, DirectColdReflect, DirectColdPrimed         int
 	DirectColdShape, DirectColdParams, DirectRetainEvicted       int
+	// DirectSprites is the strategic sprites committed from their pages and
+	// DirectSpriteBakes the sprites baked this frame (model_sprite.go, §16.13).
+	DirectSprites, DirectSpriteBakes int
+	// FeatureLayers is the strategic feature layers drawn from their pages,
+	// FeatureLayerBakes those baked this frame and FeatureLayerItems the items
+	// of layers drawn as sprites instead (feature_layer.go, §16.14).
+	FeatureLayers, FeatureLayerBakes, FeatureLayerItems int
+	// TerrainLevel is the level the terrain was drawn from, zero when it was
+	// drawn as tiles (terrain_level.go, §16.15).
+	TerrainLevel int
 	// DeviceDraws is every device draw Execute issued this frame.
 	DeviceDraws int
 	// GPU is the model subjects committed, Skipped the packets omitted (a child

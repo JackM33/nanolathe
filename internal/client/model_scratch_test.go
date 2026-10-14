@@ -29,31 +29,44 @@ func allocationFeatureClient() (*Client, frame.FeatureView) {
 // fresh state, transform, piece and vertex arena per feature per frame
 // (DESIGN_GPU_RENDERER.md §11.5 "CPU"). This fixture measured sixteen
 // allocations per feature draw while the feature path built its own scratch.
+// Both paths are held to it: the full path, whose record changes every frame
+// here (the heading alternates), and the fast path of an unchanged record.
 func TestFeatureModelRecordingBorrowsPooledScratch(t *testing.T) {
-	c, v := allocationFeatureClient()
-	// Warm the pool: the first frames grow the slots the steady state reuses.
-	for i := 0; i < 4; i++ {
-		c.modelScratch.reset()
-		if !c.drawFeatureModel(v) {
-			t.Fatal("the feature model was suppressed")
+	for _, turning := range []bool{true, false} {
+		c, v := allocationFeatureClient()
+		draw := func(i int) {
+			c.modelScratch.reset()
+			if turning {
+				v.Heading = uint16(1000 * (i % 2))
+			}
+			if !c.drawFeatureModel(v) {
+				t.Fatal("the feature model was suppressed")
+			}
 		}
-	}
-	allocs := testing.AllocsPerRun(100, func() {
-		c.modelScratch.reset()
-		c.drawFeatureModel(v)
-	})
-	if allocs != 0 {
-		t.Fatalf("warm feature draw allocated %v times per frame, want 0", allocs)
+		// Warm the pool: the first frames grow the slots the steady state reuses.
+		for i := 0; i < 4; i++ {
+			draw(i)
+		}
+		i := 0
+		allocs := testing.AllocsPerRun(100, func() {
+			draw(i)
+			i++
+		})
+		if allocs != 0 {
+			t.Fatalf("warm feature draw (turning %v) allocated %v times per frame, want 0", turning, allocs)
+		}
 	}
 }
 
 // The reset that begins a frame has to rewind the draw slots the feature path
-// now borrows, or the pool would grow without bound across frames.
+// borrows, or the pool would grow without bound across frames. Every draw here
+// changes the record, so each builds its draw.
 func TestFrameResetRewindsBorrowedDrawScratch(t *testing.T) {
 	c, v := allocationFeatureClient()
 	for i := 0; i < 3; i++ {
 		c.modelScratch.reset()
 		for k := 0; k < 5; k++ {
+			v.Heading = uint16(1 + 5*i + k)
 			if !c.drawFeatureModel(v) {
 				t.Fatal("the feature model was suppressed")
 			}

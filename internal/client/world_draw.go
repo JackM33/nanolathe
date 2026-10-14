@@ -627,10 +627,13 @@ func (c *Client) drawFeaturePass(cur *frame.Frame, ok bool) {
 	if !ok || cur == nil || c.cam == nil {
 		return
 	}
+	// The strategic view's static features are drawn by its feature layers,
+	// beneath every feature drawn live (feature_layers.go, §16.14).
+	c.recordFeatureLayers(cur)
 	win := c.worldWindow()
 	for i := range cur.Features {
 		f := &cur.Features[i]
-		if f.Height >= 10 {
+		if f.Height >= 10 || c.featureLayers.layeredFeature(i) {
 			continue
 		}
 		if !win.admitsCell(f.CX, f.CZ) {
@@ -753,7 +756,7 @@ func (c *Client) drawWorldPass(cur *frame.Frame, ok bool) {
 	// on this pass alone (tallFeatureVisibleForFrame).
 	for i := range cur.Features {
 		f := &cur.Features[i]
-		if f.Height < 10 {
+		if f.Height < 10 || c.featureLayers.layeredFeature(i) {
 			continue
 		}
 		if !win.admitsCell(f.CX, f.CZ) {

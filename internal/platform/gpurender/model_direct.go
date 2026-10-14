@@ -233,6 +233,8 @@ type modelDirectLane struct {
 	// retain holds the packed vertices of subjects whose cached lane the
 	// recorder proved unchanged (model_retain.go).
 	retain modelRetainStore
+	// sprites holds the strategic view's baked subjects (model_sprite.go).
+	sprites modelSpriteStore
 }
 
 // modelDirectFace is one face's place in the fallback's painter order.
@@ -256,6 +258,9 @@ func (r *Renderer) initModelDirect() error {
 	}
 	if d.shaderErr == nil {
 		d.groups.shader, d.shaderErr = compileShader(modelGroupMergeShaderSource)
+	}
+	if d.shaderErr == nil {
+		d.sprites.shader, d.shaderErr = compileShader(modelSpriteBakeShaderSource)
 	}
 	return d.shaderErr
 }
@@ -522,6 +527,10 @@ func (d *modelDirectLane) bindsModelPage(imgs *[4]*ebiten.Image) bool {
 				return true
 			}
 		}
+		// A sprite page is written by the bakes the page goroutine runs.
+		if d.sprites.bindsSpritePage(img) {
+			return true
+		}
 	}
 	return false
 }
@@ -597,6 +606,7 @@ func (r *Renderer) drawModelPages(fill *ebiten.Image) {
 		}
 	}
 	r.mergeModelGroupsInto(a)
+	r.bakeModelSprites(a)
 }
 
 // deviceAcct is the device accounting a stretch of device calls charges when
@@ -656,6 +666,7 @@ func (r *Renderer) placeModelDirectFrame(l *drawlist.List) bool {
 	// The retained lanes bake the finish switches into their colour lane, so
 	// a change drops every entry rather than drawing last frame's finish.
 	d.retain.setSwitches(r.metalGlint, r.materialsEnabled)
+	d.sprites.beginFrame(r.metalGlint, r.materialsEnabled, r.paletteGen)
 	if r.tables.atlas == nil {
 		return false
 	}
@@ -673,6 +684,11 @@ func (r *Renderer) placeModelDirectFrame(l *drawlist.List) bool {
 			if g.Shadow != nil && !g.Shadow.Silhouette {
 				d.pending = append(d.pending, modelDirectPending{g: g.Shadow, shadow: true, height: modelWorldBounds(g.Shadow).Dy()})
 			}
+			return
+		}
+		// A strategic sprite already baked is drawn from its page and takes
+		// no region (model_sprite.go).
+		if g.SpriteLevel != 0 && r.spriteDraw(g) {
 			return
 		}
 		bounds := modelWorldBounds(g)
@@ -697,6 +713,7 @@ func (r *Renderer) placeModelDirectFrame(l *drawlist.List) bool {
 			}
 		}
 	}
+	r.planSpriteBakes()
 	rows, pages := 0, 0
 	for i := range d.pages {
 		if d.pages[i].usedRows > 0 {
@@ -1362,6 +1379,10 @@ func fattenBy(v, c, s, fat float32) float32 {
 // fallback.
 func (r *Renderer) commitModelDirect(g *drawlist.ModelGeometry) {
 	d := &r.modelDirect
+	if sp, ok := d.sprites.draws[g]; ok {
+		r.commitModelSprite(g, sp)
+		return
+	}
 	region, ok := d.regions[g]
 	if !ok || !region.ok {
 		r.drawModelDirectFallback(g)
