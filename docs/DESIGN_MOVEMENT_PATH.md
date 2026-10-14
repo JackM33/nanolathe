@@ -1488,6 +1488,19 @@ that is not its target, while the target itself is not in that picture. The
 issuing order then chooses again, and the choice above puts that anti-air
 first; the aircraft keeps whatever it is given next for at least 90 ticks.
 
+**Exact cover-query acceleration.** Pictures with at least 32 contacts build a
+256-world-unit grid over the remembered circles on every picture refresh,
+including refreshes that do not change the planning version. Cover-exit probes
+visit candidates in picture order and retain the exact inclusive integer circle
+predicate, weights, 32-unit stepping, limits and tie decisions. A circle covering
+more than 64 cells or outside the safe arithmetic domain is tested globally;
+an unsafe query or a short picture uses the original scan. The derived index
+adds no RNG, update cadence, approximation or gameplay policy. Bucket entries
+share one reusable arena, bounded by 64 entries per indexed contact at the
+largest picture seen; empty pictures invalidate it. Save/load reconstructs it
+along with the existing transient picture. Oracle tests compare both individual
+queries and complete private pilot plans against the linear implementation.
+
 **State, save and switching.** Pilot state lives on the movement system, keyed
 by unit and bound to the exact order record; the anti-air pictures are per
 player; the board of attacks and recent damage to aircraft is one

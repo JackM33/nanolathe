@@ -153,10 +153,11 @@ type airThreat struct {
 
 // airThreatPicture is one player's visible anti-air.
 type airThreatPicture struct {
-	ok      bool
-	built   uint32
-	version uint32
-	list    []airThreat
+	ok         bool
+	built      uint32
+	version    uint32
+	list       []airThreat
+	pointIndex airPointIndex
 }
 
 // AirTacticsActive reports whether this system flies Modern pilots.
@@ -342,6 +343,7 @@ func (s *System) airThreatsFor(u *units.Unit, tick uint32) *airThreatPicture {
 	if changed {
 		pic.version++
 	}
+	pic.pointIndex.rebuild(pic.list) // every refresh, including unchanged plan versions
 	return pic
 }
 
@@ -1053,7 +1055,7 @@ func (s *System) airPilotCoverExit(p *airPilot, tx, tz int64, j int, out uint16,
 		p.coverSet, p.coverX, p.coverZ, p.coverVer = true, tx, tz, ver
 	}
 	if p.coverExit[j] < 0 {
-		p.coverExit[j] = int32(airCoverExit(tx, tz, out, threats, 2400))
+		p.coverExit[j] = int32(airCoverExitIndexed(tx, tz, out, threats, 2400, s.airIndexFor(p.unit, threats)))
 	}
 	return int64(p.coverExit[j])
 }
@@ -1364,7 +1366,7 @@ func (s *System) airFlyOut(u *units.Unit, px, pz, limit int64, threats []airThre
 	if airPointRate(px, pz, threats) == 0 {
 		return false
 	}
-	d := airCoverExit(px, pz, u.Move.Heading, threats, limit+32)
+	d := airCoverExitIndexed(px, pz, u.Move.Heading, threats, limit+32, s.airIndexFor(u, threats))
 	if d > limit {
 		return false
 	}
