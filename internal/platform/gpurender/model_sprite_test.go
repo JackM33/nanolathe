@@ -14,7 +14,7 @@ import (
 func spriteSubject(ax, ay, w, h int32, color uint8, body uint64) *drawlist.ModelGeometry {
 	g := directSubject(ax, ay, w, h, directFace(0, 0, w, h, color, 20, 20))
 	g.Cache = drawlist.ModelCacheKey{Body: body, Revision: 1}
-	g.SpriteLevel = 2
+	g.Sprite, g.SpriteLevel = true, 2
 	return g
 }
 
@@ -106,6 +106,100 @@ func TestStrategicSpritePagesEvictLeastRecentUnused(t *testing.T) {
 	}
 }
 
+// A frame whose sprites the pages have no room for, on pages that are all in
+// view, gives up the page least of which is in view at the start of the next
+// frame, when that is at most half of it (§16.13): the pages come to hold what
+// is in view rather than what was baked while the view moved. A page more
+// than half in view is kept, and a view that is short of room on such pages
+// draws the rest through the lane rather than turning its sprites over.
+func TestModelSpritePagesRetireWhatIsOutOfView(t *testing.T) {
+	var s modelSpriteStore
+	s.entries = make(map[modelSpriteKey]modelSprite)
+	// At level zero a box this size is a quarter page with its pad.
+	side := int(modelSpritePageSize/2 - 2*modelSpritePad)
+	box := image.Rect(0, 0, side, side)
+	next := uint64(1)
+	fill := func(n int) {
+		t.Helper()
+		for range n {
+			sp, ok := s.alloc(box, 0)
+			if !ok {
+				t.Fatal("a sprite found no room on pages with room")
+			}
+			s.entries[modelSpriteKey{body: next}] = sp
+			next++
+		}
+	}
+	// inView draws n of each page's sprites this frame, and page 5's one.
+	inView := func(n int) {
+		for p := range int32(modelSpriteMaxPages) {
+			want := n
+			if p == 5 {
+				want = 1
+			}
+			for _, e := range s.entries {
+				if e.page == p && want > 0 {
+					s.pages[p].markLive(s.frame, e.w, e.h)
+					want--
+				}
+			}
+		}
+	}
+	s.beginFrame(false, false, false, 0)
+	fill(4 * modelSpriteMaxPages)
+	s.beginFrame(false, false, false, 0)
+	inView(3)
+	if _, ok := s.alloc(box, 0); ok {
+		t.Fatal("a sprite took room on pages that are all in view")
+	}
+	s.short = 1
+	s.chooseRetirement()
+	if !s.retiring || s.retire != 5 {
+		t.Fatalf("retiring %v page %d, want page 5, a quarter in view", s.retiring, s.retire)
+	}
+	before := len(s.entries)
+	s.beginFrame(false, false, false, 0)
+	if len(s.entries) != before-4 {
+		t.Fatalf("%d sprites left of %d, want the retired page's four forgotten", len(s.entries), before)
+	}
+	fill(4)
+	for _, e := range s.entries {
+		if e.page == 5 {
+			s.pages[5].markLive(s.frame, e.w, e.h)
+		}
+	}
+	for p := range int32(modelSpriteMaxPages) {
+		if p != 5 {
+			for _, e := range s.entries {
+				if e.page == p {
+					s.pages[p].markLive(s.frame, e.w, e.h)
+				}
+			}
+		}
+	}
+	s.short = 1
+	s.chooseRetirement()
+	if s.retiring {
+		t.Fatalf("pages wholly in view retired page %d", s.retire)
+	}
+}
+
+// A rectangle a page cannot hold leaves its shelves as they were: the open
+// shelf keeps its room for a smaller one.
+func TestModelSpritePageKeepsItsShelfOnAMiss(t *testing.T) {
+	var p modelSpritePage
+	var x, y int32
+	if !p.place(modelSpritePageSize-100, modelSpritePageSize-50, &x, &y) {
+		t.Fatal("an empty page refused a rectangle it holds")
+	}
+	if p.place(200, 60, &x, &y) {
+		t.Fatal("a page placed a rectangle taller than its room")
+	}
+	if !p.place(100, 40, &x, &y) || x != modelSpritePageSize-100 || y != 0 {
+		t.Fatalf("a rectangle that fits the open shelf went to (%d,%d), ok false or not beside the first", x, y)
+	}
+}
+
 // checkModelSpriteDevicePixels draws two offered packets in a world region at a
 // quarter scale (§16.13): the first frame commits them through the lane and
 // bakes them, the second draws them from their sprites. A flat face's interior
@@ -187,11 +281,11 @@ func TestModelSpriteDevicePixels(t *testing.T) {
 func TestStrategicCachesFollowTheDisplayPalette(t *testing.T) {
 	var s modelSpriteStore
 	s.entries = map[modelSpriteKey]modelSprite{{body: 1, level: 1}: {ok: true}}
-	s.beginFrame(false, false, 0)
+	s.beginFrame(false, false, false, 0)
 	if len(s.entries) != 1 {
 		t.Fatal("an unchanged display palette dropped the sprites")
 	}
-	s.beginFrame(false, false, 1)
+	s.beginFrame(false, false, false, 1)
 	if len(s.entries) != 0 {
 		t.Fatal("a display palette change kept the sprites")
 	}
@@ -205,4 +299,176 @@ func TestStrategicCachesFollowTheDisplayPalette(t *testing.T) {
 	if len(l.entries) != 0 {
 		t.Fatal("a display palette change kept the feature layers")
 	}
+}
+
+// shadowedSpriteSubject is a level-zero offer with a structure shadow: a
+// doubled lane whose edges fall on odd texels, so its border pixels are
+// partly covered, and a shadow reaching right and below the body, so part of
+// it lies under the body and part beside it.
+func shadowedSpriteSubject(ax, ay int32, body uint64) *drawlist.ModelGeometry {
+	g := directSubject(ax, ay, 24, 16, directFace(0, 0, 24, 16, 150, 50, 50))
+	g.Supersample = &drawlist.ModelGeometry{Eligible: true, KeyPlane: true, Scale: 2, Width: 48, Height: 32, Faces: []drawlist.ModelFace{
+		directFace(1, 1, 45, 29, 150, 50, 50),
+		directFace(5, 3, 21, 15, 180, 60, 60),
+		{Color: 60, Vertices: []drawlist.ModelVertex{{X: 26, Y: 5, Key: 70}, {X: 45, Y: 5, Key: 70}, {X: 26, Y: 28, Key: 70}}},
+	}}
+	g.Cache = drawlist.ModelCacheKey{Body: body, Revision: 1, HalfX: 1, HalfY: 1}
+	g.Sprite = true
+	sg := directSubject(ax+9, ay+7, 26, 12, directFace(0, 0, 26, 12, fixtureShadowIndex, 10, 10))
+	sg.Supersample = &drawlist.ModelGeometry{Eligible: true, KeyPlane: true, Scale: 2, Width: 52, Height: 24, Faces: []drawlist.ModelFace{
+		directFace(1, 1, 49, 21, fixtureShadowIndex, 10, 10),
+		{Color: fixtureShadowIndex, Vertices: []drawlist.ModelVertex{{X: 3, Y: 21, Key: 10}, {X: 49, Y: 21, Key: 10}, {X: 49, Y: 23, Key: 10}}},
+	}}
+	sg.Cache = drawlist.ModelCacheKey{Body: body, Revision: 1, HalfX: 1, HalfY: 1, Lane: drawlist.ModelCacheLaneShadow}
+	g.Shadow = sg
+	return g
+}
+
+// Level-zero sprites carry their shadows (§16.13): a shadowed offer is placed
+// through the lane with its shadow and both are baked on its first frame;
+// from the next neither takes a region. A shadow whose sprite was given up
+// brings the body back to the lane with it, and only the shadow bakes again;
+// a shadow projected per frame keeps its body on the lane; the Supersample
+// switch's resolve bakes everything again.
+func TestModelSpritesCarryTheirShadows(t *testing.T) {
+	skipAfterDeviceLoop(t)
+	r := newPlaceRenderer(t)
+	r.lighting.lights = r.lighting.lights[:0]
+	w := shadowedSpriteSubject(40, 40, 31)
+	loose := shadowedSpriteSubject(200, 40, 32)
+	loose.Shadow.Cache = drawlist.ModelCacheKey{}
+	var list drawlist.List
+	for _, g := range []*drawlist.ModelGeometry{w, loose} {
+		list.RecordModel(drawlist.Model{Geometry: g})
+	}
+	d := &r.modelDirect
+	frame := func() {
+		r.modelStats = ModelStats{}
+		r.placeModelDirectFrame(&list)
+	}
+	placed := func(g *drawlist.ModelGeometry) bool {
+		region, ok := d.regions[g]
+		return ok && region.ok
+	}
+
+	frame()
+	if got := r.modelStats.DirectSpriteBakes; got != 2 {
+		t.Fatalf("first frame baked %d sprites, want the offer's body and shadow", got)
+	}
+	if !placed(w) || !placed(w.Shadow) {
+		t.Fatal("a first sighting's body or shadow was not placed through the lane")
+	}
+
+	frame()
+	sd, drawn := d.sprites.draws[w]
+	if !drawn || !sd.body.ok || !sd.shadow.ok || r.modelStats.DirectSpriteBakes != 0 {
+		t.Fatalf("second frame: drawn %v with body %v and shadow %v, %d baked; want both drawn and none baked",
+			drawn, sd.body.ok, sd.shadow.ok, r.modelStats.DirectSpriteBakes)
+	}
+	if _, ok := d.regions[w]; ok {
+		t.Fatal("a sprite took a region on the lane page")
+	}
+	if _, ok := d.regions[w.Shadow]; ok {
+		t.Fatal("a sprite's shadow took a region on the lane page")
+	}
+	if _, ok := d.sprites.draws[loose]; ok || !placed(loose) || !placed(loose.Shadow) {
+		t.Fatal("a packet whose shadow is projected per frame left the lane")
+	}
+
+	delete(d.sprites.entries, modelSpriteKeyOf(w.Shadow, 0))
+	frame()
+	if _, ok := d.sprites.draws[w]; ok || !placed(w) || !placed(w.Shadow) {
+		t.Fatal("a body whose shadow's sprite was given up was drawn from its sprite")
+	}
+	if got := r.modelStats.DirectSpriteBakes; got != 1 {
+		t.Fatalf("baked %d sprites, want the shadow alone", got)
+	}
+
+	r.setSupersample(false)
+	frame()
+	if _, ok := d.sprites.draws[w]; ok || r.modelStats.DirectSpriteBakes != 2 {
+		t.Fatalf("after the resolve changed: drawn %v, %d baked; want the lane and both baked again", ok, r.modelStats.DirectSpriteBakes)
+	}
+}
+
+// checkModelSpriteShadowDevicePixels draws shadowed level-zero offers through
+// the lane, then from their sprites, and requires the same picture (§16.13):
+// at the native step every pixel within one level of the lane's — the
+// interiors exact, a partly covered edge rounded once more — and with the
+// Supersample switch's single-sample resolve every pixel exact; at a
+// fractional zoom, where the sample positions are interpolated across
+// different quads, all but a sliver of pixels.
+func checkModelSpriteShadowDevicePixels() error {
+	pal := fixturePalette()
+	const w, h, field = 96, 64, 100
+	r, err := NewChecked(&pal, w, h)
+	if err != nil {
+		return err
+	}
+	a := shadowedSpriteSubject(10, 10, 31)
+	b := shadowedSpriteSubject(50, 30, 32)
+	plain := spriteSubject(70, 6, 20, 14, 120, 33)
+	plain.SpriteLevel = 0
+	build := func(factor float32) drawlist.List {
+		var list drawlist.List
+		list.RecordClear()
+		rw, rh := int32(w), int32(h)
+		if factor != 1 {
+			rw, rh = int32(float32(w)/factor), int32(float32(h)/factor)
+			list.RecordWorld(drawlist.WorldSpace{Begin: true, Factor: factor, Step: camera.ViewScaleNative, RecordW: rw, RecordH: rh})
+		}
+		list.RecordFill(drawlist.Fill{Rect: drawlist.Rect{X: 0, Y: 0, W: rw, H: rh}, Index: field, Style: drawlist.FillSolid})
+		for _, g := range []*drawlist.ModelGeometry{a, b, plain} {
+			list.RecordModel(drawlist.Model{Geometry: g})
+		}
+		if factor != 1 {
+			list.RecordWorld(drawlist.WorldSpace{})
+		}
+		list.RecordExpand()
+		return list
+	}
+	read := func(list *drawlist.List) []byte {
+		p := make([]byte, w*h*4)
+		r.Execute(list, w, h).ReadPixels(p)
+		return p
+	}
+	compare := func(what string, list drawlist.List, tolerance int, maxOff int) error {
+		lane := read(&list)
+		if got := r.modelStats; got.DirectSpriteBakes != 5 || got.DirectSprites != 0 {
+			return fmt.Errorf("sprite shadow fixture, %s: first frame baked %d and drew %d sprites, want 5 and 0", what, got.DirectSpriteBakes, got.DirectSprites)
+		}
+		sprite := read(&list)
+		if got := r.modelStats; got.DirectSprites != 3 || got.DirectSpriteShadows != 2 || got.DirectSubjects != 0 || got.DirectShadows != 0 {
+			return fmt.Errorf("sprite shadow fixture, %s: second frame drew %d sprites, %d sprite shadows, %d lane subjects and %d lane shadows; want 3, 2, 0, 0",
+				what, got.DirectSprites, got.DirectSpriteShadows, got.DirectSubjects, got.DirectShadows)
+		}
+		off, shaded := 0, 0
+		for i := 0; i < len(lane); i += 4 {
+			if lane[i] != lane[0] {
+				shaded++
+			}
+			for c := range 3 {
+				if diff := int(sprite[i+c]) - int(lane[i+c]); diff > tolerance || diff < -tolerance {
+					off++
+					break
+				}
+			}
+		}
+		if shaded == 0 {
+			return fmt.Errorf("sprite shadow fixture, %s: the lane drew nothing over the field", what)
+		}
+		if off > maxOff {
+			return fmt.Errorf("sprite shadow fixture, %s: %d pixels differ from the lane's by more than %d, want at most %d", what, off, tolerance, maxOff)
+		}
+		return nil
+	}
+	if err := compare("native", build(1), 1, 0); err != nil {
+		return err
+	}
+	r.setSupersample(false)
+	if err := compare("single sample", build(1), 0, 0); err != nil {
+		return err
+	}
+	r.setSupersample(true)
+	return compare("three quarters", build(0.75), 1, w*h/100)
 }

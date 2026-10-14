@@ -218,25 +218,38 @@ func (c *Client) strategicViewAtZoom(z camera.Zoom) bool {
 // raster.
 const strategicSpriteLevelMax = 4
 
-// featureSpriteLevel offers a 3DO feature's packet to the strategic sprites
-// (§16.13): in the strategic view, a packet whose committed look holds while
-// its cache key holds — the retained lane with no shadow, no reflection, no
-// waterline and no wreck heat — is offered at the level whose texel density,
-// 2^-level texels per record pixel, is the smallest power of two at or above
-// twice the live factor, so a screen pixel spans two to four sprite texels and
-// the bilinear draw reads the subject's own averaged detail rather than blurring
-// a texel across pixels. Every other packet is offered at zero.
-func (c *Client) featureSpriteLevel(g *drawlist.ModelGeometry) uint8 {
-	if g == nil || !c.strategicView() || !g.Cache.Reusable() || g.Shadow != nil || g.ReflectWater ||
+// featureSprite offers a 3DO feature's packet to the model sprites (§16.13)
+// when its committed look holds while its cache key holds: the retained lane
+// with no reflection, no waterline, no Digger clip, no reveal, outline, live
+// faces or children, no cloak and no wreck heat. It returns the offer and its
+// level.
+//
+// In the strategic view, which drops the shadow (§16.10), the level is the one
+// whose texel density, 2^-level texels per record pixel, is the smallest power
+// of two at or above twice the live factor, so a screen pixel spans two to four
+// sprite texels and the bilinear draw reads the subject's own averaged detail
+// rather than blurring a texel across pixels. Everywhere else the level is
+// zero, the commit's own resolve, and the shadow comes with it when it is a
+// structure's retained projection, which holds while its own key holds; any
+// other shadow keeps the packet on the lane.
+func (c *Client) featureSprite(g *drawlist.ModelGeometry) (bool, uint8) {
+	if g == nil || !g.Cache.Reusable() || g.ReflectWater ||
 		g.Waterline != drawlist.ModelWaterlineNone || g.Digger || g.Cloaked || g.Reveal != nil ||
 		len(g.LiveFaces) != 0 || len(g.Outline) != 0 || len(g.Children) != 0 ||
 		g.WreckEmission != ([3]float32{}) || g.WreckHeatStrength != 0 {
-		return 0
+		return false, 0
 	}
-	return strategicSpriteLevel(c.liveZoom())
+	if c.strategicView() {
+		return g.Shadow == nil, strategicSpriteLevel(c.liveZoom())
+	}
+	if sg := g.Shadow; sg != nil && (sg.Silhouette || !sg.Cache.Reusable() ||
+		len(sg.LiveFaces) != 0 || len(sg.Outline) != 0 || len(sg.Children) != 0) {
+		return false, 0
+	}
+	return true, 0
 }
 
-// strategicSpriteLevel is featureSpriteLevel's density rule for a live factor.
+// strategicSpriteLevel is featureSprite's density rule for a live factor.
 func strategicSpriteLevel(z camera.Zoom) uint8 {
 	level := uint8(1)
 	for level < strategicSpriteLevelMax && z <= camera.ZoomUnit>>(level+2) {

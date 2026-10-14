@@ -97,9 +97,14 @@ type ModelStats struct {
 	DirectColdNoKey, DirectColdNoKeyOutline, DirectColdNoKeyLive int
 	DirectColdGroup, DirectColdReflect, DirectColdPrimed         int
 	DirectColdShape, DirectColdParams, DirectRetainEvicted       int
-	// DirectSprites is the strategic sprites committed from their pages and
-	// DirectSpriteBakes the sprites baked this frame (model_sprite.go, §16.13).
-	DirectSprites, DirectSpriteBakes int
+	// DirectSprites is the model sprites committed from their pages,
+	// DirectSpriteShadows the shadows among them committed from theirs, and
+	// DirectSpriteBakes the sprites baked this frame, bodies and shadows
+	// (model_sprite.go, §16.13). DirectSpriteShort is the sprites the pages had
+	// no room to bake this frame, drawn through the lane instead, and
+	// DirectSpritePages the sprite pages held.
+	DirectSprites, DirectSpriteShadows, DirectSpriteBakes int
+	DirectSpriteShort, DirectSpritePages                  int
 	// FeatureLayers is the strategic feature layers drawn from their pages,
 	// FeatureLayerBakes those baked this frame and FeatureLayerItems the items
 	// of layers drawn as sprites instead (feature_layer.go, §16.14).

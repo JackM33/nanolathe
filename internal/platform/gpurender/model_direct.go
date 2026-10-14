@@ -666,7 +666,7 @@ func (r *Renderer) placeModelDirectFrame(l *drawlist.List) bool {
 	// The retained lanes bake the finish switches into their colour lane, so
 	// a change drops every entry rather than drawing last frame's finish.
 	d.retain.setSwitches(r.metalGlint, r.materialsEnabled)
-	d.sprites.beginFrame(r.metalGlint, r.materialsEnabled, r.paletteGen)
+	d.sprites.beginFrame(r.metalGlint, r.materialsEnabled, r.modelSingleSample, r.paletteGen)
 	if r.tables.atlas == nil {
 		return false
 	}
@@ -686,9 +686,9 @@ func (r *Renderer) placeModelDirectFrame(l *drawlist.List) bool {
 			}
 			return
 		}
-		// A strategic sprite already baked is drawn from its page and takes
-		// no region (model_sprite.go).
-		if g.SpriteLevel != 0 && r.spriteDraw(g) {
+		// A sprite already baked is drawn from its page and takes no region,
+		// and neither does its shadow (model_sprite.go).
+		if g.Sprite && r.spriteDraw(g) {
 			return
 		}
 		bounds := modelWorldBounds(g)
@@ -1379,8 +1379,8 @@ func fattenBy(v, c, s, fat float32) float32 {
 // fallback.
 func (r *Renderer) commitModelDirect(g *drawlist.ModelGeometry) {
 	d := &r.modelDirect
-	if sp, ok := d.sprites.draws[g]; ok {
-		r.commitModelSprite(g, sp)
+	if sd, ok := d.sprites.draws[g]; ok {
+		r.commitModelSprite(g, sd.body)
 		return
 	}
 	region, ok := d.regions[g]
@@ -1431,6 +1431,14 @@ func (r *Renderer) commitModelDirect(g *drawlist.ModelGeometry) {
 // it no longer opens a phase (§11.2 "The scheduler").
 func (r *Renderer) commitModelDirectShadow(g *drawlist.ModelGeometry) {
 	d := &r.modelDirect
+	if sd, ok := d.sprites.draws[g]; ok {
+		if sd.shadow.ok {
+			r.commitModelSpriteShadow(g, sd)
+		} else {
+			r.modelStats.ShadowsOmitted++
+		}
+		return
+	}
 	sg := g.Shadow
 	shadow, ok := d.regions[sg]
 	body, bok := d.shadowSource(g)

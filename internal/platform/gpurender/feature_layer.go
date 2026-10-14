@@ -11,7 +11,7 @@ import (
 // is one map area's static sprite features, retained by the recorder and keyed
 // by its ID and revision. The executor bakes the area's items once into an
 // image at the layer's level, 2^-Level texels per record pixel, on the same
-// kind of retained page the strategic sprites use (model_sprite.go), and from
+// kind of retained page the model sprites use (model_sprite.go), and from
 // then on draws the area as one bilinear quad in its place in record order
 // (sceneOpModelSprite). A layer it has not baked — over this frame's budget,
 // or one the pages cannot hold — is drawn as its items, exactly as the feature
@@ -33,6 +33,8 @@ const (
 	// featureLayerPad is each layer's transparent border, for the bilinear
 	// draw's edge.
 	featureLayerPad = 1
+	// featureLayerMaxPages bounds the layers' pages at 64 MiB.
+	featureLayerMaxPages = 4
 )
 
 type featureLayerKey struct {
@@ -131,7 +133,7 @@ func (r *Renderer) bakeFeatureLayer(c drawlist.FeatureLayer) (featureLayerEntry,
 	k := int32(1) << c.Level
 	w := (c.Bounds.W+k-1)/k + 2*featureLayerPad
 	h := (c.Bounds.H+k-1)/k + 2*featureLayerPad
-	page, x, y, evicted, ok := allocSpritePage(&s.pages, w, h, s.frame)
+	page, x, y, evicted, ok := allocSpritePage(&s.pages, w, h, s.frame, featureLayerMaxPages)
 	if !ok {
 		return featureLayerEntry{}, false
 	}

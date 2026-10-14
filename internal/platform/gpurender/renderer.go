@@ -58,7 +58,7 @@ type Renderer struct {
 	tables            tables
 	displayPalette    [256][4]byte
 	// paletteGen counts display palette changes. The PAL row is rewritten in
-	// place, so the caches that bake colour (strategic sprites and feature
+	// place, so the caches that bake colour (model sprites and feature
 	// layers) compare this rather than the table atlas's identity.
 	paletteGen uint64
 	// scene2D is the one opaque pass and sceneDest the one destination-compositing

@@ -238,10 +238,11 @@ func TestStrategicViewDropsFeatureModelShadows(t *testing.T) {
 	}
 }
 
-// A strategic sprite's texel density is the smallest power of two at or above
-// twice the live factor, up to the level bound (DESIGN_GPU_RENDERER §16.13), and
-// only a retained feature with nothing per frame about it is offered.
-func TestFeatureSpriteLevel(t *testing.T) {
+// A model sprite is offered for a retained feature with nothing per frame
+// about it (DESIGN_GPU_RENDERER §16.13): in the ordinary view at level zero,
+// with its retained shadow, and in the strategic view at the smallest power of
+// two at or above twice the live factor, up to the level bound, with none.
+func TestFeatureSprite(t *testing.T) {
 	for _, tc := range []struct {
 		zoom camera.Zoom
 		want uint8
@@ -255,15 +256,30 @@ func TestFeatureSpriteLevel(t *testing.T) {
 	}
 	c := wreckFixtureClient(t)
 	f := frame.FeatureView{Model: "wreck", X: numeric.Fixed(100 << 16), Z: numeric.Fixed(100 << 16)}
-	if g := recordFeature(t, c, f, true); g.SpriteLevel != 0 {
-		t.Fatalf("the ordinary view offered a sprite at level %d", g.SpriteLevel)
+	c.shadows = false
+	if g := recordFeature(t, c, f, true); !g.Sprite || g.SpriteLevel != 0 || g.Shadow != nil {
+		t.Fatalf("the ordinary view offered %v at level %d, want level 0 with no shadow", g.Sprite, g.SpriteLevel)
+	}
+	c.shadows = true
+	g := recordFeature(t, c, f, true)
+	if g.Shadow == nil || !g.Shadow.Cache.Reusable() {
+		t.Fatal("the feature casts no retained shadow; the fixture proves nothing")
+	}
+	if !g.Sprite || g.SpriteLevel != 0 {
+		t.Fatalf("the ordinary view's shadowed feature offered %v at level %d, want level 0", g.Sprite, g.SpriteLevel)
 	}
 	c.cam.Zoom = camera.ZoomUnit / 8
-	if g := recordFeature(t, c, f, true); g.SpriteLevel != 2 {
-		t.Fatalf("the strategic view offered level %d, want 2", g.SpriteLevel)
+	if g := recordFeature(t, c, f, true); !g.Sprite || g.SpriteLevel != 2 || g.Shadow != nil {
+		t.Fatalf("the strategic view offered %v at level %d, want level 2 with no shadow", g.Sprite, g.SpriteLevel)
 	}
-	if g := recordFeature(t, c, f, false); g.SpriteLevel != 0 {
+	if g := recordFeature(t, c, f, false); g.Sprite {
 		t.Fatal("a packet projected per frame, with no retained key, was offered")
+	}
+	c.cam.Zoom = camera.ZoomUnit
+	g = recordFeature(t, c, f, true)
+	g.Shadow.Cache = drawlist.ModelCacheKey{}
+	if offered, _ := c.featureSprite(g); offered {
+		t.Fatal("a feature whose shadow is projected per frame was offered")
 	}
 }
 

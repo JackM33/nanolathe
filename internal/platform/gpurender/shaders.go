@@ -130,9 +130,10 @@ const (
 	// erased, and the fragment is the ALP half-colour of index 0 at that
 	// coverage [03 R-REN-03D §1, §4] (§22).
 	sceneOpModelSilhouetteShadow = 14
-	// sceneOpModelSprite draws a strategic sprite (model_sprite.go, §16.13)
-	// from its page in source 2: the four texels around the sample point,
-	// already premultiplied colour and coverage, interpolated bilinearly.
+	// sceneOpModelSprite draws a model sprite (model_sprite.go, §16.13) from
+	// its page in source 2: the four texels around the sample point, already
+	// premultiplied colour and coverage, interpolated bilinearly, or with
+	// Custom1 set the texel under it alone.
 	sceneOpModelSprite = 15
 	// sceneOpTerrainLevel draws the strategic terrain from its level
 	// (terrain_level.go, §16.15): the tile map in source 2, the level's
@@ -140,6 +141,14 @@ const (
 	// its cell columns and the map's width and height in tiles; the source
 	// lane is the level texel coordinate.
 	sceneOpTerrainLevel = 16
+	// sceneOpModelSpriteShadow commits a shadow from its model sprite
+	// (model_sprite.go, §16.13), sceneOpModelDirectShadow on level-zero
+	// sprites: the shadow sprite's texel under the pixel in source 3, the
+	// silhouette already resolved by coverage, skipped where the body sprite's
+	// texel for the same pixel (source 2, Custom0/1 texels away, inside the
+	// body sprite's rectangle in Color) is wholly covered, and composited as
+	// the ALP half-colour fragment.
+	sceneOpModelSpriteShadow = 17
 )
 
 // The destination shader's op selector, carried in Custom3.
@@ -485,6 +494,9 @@ func Fragment(dstPos vec4, srcPos vec2, color vec4, custom vec4) vec4 {
 		c11 := terrainLevelAt(b+vec2(1.0, 1.0), color)
 		return vec4(mix(mix(c00, c10, f.x), mix(c01, c11, f.x), f.y), 1.0)
 	} else if op == ` + fmt.Sprint(sceneOpModelSprite) + ` {
+		if custom.y > 0.5 {
+			return imageSrc2AtFromSrc0Pos(imageSrc0Origin() + floor(srcPos-imageSrc0Origin()) + vec2(0.5))
+		}
 		q := srcPos - imageSrc0Origin() - vec2(0.5)
 		b := floor(q)
 		f := q - b
@@ -494,6 +506,18 @@ func Fragment(dstPos vec4, srcPos vec2, color vec4, custom vec4) vec4 {
 		c01 := imageSrc2AtFromSrc0Pos(o+vec2(0.0, 1.0))
 		c11 := imageSrc2AtFromSrc0Pos(o+vec2(1.0, 1.0))
 		return mix(mix(c00, c10, f.x), mix(c01, c11, f.x), f.y)
+	} else if op == ` + fmt.Sprint(sceneOpModelSpriteShadow) + ` {
+		t := floor(srcPos - imageSrc0Origin())
+		c := imageSrc3AtFromSrc0Pos(imageSrc0Origin() + t + vec2(0.5))
+		if c.a <= 0.0 {
+			return vec4(0.0)
+		}
+		bt := t + custom.xy
+		if bt.x >= color.r && bt.y >= color.g && bt.x < color.b && bt.y < color.a &&
+			imageSrc2AtFromSrc0Pos(imageSrc0Origin()+bt+vec2(0.5)).a > 0.998 {
+			return vec4(0.0)
+		}
+		return c * 0.5
 	} else if op == ` + fmt.Sprint(sceneOpModelDirectShadow) + ` {
 		rel := srcPos - imageSrc0Origin()
 		b := floor(rel/2.0) * 2.0

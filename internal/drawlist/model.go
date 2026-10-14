@@ -283,11 +283,14 @@ type ModelGeometry struct {
 	// Cache identifies the retained cached-lane raster this packet carries, or
 	// is zero when the packet is not reusable across frames (§13.12).
 	Cache ModelCacheKey
-	// SpriteLevel, when nonzero, offers the packet to the strategic view's
-	// sprites (DESIGN_GPU_RENDERER §16.13): the recorder vouches that its
-	// committed look holds while Cache holds, and an executor may draw it from
-	// a retained image at 2^-SpriteLevel texels per record pixel instead of
-	// rasterizing it. Zero is every other packet.
+	// Sprite offers the packet to the model sprites (DESIGN_GPU_RENDERER
+	// §16.13): the recorder vouches that its committed look holds while Cache
+	// holds, and its shadow's while the shadow's Cache holds, and an executor
+	// may draw it from a retained image at 2^-SpriteLevel texels per record
+	// pixel instead of rasterizing it. Level zero is the commit's own resolve,
+	// one texel per record pixel, and draws the shadow from a sprite of its
+	// own; a positive level is the strategic view's, which carries no shadow.
+	Sprite      bool
 	SpriteLevel uint8
 }
 

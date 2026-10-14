@@ -2585,6 +2585,11 @@ cell in turn share a key harmlessly — the retained lane is a pure function of 
 compared inputs, so a different corpse re-projects and an identical one reuses
 faces that are identical.
 
+A packet the fast path or the full path records this way is what the model
+sprites draw from (§16.13): its key, and its retained shadow's, hold while the
+wreck lies still, so the executor rasterizes it once and draws it from its
+sprite after that.
+
 Feature bodies are pruned by **age**, not by membership of the frame's feature
 set: a committed frame carries thousands of features, and building a per-frame
 set over them cost more allocation than the retention saved. A body records the
@@ -3933,65 +3938,122 @@ minimap's 4×4 `radlogo` blip so it reads against the world.
    absent at and below 0.40625×; and a seam sweep across many factors before and
    after the atlas borders.
 
-### 16.13 Strategic sprites
+### 16.13 Model sprites
 
-In the strategic view a long battle's wrecks are most of the model lane's work,
-and none of it changes between frames: every face of every wreck is rasterized
-onto the frame's atlas page (§22) to be shrunk to a few screen pixels by the
-world transform. The strategic view draws such a subject from a **sprite**
-instead — its finished image, baked once and drawn as one quad.
+A long battle's wrecks are most of the model lane's work, and none of it changes
+between frames: every face of every wreck, and of its shadow, is rasterized onto
+the frame's atlas page (§22) to be resolved under the same pixels as the frame
+before. The executor draws such a subject from a **sprite** instead — its
+finished image, baked once and drawn as one quad — at every zoom. The strategic
+view takes a sprite at the density it is seen; everywhere else the sprite is the
+commit's own resolve, and the shadow comes with it.
 
-**The offer.** The recorder offers a packet (`ModelGeometry.SpriteLevel`) when
-it is in the strategic view, is a 3DO feature on its retained lane (its cache
-key holds exactly while its faces do), and carries nothing per frame: no shadow
-(§16.10), reflection, waterline, Digger clip, reveal, outline, live faces,
-children, cloak or wreck heat. The level names the sprite's texel density,
-2^-level texels per record pixel: the smallest power of two at or above twice
-the live factor, so a screen pixel spans two to four sprite texels
-(`featureSpriteLevel`, `internal/client/world_zoom.go`). At one texel per
-screen pixel the bilinear draw blurred a wreck across two pixels; at two to four
-it reads each wreck's own averaged detail.
+**The offer.** The recorder offers a packet (`ModelGeometry.Sprite`) when it is a
+3DO feature on its retained lane (its cache key holds exactly while its faces
+do) and carries nothing per frame: no reflection, waterline, Digger clip, reveal,
+outline, live faces, children, cloak or wreck heat (`featureSprite`,
+`internal/client/world_zoom.go`). `SpriteLevel` names the sprite's texel
+density, 2^-level texels per record pixel:
+
+* **In the strategic view** the packet has no shadow (§16.10), and the level is
+  the smallest power of two at or above twice the live factor, so a screen pixel
+  spans two to four sprite texels. At one texel per screen pixel the bilinear
+  draw blurred a wreck across two pixels; at two to four it reads each wreck's
+  own averaged detail.
+* **Everywhere else** the level is zero, one texel per record pixel, and a
+  shadow, when the feature casts one, must be a structure's retained projection
+  (§13.12 "Shadows — contract P4"), whose own key holds while its faces do. Any
+  other shadow keeps the packet on the lane.
 
 **The bake.** An offered packet is drawn through the lane on its first frame as
-any other. After the page passes, its region of the colour page is averaged into
-a sprite on a retained page (`model_sprite.go`): every doubled texel a sprite
-texel covers — sixteen at level one, a thousand at level four — contributes its
-colour where covered, giving premultiplied colour and coverage, with a
-transparent one-texel border. The sprite is the lane's finished colour —
-palette, shading, finish and glint — supersampled at the size it is seen.
+any other, its shadow too. After the page passes, each region of the colour page
+is resolved into a sprite on a retained page (`model_sprite.go`), with a
+transparent one-texel border: every doubled texel a sprite texel covers — four at
+level zero, sixteen at level one, a thousand at level four — contributes its
+colour where covered, giving premultiplied colour and coverage. At level zero
+that is exactly the commit's coverage resolve of the block under a pixel (§17.4),
+and with the Supersample switch's single-sample resolve it is the block's
+top-left texel alone (§17.5). The shadow's sprite is its silhouette resolved the
+same way. A sprite is the lane's finished colour: palette, shading, finish and
+glint.
 
 **The draw.** From the next frame the packet takes no region and appends no
-faces. Its commit, in its own place in record order, is one quad over the
-sprite's world rectangle that the world transform shrinks to the screen, sampled
-bilinearly (`sceneOpModelSprite`).
+faces, and neither does its shadow. Its commit, in its own place in record
+order, is one quad over the sprite's world rectangle that the world transform
+maps to the screen (`sceneOpModelSprite`). A positive level is sampled
+bilinearly. Level zero is sampled as the commit samples: the texel under the
+pixel, or bilinearly between the four nearest where the commit's fractional-zoom
+filter does (§16.3). The shadow's commit, before the body's as on the lane, is
+one quad over the shadow's box (`sceneOpModelSpriteShadow`): the shadow sprite's
+texel under the pixel, skipped where the body sprite's texel for the same pixel
+is wholly covered, composited as the ALP half-colour — the lane's shadow commit
+on resolved texels [03 R-REN-03D §4–§5]. A packet with a shadow is drawn from
+sprites only while both are held. At the native step the result is the lane's
+within one level at a partly covered edge, where the sprite's stored coverage is
+rounded once more; with the single-sample resolve it is exact.
 
-**What stays live.** A battle light near the subject this frame keeps it on the
-lane, unbaked and undrawn from any sprite: the colour pass lights faces per
-frame. A change of the finish switches drops every sprite, as it drops the
-retained store (§22), and so does a change of the display palette — the gamma
-setting — which rewrites the table atlas's PAL row in place, so the renderer
-counts its changes rather than comparing the atlas. A sprite is keyed on the cache key less its half-pixel
-offset — half a record pixel, at most a quarter of a sprite texel — and on its
-level, so a zoom across an octave bakes again.
+**What stays live.** A battle light near the subject or its shadow this frame
+keeps it on the lane, unbaked and undrawn from any sprite: the colour pass lights
+faces per frame. A change of the finish switches drops every sprite, as it drops
+the retained store (§22), and so do a change of the Supersample switch's resolve
+and of the display palette — the gamma setting — which rewrites the table
+atlas's PAL row in place, so the renderer counts its changes rather than
+comparing the atlas. A sprite is keyed on its packet's cache key, the body's or
+the shadow's, and on its level. A positive level's key leaves out the half-pixel
+offset — half a record pixel, at most a quarter of a sprite texel — so a zoom
+across an octave bakes again; level zero's keeps it, since there it is half a
+texel. Below 1× the record step does not change with the factor, so the level-zero
+sprites hold through a zoom.
 
-**Storage.** Sprites are shelf-packed on 2048² RGBA pages, at most four (64 MiB),
-created on demand. A full set gives up its least recently drawn page, never one
-drawn from this frame; a view holding more sprites than the pages draws the rest
-through the lane.
+**Storage.** Sprites are shelf-packed on 2048² RGBA pages, at most eight
+(128 MiB), created on demand; a rectangle a page cannot hold leaves its shelves
+as they were. A level-zero sprite is a quarter of its region's texels, but at
+0.44×, near the strategic cut, one screen of a dense wreck field in a 1600×1034
+window still takes about 2.3 pages, and a larger window or a wider factor
+proportionally more. A full set gives
+up its least recently drawn page, never one drawn from this frame. A frame
+whose bakes find no room on pages that are all in view gives up, at the start of
+the next frame, the page least of which is in view — measured by the texels of
+the sprites drawn from it — if that is at most half of it: its sprites in view
+go through the lane once and bake again into the room it leaves, so the pages
+come to hold what is in view rather than what was baked while the view moved.
+A sprite goes stale whenever its packet's key changes, and a wreck that leaves
+the view for more than a second returns with a new body (§13.12), so without
+this the pages filled with stale sprites and a view could hold sprites on every
+page while none had room: in a 2½-minute session of panning and zooming over
+the save's wreck field, main spent 16 seconds with 400–530 wrecks waiting to
+bake and 550–650 subjects on the lane, and with it none. A page more than half
+in view is kept, so a view that needs more than the pages draws the rest
+through the lane rather than turning its sprites over every frame.
+`ModelStats.DirectSpriteShort` counts the sprites a frame had no room for and
+`DirectSpritePages` the pages held.
 
 **Effect.** On a 1,900-wreck battle at 0.12×: 120 frames a second at the cap
 against 64 (the executor 8.8 → 4.0 ms, placement 2.2 → 0.2 ms, 1.3 M → 0.24 M
 submitted vertices, about 1,150 → 10 device draws). Compared with the lane, a
 wreck reads as its averaged shape rather than the one texel nearest each pixel,
-so a wreck field no longer sparkles as the view moves.
+so a wreck field no longer sparkles as the view moves. Over the same battle's
+densest wreck field in a 1600×1034 window, about 540 wrecks with their shadows
+are drawn from level-zero sprites at 0.6×: 120 frames a second against 91, the
+executor 5.5 → 1.5 ms and 567 k → 106 k submitted vertices; at 1× 2.4 → 1.1 ms,
+and at the 2× detail view 1.35 → 0.76 ms. In the browser build at 0.6× the frame
+rate rose from 10.5 to 25.8.
 
 **Verification.** `model_sprite_test.go`: the offer is baked on its first frame
 and drawn from its sprite on the next, a subject under a battle light stays on
 the lane, a finish switch bakes again, a display palette change drops the
 sprites and the feature layers, and a page drawn from this frame is never
-evicted; the device fixture checks a flat face's interior is the lane's colour
-exactly and its edge spends the same ink. `TestFeatureSpriteLevel` locks the
-density rule and the offer.
+evicted; a level-zero offer bakes its shadow with it and draws neither on the
+lane, a lost shadow sprite brings both back to the lane, a shadow projected per
+frame keeps its body there, and the resolve switch bakes again; a frame short
+of room on pages all in view retires the page least in view and keeps pages
+mostly in view, and a rectangle a page cannot hold leaves its open shelf. The
+device
+fixtures check a strategic sprite's flat interior is the lane's colour exactly
+and its edge spends the same ink, and that shadowed level-zero sprites with
+partly covered edges give the lane's picture within one level at the native
+step, exactly under the single-sample resolve, and all but a sliver of pixels
+at 0.75×. `TestFeatureSprite` locks the density rule and the offer.
 
 ### 16.14 Strategic feature layers
 
@@ -4041,7 +4103,7 @@ the map and its texels are its memory). Each item is drawn over the transparent
 image in paint order under source-over; a texel averages the k × k record
 pixels it covers, writing PAL[index] where the frame is opaque — the keyed copy
 — or the premultiplied half-colour for the ALP tint [03 R-RAST-01 §6][03 §5.3.1].
-Layers share the strategic sprites' page kind and eviction (§16.13); a change of
+Layers share the model sprites' page kind and eviction (§16.13); a change of
 table atlas or of display palette drops them. At most 64 layers bake in one frame; a layer not baked
 is drawn as its items, so a feature is never missing.
 
@@ -4991,7 +5053,8 @@ construction outline rings (`model_outline.go`) and their CPU row walk
 retained-lane store (`model_retain.go`) and the texture page
 (`model_atlas.go`).
 
-Before `Replay`, every subject of the frame and its shadow are given a region of
+Before `Replay`, every subject of the frame and its shadow — except a subject
+drawn from its sprites (§16.13), which takes none — are given a region of
 a per-frame 2× atlas page — 4096 × 4096 texels, two planes, shelf-packed
 tallest-first, **no residency** — and their faces are fan-triangulated straight
 from the packet's projected corners. A 1080p battle frame uses about 1,300 rows

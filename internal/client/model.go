@@ -343,10 +343,10 @@ func (c *Client) drawFeatureModel(f frame.FeatureView) bool {
 }
 
 // recordFeatureGeometry records a 3DO feature's packet with its per-frame
-// presentation: the wreck's heat and the strategic sprite offer.
+// presentation: the wreck's heat and the sprite offer.
 func (c *Client) recordFeatureGeometry(g *drawlist.ModelGeometry, f frame.FeatureView) {
 	c.applyWreckHeat(g, f)
-	g.SpriteLevel = c.featureSpriteLevel(g)
+	g.Sprite, g.SpriteLevel = c.featureSprite(g)
 	c.list.RecordModel(drawlist.Model{Geometry: g})
 }
 
