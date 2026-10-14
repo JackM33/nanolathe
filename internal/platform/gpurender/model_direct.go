@@ -757,9 +757,9 @@ func (r *Renderer) placeModelDirectFrame(l *drawlist.List) bool {
 // outside the frame's world clip. The commits test the same rectangle, so such
 // a subject draws nothing: placing it would spend a region of the frame's
 // atlas, both page passes' faces and a commit quad whose fragment is clipped
-// away. The recorder admits units by a Z-row window alone (the retail painter
-// clips per draw), so a battle whose units spread across the map records many
-// subjects whose commits clip away entirely.
+// away. The recorder's unit view bound is conservative and features are
+// admitted by a cell window with margins (DESIGN_GPU_RENDERER §13.9), so a
+// frame still records subjects whose commits clip away entirely.
 //
 // A reflecting subject is never skipped: its reflection is committed from
 // geometry of its own and can land inside the clip while the body's box does
