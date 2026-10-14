@@ -339,6 +339,34 @@ func runShot(opts Options, cs *contentSet) error {
 	// No construction order is submitted and no extra tick is needed.
 	cl.SetFocused(true) // The windowless capture supplies focused input explicitly.
 	b.battleState().Input.ShiftHeld = opts.ShotShift
+	// `--shot-radial` opens the optional build radial (DESIGN_INTERFACE_HUD_INPUT
+	// §3.18) over the committed selection `--shot-select` published, with its
+	// fullest category expanded and the first item hovered, at the end of its
+	// open ease. The capture path has no pointer, so the presentation state is
+	// written rather than gestured; nothing is armed or submitted [I6].
+	if opts.ShotRadial {
+		p := b.hostPreferences()
+		p.BuildRadial = 1
+		b.hostPresentation = &p
+		if f, ok := b.currentSnapshot(); ok && f != nil {
+			if groups := hud.RadialGroups(b.cat, hud.AllowedBuildProducts(b.cat, f)); len(groups) != 0 {
+				fullest := 0
+				for i := range groups {
+					if len(groups[i].Products) > len(groups[fullest].Products) {
+						fullest = i
+					}
+				}
+				cx, cy := b.radialCentre(int32(shotW/2), int32(shotH/2))
+				b.radial.openAt(cx, cy, f.CommandPage.Builder, groups)
+				b.radial.builderName, b.radial.builderPages = radialBuilderInfo(b.cat, f)
+				b.radial.sticky = true
+				b.radial.lockedCat = fullest
+				b.radial.hoverCat = fullest
+				b.radial.hoverItem = 0
+				b.radial.age = 4
+			}
+		}
+	}
 	if opts.ShotBuild != "" {
 		def, ok := b.cat.Unit(opts.ShotBuild)
 		if !ok || def == nil {
