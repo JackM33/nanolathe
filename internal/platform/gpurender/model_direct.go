@@ -682,18 +682,32 @@ func (r *Renderer) placeModelDirectFrame(l *drawlist.List) bool {
 		}
 		if m.ShadowOnly {
 			if g.Shadow != nil && !g.Shadow.Silhouette {
-				d.pending = append(d.pending, modelDirectPending{g: g.Shadow, shadow: true, height: modelWorldBounds(g.Shadow).Dy()})
+				sb := modelWorldBounds(g.Shadow)
+				if modelDirectBoxAway(sb, r.clipW(), r.clipH()) {
+					r.modelStats.DirectClipped++
+					return
+				}
+				d.pending = append(d.pending, modelDirectPending{g: g.Shadow, shadow: true, height: sb.Dy()})
 			}
 			return
 		}
 		// A sprite already baked is drawn from its page and takes no region,
-		// and neither does its shadow (model_sprite.go).
+		// and neither does its shadow (model_sprite.go). It keeps its commit
+		// even when its box clips away: the draw is a quad whose 1-texel pad
+		// can touch the frame's edge from outside the box.
 		if g.Sprite && r.spriteDraw(g) {
 			return
 		}
 		bounds := modelWorldBounds(g)
 		if len(g.Children) != 0 {
 			bounds = modelGroupBounds(g)
+		}
+		// A subject whose every committed image would clip away takes no
+		// region: the same rectangle each commit clips against decides it, so
+		// dropping it here changes no pixel (modelDirectClipsAway).
+		if modelDirectClipsAway(g, bounds, r.clipW(), r.clipH()) {
+			r.modelStats.DirectClipped++
+			return
 		}
 		d.pending = append(d.pending, modelDirectPending{g: g, height: bounds.Dy()})
 	})
@@ -726,6 +740,41 @@ func (r *Renderer) placeModelDirectFrame(l *drawlist.List) bool {
 		r.stageTimes.ModelPlace = time.Since(placeStarted)
 	}
 	return rows != 0
+}
+
+// modelDirectClipsAway reports whether every image a subject commits this frame
+// — its body box, or a group's composed box, and its shadow's — lies wholly
+// outside the frame's world clip. The commits test the same rectangle, so such
+// a subject draws nothing: placing it would spend a region of the frame's
+// atlas, both page passes' faces and a commit quad whose fragment is clipped
+// away. The recorder admits units by a Z-row window alone (the retail painter
+// clips per draw), so a battle whose units spread across the map — or any
+// battle seen at a fractional factor, where the visible world is wider than
+// the framebuffer — records many subjects whose commits clip away entirely.
+//
+// A reflecting subject is never skipped: its reflection is committed from
+// geometry of its own and can land inside the clip while the body's box does
+// not. A silhouette's shadow reads its body's finished raster, so the shadow's
+// box is part of the test: the subject is placed when either box is in frame.
+func modelDirectClipsAway(g *drawlist.ModelGeometry, bounds image.Rectangle, clipW, clipH int) bool {
+	if g.ReflectWater {
+		return false
+	}
+	if !modelDirectBoxAway(bounds, clipW, clipH) {
+		return false
+	}
+	if sg := g.Shadow; sg != nil && !modelDirectBoxAway(modelWorldBounds(sg), clipW, clipH) {
+		return false
+	}
+	return true
+}
+
+// modelDirectBoxAway reports whether a box lies wholly outside [0,w)x[0,h):
+// the half-open rectangles a commit clips to, so a box touching an edge from
+// outside draws nothing and one touching it from inside draws at least a row
+// or column.
+func modelDirectBoxAway(b image.Rectangle, w, h int) bool {
+	return b.Max.X <= 0 || b.Max.Y <= 0 || b.Min.X >= w || b.Min.Y >= h
 }
 
 // assignGroupRegions places one subject's regions and nothing else, so the

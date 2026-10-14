@@ -41,9 +41,14 @@ import (
 // multiply-add that amd64 rounds in two steps. The scenario's float lanes are
 // quantized (the battle light, the finish response) or integer-valued, and the
 // two agree; either way the hash must not move under a refactor of placement.
+//
+// 2026-10-14: the lane's off-clip skip (modelDirectClipsAway) added
+// ModelStats.DirectClipped, and the digest covers the stats struct's print;
+// with the field removed the hash is the previous value, so placement itself
+// is unchanged and the scenario culls nothing.
 var modelPlaceGolden = map[string]string{
-	"arm64": "948b0794027b3e2f32685c92363495ea1a5e9862a531462a4ac7149df513b71b",
-	"amd64": "948b0794027b3e2f32685c92363495ea1a5e9862a531462a4ac7149df513b71b",
+	"arm64": "f6552994f5bc845a3a36cd42cd9ed7b878c2203b873c8b96261c45e2daedac0e",
+	"amd64": "f6552994f5bc845a3a36cd42cd9ed7b878c2203b873c8b96261c45e2daedac0e",
 }
 
 // modelPlaceFrames is the scenario's frame count.

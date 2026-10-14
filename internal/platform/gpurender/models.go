@@ -52,6 +52,12 @@ type ModelStats struct {
 	// every page, and the pages used.
 	DirectSubjects, DirectShadows, DirectFaces, DirectCulled, DirectOverflow, DirectPasses int
 	DirectAtlasRows, DirectPages                                                           int
+	// DirectClipped is the subjects and shadow-only commands no region was
+	// spent on because every image they commit — the body or group box and
+	// the shadow's — lies wholly outside the frame's world clip
+	// (modelDirectClipsAway). The commits test the same rectangle, so these
+	// would have drawn nothing.
+	DirectClipped int
 	// DirectOutlineRings is the construction outline rings drawn as one device
 	// primitive each, DirectOutlineTexels the 2× texels those primitives
 	// covered, and DirectOutlineWalked the rings whose endpoints the CPU
