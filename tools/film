@@ -10,8 +10,8 @@ import sys
 import tempfile
 
 
-# The strategic thresholds are absolute factors (icons at and below 0.5x, the
-# mixed band up to 0.625x), so keys in that range keep their value at any size.
+# The strategic thresholds are absolute factors (icons at and below 0.40625x, the
+# mixed band up to 0.53125x), so keys in that range keep their value at any size.
 STRATEGIC_ZOOM = 0.75
 MAX_ZOOM = 2.0
 

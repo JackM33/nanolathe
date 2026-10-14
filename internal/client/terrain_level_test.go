@@ -34,7 +34,8 @@ func TestStrategicTerrainLevel(t *testing.T) {
 	}{
 		{camera.ZoomUnit, true, 0},
 		{camera.ZoomUnit * 5 / 8, true, 0},
-		{camera.ZoomUnit / 2, true, 1},
+		{camera.ZoomUnit / 2, true, 0},
+		{strategicModelCut, true, 1},
 		{camera.ZoomUnit * 3 / 8, true, 1},
 		{camera.ZoomUnit / 4, true, 2},
 		{camera.ZoomUnit * 3 / 25, true, 3},

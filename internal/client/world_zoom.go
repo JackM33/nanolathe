@@ -23,11 +23,11 @@ const (
 	// projectiles, effects, trails and unit labels stop being recorded. Above
 	// it the world is drawn in full. Features are NOT gated on it: they record at
 	// every factor (§16.10).
-	strategicModelCut = camera.ZoomUnit / 2 // 0.5x
+	strategicModelCut = camera.ZoomUnit * 13 / 32 // 0.40625x
 	// strategicMarkerOn is the factor at which the marker layer starts to fade
 	// in. Between it and strategicModelCut both layers are recorded, the markers
 	// growing from nothing to full.
-	strategicMarkerOn = camera.ZoomUnit*5/8 + 0 // 0.625x
+	strategicMarkerOn = camera.ZoomUnit * 17 / 32 // 0.53125x
 	// strategicMarkerSize is one marker's side in FRAMEBUFFER pixels. Markers do
 	// not scale with the world; that is the whole point of them. It is a little
 	// larger than the minimap's 4x4 `radlogo` blip so a sensor dot reads against

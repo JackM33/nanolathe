@@ -109,7 +109,7 @@ func TestPausedZoomDigestIncludesSubpixelMotion(t *testing.T) {
 }
 
 func TestStrategicZoomUsesSubmittedTransform(t *testing.T) {
-	for _, factors := range [][2]float64{{.4, .5}, {.49, .51}} {
+	for _, factors := range [][2]float64{{.375, .475}, {.4, .42}} {
 		t.Run("submitted", func(t *testing.T) { testStrategicSubmittedZoom(t, factors[0], factors[1]) })
 	}
 }
@@ -129,7 +129,7 @@ func testStrategicSubmittedZoom(t *testing.T, from, to float64) {
 	c.camSamples = 2
 	c.camPrevView = camera.PresentationView{Factor: from}
 	c.camCurView = camera.PresentationView{X: 50, Z: 40, Factor: to}
-	c.cam.Zoom = camera.ZoomUnit / 2
+	c.cam.Zoom = strategicModelCut
 	c.SetCameraFraction(.25)
 	c.drawStrategicMarkers(buffer.Current())
 	if len(c.markerArena) == 0 {

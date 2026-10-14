@@ -307,7 +307,7 @@ func (s spriteCounter) Flash(drawlist.Flash)     {}
 func (s spriteCounter) Halo(drawlist.Halo)       {}
 
 // The marker layer replaces the models: one marker per admitted contact, fading
-// in linearly from nothing at 0.625x to full at 0.5x (§16.11).
+// in linearly from nothing at 0.53125x to full at 0.40625x (§16.11).
 func TestStrategicMarkerCountAndAlphaRamp(t *testing.T) {
 	c := zoomRecorderClient(t)
 	c.SetStrategicBlipArt(testBlipArt())
@@ -329,7 +329,7 @@ func TestStrategicMarkerCountAndAlphaRamp(t *testing.T) {
 		alpha uint8
 		marks int
 	}{
-		// 0.625x, 0.5625x and 0.5x: the two ends of the ramp and its midpoint.
+		// 0.53125x, 0.46875x and 0.40625x: the ramp's ends and midpoint.
 		{strategicMarkerOn, 0, 0},
 		{(strategicMarkerOn + strategicModelCut) / 2, 128, 2},
 		{strategicModelCut, 255, 2},

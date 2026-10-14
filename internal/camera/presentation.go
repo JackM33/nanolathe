@@ -8,6 +8,48 @@ type PresentationView struct {
 	X, Z, Factor float64
 }
 
+// fitZoomAnchor remembers the point selected in an overview while centring
+// temporarily prevents that point from staying under the cursor. The displayed
+// view still obeys every map bound (DESIGN_GPU_RENDERER §16.7).
+type fitZoomAnchor struct {
+	view             PresentationView
+	bounds           [7]int32 // viewport, map and effective chrome dimensions
+	screenX, screenY int32
+	worldX, worldZ   float64
+	mapX, mapZ       int32
+	holdX, holdZ     bool
+}
+
+func (c *Camera) zoomWorldAnchor(mx, my int32, next Zoom, view PresentationView) (wx, wz int32, worldX, worldZ float64) {
+	dx, dy := mx-OriginX, my-OriginY
+	wx, wz = c.X+c.zoom().Inverse(dx), c.Z+c.zoom().Inverse(dy)
+	worldX, worldZ = view.X+float64(dx)/view.Factor, view.Z+float64(dy)/view.Factor
+	left, top, bottom := c.ChromeInset()
+	bounds := [7]int32{c.ViewW, c.ViewH, c.MapW, c.MapH, left, top, bottom}
+	a := &c.fitZoom
+	if c.ViewportZoomFloor || next < c.zoom() || a.view != view || a.bounds != bounds || a.screenX != mx || a.screenY != my {
+		*a = fitZoomAnchor{}
+	}
+	if !c.ViewportZoomFloor && next > c.zoom() {
+		// Recomputing the point at each centred sample walks away from the
+		// selected unit. Retain it through zoom-in until the bounds admit it.
+		if !a.holdX && float64(c.MapW)*view.Factor <= float64(c.ViewW-left) {
+			a.worldX, a.mapX, a.holdX = worldX, wx, true
+		}
+		if !a.holdZ && float64(c.MapH)*view.Factor <= float64(c.ViewH-top-bottom) {
+			a.worldZ, a.mapZ, a.holdZ = worldZ, wz, true
+		}
+	}
+	a.bounds, a.screenX, a.screenY = bounds, mx, my
+	if a.holdX {
+		wx, worldX = a.mapX, a.worldX
+	}
+	if a.holdZ {
+		wz, worldZ = a.mapZ, a.worldZ
+	}
+	return
+}
+
 // PresentationView retains a zoom anchor's fractional origin while the
 // integer camera remains at the corresponding zoom step. Other camera writers
 // invalidate it by changing that origin or factor; a jump cannot reuse an old
@@ -33,6 +75,7 @@ func (c *Camera) SetPresentationView(v PresentationView) {
 	if c == nil {
 		return
 	}
+	c.fitZoom = fitZoomAnchor{}
 	z := Zoom(math.Round(v.Factor * float64(ZoomUnit))).Norm()
 	// The request is kept unfloored: a sub-native request the map cannot
 	// reach is what selects the full strategic view at the floor (§16.7).

@@ -78,43 +78,77 @@ func TestOverviewZoomRespectsEdgesAndKeepsFreeAxesAnchored(t *testing.T) {
 					start := c.PresentationView()
 					ax := int32(math.Round((float64(c.MapW)*position - start.X) * start.Factor))
 					ay := int32(math.Round((float64(c.MapH)*position - start.Z) * start.Factor))
-					checkStep := func(before PresentationView) {
+					worldX := start.X + float64(ax)/start.Factor
+					worldZ := start.Z + float64(ay)/start.Factor
+					pickX, pickZ := c.ScreenToWorld(ax+OriginX, ay+OriginY)
+					checkStep := func() {
 						t.Helper()
 						checkPresentedBounds(t, c)
 						after := c.PresentationView()
-						for _, axis := range []struct {
-							before, after                   float64
-							anchor, size, leading, trailing int32
-						}{
-							{before.X, after.X, ax, c.MapW, OriginX, c.ViewW},
-							{before.Z, after.Z, ay, c.MapH, OriginY, c.ViewH - OriginY},
-						} {
-							first := -axis.after * after.Factor
-							last := (float64(axis.size) - axis.after) * after.Factor
-							if first < float64(axis.leading)-1e-8 && last > float64(axis.trailing)+1e-8 {
-								world := axis.before + float64(axis.anchor)/before.Factor
-								if math.Abs((world-axis.after)*after.Factor-float64(axis.anchor)) > 1e-8 {
-									t.Fatal("unclamped axis lost its pointer anchor")
-								}
-							}
+						want := c.BoundPresentationView(PresentationView{
+							X:      worldX - float64(ax)/after.Factor,
+							Z:      worldZ - float64(ay)/after.Factor,
+							Factor: after.Factor,
+						})
+						if math.Abs(after.X-want.X) > 1e-8 || math.Abs(after.Z-want.Z) > 1e-8 {
+							t.Fatalf("lost overview anchor: got %+v, want %+v", after, want)
 						}
 					}
-					for _, target := range []Zoom{ZoomUnit / 4, ZoomUnit, ZoomMax, c.MinZoom(), ZoomUnit} {
+					for _, target := range []Zoom{max(c.MinZoom(), ZoomUnit/4), ZoomUnit, ZoomMax} {
 						if eased {
 							var control ZoomController
 							control.SetTarget(c, ax+OriginX, ay+OriginY, target)
-							for before := c.PresentationView(); control.Step(c); before = c.PresentationView() {
-								checkStep(before)
+							for control.Step(c) {
+								checkStep()
 							}
 						} else {
-							before := c.PresentationView()
 							c.SetZoomAbout(ax+OriginX, ay+OriginY, target)
-							checkStep(before)
+							checkStep()
 						}
+					}
+					gotX, gotZ := c.ScreenToWorld(ax+OriginX, ay+OriginY)
+					if gotX != pickX || gotZ != pickZ {
+						t.Fatal("overview zoom moved the picked world point")
 					}
 				}
 			})
 		}
+	}
+}
+
+func TestOverviewZoomAnchorIsReplacedAfterOtherCameraInput(t *testing.T) {
+	for _, change := range []struct {
+		name  string
+		apply func(*Camera, *int32, *int32)
+	}{
+		{"pointer", func(c *Camera, x, y *int32) { *y += 40 }},
+		{"pan against fitted axis", func(c *Camera, x, y *int32) { c.Pan(0, 100) }},
+		{"jump", func(c *Camera, x, y *int32) { c.JumpTo(c.X, c.Z) }},
+		{"scripted view", func(c *Camera, x, y *int32) { c.SetPresentationView(c.PresentationView()) }},
+		{"resize", func(c *Camera, x, y *int32) { c.ViewH += 100; c.Clamp() }},
+		{"chrome", func(c *Camera, x, y *int32) { c.Chrome.Top = 64; c.Clamp() }},
+		{"map extent", func(c *Camera, x, y *int32) { c.MapH += 100; c.Clamp() }},
+		{"external origin", func(c *Camera, x, y *int32) { c.X += 10 }},
+		{"zoom out", func(c *Camera, x, y *int32) { c.SetZoomAbout(*x, *y, ZoomUnit/5) }},
+	} {
+		t.Run(change.name, func(t *testing.T) {
+			c := &Camera{ViewW: 1024, ViewH: 768, MapW: 8192, MapH: 2048}
+			c.SetZoomAbout(OriginX, OriginY, c.MinZoom())
+			start := c.PresentationView()
+			mx := OriginX + int32(math.Round((2000-start.X)*start.Factor))
+			my := OriginY + int32(math.Round((400-start.Z)*start.Factor))
+			c.SetZoomAbout(mx, my, ZoomUnit/4)
+			change.apply(c, &mx, &my)
+			before := c.PresentationView()
+			worldX := before.X + float64(mx-OriginX)/before.Factor
+			worldZ := before.Z + float64(my-OriginY)/before.Factor
+			c.SetZoomAbout(mx, my, ZoomUnit)
+			got := c.PresentationView()
+			want := c.BoundPresentationView(PresentationView{X: worldX - float64(mx-OriginX), Z: worldZ - float64(my-OriginY), Factor: 1})
+			if math.Abs(got.X-want.X) > 1e-8 || math.Abs(got.Z-want.Z) > 1e-8 {
+				t.Fatalf("stale overview anchor: got %+v, want %+v", got, want)
+			}
+		})
 	}
 }
 

@@ -205,7 +205,7 @@ to rounding noise; a camera test holds both halves of that claim.
 
 A zoom key below the map's own floor is kept as the *request*: that is what
 selects the full strategic view at the floor (DESIGN_GPU_RENDERER §16.7), so a
-pull-back ends on icons alone. Between 0.5× and 0.625× the renderer draws
+pull-back ends on icons alone. Between 0.40625× and 0.53125× the renderer draws
 models and fading-in icons together (§16.11); a script that wants a clean
 hand-off crosses that band in a few ticks rather than easing through it.
 

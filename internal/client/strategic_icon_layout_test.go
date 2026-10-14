@@ -34,7 +34,7 @@ func TestStrategicIconIdentificationAndSlotReuse(t *testing.T) {
 		t.Fatal("owned unit has no typed icon")
 	}
 	first := c.markerArena[0].IconRect
-	if h, _, ok := c.PickPresentedUnit(f, 309, 209, 0); !ok || h != 7 {
+	if h, _, ok := c.PickPresentedUnit(f, 253, 172, 0); !ok || h != 7 {
 		t.Fatal("icon corner does not pick its unit")
 	}
 	// Same handle immediately replaces its occupant; no stale descriptor survives.
@@ -52,7 +52,7 @@ func TestStrategicIconIdentificationAndSlotReuse(t *testing.T) {
 	if len(c.markerArena) != 1 || c.markerArena[0].IconAtlas != nil || c.markerArena[0].Size != strategicMarkerSize {
 		t.Fatal("radar-only contact revealed identity")
 	}
-	if _, _, ok := c.PickPresentedUnit(f, 300, 200, 0); ok {
+	if _, _, ok := c.PickPresentedUnit(f, 244, 163, 0); ok {
 		t.Fatal("generic contact exposed a unit hit")
 	}
 	// Removing radar admission also removes the generic dot, including under fog.
@@ -76,39 +76,39 @@ func TestStrategicIconOverlapAndProjection(t *testing.T) {
 	f.Radar.Contacts[0].Selected = true
 	f.Units[0].Flags |= 0x10
 	c.drawStrategicMarkers(f)
-	if h, _, ok := c.PickPresentedUnit(f, 300, 200, 0); !ok || h != 7 {
+	if h, _, ok := c.PickPresentedUnit(f, 244, 163, 0); !ok || h != 7 {
 		t.Fatal("selected icon was not drawn/picked on top")
 	}
 	f.Radar.Contacts[0].Selected = false
 	f.Units[0].Flags &^= 0x10
 	c.SetStrategicHover(1)
-	if h, _, ok := c.PickPresentedUnit(f, 300, 200, 0); !ok || h != 8 {
+	if h, _, ok := c.PickPresentedUnit(f, 244, 163, 0); !ok || h != 8 {
 		t.Fatal("hover changed overlap order")
 	}
 	c.cam.X = 100
-	if _, _, ok := c.PickPresentedUnit(f, 300, 200, 0); ok {
+	if _, _, ok := c.PickPresentedUnit(f, 244, 163, 0); ok {
 		t.Fatal("old camera hit list survived pan")
 	}
-	if h, _, ok := c.PickPresentedUnit(f, 250, 200, 0); !ok || h != 8 {
+	if h, _, ok := c.PickPresentedUnit(f, 204, 163, 0); !ok || h != 8 {
 		t.Fatal("new projection not picked")
 	}
 	// A changed viewer cannot reuse the owner's identified layout.
 	f.Units[0].Cloaked = true
 	f.Units[1].Cloaked = true
-	if _, _, ok := c.PickPresentedUnit(f, 250, 200, 1); ok {
+	if _, _, ok := c.PickPresentedUnit(f, 204, 163, 1); ok {
 		t.Fatal("viewer change reused identified hit list")
 	}
 }
 
 func TestStrategicIconClipAndFade(t *testing.T) {
 	c, f := iconLayoutFixture(t)
-	f.Units[0].X = numeric.FixedFromInt(260)
+	f.Units[0].X = numeric.FixedFromInt(300)
 	f.Radar.Contacts[0].X = f.Units[0].X
 	c.drawStrategicMarkers(f)
-	if _, _, ok := c.PickPresentedUnit(f, 127, 200, 0); ok {
+	if _, _, ok := c.PickPresentedUnit(f, 127, 163, 0); ok {
 		t.Fatal("icon picked through HUD clip")
 	}
-	if _, _, ok := c.PickPresentedUnit(f, 128, 200, 0); !ok {
+	if _, _, ok := c.PickPresentedUnit(f, 128, 163, 0); !ok {
 		t.Fatal("visible icon edge did not pick")
 	}
 	c.cam.Zoom = (strategicMarkerOn + strategicModelCut) / 2
@@ -149,10 +149,10 @@ func TestStrategicIconBlendUsesCommittedVisibility(t *testing.T) {
 	c.camSamples = 2
 	c.SetCameraFraction(0.5)
 	c.drawStrategicMarkers(buffer.Current())
-	if c.markerArena[0].X != 275 {
+	if c.markerArena[0].X != 224 {
 		t.Fatalf("blended marker x=%d", c.markerArena[0].X)
 	}
-	if _, _, ok := c.PickPresentedUnit(buffer.Current(), 275, 200, 0); !ok {
+	if _, _, ok := c.PickPresentedUnit(buffer.Current(), 224, 163, 0); !ok {
 		t.Fatal("picker did not share camera blend")
 	}
 	// Drawing a blended pose cannot bypass the committed cloak gate.
@@ -190,16 +190,16 @@ func TestStrategicIconAcceptedProjection(t *testing.T) {
 	c.drawStrategicMarkers(buffer.Current())
 	c.SetCameraFraction(0.625)      // measured fraction after predicted recording
 	c.CommitStrategicPresentation() // accepted list, successfully submitted
-	if _, _, ok := c.PickPresentedUnit(buffer.Current(), 249, 200, 0); !ok {
+	if _, _, ok := c.PickPresentedUnit(buffer.Current(), 204, 163, 0); !ok {
 		t.Fatal("accepted predicted-frame edge did not pick")
 	}
 	// Another speculative recording must not overwrite the displayed projection.
 	c.drawStrategicMarkers(buffer.Current())
-	if _, _, ok := c.PickPresentedUnit(buffer.Current(), 249, 200, 0); !ok {
+	if _, _, ok := c.PickPresentedUnit(buffer.Current(), 204, 163, 0); !ok {
 		t.Fatal("speculative frame replaced displayed hit bounds")
 	}
 	c.camCurView.X = 400 // a new camera sample invalidates the old projection
-	if _, _, ok := c.PickPresentedUnit(buffer.Current(), 249, 200, 0); ok {
+	if _, _, ok := c.PickPresentedUnit(buffer.Current(), 204, 163, 0); ok {
 		t.Fatal("old projection survived a camera change")
 	}
 }
@@ -222,10 +222,10 @@ func TestStrategicIconsStayVisibleWithoutRadarAdmission(t *testing.T) {
 		if len(c.markerArena) != 1 || c.markerArena[0].IconAtlas == nil || c.markerArena[0].Size != 24 {
 			t.Fatalf("visible enemy vanished on damage blink phase %d", phase)
 		}
-		if _, _, hit := c.PickPresentedUnit(f, 311, 211, 0); !hit {
+		if _, _, hit := c.PickPresentedUnit(f, 255, 174, 0); !hit {
 			t.Fatal("24px icon edge was not clickable")
 		}
-		if _, _, hit := c.PickPresentedUnit(f, 312, 211, 0); hit {
+		if _, _, hit := c.PickPresentedUnit(f, 256, 174, 0); hit {
 			t.Fatal("icon hit escaped its 24px bounds")
 		}
 	}
@@ -314,7 +314,7 @@ func TestStrategicAttachedIconFollowsCarrierAdmission(t *testing.T) {
 // tactical zoom, including the quarter-scale target (DESIGN_GPU_RENDERER §18).
 func TestStrategicIconsRemain24PixelsAcrossTacticalZooms(t *testing.T) {
 	c, f := iconLayoutFixture(t)
-	for _, z := range []camera.Zoom{camera.ZoomUnit / 4, camera.ZoomUnit * 7 / 16, camera.ZoomUnit / 2} {
+	for _, z := range []camera.Zoom{camera.ZoomUnit / 4, camera.ZoomUnit * 3 / 8, strategicModelCut} {
 		c.cam.Zoom = z
 		c.drawStrategicMarkers(f)
 		if len(c.markerArena) != 1 {
@@ -344,7 +344,7 @@ func TestStrategicIconNanoframeAdmissionAndCompletion(t *testing.T) {
 	if len(c.markerArena) != 0 {
 		t.Fatal("nanoframe left a marker")
 	}
-	if _, _, ok := c.PickPresentedUnit(f, 300, 200, 0); ok {
+	if _, _, ok := c.PickPresentedUnit(f, 244, 163, 0); ok {
 		t.Fatal("nanoframe left an icon hit")
 	}
 	if len(f.Builds) != 1 || f.Builds[0].Remaining != .5 {

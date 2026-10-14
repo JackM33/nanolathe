@@ -52,6 +52,7 @@ type Camera struct {
 	zoomView             PresentationView
 	zoomViewX, zoomViewZ int32
 	zoomViewFactor       Zoom
+	fitZoom              fitZoomAnchor
 
 	// Fractional arrow-key and edge motion at the live zoom (DESIGN_INTERFACE_HUD_INPUT §3.8).
 	scrollX, scrollZ int64
@@ -303,6 +304,7 @@ func (c *Camera) JumpTo(x, z int32) { // [07 R-CAM-01 §12]
 	if c == nil {
 		return
 	}
+	c.fitZoom = fitZoomAnchor{}
 	c.X, c.Z = x, z
 	c.Clamp()
 	c.Follow.Desired = Origin{X: c.X, Z: c.Z}
@@ -354,6 +356,7 @@ func (c *Camera) Pan(dx, dz int32) { // [07 §10]
 	if c == nil {
 		return
 	}
+	c.fitZoom = fitZoomAnchor{}
 	c.X += dx
 	c.Z += dz
 	c.Clamp()
@@ -472,11 +475,10 @@ func (c *Camera) setZoomAboutRaw(mx, my int32, newZ Zoom) {
 	oldZ := c.zoom()
 	view := c.PresentationView()
 	newZ = newZ.Norm()
+	wx, wz, worldX, worldZ := c.zoomWorldAnchor(mx, my, newZ, view)
 	if newZ != oldZ {
 		dx := mx - OriginX
 		dy := my - OriginY
-		wx := c.X + oldZ.Inverse(dx)
-		wz := c.Z + oldZ.Inverse(dy)
 		c.X = wx - newZ.Inverse(dx)
 		c.Z = wz - newZ.Inverse(dy)
 	}
@@ -486,11 +488,20 @@ func (c *Camera) setZoomAboutRaw(mx, my int32, newZ Zoom) {
 	c.Clamp()
 	// Preserve the exact anchor between zoom steps, instead of accumulating
 	// inverse-projection rounding. A clamp takes precedence in its own axis.
-	view.X += float64(mx-OriginX) * (1/view.Factor - 1/newZ.Float())
-	view.Z += float64(my-OriginY) * (1/view.Factor - 1/newZ.Float())
+	view.X = worldX - float64(mx-OriginX)/newZ.Float()
+	view.Z = worldZ - float64(my-OriginY)/newZ.Float()
 	view.Factor = newZ.Float()
 	if !c.ViewportZoomFloor {
-		view = c.boundedPresentationView(view)
+		bounded := c.boundedPresentationView(view)
+		// Once an overview anchor is reachable, ordinary bounded anchoring
+		// can carry it. Only a fitted axis needs to remember a displaced point.
+		if bounded.X == view.X {
+			c.fitZoom.holdX = false
+		}
+		if bounded.Z == view.Z {
+			c.fitZoom.holdZ = false
+		}
+		view = bounded
 	} else {
 		if c.X != beforeX {
 			view.X = float64(c.X)
@@ -500,6 +511,7 @@ func (c *Camera) setZoomAboutRaw(mx, my int32, newZ Zoom) {
 		}
 	}
 	c.zoomView, c.zoomViewX, c.zoomViewZ, c.zoomViewFactor = view, c.X, c.Z, newZ
+	c.fitZoom.view = view
 }
 
 // NewFromTerrain creates a camera whose map extents are the playable insets [P1-15].

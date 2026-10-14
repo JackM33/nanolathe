@@ -59,7 +59,7 @@ func TestWaterMetadataEnhancedGateAndCapturePhase(t *testing.T) {
 	if got := recordedWater(t, c); got != want {
 		t.Fatalf("interpolated water = %+v, want %+v", got, want)
 	}
-	c.cam.Zoom = camera.ZoomUnit / 2
+	c.cam.Zoom = strategicModelCut
 	if got := recordedWater(t, c); got != (drawlist.WaterSurface{}) {
 		t.Fatalf("strategic view enabled water: %+v", got)
 	}

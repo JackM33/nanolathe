@@ -92,27 +92,27 @@ func TestRadarDotOverlapUsesDrawOrderAndVisibleIconPriority(t *testing.T) {
 	p := f.Radar.Contacts[0]
 	p.Handle = 8
 	f.Radar.Contacts = append(f.Radar.Contacts, p)
-	if h := c.PickRadarDot(f, 300, 200, 0); h != 8 {
+	if h := c.PickRadarDot(f, 244, 163, 0); h != 8 {
 		t.Fatalf("overlap hit %d, want last drawn 8", h)
 	}
 	u := f.Units[0]
 	u.Slot, u.Owner, u.DirectlyVisible = 9, 0, true
 	f.Units = append(f.Units, u)
-	if h := c.PickRadarDot(f, 300, 200, 0); h != 0 {
+	if h := c.PickRadarDot(f, 244, 163, 0); h != 0 {
 		t.Fatal("dot picked through visible icon")
 	}
-	if h, _, ok := c.PickPresentedUnit(f, 300, 200, 0); !ok || h != 9 {
+	if h, _, ok := c.PickPresentedUnit(f, 244, 163, 0); !ok || h != 9 {
 		t.Fatal("visible icon lost priority")
 	}
 	f.Units = f.Units[:1]
 	c.SetEnhanced(false)
-	if c.PickRadarDot(f, 300, 200, 0) != 0 {
+	if c.PickRadarDot(f, 244, 163, 0) != 0 {
 		t.Fatal("Classic gained attackable dots")
 	}
 	c.SetEnhanced(true)
 	// No art means no drawn dot and therefore no contact hit.
 	c.SetStrategicBlipArt(nil)
-	if c.PickRadarDot(f, 300, 200, 0) != 0 {
+	if c.PickRadarDot(f, 244, 163, 0) != 0 {
 		t.Fatal("undrawn contact was pickable")
 	}
 }

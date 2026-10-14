@@ -3323,7 +3323,7 @@ The modern executor's view scale is a free factor. The **classic** executor
 uses §14's native and detail steps. In the modern executor the factor is
 continuous: the mouse wheel over the battle viewport moves it, it eases toward
 its target on the
-host Update grid, and below half scale the world becomes the **strategic view**
+host Update grid, and at 0.40625× and below the world becomes the **strategic view**
 — terrain, fog, features and selection with the units drawn as icons. Retail has
 one world scale and no wheel zoom; the simulation cannot tell what the factor is
 [I6]. The invariant everything rests on:
@@ -3714,9 +3714,18 @@ For a camera with an explicit zoom, each axis that fits entirely inside the
 viewport stays centred, with equal unavoidable margins and no panning on that
 axis. Once the projected map fills an axis, its origin is bounded by the map
 edges, with no extra border allowance. Cursor anchoring applies within those
-bounds; an edge takes precedence when both cannot hold. Each zoom sample starts
-from the previous bounded view, so it does not retain a displaced anchor that
-would pull the camera back after leaving an edge. Both the fit transition and
+bounds; an edge takes precedence when both cannot hold. **User-authorized
+2026-10-13:** zooming in from a fitted axis retains the originally selected
+world point through centred samples and any subsequent edge clamp, until that
+point can stay under the cursor. Recomputing it from each centred sample would
+move the target away from the hovered unit, particularly on maps with large
+overview margins. Only the anchor is retained: every displayed sample remains
+centred or edge-bounded. Once the point is reachable, ordinary anchoring from
+the previous bounded view resumes. Zooming out, changing the pointer anchor,
+panning or jumping, installing a scripted view, or changing the viewport, chrome
+or map dimensions discards a pending overview anchor. Other edge-clamped zooms
+continue from the previous bounded view, with no displaced anchor to pull the
+camera back. Both the fit transition and
 the edge clamp use the continuous presentation factor before flooring the
 integer camera, avoiding rounding jumps at fractional zoom factors. The host
 also bounds every interpolated view: legal endpoints on opposite sides of the
@@ -3735,6 +3744,13 @@ and the separate Community megamap: the greater axis ratio rounded upward,
 bounded to 1/16..2×, with the earlier clamp. Modern and Community camera zoom
 use the full-map fit. These presentation choices change no simulation, RNG or
 resource behavior [I6].
+
+`TestOverviewZoomRespectsEdgesAndKeepsFreeAxesAnchored` locks the original
+overview point across repeated direct zooms and eased targets on wide, tall and
+square maps, checking the displayed bounds at every sample.
+`TestOverviewZoomAnchorIsReplacedAfterOtherCameraInput` covers pending-anchor
+invalidation. The existing legacy zoom and exact inverse-projection tests retain
+their separate contracts.
 
 **Overview margins (issue #90).** Border space outside the projected terrain
 raster stays at PAL[0]. Features and effects can extend farther beyond the map
@@ -3819,13 +3835,13 @@ free passage through native, settings changes, overview return and mode bypass.
 | Factor | World |
 |---|---|
 | 2× … 1× | everything, recorded at the 2× step |
-| 1× … 0.625× | everything, recorded at the 1× step |
-| 0.625× … 0.5× (exclusive) | everything, plus the marker/icon layer fading in |
-| 0.5× and below | terrain, fog, features (sprite shadows, no 3DO model shadows), selection fills, the build ghost and queue overlay, drag rectangle, dotted paths, icons |
+| 1× … 0.53125× | everything, recorded at the 1× step |
+| 0.53125× … 0.40625× (exclusive) | everything, plus the marker/icon layer fading in |
+| 0.40625× and below | terrain, fog, features (sprite shadows, no 3DO model shadows), selection fills, the build ghost and queue overlay, drag rectangle, dotted paths, icons |
 
 ### 16.10 What the strategic view drops — contract Z7
 
-At and below `strategicModelCut` (0.5×) — inclusive, so the 0.25× tactical target
+At and below `strategicModelCut` (0.40625×) — inclusive, so the 0.25× tactical target
 is a marker view — or at the clamped Enhanced tactical stop of §16.7, the
 recorder does not emit unit models, projectiles, effect strips, trails, unit
 labels or health bars. Terrain, fog, **the features** — sprite and 3DO alike —
@@ -3842,8 +3858,8 @@ the lane (§22), so it doubled the lane's work for a few pixels of shade: on a
 2,700-wreck battle at 0.12× it was half the packets, all of the atlas overflow
 and about half the executor's time (16.0 → 8.8 ms, 41 → 65 fps).
 
-Terrain below 0.5× is drawn from the tile set averaged down to the density it
-is seen at, as one quad over the map (§16.15), on the modern executor; the
+Terrain in the strategic view is drawn from the tile set averaged down to the
+density it is seen at, as one quad over the map (§16.15), on the modern executor; the
 classic executor never draws below its step. The recorder emits many more fog
 cells at a low factor. That path is allocation-free per frame as the rest of
 the recorder is, but the per-frame cell count grows with 1/factor², which is the
@@ -3853,7 +3869,7 @@ cost of the view.
 
 This generic-marker contract is superseded by §18 for identified units and
 Enhanced team colour; it remains the contract for unidentified contacts. Below
-`strategicMarkerOn` (0.625×) such a contact becomes one filled square of
+`strategicMarkerOn` (0.53125×) such a contact becomes one filled square of
 `strategicMarkerSize` (6) **framebuffer** pixels, a little larger than the
 minimap's 4×4 `radlogo` blip so it reads against the world.
 
@@ -3869,10 +3885,15 @@ minimap's 4×4 `radlogo` blip so it reads against the world.
   why.)
 * **Selection** adds a one-pixel outline in the selection colour, which fades with
   the layer rather than appearing at full strength first.
-* **The fade** is linear from alpha 0 at 0.625× to 255 at 0.5×, with full opacity
-  at the clamped Enhanced tactical stop. Models are hard-cut at 0.5×; a model
+* **The fade** is linear from alpha 0 at 0.53125× to 255 at 0.40625×, with full opacity
+  at the clamped Enhanced tactical stop. Models are hard-cut at 0.40625×; a model
   cross-fade needs an alpha lane on the model commit, whose fragment is opaque
   today, and is a follow-up (`TODO(question)` at `Client.markerAlphaAtZoom`).
+  User-authorized 2026-10-13: after the initial outward shift of 1/16× from
+  0.625×–0.5×, a further 1/32× moves fade onset about 6% farther out and the full
+  switch about 8% farther out. The linear fade width stays the same so recognizable
+  models remain visible longer. This is presentation tuning under I6, independent
+  of gameplay mode; the full-map floor exception and fixed icon size still apply.
 * **No projectile markers.** A shot is an event, not a thing on the map.
 * Markers are recorded **outside** the world region, already positioned through
   the live factor, because a fixed-pixel mark must not be scaled by the world
@@ -3909,8 +3930,8 @@ minimap's 4×4 `radlogo` blip so it reads against the world.
    border holds the cell's own edge.
 7. **Viewed.** Modern captures at several intermediate factors: terrain seamless,
    HUD unscaled, features present at every factor, icons present and unit models
-   absent below 0.5×; and a seam sweep across many factors before and after the
-   atlas borders.
+   absent at and below 0.40625×; and a seam sweep across many factors before and
+   after the atlas borders.
 
 ### 16.13 Strategic sprites
 
@@ -4312,8 +4333,8 @@ through the existing permitted hover information.
 tile, fixed at every camera zoom including the 0.25× tactical target and
 map-clamped intermediate factors; picking uses the same footprint. Icons stay
 upright, centred on the current marker projection, clipped to the battle viewport
-and outside the scaled world region. The transition is §16.11's 0.625× fade-in /
-0.5× full icons with §16.7's clamped tactical-stop exception.
+and outside the scaled world region. The transition is §16.11's 0.53125× fade-in /
+0.40625× full icons with §16.7's clamped tactical-stop exception.
 
 **Vocabulary.** A larger crown marks commander appearances and one factory
 silhouette serves every product family; the remaining role glyphs are authored

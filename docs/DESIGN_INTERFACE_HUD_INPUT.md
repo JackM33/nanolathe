@@ -2991,8 +2991,9 @@ by a simulation phase, and is not saved [I6].
   milliseconds of quiet before a new burst can leave the stop; pinch needs a
   fresh gesture. The world point under the pointer stays put within the camera bounds. Camera zoom
   centres an axis while the whole map fits on it, then limits panning to its
-  edges; those bounds take precedence over cursor anchoring and are applied
-  continuously during zooming (DESIGN_GPU_RENDERER §16.7). Fractional wheel travel banks
+  edges. Zooming in retains the point selected in that overview until the
+  bounds allow it under the cursor; the displayed view obeys the bounds at
+  every sample (DESIGN_GPU_RENDERER §16.7). Fractional wheel travel banks
   until it is worth a notch. The live wheel factor eases toward its target
   on the host Update grid; pinch follows the fingers directly. The
   classic executor takes no wheel zoom at all.
