@@ -653,6 +653,55 @@ func TestRangeRingAdaptiveTerrainAndBounds(t *testing.T) {
 	}
 }
 
+// TestRangeRingRejectsWrappedEndpoints locks the host bounds rejection for ring
+// endpoints outside the signed dword domain. The anti-nuke's authored 32000
+// range reaches it on an ordinary map: an endpoint that wraps to the opposite
+// side of the map spans tens of thousands of screen pixels, and the clipped
+// integer line drawer then paints that chord across the whole viewport
+// (issue #119). Wrapped chords are dropped; every in-domain ring keeps its
+// inclusive walk.
+func TestRangeRingRejectsWrappedEndpoints(t *testing.T) {
+	const radius = int32(32000) // the stock anti-nuke's authored range
+	opt := QueueOverlayOptions{
+		Project:      queueTestProject,
+		GroundHeight: func(numeric.Fixed, numeric.Fixed) numeric.Fixed { return 0 },
+	}
+	// The sine-table peak is the endpoint that wraps first. It is
+	// unrepresentable beyond the dword threshold and representable at the
+	// origin, which is the guard's whole contract.
+	peak := numeric.Angle(16384)
+	center := QueueWorldPoint{X: numeric.FixedFromInt(1632), Z: numeric.FixedFromInt(1632)}
+	if _, ok := rangeRingPoint(center, peak, radius, opt); ok {
+		t.Fatal("a wrapping endpoint was reported representable")
+	}
+	if _, ok := rangeRingPoint(QueueWorldPoint{}, peak, radius, opt); !ok {
+		t.Fatal("an in-domain endpoint was rejected")
+	}
+
+	full := int(rangeChordCount(radius)) + 1
+	if got := appendRangeRing(nil, QueuePrimitive{}, QueueWorldPoint{}, radius, 14, "", 0, opt); len(got) != full {
+		t.Fatalf("in-domain ring emitted %d primitives, want the full %d-chord walk", len(got), full)
+	}
+	out := appendRangeRing(nil, QueuePrimitive{}, center, radius, 14, "", 0, opt)
+	if len(out) == 0 || len(out) >= full {
+		t.Fatalf("wrapped ring emitted %d primitives, want a partial walk below %d", len(out), full)
+	}
+	for _, op := range out {
+		if op.Kind != QueuePrimitiveCircle {
+			continue
+		}
+		span := numeric.Abs(op.A.X - op.B.X)
+		if dy := numeric.Abs(op.A.Y - op.B.Y); dy > span {
+			span = dy
+		}
+		// A table-quantized chord at this radius spans a few hundred screen
+		// pixels; a wrapped one spans the map.
+		if span > 1000 {
+			t.Fatalf("wrapped chord spans %d pixels: A=%+v B=%+v", span, op.A, op.B)
+		}
+	}
+}
+
 // The chord count is derived from a raw authored dword and the walk appends
 // one primitive per chord, so a modded or corrupted range asked for billions
 // of primitives. The upper bound is a host bounds rejection like the
