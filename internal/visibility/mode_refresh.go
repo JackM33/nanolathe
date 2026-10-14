@@ -119,12 +119,18 @@ func (s *Service) fillEligibleByteGrids(eligible [10]bool) {
 	if !s.mode.CurrentEnabled() {
 		fill = 1
 	}
+	saturating := s.coverageSaturates()
 	for p := range s.byteGrids {
 		if !eligible[p] || s.byteGrids[p] == nil {
 			continue
 		}
 		for i := range s.byteGrids[p] {
 			s.byteGrids[p][i] = fill
+		}
+		// The wide count is derived state; a refilled byte row starts with no
+		// overlap. A row that was never allocated has nothing to clear.
+		if saturating && s.wide[p] != nil {
+			clear(s.wide[p])
 		}
 	}
 }

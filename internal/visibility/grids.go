@@ -63,6 +63,12 @@ type Service struct {
 	// throttle can compare against it [03 §3.2] C6.
 	footprints map[ObserverID]footprint
 
+	// wide carries the true coverage overlap count per player cell when the
+	// bound rule saturates instead of wrapping; the byte grid then stores
+	// min(count, 255). Nil under Strict, whose byte grid is the count
+	// [03 §3.1] (issue 120 investigation).
+	wide [10][]uint16
+
 	// sensorInputs is the sensor phase's per-unit status snapshot. The phase has
 	// no presentation surface of its own: the minimap's circles are drawn by
 	// the contacts pass [03 §3.10] correction of 2026-08-29.
@@ -351,6 +357,31 @@ func (s *Service) setWordBit(idx int, owner PlayerID) bool {
 	return true
 }
 
+// coverageSaturates reports whether the bound rule carries the true overlap
+// count in the wide grid and stores min(count, 255) in the byte grid. Strict
+// and Community keep retail's plain uint8 wrap [03 §3.1].
+func (s *Service) coverageSaturates() bool {
+	return s != nil && s.rules().CoverageCountSaturates()
+}
+
+// wideRow returns the owner's wide count row, allocating it to match the byte
+// row. A row that already carries counts (a fill, a fixture, a state written
+// before the rule was bound) seeds the wide count with its byte values, since
+// below 256 the byte grid *is* the count. Nil when the owner has no grid.
+func (s *Service) wideRow(owner PlayerID) []uint16 {
+	if int(owner) >= len(s.byteGrids) || s.byteGrids[owner] == nil {
+		return nil
+	}
+	if s.wide[owner] == nil || len(s.wide[owner]) != len(s.byteGrids[owner]) {
+		row := make([]uint16, len(s.byteGrids[owner]))
+		for i, b := range s.byteGrids[owner] {
+			row[i] = uint16(b)
+		}
+		s.wide[owner] = row
+	}
+	return s.wide[owner]
+}
+
 // incByteGrid increments the owner's byte refcount at idx [03 §3.1] C1.
 func (s *Service) incByteGrid(idx int, owner PlayerID) bool {
 	if validPlayer(owner) && s.team[owner] != 0 {
@@ -371,6 +402,18 @@ func (s *Service) incOwnByteGrid(idx int, owner PlayerID) bool {
 	}
 	if idx < 0 || idx >= len(s.byteGrids[owner]) {
 		return false
+	}
+	if s.coverageSaturates() {
+		w := s.wideRow(owner)
+		if w[idx] < 0xffff {
+			w[idx]++
+		}
+		if count := w[idx]; count > 255 {
+			s.byteGrids[owner][idx] = 255
+		} else {
+			s.byteGrids[owner][idx] = uint8(count)
+		}
+		return true
 	}
 	// Raw u8 wrap, no saturation — the increment has no clamp in retail
 	// [03 §3.1]; the promoted raster notes confirm the wrap.
@@ -399,6 +442,18 @@ func (s *Service) decOwnByteGrid(idx int, owner PlayerID) bool {
 	}
 	if idx < 0 || idx >= len(s.byteGrids[owner]) {
 		return false
+	}
+	if s.coverageSaturates() {
+		w := s.wideRow(owner)
+		if w[idx] > 0 {
+			w[idx]--
+		}
+		if count := w[idx]; count > 255 {
+			s.byteGrids[owner][idx] = 255
+		} else {
+			s.byteGrids[owner][idx] = uint8(count)
+		}
+		return true
 	}
 	// Plain u8 wrap, no saturation [03 §3.1] P0-11; DEC at 0 wraps to 255.
 	s.byteGrids[owner][idx]--

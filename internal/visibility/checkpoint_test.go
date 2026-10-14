@@ -231,6 +231,9 @@ func (*checkpointPanicRules) Visible(*Service, PlayerID, Target) bool {
 	panic("checkpoint invoked rules")
 }
 func (*checkpointPanicRules) MainViewRadarDots() bool { panic("checkpoint invoked rules") }
+func (*checkpointPanicRules) CoverageCountSaturates() bool {
+	panic("checkpoint invoked rules")
+}
 
 func TestVisibilityCheckpointRefusesUnattestedBindings(t *testing.T) {
 	s, c := visibilityCheckpointFixture(t)
