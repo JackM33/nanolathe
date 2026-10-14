@@ -130,7 +130,9 @@ lit point plane regions they committed through
 layer is paying per pixel or per plane, which is the first thing to check when
 modern `Submit` moves. They also carry the model lane counters of
 docs/DESIGN_GPU_RENDERER.md §22 — `DirectSubjects`, `DirectShadows`,
-`DirectOverflow`, `DirectAtlasRows` (over every page), `DirectPages` (a
+`DirectOverflow`, `DirectClipped` (subjects no region was spent on because
+every image they commit lay outside the frame's world clip),
+`DirectAtlasRows` (over every page), `DirectPages` (a
 second page opening is the first sign a detail-view scene has outgrown one)
 and `Silhouettes` (shadows committed from their body's own raster, within
 `Shadows`; `DirectShadows` is then the structures' projected shadows alone)
