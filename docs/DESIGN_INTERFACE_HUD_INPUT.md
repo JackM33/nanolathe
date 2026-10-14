@@ -5385,6 +5385,83 @@ its controls preset's keyboard row; no content yet authors key bindings of
 its own, so none is read. The blast rings change little of a still: a
 ring lasts a fraction of a second.
 
+### 3.18 Optional build radial
+
+**Nanolathe host presentation policy** (user-authorized 2026-10-13), an
+extension like the megamap of §3.15 rather than a retail finding or a
+gameplay rule: it is selected by the presentation preference
+`buildRadial` (default off, offered on the Nanolathe screen's Controls
+page), so it is available in every gameplay mode including Strict 3.1 and
+enters no digest, fingerprint or save. Off, battle input is unchanged in
+every path. The classifier and menu live in `internal/hud/radial.go` and
+`cmd/nanolathe/battle_radial.go` with their drawing in
+`battle_radial_draw.go`.
+
+**What it offers.** Only the selected command-page builder's published
+placement products — `hud.AllowedBuildProducts` filtered to building
+class — grouped by authored definition fields, never by unit name, so
+mods classify by what their structures do. Each offered product lands in
+exactly one bucket, in authored order: a structure builder whose menu
+names a mobile product is a **Factory**; else metal extraction or making
+is **Metal**; else positive net energy production in the economy's own
+terms — passive make net of upkeep (a solar authors its output as a
+negative energy use; a radar's equal make and use net to nothing), wind
+or tidal — is **Energy**; else an authored weapon name is **Defence**;
+else radar, sonar, jamming or resource storage is **Radar & Utility**;
+anything else is **Misc**, a bucket and never a drop. A product an
+authored menu lists twice is offered once, at its first occurrence: the
+sidebar keeps both records, but two ring slots for one structure would
+only split its flick direction. Factory *queueing* is out of scope: the counted
+sidebar interaction keeps it, and the radial both arms and ends at the
+ordinary `MOBILEBUILD` placement latch `[07 §9]`.
+
+**Gesture.** With an eligible builder selected, a middle press over the
+battle viewport opens the menu centred on the cursor, shifted as a whole
+to stay inside the viewport the chrome leaves. The press is a marking
+menu: drag past the dead-zone toward a category slot to expand it, keep
+going to the item ring, and release on an item to arm its placement with
+the usual `addbuild` cue. Releasing inside the dead-zone, or still inside
+the category band, instead leaves the menu open sticky — left-click then
+picks a category and an item, a click on the hub, an empty slot or far
+outside dismisses it, and a second middle press toggles it closed. A
+sticky menu's clicked category stays locked while the pointer crosses
+other slots on its way to an item; only another plate click retargets it.
+Escape and right-click cancel at either level, and that Escape never
+also deselects. Each category owns a fixed 60-degree slot clockwise from
+the top in bucket order, offered or not, and items keep authored order
+from the top, ten to a page with the wheel turning pages; the hub
+captions the hovered product's name and metal/energy cost. Categories
+cue `nextbuildmenu` as they change, as a page switch does.
+
+**Ownership.** The menu is serviced in `handleInput` ahead of every world
+path and consumes each frame it is shown on, so no selection drag, latch
+or world click starts underneath it; the GUI palette, modals, TALK, the
+megamap and focus loss all close it first. While it is open the camera
+holds still: edge and arrow scroll, wheel and gesture zoom and the
+middle-drag pan are all suppressed, and because the pan's previous-
+position words still advance, closing the menu cannot jump the camera.
+The one deliberate trade is that an admitted middle press — radial on, a
+builder with placement products selected — opens the menu instead of
+starting that pan; every other middle press pans exactly as before. A
+selection change to another builder closes the menu rather than
+retargeting it. Opening while a placement is already armed is allowed
+and choosing re-arms to the new product; cancelling leaves the armed
+placement untouched. It draws on the indexed battle HUD list over the
+chrome and under modal windows, using the authored gadget pictures, so
+both executors show the same menu.
+
+**Verification.** `TestRadialCategoryBucketsAuthoredFields` and
+`TestRadialGroupsPartitionPlacementProductsInAuthoredOrder` lock the
+bucketing and the exact-once partition; `TestRadialHoldFlickSelects`,
+`TestRadialTapStickyClicksSelect`,
+`TestRadialReleaseInCategoryBandStaysOpen`, `TestRadialCancels` and
+`TestRadialWheelPagesItems` lock the gesture machine;
+`TestBuildRadialPersistence` locks the opt-in default and its
+normalization; `TestRadialRetailCorpusPartition` holds the partition and
+the opening-chain buckets against the compiled corpus, and
+`--shot-radial` with `--shot-select` composes the expanded menu
+headlessly for visual review.
+
 ## 4. Retail behaviour that is not a bug
 
 * **The footer shows the *hovered* unit, never the selected one.** It persists

@@ -651,6 +651,11 @@ type Presentation struct {
 	// Alt a grid, in the Enhanced renderer (DESIGN_INTERFACE_HUD_INPUT §3.11);
 	// off, each click places one site. On by default.
 	BuildDrag int `json:"buildDrag"`
+	// BuildRadial opens the cursor-centred two-level build menu on the
+	// middle button while a builder's page is selected
+	// (DESIGN_INTERFACE_HUD_INPUT §3.18). Off by default: the middle button
+	// keeps its camera-drag pan and input is unchanged.
+	BuildRadial int `json:"buildRadial"`
 	// StrategicIconStyle selects Modern generated icons or community art
 	// (DESIGN_GPU_RENDERER §18); StrategicIconConfig retains the art path.
 	StrategicIconStyle  int        `json:"strategicIconStyle"`
@@ -897,7 +902,7 @@ func (p *Presentation) Normalize() {
 	if p.CommunitySelection < 0 || p.CommunitySelection > 2 {
 		p.CommunitySelection = 0
 	}
-	for _, value := range []*int{&p.FactoryHundredBatch, &p.DoubleClickSelection, &p.CommunityCounters, &p.ReloadBars, &p.VeteranLabels, &p.GroupNumbers, &p.AlliedResources, &p.WeatherReport, &p.BuildRotationOverlay, &p.QueuedOrderDrag, &p.BuildDrag, &p.TeamColorNanolathe, &p.VictoryCue, &p.AlliedDotSwatches} {
+	for _, value := range []*int{&p.FactoryHundredBatch, &p.DoubleClickSelection, &p.CommunityCounters, &p.ReloadBars, &p.VeteranLabels, &p.GroupNumbers, &p.AlliedResources, &p.WeatherReport, &p.BuildRotationOverlay, &p.QueuedOrderDrag, &p.BuildDrag, &p.BuildRadial, &p.TeamColorNanolathe, &p.VictoryCue, &p.AlliedDotSwatches} {
 		if *value < 0 {
 			*value = 0
 		} else {
