@@ -216,7 +216,10 @@ diagnostic evidence, not exact per-entity cost attribution or proof of a stall.
 
 There are 300 pre-window simulation steps by default, followed by two simulated
 seconds of renderer warmup: 60, 120 or 240 draws at the selected target rate,
-always advancing 60 authoritative ticks. The pre-window steps run without
+always advancing 60 authoritative ticks. The benchmark pins the normal game
+speed (10) for its whole run — a saved `gamespeed` preference is a player
+setting, not a benchmark input — and records it as `game_speed` in
+`frames.json`. The pre-window steps run without
 drawing or wall-clock pacing; sound and status events are drained each step to
 avoid replaying the whole lead-in on
 the first displayed frame. Renderer warmup remains necessary to populate draw
