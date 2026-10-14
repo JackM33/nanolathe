@@ -5054,7 +5054,8 @@ retained-lane store (`model_retain.go`) and the texture page
 (`model_atlas.go`).
 
 Before `Replay`, every subject of the frame and its shadow — except a subject
-drawn from its sprites (§16.13), which takes none — are given a region of
+drawn from its sprites (§16.13) and one whose every image lies outside the
+frame's clip (below), which take none — are given a region of
 a per-frame 2× atlas page — 4096 × 4096 texels, two planes, shelf-packed
 tallest-first, **no residency** — and their faces are fan-triangulated straight
 from the packet's projected corners. A 1080p battle frame uses about 1,300 rows
@@ -5066,6 +5067,47 @@ a two-texel margin separates them (§11.2 "Every atlas cell carries a border").
 The doubled lane is the recorder's own packet when it carries one, half-pixel
 offset included (§17.3); a packet without one has its native corners doubled
 here.
+
+**A subject whose every image lies outside the clip takes no region.** The
+recorder admits units by the Z-row window alone — retail's painter clips each
+draw, and the lane's commits are the executor's clip — so a battle spread
+across the map records subjects whose body or group box and shadow box lie
+wholly outside the frame's world clip. Each commit tests that rectangle before
+it builds anything, so such a subject draws no pixel: `modelDirectClipsAway`
+(`internal/platform/gpurender/model_direct.go`) gives it no region, its faces
+enter no page pass and it compiles no commit; `ModelStats.DirectClipped` counts
+them. Placement tests the rectangle the commits will test — the framebuffer
+widened to the record extent the frame's WorldBegin carries, as `World` widens
+it — although that command is replayed after placement. A subject stays placed
+while anything it commits beyond its own box can reach the clip: a reflection,
+committed from geometry of its own; the blue waterline's underwater commit,
+which the refraction displaces; an aircraft's soft-shadow disc
+(`commitUnderwater`, `commitAircraftShadow`); its shadow's box, since a
+silhouette shadow is cut from the body's raster; and the same for each carried
+child, whose shadow is cut from the solo region the carrier's placement gives
+it. A skipped subject reaches its commit without a region and leaves the
+atlas fallback at its clip test, before the fallback would join the page
+passes, so it does not end their overlap with `Replay` ("Page passes beside
+Replay" below). A shadow without a region that lies wholly outside the clip is
+not counted in `ShadowsOmitted`, which keeps counting shadows a frame lost.
+
+In the Survival battle captures (medians of three alternating runs, 60 draws
+a second), the 703-unit capture at 1× placed 22 subjects instead of 145 and
+issued 42 device draws instead of 225; `Submit` fell from 1.25 to 0.53 ms and
+`OutsideDraw` from 2.30 to 1.33 ms. The 735-unit capture at 0.5× placed 161
+instead of 334, with 320 device draws instead of 782; `Submit` fell from 2.57
+to 1.52 ms and `OutsideDraw` from 3.74 to 2.45 ms. The coastal fixture culls
+nothing: its units stand near the camera.
+
+At a rest factor the frame is byte-identical, and so are both coastal
+renderers. Below one, a few edge pixels of a few remaining subjects change: 275
+pixels (0.017%) of a frozen 0.5× frame of the 735-unit capture, by up to 137
+levels where a fetch lands on the neighbouring texel of a hard edge. That is
+the atlas's own sensitivity, not the skip's: the remaining subjects pack into
+different positions, and at a fractional scale the commit's interpolated,
+floored fetches round differently at a different position. Shifting every
+region of the unculled frame by one empty allocation moves 132 pixels of the
+same frame the same way, as a unit entering or leaving the frame does.
 
 An ordinary attached-unit group composes in **one** region over the union of its bounds:
 the carrier's faces, then each mergeable child's with its signed height delta

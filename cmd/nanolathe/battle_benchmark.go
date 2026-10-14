@@ -15,6 +15,7 @@ import (
 	"github.com/nanolathe-gg/nanolathe/internal/orders"
 	"github.com/nanolathe-gg/nanolathe/internal/platform/ebitenapp"
 	"github.com/nanolathe-gg/nanolathe/internal/session"
+	"github.com/nanolathe-gg/nanolathe/internal/settings"
 	"github.com/nanolathe-gg/nanolathe/internal/sim/numeric"
 	"github.com/nanolathe-gg/nanolathe/internal/units"
 	"github.com/nanolathe-gg/nanolathe/internal/world"
@@ -28,6 +29,13 @@ func runBattleBenchmark(opts Options, cs *contentSet, b *battleSession, c *clien
 		return fmt.Errorf("nanolathe: create fresh benchmark directory: %w", err)
 	}
 	s := b.sess
+	// The fixture is the documented one whatever the player has saved: every
+	// benchmark comparison assumes the normal speed, and the lead-in's exact
+	// tick check counts one tick per viewer step. A saved game-speed
+	// preference is a player setting, not a benchmark input [01 §4.3].
+	if s.Clock != nil {
+		s.Clock.Requested, s.Clock.Active = settings.DefaultGameSpeed, settings.DefaultGameSpeed
+	}
 	diagnostics := newBattleBenchmarkDiagnostics(opts.BattleBenchmark, s)
 	defer diagnostics.End()
 	var scene *coastalBenchmarkScene
@@ -199,7 +207,7 @@ func runBattleBenchmark(opts Options, cs *contentSet, b *battleSession, c *clien
 		}
 		return sample
 	}
-	metadata := map[string]any{"scene_kind": opts.BenchmarkScene, "scene_version": 5, "gameplay": s.Gameplay.Normalize(), "rules": s.Rules.Name, "gameplay_features": s.Community, "entry_gameplay_features": s.EntryCommunity, "gameplay_features_digest": s.Community.Digest(), "content_profile": cs.contentProfileName(), "mod": cs.modSelector(), "mutators": s.Mutators.String(), "restrictions": s.Restrictions.String(), "phase_timing": true, "tps": opts.BenchmarkTPS, "map": opts.Map, "seed": opts.Seed, "simulation_seed": s.RNGSimSeed, "crt_seed": s.RNGCrtSeed, "factories": opts.BenchmarkFactories, "viewport": []int32{b.cam.ViewW, b.cam.ViewH}, "zoom": viewZoomOf(b).Float(), "auto_remaster": opts.AutoRemaster, "pre_window_ticks": opts.BenchmarkPreTicks, "display": loadedSettings().Display, "effects": c.Effects(), "ground_light_strength": c.GroundLightStrength(), "blast_ring_strength": c.BlastRingStrength(), "unit_limit": s.Units.UnitLimit(), "root": opts.Root, "roots": opts.Roots, "fixture_state": statePoints[0], "input": "disabled", "simulation_host": "synchronous one viewer pump per authoritative tick"}
+	metadata := map[string]any{"scene_kind": opts.BenchmarkScene, "scene_version": 5, "gameplay": s.Gameplay.Normalize(), "rules": s.Rules.Name, "gameplay_features": s.Community, "entry_gameplay_features": s.EntryCommunity, "gameplay_features_digest": s.Community.Digest(), "content_profile": cs.contentProfileName(), "mod": cs.modSelector(), "mutators": s.Mutators.String(), "restrictions": s.Restrictions.String(), "phase_timing": true, "tps": opts.BenchmarkTPS, "game_speed": s.Clock.Active, "map": opts.Map, "seed": opts.Seed, "simulation_seed": s.RNGSimSeed, "crt_seed": s.RNGCrtSeed, "factories": opts.BenchmarkFactories, "viewport": []int32{b.cam.ViewW, b.cam.ViewH}, "zoom": viewZoomOf(b).Float(), "auto_remaster": opts.AutoRemaster, "pre_window_ticks": opts.BenchmarkPreTicks, "display": loadedSettings().Display, "effects": c.Effects(), "ground_light_strength": c.GroundLightStrength(), "blast_ring_strength": c.BlastRingStrength(), "unit_limit": s.Units.UnitLimit(), "root": opts.Root, "roots": opts.Roots, "fixture_state": statePoints[0], "input": "disabled", "simulation_host": "synchronous one viewer pump per authoritative tick"}
 	if scene != nil {
 		metadata["coastal_scene"] = scene
 		metadata["battle_center"] = []int32{cx, cz}

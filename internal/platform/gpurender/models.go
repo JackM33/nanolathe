@@ -52,6 +52,12 @@ type ModelStats struct {
 	// every page, and the pages used.
 	DirectSubjects, DirectShadows, DirectFaces, DirectCulled, DirectOverflow, DirectPasses int
 	DirectAtlasRows, DirectPages                                                           int
+	// DirectClipped is the subjects and shadow-only commands no region was
+	// spent on because every image they commit — the body or group box and
+	// the shadow's — lies wholly outside the frame's world clip
+	// (modelDirectClipsAway). The commits test the same rectangle, so these
+	// would have drawn nothing.
+	DirectClipped int
 	// DirectOutlineRings is the construction outline rings drawn as one device
 	// primitive each, DirectOutlineTexels the 2× texels those primitives
 	// covered, and DirectOutlineWalked the rings whose endpoints the CPU
@@ -116,8 +122,9 @@ type ModelStats struct {
 	DeviceDraws int
 	// GPU is the model subjects committed, Skipped the packets omitted (a child
 	// the lane cannot merge), Shadows the shadow commits, ShadowsOmitted the
-	// shadows without a region, NoBody the commands whose recorder declared no
-	// body commit, Flashes the lit-disc quads (§13.11).
+	// shadows without a region that would have reached the frame, NoBody the
+	// commands whose recorder declared no body commit, Flashes the lit-disc
+	// quads (§13.11).
 	GPU, Skipped, Shadows, ShadowsOmitted, NoBody, Flashes int
 	// Silhouettes is the shadows committed from their body's own raster
 	// (§22), counted within Shadows.

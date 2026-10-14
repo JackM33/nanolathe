@@ -74,7 +74,7 @@ func checkFactoryRevealDevicePixels() error {
 				list.RecordClear()
 				list.RecordFill(drawlist.Fill{Rect: drawlist.Rect{W: w, H: h}, Index: 7, Style: drawlist.FillSolid})
 				if secondPage {
-					list.RecordModel(drawlist.Model{Geometry: directSubject(0, -2100, 2046, 2044, directFace(0, 0, 2044, 2040, 100, 10, 10))})
+					list.RecordModel(drawlist.Model{Geometry: pageFiller(h, 2046, 2044, 7, 10)})
 				}
 				list.RecordModel(drawlist.Model{Geometry: plate})
 				list.RecordExpand()
@@ -153,8 +153,9 @@ func checkFactoryPageTurnDevicePixels() error {
 			if turn == 1 {
 				// A 3,884 × 4,084 region: the factory's 152-texel-wide region
 				// fits beside it, its product's 136 more do not, and no shelf
-				// fits below it.
-				list.RecordModel(drawlist.Model{Geometry: directSubject(0, -2100, 1940, 2040, directFace(0, 0, 1936, 2036, 100, 10, 10))})
+				// fits below it. Its one recorded row is the field's own
+				// index.
+				list.RecordModel(drawlist.Model{Geometry: pageFiller(h, 1940, 2040, 7, 10)})
 			}
 			list.RecordModel(drawlist.Model{Geometry: plate})
 			list.RecordExpand()
@@ -202,7 +203,7 @@ func checkModelPagesConcurrentDevicePixels() error {
 		var list drawlist.List
 		list.RecordClear()
 		list.RecordFill(drawlist.Fill{Rect: drawlist.Rect{W: w, H: h}, Index: 7, Style: drawlist.FillSolid})
-		list.RecordModel(drawlist.Model{Geometry: directSubject(0, -2100, 1940, 2040, directFace(0, 0, 1936, 2036, 100, 10, 10))})
+		list.RecordModel(drawlist.Model{Geometry: pageFiller(h, 1940, 2040, 7, 10)})
 		list.RecordModel(drawlist.Model{Geometry: plate})
 		list.RecordModel(drawlist.Model{Geometry: directSubject(60, 30, 26, 14, directFace(0, 0, 24, 12, 150, 30, 30))})
 		list.RecordExpand()

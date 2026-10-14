@@ -70,7 +70,7 @@ func checkModelSeedDevicePixels() error {
 				list.RecordClear()
 				list.RecordFill(drawlist.Fill{Rect: drawlist.Rect{W: width, H: height}, Index: 7, Style: drawlist.FillSolid})
 				if secondPage {
-					list.RecordModel(drawlist.Model{Geometry: directSubject(0, -2100, 2046, 2044, directFace(0, 0, 2044, 2040, 10, 10, 10))})
+					list.RecordModel(drawlist.Model{Geometry: pageFiller(height, 2046, 2044, 7, 10)})
 				}
 				type sample struct {
 					name string
