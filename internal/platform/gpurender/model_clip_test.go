@@ -3,6 +3,7 @@ package gpurender
 import (
 	"testing"
 
+	"github.com/nanolathe-gg/nanolathe/internal/camera"
 	"github.com/nanolathe-gg/nanolathe/internal/drawlist"
 )
 
@@ -25,10 +26,16 @@ func TestModelDirectClipsAway(t *testing.T) {
 	shadowInFrame.Shadow = placeShadow(shadowInFrame, 2, 4)
 	reflecting := placeBody(placeBodyOpts{faces: 4, w: 30, h: 20, ax: -1000, ay: 100, seed: 5})
 	reflecting.ReflectWater = true
+	submerged := placeBody(placeBodyOpts{faces: 4, w: 30, h: 20, ax: -1000, ay: 100, seed: 9})
+	submerged.Waterline = drawlist.ModelWaterlineBlue
+	airborne := placeBody(placeBodyOpts{faces: 4, w: 30, h: 20, ax: -1000, ay: 100, seed: 10})
+	airborne.AircraftShadowHeight = 200
 	record(off)
 	record(on)
 	record(shadowInFrame)
 	record(reflecting)
+	record(submerged)
+	record(airborne)
 	// One shadow-only command whose shadow clips away and one whose does not.
 	awayOnly := placeBody(placeBodyOpts{faces: 4, w: 30, h: 20, ax: 100, ay: 100, seed: 6})
 	awayOnly.Shadow = &drawlist.ModelGeometry{Eligible: true, KeyPlane: true, Width: 30, Height: 20, AnchorX: -1000, AnchorY: 100, Scale: 1}
@@ -49,9 +56,25 @@ func TestModelDirectClipsAway(t *testing.T) {
 	if _, ok := r.modelDirect.regions[awayOnly.Shadow]; ok {
 		t.Fatal("the off-clip shadow-only command took a region")
 	}
-	for _, g := range []*drawlist.ModelGeometry{on, shadowInFrame, reflecting, nearOnly.Shadow} {
+	for _, g := range []*drawlist.ModelGeometry{on, shadowInFrame, reflecting, submerged, airborne, nearOnly.Shadow} {
 		if _, ok := r.modelDirect.regions[g]; !ok {
 			t.Fatal("a subject whose commit is in frame took no region")
 		}
+	}
+
+	// Below a rest factor the frame's record extent is wider than the
+	// framebuffer and it is the rectangle the commits clip against: a subject
+	// outside the framebuffer but inside the record extent is still placed.
+	var zoomed drawlist.List
+	zoomed.RecordWorld(drawlist.WorldSpace{Begin: true, Zoom: camera.ZoomUnit / 2, Step: camera.ViewScaleNative, RecordW: 1280, RecordH: 960})
+	wide := placeBody(placeBodyOpts{faces: 4, w: 30, h: 20, ax: 1000, ay: 100, seed: 8})
+	zoomed.RecordModel(drawlist.Model{Geometry: wide})
+	r.modelStats = ModelStats{}
+	r.placeModelDirectFrame(&zoomed)
+	if r.modelStats.DirectClipped != 0 {
+		t.Fatal("a subject inside the record extent but outside the framebuffer was clipped")
+	}
+	if _, ok := r.modelDirect.regions[wide]; !ok {
+		t.Fatal("a subject inside the record extent took no region")
 	}
 }

@@ -674,6 +674,17 @@ func (r *Renderer) placeModelDirectFrame(l *drawlist.List) bool {
 	// waste down; the commits keep record order regardless. A carried child's
 	// shadow-only command places the shadow alone; the body's region is set
 	// when the carrier is placed.
+	//
+	// The off-clip test clips against the record extent the frame's world
+	// region carries, not r.worldW: that field still holds the previous
+	// frame's value here, and the WorldBegin command that sets it is replayed
+	// after placement (renderer.Execute), so below a rest factor the two
+	// differ and only the recorded extent is the rectangle the commits will
+	// clip against.
+	clipW, clipH := r.clipW(), r.clipH()
+	if w, h := l.RecordedWorldExtent(); w > 0 && h > 0 {
+		clipW, clipH = int(w), int(h)
+	}
 	d.pending = d.pending[:0]
 	l.VisitModels(func(m drawlist.Model) {
 		g := m.Geometry
@@ -683,7 +694,7 @@ func (r *Renderer) placeModelDirectFrame(l *drawlist.List) bool {
 		if m.ShadowOnly {
 			if g.Shadow != nil && !g.Shadow.Silhouette {
 				sb := modelWorldBounds(g.Shadow)
-				if modelDirectBoxAway(sb, r.clipW(), r.clipH()) {
+				if modelDirectBoxAway(sb, clipW, clipH) {
 					r.modelStats.DirectClipped++
 					return
 				}
@@ -705,7 +716,7 @@ func (r *Renderer) placeModelDirectFrame(l *drawlist.List) bool {
 		// A subject whose every committed image would clip away takes no
 		// region: the same rectangle each commit clips against decides it, so
 		// dropping it here changes no pixel (modelDirectClipsAway).
-		if modelDirectClipsAway(g, bounds, r.clipW(), r.clipH()) {
+		if modelDirectClipsAway(g, bounds, clipW, clipH) {
 			r.modelStats.DirectClipped++
 			return
 		}
@@ -754,10 +765,15 @@ func (r *Renderer) placeModelDirectFrame(l *drawlist.List) bool {
 //
 // A reflecting subject is never skipped: its reflection is committed from
 // geometry of its own and can land inside the clip while the body's box does
-// not. A silhouette's shadow reads its body's finished raster, so the shadow's
+// not. A subject with the blue waterline is never skipped either: its
+// underwater commit clips a rectangle the water's refraction displaces beyond
+// the body's box (commitUnderwater). An aircraft with clearance carries the
+// soft-shadow treatment, whose disc reaches a radius beyond its silhouette's
+// box (commitAircraftShadow), so it is never skipped while its height lane is
+// set. A silhouette's shadow reads its body's finished raster, so the shadow's
 // box is part of the test: the subject is placed when either box is in frame.
 func modelDirectClipsAway(g *drawlist.ModelGeometry, bounds image.Rectangle, clipW, clipH int) bool {
-	if g.ReflectWater {
+	if g.ReflectWater || g.Waterline == drawlist.ModelWaterlineBlue || g.AircraftShadowHeight > 0 {
 		return false
 	}
 	if !modelDirectBoxAway(bounds, clipW, clipH) {
