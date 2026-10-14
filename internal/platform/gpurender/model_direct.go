@@ -675,15 +675,14 @@ func (r *Renderer) placeModelDirectFrame(l *drawlist.List) bool {
 	// shadow-only command places the shadow alone; the body's region is set
 	// when the carrier is placed.
 	//
-	// The off-clip test clips against the record extent the frame's world
-	// region carries, not r.worldW: that field still holds the previous
-	// frame's value here, and the WorldBegin command that sets it is replayed
-	// after placement (renderer.Execute), so below a rest factor the two
-	// differ and only the recorded extent is the rectangle the commits will
-	// clip against.
+	// The off-clip test clips against the rectangle the commits will clip
+	// against. r.worldW still holds the framebuffer here: the WorldBegin
+	// command that widens it to the frame's record extent below a rest factor
+	// is replayed after placement (renderer.Execute), so the same widening
+	// World applies is applied here.
 	clipW, clipH := r.clipW(), r.clipH()
 	if w, h := l.RecordedWorldExtent(); w > 0 && h > 0 {
-		clipW, clipH = int(w), int(h)
+		clipW, clipH = max(clipW, int(w)), max(clipH, int(h))
 	}
 	d.pending = d.pending[:0]
 	l.VisitModels(func(m drawlist.Model) {
@@ -771,17 +770,33 @@ func (r *Renderer) placeModelDirectFrame(l *drawlist.List) bool {
 // box (commitAircraftShadow), so it is never skipped while its height lane is
 // set. A silhouette's shadow reads its body's finished raster, so the shadow's
 // box is part of the test: the subject is placed when either box is in frame.
+// The same holds for a carrier's children: each child's shadow is committed
+// from the solo region the carrier's placement gives it, so a child whose
+// shadow reaches the frame keeps the whole group placed, and a child is held
+// to the same exceptions as its carrier.
 func modelDirectClipsAway(g *drawlist.ModelGeometry, bounds image.Rectangle, clipW, clipH int) bool {
+	if !modelDirectBoxAway(bounds, clipW, clipH) || !modelDirectReachAway(g, clipW, clipH) {
+		return false
+	}
+	for _, child := range g.Children {
+		if !modelDirectReachAway(child.Geometry, clipW, clipH) {
+			return false
+		}
+	}
+	return true
+}
+
+// modelDirectReachAway reports whether nothing a packet commits beyond its
+// body's box reaches the clip: it has no reflection, underwater commit or
+// soft shadow, and its shadow's box lies wholly outside.
+func modelDirectReachAway(g *drawlist.ModelGeometry, clipW, clipH int) bool {
+	if g == nil {
+		return true
+	}
 	if g.ReflectWater || g.Waterline == drawlist.ModelWaterlineBlue || g.AircraftShadowHeight > 0 {
 		return false
 	}
-	if !modelDirectBoxAway(bounds, clipW, clipH) {
-		return false
-	}
-	if sg := g.Shadow; sg != nil && !modelDirectBoxAway(modelWorldBounds(sg), clipW, clipH) {
-		return false
-	}
-	return true
+	return g.Shadow == nil || modelDirectBoxAway(modelWorldBounds(g.Shadow), clipW, clipH)
 }
 
 // modelDirectBoxAway reports whether a box lies wholly outside [0,w)x[0,h):
@@ -1507,7 +1522,7 @@ func (r *Renderer) commitModelDirectShadow(g *drawlist.ModelGeometry) {
 	shadow, ok := d.regions[sg]
 	body, bok := d.shadowSource(g)
 	if !ok || !shadow.ok || !bok || r.scene2D == nil {
-		r.modelStats.ShadowsOmitted++
+		r.omitShadow(g)
 		return
 	}
 	sb, bb := shadow.bounds, body.bounds
@@ -1535,6 +1550,18 @@ func (r *Renderer) commitModelDirectShadow(g *drawlist.ModelGeometry) {
 	r.modelStats.Shadows++
 }
 
+// omitShadow counts a shadow the lane has no image for. A shadow wholly
+// outside the clip is not counted: it would have drawn nothing, and it is
+// exactly what placement skips (modelDirectClipsAway), so ShadowsOmitted keeps
+// counting shadows the frame lost. An aircraft's soft-shadow disc reaches
+// beyond its box, so its shadow is counted wherever it is.
+func (r *Renderer) omitShadow(g *drawlist.ModelGeometry) {
+	if g.AircraftShadowHeight == 0 && modelDirectBoxAway(modelWorldBounds(g.Shadow), r.clipW(), r.clipH()) {
+		return
+	}
+	r.modelStats.ShadowsOmitted++
+}
+
 // commitModelSilhouetteShadow compiles a Digger or mobile subject's shadow:
 // an opaque-class command, like the projected shadow's, over the body's box at
 // the shadow's placement whose
@@ -1553,7 +1580,7 @@ func (r *Renderer) commitModelSilhouetteShadow(g *drawlist.ModelGeometry) {
 	sg := g.Shadow
 	body, bok := d.shadowSource(g)
 	if !bok || r.scene2D == nil {
-		r.modelStats.ShadowsOmitted++
+		r.omitShadow(g)
 		return
 	}
 	if r.commitAircraftShadow(g, body) {
@@ -1616,19 +1643,24 @@ func (r *Renderer) commitModelSilhouetteShadow(g *drawlist.ModelGeometry) {
 // the commit does for the group as a whole [03 R-COMP-01 §2]: the carrier's
 // blend covers its cargo, as a staged carrier's does.
 //
-// A frame reaches here only when both atlas pages are full, which neither
-// battle view does (§22.2).
+// A frame draws here only when both atlas pages are full, which neither
+// battle view does (§22.2). A subject placement skipped as off-clip arrives
+// here too, without a region, and leaves at the clip test.
 func (r *Renderer) drawModelDirectFallback(g *drawlist.ModelGeometry) {
-	// The fallback builds its faces in the lane's batch, which the page
-	// passes may still be reading.
-	r.joinModelPages()
-	d := &r.modelDirect
 	b := modelGroupBounds(g)
 	x0, y0 := max(b.Min.X, 0), max(b.Min.Y, 0)
 	x1, y1 := min(b.Max.X, r.clipW()), min(b.Max.Y, r.clipH())
 	if x0 >= x1 || y0 >= y1 {
 		return
 	}
+	// The fallback builds its faces in the lane's batch, which the page
+	// passes may still be reading. It joins them only once it has something
+	// to draw: every subject placement skipped as off-clip arrives here
+	// without a region, and joining for it would end the passes' overlap with
+	// Replay at the first such subject in record order (§22 "Page passes
+	// beside Replay").
+	r.joinModelPages()
+	d := &r.modelDirect
 	c := r.laneCtx()
 	c.fallbackOpacity = 1
 	if g.Cloaked {

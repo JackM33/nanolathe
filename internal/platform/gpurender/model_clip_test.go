@@ -13,7 +13,9 @@ import (
 // (modelDirectClipsAway). A shadow that is still in frame keeps its subject
 // placed — the commit order is the shadow's, but the body's raster is what a
 // recorded shadow packet draws from — and a reflecting subject is never
-// skipped, because its reflection is committed from geometry of its own.
+// skipped, because its reflection is committed from geometry of its own. A
+// carrier is placed while a carried child's shadow reaches the frame: that
+// shadow is cut from the solo region the carrier's placement gives the child.
 func TestModelDirectClipsAway(t *testing.T) {
 	r := newPlaceRenderer(t)
 	r.worldW, r.worldH = 640, 480
@@ -43,12 +45,32 @@ func TestModelDirectClipsAway(t *testing.T) {
 	nearOnly.Shadow = &drawlist.ModelGeometry{Eligible: true, KeyPlane: true, Width: 30, Height: 20, AnchorX: 200, AnchorY: 100, Scale: 1}
 	list.RecordModel(drawlist.Model{ShadowOnly: true, Geometry: awayOnly})
 	list.RecordModel(drawlist.Model{ShadowOnly: true, Geometry: nearOnly})
+	// Two carriers wholly outside the clip, each with one child whose
+	// silhouette shadow is recorded as the child's shadow-only command: one
+	// child's shadow reaches the frame and one's does not.
+	carrier := func(seed int, shadowX int32) (*drawlist.ModelGeometry, *drawlist.ModelGeometry) {
+		child := placeBody(placeBodyOpts{faces: 4, w: 12, h: 10, ax: -1000, ay: 100, seed: seed})
+		child.Shadow = &drawlist.ModelGeometry{Eligible: true, KeyPlane: true, Silhouette: true, Width: 12, Height: 10, AnchorX: shadowX, AnchorY: 100, Scale: 1}
+		g := placeBody(placeBodyOpts{faces: 4, w: 30, h: 20, ax: -1000, ay: 100, seed: seed + 1})
+		g.Children = []drawlist.ModelChild{{Geometry: child}}
+		list.RecordModel(drawlist.Model{ShadowOnly: true, Geometry: child})
+		record(g)
+		return g, child
+	}
+	carried, carriedChild := carrier(11, 4)
+	carriedAway, _ := carrier(13, -500)
 
 	r.modelStats = ModelStats{}
 	r.placeModelDirectFrame(&list)
 
-	if r.modelStats.DirectClipped != 2 {
-		t.Fatalf("clipped %d subjects, want the off-clip body and the off-clip shadow-only command", r.modelStats.DirectClipped)
+	if r.modelStats.DirectClipped != 3 {
+		t.Fatalf("clipped %d subjects, want the off-clip body, the off-clip shadow-only command and the carrier whose child's shadow is off-clip", r.modelStats.DirectClipped)
+	}
+	if _, ok := r.modelDirect.regions[carriedAway]; ok {
+		t.Fatal("the carrier whose every image is off-clip took a region")
+	}
+	if _, ok := r.modelDirect.shadowSource(carriedChild); !ok {
+		t.Fatal("a carried child whose shadow reaches the frame has no region to cut it from")
 	}
 	if _, ok := r.modelDirect.regions[off]; ok {
 		t.Fatal("the off-clip body took a region")
@@ -56,7 +78,7 @@ func TestModelDirectClipsAway(t *testing.T) {
 	if _, ok := r.modelDirect.regions[awayOnly.Shadow]; ok {
 		t.Fatal("the off-clip shadow-only command took a region")
 	}
-	for _, g := range []*drawlist.ModelGeometry{on, shadowInFrame, reflecting, submerged, airborne, nearOnly.Shadow} {
+	for _, g := range []*drawlist.ModelGeometry{on, shadowInFrame, reflecting, submerged, airborne, nearOnly.Shadow, carried} {
 		if _, ok := r.modelDirect.regions[g]; !ok {
 			t.Fatal("a subject whose commit is in frame took no region")
 		}
@@ -76,5 +98,17 @@ func TestModelDirectClipsAway(t *testing.T) {
 	}
 	if _, ok := r.modelDirect.regions[wide]; !ok {
 		t.Fatal("a subject inside the record extent took no region")
+	}
+
+	// A record extent never narrows the clip below the framebuffer, as World
+	// never narrows r.worldW below it.
+	var narrow drawlist.List
+	narrow.RecordWorld(drawlist.WorldSpace{Begin: true, Zoom: camera.ZoomUnit, Step: camera.ViewScaleNative, RecordW: 320, RecordH: 240})
+	inside := placeBody(placeBodyOpts{faces: 4, w: 30, h: 20, ax: 400, ay: 300, seed: 12})
+	narrow.RecordModel(drawlist.Model{Geometry: inside})
+	r.modelStats = ModelStats{}
+	r.placeModelDirectFrame(&narrow)
+	if r.modelStats.DirectClipped != 0 {
+		t.Fatal("a subject inside the framebuffer was clipped against a narrower record extent")
 	}
 }

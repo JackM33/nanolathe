@@ -122,8 +122,9 @@ type ModelStats struct {
 	DeviceDraws int
 	// GPU is the model subjects committed, Skipped the packets omitted (a child
 	// the lane cannot merge), Shadows the shadow commits, ShadowsOmitted the
-	// shadows without a region, NoBody the commands whose recorder declared no
-	// body commit, Flashes the lit-disc quads (§13.11).
+	// shadows without a region that would have reached the frame, NoBody the
+	// commands whose recorder declared no body commit, Flashes the lit-disc
+	// quads (§13.11).
 	GPU, Skipped, Shadows, ShadowsOmitted, NoBody, Flashes int
 	// Silhouettes is the shadows committed from their body's own raster
 	// (§22), counted within Shadows.
