@@ -14,10 +14,7 @@ import (
 // tools/package-maps must accept exactly the package ids the engine accepts,
 // so a recipe can never publish a catalogue the client refuses as a whole.
 func TestPackageMapsToolUsesEngineIDRule(t *testing.T) {
-	python, err := exec.LookPath("python3")
-	if err != nil {
-		t.Skip("python3 is not installed")
-	}
+	python := python3(t)
 	tool, err := filepath.Abs(filepath.Join("..", "..", "tools", "package-maps"))
 	if err != nil {
 		t.Fatal(err)
@@ -42,4 +39,22 @@ func TestPackageMapsToolUsesEngineIDRule(t *testing.T) {
 			}
 		})
 	}
+}
+
+// python3 is the first of python3 and python on PATH that runs Python 3.
+// Windows can put a python3 alias on PATH that only offers to install Python,
+// so a name that resolves is not yet an interpreter.
+func python3(t *testing.T) string {
+	t.Helper()
+	for _, name := range []string{"python3", "python"} {
+		path, err := exec.LookPath(name)
+		if err != nil {
+			continue
+		}
+		if exec.Command(path, "-c", "import sys; sys.exit(sys.version_info[0] != 3)").Run() == nil {
+			return path
+		}
+	}
+	t.Skip("Python 3 is not installed")
+	return ""
 }

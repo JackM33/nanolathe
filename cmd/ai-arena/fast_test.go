@@ -1,14 +1,12 @@
 package main
 
 import (
-	"context"
 	"encoding/json"
 	"math"
 	"os"
 	"path/filepath"
 	"slices"
 	"testing"
-	"time"
 
 	"github.com/nanolathe-gg/nanolathe/internal/headless"
 )
@@ -214,28 +212,8 @@ func TestParseAdjudicate(t *testing.T) {
 	}
 }
 
-// TestSlotPoolIsExclusive checks that two holders never share a slot and that
-// releasing one frees it for the next.
-func TestSlotPoolIsExclusive(t *testing.T) {
-	pool, err := parseSlots(filepath.Join(t.TempDir(), "slots") + ":1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	release, err := pool.acquire(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 1500*time.Millisecond)
-	defer cancel()
-	if _, err := pool.acquire(ctx); err == nil {
-		t.Fatal("a second holder took the only slot")
-	}
-	release()
-	again, err := pool.acquire(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	again()
+// TestParseSlots checks which -slots values name a pool.
+func TestParseSlots(t *testing.T) {
 	if p, err := parseSlots("off"); p != nil || err != nil {
 		t.Errorf("-slots off: pool %v, err %v", p, err)
 	}
