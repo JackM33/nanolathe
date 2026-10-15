@@ -4,6 +4,7 @@ package session
 
 import (
 	"github.com/nanolathe-gg/nanolathe/internal/orders"
+	"github.com/nanolathe-gg/nanolathe/internal/units"
 	"testing"
 )
 
@@ -30,6 +31,9 @@ func TestPublishedPatrolWorkBorrowedAndReturnRetail(t *testing.T) {
 						if allocations := testing.AllocsPerRun(100, func() { f.s.publishedPatrolWork(f.helper) }); allocations != 0 {
 							t.Fatalf("borrowed patrol publication allocated %.1f times", allocations)
 						}
+						// Failure still executes the recovery return; successful work
+						// now continues the pending patrol leg directly (issue #122).
+						f.s.Units.Destroy(target.Handle, units.DeathUnknown)
 					}
 				} else if seenReturn && name == f.patrol {
 					seenResume = true

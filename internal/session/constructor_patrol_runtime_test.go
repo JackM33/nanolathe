@@ -284,14 +284,16 @@ func (f *constructorPatrolRuntime) finishAndResume(target *units.Unit, paid *con
 func (f *constructorPatrolRuntime) finishCycle(matches func(*orders.Node) bool, done func() bool) {
 	f.t.Helper()
 	var acquired, returned, resumed constructorPatrolPoint
-	var selected, completed, returnSeen, returnArrived, travelled uint32
+	var selected, completed, returnSeen, travelled uint32
 	var returnNode *orders.Node
 	for i := 0; i < 1800; i++ {
 		before := constructorPatrolPosition(f.helper)
-		beforeHead := f.q.Head()
 		f.step()
 		f.assertRetained()
 		head := f.q.Head()
+		if head != nil && head.IsPatrolReturn() {
+			f.t.Fatal("successful work started a return trip instead of continuing the pending leg")
+		}
 		if selected == 0 && head != nil && matches(head) {
 			selected, acquired = f.s.Clock.GlobalTick, before
 			if f.acquiredTick != 0 {
@@ -316,17 +318,22 @@ func (f *constructorPatrolRuntime) finishCycle(matches func(*orders.Node) bool, 
 		if returnNode != nil && (constructorPatrolPoint{returnNode.GoalX, returnNode.GoalY, returnNode.GoalZ}) != returned {
 			f.t.Fatalf("saved-position return goal changed at tick %d: saved=%+v current=%+v", f.s.Clock.GlobalTick, returned, constructorPatrolPoint{returnNode.GoalX, returnNode.GoalY, returnNode.GoalZ})
 		}
-		if completed != 0 && returnSeen != 0 && (head == returnNode || beforeHead == returnNode) && constructorPatrolPosition(f.helper).distanceSquared(returned) <= 24*24 {
-			returnArrived = f.s.Clock.GlobalTick
-		}
 		if completed != 0 && head != nil && constructorPatrolName(head) == f.patrol {
-			if returnArrived == 0 {
-				f.t.Fatalf("patrol resumed without actual saved-position return: selected=%d completed=%d returnSeen=%d", selected, completed, returnSeen)
+			if head != f.route[0] || f.q.WorkAssignmentOrdinal(returnNode) != 1 {
+				f.t.Fatal("successful work skipped or rotated the pending patrol waypoint")
+			}
+			for _, n := range f.q.Primary() {
+				if n == returnNode {
+					f.t.Fatal("successful work retained the recovery move")
+				}
 			}
 			if resumed == (constructorPatrolPoint{}) {
 				resumed = constructorPatrolPosition(f.helper)
 			}
 			if resumed.distanceSquared(constructorPatrolPosition(f.helper)) >= 64*64 {
+				if constructorPatrolPosition(f.helper).distanceSquared(f.goals[0]) >= resumed.distanceSquared(f.goals[0]) {
+					f.t.Fatal("resumed patrol moved away from its pending waypoint")
+				}
 				travelled = f.s.Clock.GlobalTick
 				break
 			}
@@ -335,10 +342,10 @@ func (f *constructorPatrolRuntime) finishCycle(matches func(*orders.Node) bool, 
 			break
 		}
 	}
-	if selected == 0 || completed == 0 || returnSeen == 0 || returnArrived == 0 || travelled == 0 {
-		f.t.Fatalf("no completed work/return/travel cycle: selected=%d completed=%d returnSeen=%d returnArrived=%d travelled=%d head=%s pos=(%d,%d)", selected, completed, returnSeen, returnArrived, travelled, constructorPatrolName(f.q.Head()), f.helper.X.Floor(), f.helper.Z.Floor())
+	if selected == 0 || completed == 0 || returnSeen == 0 || travelled == 0 {
+		f.t.Fatalf("no completed work/onward travel cycle: selected=%d completed=%d returnSeen=%d travelled=%d head=%s pos=(%d,%d)", selected, completed, returnSeen, travelled, constructorPatrolName(f.q.Head()), f.helper.X.Floor(), f.helper.Z.Floor())
 	}
-	f.t.Logf("selected=%d completed=%d return=%d arrival=%d actualRouteTravel=%d", selected, completed, returnSeen, returnArrived, travelled)
+	f.t.Logf("selected=%d completed=%d recoveryStaged=%d onwardRouteTravel=%d", selected, completed, returnSeen, travelled)
 }
 
 func TestModernConstructorPatrolSavedReclaimChoiceRetail(t *testing.T) {
