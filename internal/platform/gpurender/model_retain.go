@@ -592,6 +592,7 @@ func (d *modelPlaceCtx) finishCapture(g *drawlist.ModelGeometry, doubled bool, o
 			if rec.quad != 0 {
 				v.ColorB = float32(rec.quad)
 			}
+			v.Custom0 = float32(int(v.Custom0) % modelDirectSeedStride)
 			v.Custom2, v.Custom3 = 0, 0
 		}
 		vi += int(rec.n)
@@ -636,6 +637,7 @@ func (r *Renderer) replayRetained(d *modelPlaceCtx, e *modelRetained, g *drawlis
 	for si := range e.segs {
 		seg := &e.segs[si]
 		run := d.colourRun([2]*ebiten.Image{seg.img, r.tables.atlas}, int(seg.verts))
+		seed := run.seedLane()
 		for fi := seg.f0; fi < seg.f1; fi++ {
 			rec := &e.recs[fi]
 			n := int(rec.n)
@@ -660,6 +662,7 @@ func (r *Renderer) replayRetained(d *modelPlaceCtx, e *modelRetained, g *drawlis
 				if rec.quad != 0 {
 					v.ColorB = quad
 				}
+				v.Custom0 += seed
 				v.Custom2, v.Custom3 = custom2, lighting
 			}
 			for i := 1; i+1 < n; i++ {

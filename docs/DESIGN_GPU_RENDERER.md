@@ -5261,7 +5261,15 @@ competes against green, preserving the original winner independently of colour
 transparency. Reveal reads seeded red. Outline/live key and colour passes follow
 without clearing either plane; live writes leave original green alone and are
 never filtered through the resized seed. Packed retained vertices carry no
-per-frame seed decision; run phase and uniforms are chosen on each replay.
+per-frame seed decision: a capture strips it and each replay adds the phase of
+the run it replays into. Every lane vertex carries its run's phase in the mode
+lane, sixteen apart (`seedLane`), rather than in a uniform: a uniform that
+differs between runs stops Ebitengine merging them, and seeded bodies
+alternate with unseeded shadows. In the vertices the runs merge wherever their
+bindings agree, and the face order that settles the colour pass's ties is
+unchanged. On the Survival 0.5× capture the frame issues 41 device draws
+instead of 231, and Ebitengine's deferred flush (`OutsideDraw`) falls by about
+0.9 ms.
 
 Seeded group children use independent regions before ordered merges, including
 children without construction reveal. Construction groups still skip transparent
