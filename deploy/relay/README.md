@@ -18,7 +18,7 @@ repository holds no app spec. `doctl apps spec get APP-ID` shows them.
 - **Pushing to `main` deploys.** Autodeploy is on, so every push to this
   repository's `main` branch builds and deploys it. Confirm afterwards that
   `curl https://relay.nanolathe.gg/healthz` returns `ok`, then run
-  `go run ./cmd/nanolathe-relay-check` in the engine checkout. The second
+  `tools/check-relay` in the engine checkout. The second
   check uses the current client to create, describe and join a lobby;
   HTTP health alone does not prove game compatibility.
 - **One always-running instance** of 1 shared vCPU / 512 MiB

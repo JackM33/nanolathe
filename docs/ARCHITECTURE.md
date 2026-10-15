@@ -469,6 +469,11 @@ The live relay compatibility job must pass, and publication repeats
 releasing. This asset-free create/describe/join check is also a pre-landing
 gate for hosted-protocol or command-schema changes: native installers
 follow `main` immediately (DESIGN_MULTIPLAYER §16.5.6).
+`tools/check-relay` runs that check from the exact committed candidate;
+install the local main-push guard once from the primary checkout with
+`git config --local core.hooksPath "$(git rev-parse --show-toplevel)/.githooks"`.
+It checks the outgoing
+revision locally before Git sends it, without a GitHub round trip.
 Browser host changes also require
 the ordinary integrated Go gates and manual Chromium acceptance described in
 [DESIGN_BROWSER_HOST §6](DESIGN_BROWSER_HOST.md#6-merge-acceptance-and-release-boundary).

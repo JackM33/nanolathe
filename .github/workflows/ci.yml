@@ -239,6 +239,8 @@ jobs:
           cache: true
       - name: verify public relay compatibility
         run: go run ./cmd/nanolathe-relay-check
+      - name: verify the local main-push guard
+        run: python3 tools/check_relay_test.py
 
   # Main's asset-free browser build becomes this run's immutable "browser-<n>"
   # prerelease, which the website pulls in (docs/DESIGN_BROWSER_HOST.md §6);

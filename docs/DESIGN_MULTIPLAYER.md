@@ -5982,7 +5982,8 @@ queries and other paths; `ws://` needs the numeric-loopback test switch.
 Certificate verification is always on.
 
 **Deployment.** `deploy/relay` is exported as a reproducible source snapshot
-into the private `nanolathe-relay` repository with the upstream revision and
+into the private `nanolathe-relay` repository (the sibling checkout
+`../nanolathe-relay`) with the upstream revision and
 source-file digests; the engine tree stays the source of truth for protocol
 code. It holds the MIT license, a Linux/amd64 multi-stage Dockerfile whose
 static non-root image contains only the relay, the wire package and the
@@ -5997,7 +5998,7 @@ or reconnect. The custom hostname `relay.nanolathe.gg` needs both its DNS
 CNAME and its registration on the app before App Platform issues the
 certificate.
 
-**Compatibility release gate.** `go run ./cmd/nanolathe-relay-check` uses
+**Compatibility release gate.** `tools/check-relay` uses
 the candidate build's client and command schema against
 `wss://relay.nanolathe.gg/relay`. It creates a two-seat lobby, describes it,
 joins it, verifies that both clients see both seats, and closes its own
@@ -6005,6 +6006,15 @@ connections without starting a battle. It loads no game assets. Connection
 failures, refusals and incomplete handshakes fail the bounded check; a
 healthy HTTP endpoint alone is insufficient. Run it before landing changes
 to the hosted protocol or command schema and after deploying the relay.
+The tool extracts only the probe and relay dependencies from the exact
+committed revision (`HEAD`, or `--revision COMMIT`) into a temporary
+directory, reuses the normal Go build cache, and runs
+`cmd/nanolathe-relay-check`. Dirty working files cannot make another
+revision pass. From the primary checkout, install `.githooks/pre-push` with
+`git config --local core.hooksPath "$(git rev-parse --show-toplevel)/.githooks"`:
+the absolute hook directory also covers older worktrees. Pushes to `main` check
+the exact outgoing commit locally and stop on failure, with no branch
+publication or GitHub wait. Other branch pushes do not run the probe.
 CI runs it on pushes and pull requests; browser publication depends on it
 and repeats it immediately before releasing. Native installers follow
 `main`, so the check must pass on the candidate before it lands too.
