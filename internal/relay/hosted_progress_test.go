@@ -4,6 +4,7 @@ import (
 	"context"
 	"io"
 	"net"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -101,7 +102,9 @@ func TestHostedProgressReachesEveryServedVersion(t *testing.T) {
 	if len(agreed) == 0 || agreed[len(agreed)-1] <= agreed[0] {
 		t.Fatalf("the agreed tick did not advance: %v", agreed)
 	}
-	if !measured {
+	// A loopback round trip usually falls within one tick of the Windows
+	// monotonic clock (about 1ms), so it measures zero there.
+	if !measured && runtime.GOOS != "windows" {
 		t.Fatal("no report carried a measured round trip")
 	}
 	p, ok := battles[0].Progress()
