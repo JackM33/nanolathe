@@ -72,8 +72,8 @@ const (
 	hostedVersion     = 8
 	hostedMinVersion  = 7
 	hostedChatVersion = 8
-	// hostedV7CommandSchema is the command schema a version-7 hello names;
-	// a version-8 hello names netproto.CommandSchemaVersion.
+	// hostedV7CommandSchema is the historical version-7 hello's schema.
+	// Version 8 carries any nonzero schema; the room requires exact equality.
 	hostedV7CommandSchema = uint16(1)
 	hostedMaxTeam         = 5
 	hostedCodeLength      = 6
@@ -419,13 +419,15 @@ func hostedVersionError(sent uint16) error {
 	return hostedError("handshake", fmt.Sprintf("hosted protocol version %d or %d; this client sent version %d", hostedMinVersion, hostedVersion, sent))
 }
 
-// hostedCommandSchema is the command schema a hello of the given hosted
-// version must name.
+// hostedCommandSchema is the required schema, or zero for any nonzero
+// schema. The relay never interprets game commands, so rebuilding a client
+// with new command kinds must not require redeploying this transport
+// (DESIGN_MULTIPLAYER §12.2). Room admission compares the peers instead.
 func hostedCommandSchema(version uint16) uint16 {
 	if version < hostedChatVersion {
 		return hostedV7CommandSchema
 	}
-	return netproto.CommandSchemaVersion
+	return 0
 }
 
 // hostedRelayVersionError is a client's refusal of a relay that answered in
@@ -521,6 +523,9 @@ func (s *HostedServer) admit(code string, flags uint8, size int, config []byte, 
 		seat := room.free()
 		if seat < 0 {
 			return nil, false, hostedError("room", "an unoccupied seat")
+		}
+		if room.creator.hello.Identity.Protocol != peer.hello.Identity.Protocol {
+			return nil, false, hostedError("hello protocol", "identical command schemas from every seat")
 		}
 		// A command-line room has no Ready digests, so its joiner's
 		// identity is compared here; a lobby compares at Ready (§16.6.1).

@@ -35,7 +35,11 @@ func openingLobbyPair(t *testing.T, timeouts hostedTimeouts, websocket bool, ver
 		if seat == 0 {
 			config, size = []byte("opening"), 2
 		}
-		l, err := openHostedLobby(ctx, versions[seat], address, code, versionTestHello(versions[seat], uint8(seat)), config, size, HostedDialOptions{InsecureLoopback: true})
+		hello := versionTestHello(versions[seat], uint8(seat))
+		if versions[0] == 7 || versions[1] == 7 {
+			hello.Identity.Protocol = hostedV7CommandSchema
+		}
+		l, err := openHostedLobby(ctx, versions[seat], address, code, hello, config, size, HostedDialOptions{InsecureLoopback: true})
 		if err != nil {
 			t.Fatal(err)
 		}

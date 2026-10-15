@@ -22,7 +22,8 @@ func TestHostedProgressReachesEveryServedVersion(t *testing.T) {
 	options := HostedDialOptions{InsecureLoopback: true}
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
-	host, err := openHostedLobby(ctx, hostedVersion, address, "", versionTestHello(hostedVersion, 0), []byte{1}, 3, options)
+	// Transport versions differ; every seat still speaks command schema 1.
+	host, err := openHostedLobby(ctx, hostedVersion, address, "", versionTestHello(hostedMinVersion, 0), []byte{1}, 3, options)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -40,7 +41,7 @@ func TestHostedProgressReachesEveryServedVersion(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = old.Close() })
-	leaver, err := openHostedLobby(ctx, hostedVersion, address, host.Code(), versionTestHello(hostedVersion, 1), nil, 0, options)
+	leaver, err := openHostedLobby(ctx, hostedVersion, address, host.Code(), versionTestHello(hostedMinVersion, 1), nil, 0, options)
 	if err != nil {
 		t.Fatal(err)
 	}

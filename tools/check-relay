@@ -1,0 +1,84 @@
+#!/usr/bin/env python3
+"""Check a committed client's compatibility with the public relay."""
+import argparse
+import io
+import os
+import string
+import subprocess
+import sys
+import tarfile
+import tempfile
+
+
+PROBE = "cmd/nanolathe-relay-check/main.go"
+SOURCES = ("go.mod", "go.sum", "cmd/nanolathe-relay-check", "internal/relay", "internal/netproto")
+
+
+def push_revisions(lines):
+    """Select the actual main candidates, including a differently named local ref."""
+    revisions = []
+    for line in lines:
+        fields = line.split()
+        if not fields:
+            continue
+        if len(fields) != 4:
+            raise ValueError("expected Git pre-push input with four fields per update")
+        _, revision, remote_ref, _ = fields
+        if remote_ref != "refs/heads/main":
+            continue
+        if len(revision) not in (40, 64) or any(c not in string.hexdigits for c in revision):
+            raise ValueError("expected a complete commit ID for the main update")
+        revision = revision.lower()
+        if revision.strip("0") and revision not in revisions:
+            revisions.append(revision)
+    return revisions
+
+
+def git(*args):
+    return subprocess.check_output(["git", *args], stderr=subprocess.PIPE)
+
+
+def check_revision(revision):
+    # The installed hook can live in another worktree. Git's caller selects
+    # the repository and HEAD; the helper's own location never selects them.
+    root = git("rev-parse", "--show-toplevel").decode().strip()
+    commit = git("-C", root, "rev-parse", "--verify", "--end-of-options", revision + "^{commit}").decode().strip()
+    try:
+        git("-C", root, "cat-file", "-e", commit + ":" + PROBE)
+    except subprocess.CalledProcessError:
+        raise ValueError(f"candidate {commit} has no committed {PROBE}; include the relay check before pushing main") from None
+    archive = git("-C", root, "archive", "--format=tar", commit, "--", *SOURCES)
+    with tempfile.TemporaryDirectory(prefix="nanolathe-relay-check-") as directory:
+        with tarfile.open(fileobj=io.BytesIO(archive)) as snapshot:
+            snapshot.extractall(directory, filter="data")
+        # A workspace or GOFLAGS overlay could replace committed sources with
+        # checkout files. Keep the ordinary Go caches, but compile this snapshot.
+        env = dict(os.environ, GOWORK="off", GOFLAGS="-trimpath -p=4")
+        env.setdefault("GOMAXPROCS", "4")
+        print(f"Checking public relay compatibility for commit {commit}", flush=True)
+        return subprocess.run(["go", "run", "./cmd/nanolathe-relay-check"], cwd=directory, env=env).returncode
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(description=__doc__)
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--revision", metavar="COMMIT", help="check this committed revision (default: HEAD)")
+    mode.add_argument("--pre-push", action="store_true", help="read Git updates and check only pushes to main")
+    args = parser.parse_args(argv)
+    try:
+        revisions = push_revisions(sys.stdin) if args.pre_push else [args.revision or "HEAD"]
+        for revision in revisions:
+            result = check_revision(revision)
+            if result != 0:
+                return result
+    except (OSError, ValueError, tarfile.TarError, subprocess.CalledProcessError) as err:
+        detail = err.stderr.decode(errors="replace").strip() if isinstance(err, subprocess.CalledProcessError) else str(err)
+        print("nanolathe: relay compatibility check failed: logical path candidate revision, "
+              "providers searched [committed Git snapshot], expected a runnable committed relay check: " + detail,
+              file=sys.stderr)
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

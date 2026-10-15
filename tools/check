@@ -36,6 +36,8 @@ if [ -n "$unformatted" ]; then
 fi
 echo "==> host coordination checks"
 "$(dirname "$0")/host-run-test"
+echo "==> local relay push guard checks"
+python3 "$(dirname "$0")/check_relay_test.py"
 echo "==> go build"
 go build "$@"
 echo "==> go vet"
