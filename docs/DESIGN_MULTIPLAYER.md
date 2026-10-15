@@ -2941,11 +2941,12 @@ behaviour.
 
 Schema 3 (2026-10-14) adds visibility's retained wide coverage rows. Counts
 remain meaningful across rule switches and are not recoverable from saturated
-byte grids and observer records. Schema 2 (2026-10-09) added constructor patrol
-assignment/return references, return outcome receipts and the route-wide
-recovery pause. Ordinary scalar command/AI order receipts keep their existing
-encoding; the canonical graph
-now preserves these simulation continuations.
+byte grids and observer records. The shared schema version also changes the
+AI application-history hash domains; their receipt payloads are unchanged.
+Schema 2 (2026-10-09) added constructor patrol assignment/return references,
+return outcome receipts and the route-wide recovery pause. Ordinary scalar
+command/AI order receipts keep their existing encoding; the canonical graph
+preserves these simulation continuations.
 
 **Leaf and files.** `internal/sim/checkpoint/{encoder,format,refs}.go` is a
 standard-library-only leaf: owners import it without pointing back to session
