@@ -63,6 +63,15 @@ type Service struct {
 	// throttle can compare against it [03 §3.2] C6.
 	footprints map[ObserverID]footprint
 
+	// wide carries the true coverage overlap count per player cell when the
+	// bound rule saturates instead of wrapping; the byte grid then stores
+	// min(count, 255) (DESIGN_WORLD_VISIBILITY "Modern coverage saturation").
+	// A terrain ray can visit a cell more than once per observer [03 §3.2],
+	// so even supported unit populations can exceed a 16-bit count. Full
+	// checkpoints retain these counts: after a rule switch the byte row and
+	// observer records cannot reconstruct them. Retail saves rebuild them.
+	wide [10][]uint64
+
 	// sensorInputs is the sensor phase's per-unit status snapshot. The phase has
 	// no presentation surface of its own: the minimap's circles are drawn by
 	// the contacts pass [03 §3.10] correction of 2026-08-29.
@@ -351,56 +360,123 @@ func (s *Service) setWordBit(idx int, owner PlayerID) bool {
 	return true
 }
 
+// coverageSaturates reports whether the bound rule carries the true overlap
+// count in the wide row and stores min(count, 255) in the byte grid. Strict
+// and Community keep retail's plain uint8 wrap [03 §3.1].
+//
+// Publication and retirement ask once before their raster walk, never per
+// cell (DESIGN_GAMEPLAY_RULES §4). An unbound service keeps retail arithmetic.
+func (s *Service) coverageSaturates() bool {
+	if s == nil || s.Rules == nil {
+		return false
+	}
+	return s.Rules.CoverageCountSaturates()
+}
+
+// wideRow returns the owner's wide count row of DESIGN_WORLD_VISIBILITY
+// "Modern coverage saturation", allocating it to match the byte row. A row
+// that already carries counts — a fill, a switch into the saturating answer,
+// any state written before the answer was consulted — seeds the wide count
+// with its byte values, because below 256 the byte grid *is* the count. Nil
+// when the owner has no grid.
+func (s *Service) wideRow(owner PlayerID) []uint64 {
+	if int(owner) >= len(s.byteGrids) || s.byteGrids[owner] == nil {
+		return nil
+	}
+	if s.wide[owner] == nil || len(s.wide[owner]) != len(s.byteGrids[owner]) {
+		row := make([]uint64, len(s.byteGrids[owner]))
+		for i, b := range s.byteGrids[owner] {
+			row[i] = uint64(b)
+		}
+		s.wide[owner] = row
+	}
+	return s.wide[owner]
+}
+
+// storeSaturatedByte mirrors a wide count into the byte grid as
+// min(count, 255).
+func (s *Service) storeSaturatedByte(idx int, owner PlayerID, count uint64) {
+	if count > 255 {
+		count = 255
+	}
+	s.byteGrids[owner][idx] = uint8(count)
+}
+
 // incByteGrid increments the owner's byte refcount at idx [03 §3.1] C1.
-func (s *Service) incByteGrid(idx int, owner PlayerID) bool {
+func (s *Service) incByteGrid(idx int, owner PlayerID, saturates bool) bool {
 	if validPlayer(owner) && s.team[owner] != 0 {
 		changed := false
 		for p := PlayerID(0); p < 10; p++ {
 			if s.team[owner]&cellBit(p) != 0 {
-				changed = s.incOwnByteGrid(idx, p) || changed
+				changed = s.incOwnByteGrid(idx, p, saturates) || changed
 			}
 		}
 		return changed
 	}
-	return s.incOwnByteGrid(idx, owner)
+	return s.incOwnByteGrid(idx, owner, saturates)
 }
 
-func (s *Service) incOwnByteGrid(idx int, owner PlayerID) bool {
+func (s *Service) incOwnByteGrid(idx int, owner PlayerID, saturates bool) bool {
 	if int(owner) >= len(s.byteGrids) || s.byteGrids[owner] == nil {
 		return false
 	}
 	if idx < 0 || idx >= len(s.byteGrids[owner]) {
 		return false
 	}
+	if saturates {
+		w := s.wideRow(owner)
+		w[idx]++
+		s.storeSaturatedByte(idx, owner, w[idx])
+		return true
+	}
 	// Raw u8 wrap, no saturation — the increment has no clamp in retail
-	// [03 §3.1]; the promoted raster notes confirm the wrap.
+	// [03 §3.1]; the promoted raster notes confirm the wrap. A retail
+	// increment retires any retained wide row: after a switch back to a
+	// saturating answer, the next increment reseeds it from the byte this
+	// leaves behind.
+	if s.wide[owner] != nil {
+		s.wide[owner] = nil
+	}
 	s.byteGrids[owner][idx]++
 	return true
 }
 
 // decByteGrid decrements the owner's byte refcount at idx P0-11.
 // Retail does plain DEC with u8 wrap 256 (0→255) [03 §3.1] P0-11.
-func (s *Service) decByteGrid(idx int, owner PlayerID) bool {
+func (s *Service) decByteGrid(idx int, owner PlayerID, saturates bool) bool {
 	if validPlayer(owner) && s.team[owner] != 0 {
 		changed := false
 		for p := PlayerID(0); p < 10; p++ {
 			if s.team[owner]&cellBit(p) != 0 {
-				changed = s.decOwnByteGrid(idx, p) || changed
+				changed = s.decOwnByteGrid(idx, p, saturates) || changed
 			}
 		}
 		return changed
 	}
-	return s.decOwnByteGrid(idx, owner)
+	return s.decOwnByteGrid(idx, owner, saturates)
 }
 
-func (s *Service) decOwnByteGrid(idx int, owner PlayerID) bool {
+func (s *Service) decOwnByteGrid(idx int, owner PlayerID, saturates bool) bool {
 	if int(owner) >= len(s.byteGrids) || s.byteGrids[owner] == nil {
 		return false
 	}
 	if idx < 0 || idx >= len(s.byteGrids[owner]) {
 		return false
 	}
+	if saturates {
+		w := s.wideRow(owner)
+		if w[idx] > 0 {
+			w[idx]--
+		}
+		s.storeSaturatedByte(idx, owner, w[idx])
+		return true
+	}
 	// Plain u8 wrap, no saturation [03 §3.1] P0-11; DEC at 0 wraps to 255.
+	// A retail decrement retires any retained wide row, exactly as the
+	// increment does.
+	if s.wide[owner] != nil {
+		s.wide[owner] = nil
+	}
 	s.byteGrids[owner][idx]--
 	return true
 }

@@ -11,6 +11,7 @@ func (s *Service) Publish(owner PlayerID, cx, cz int32, heightByte uint8, radius
 		return
 	}
 	changed := false
+	saturates := s.mode.CurrentEnabled() && s.coverageSaturates()
 	visit := func(idx int) {
 		// Disabled stores are prefilled by rebuild and are not publication
 		// targets. This also makes the dirty result describe the selected mode.
@@ -18,7 +19,7 @@ func (s *Service) Publish(owner PlayerID, cx, cz int32, heightByte uint8, radius
 			changed = s.setWordBit(idx, owner) || changed
 		}
 		if s.mode.CurrentEnabled() {
-			changed = s.incByteGrid(idx, owner) || changed
+			changed = s.incByteGrid(idx, owner, saturates) || changed
 		}
 	}
 	if s.mode&ModeTerrainRay != 0 {
@@ -40,9 +41,10 @@ func (s *Service) Unpublish(owner PlayerID, cx, cz int32, heightByte uint8, radi
 		return false
 	}
 	changed := false
+	saturates := s.mode.CurrentEnabled() && s.coverageSaturates()
 	visit := func(idx int) {
 		if s.mode.CurrentEnabled() {
-			changed = s.decByteGrid(idx, owner) || changed
+			changed = s.decByteGrid(idx, owner, saturates) || changed
 		}
 	}
 	if s.mode&ModeTerrainRay != 0 {
