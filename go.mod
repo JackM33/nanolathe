@@ -4,7 +4,7 @@ go 1.27.1
 
 require (
 	github.com/ebitengine/purego v0.11.1
-	github.com/hajimehoshi/ebiten/v2 v2.10.4
+	github.com/hajimehoshi/ebiten/v2 v2.10.5
 	golang.org/x/sys v0.48.0
 )
 
