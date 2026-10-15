@@ -388,3 +388,58 @@ GOMAXPROCS=2 /tmp/nanolathe-headless --sim-benchmark=/tmp/go-comparison \
   --warmup-ticks=1200 --benchmark-ticks=3000 --benchmark-profiles=false \
   --phase-timing=false --thread-cpu-timing=false
 ```
+
+## Path and firing-preview storage comparison (2026-10-14)
+
+Revision `92bbe87df` reduces temporary storage in two simulation paths. Route
+straightening and smoothing copy only an eligible completed route, instead of
+reserving maximum-size arrays in every search. The combat service reuses a
+candidate firing-position frame, saving and restoring it across nested rule
+callbacks. Both changes preserve existing decisions, work budgets and RNG use.
+The storage contracts are in
+[DESIGN_MOVEMENT_PATH §2](DESIGN_MOVEMENT_PATH.md#2-packages-and-key-types) and
+[DESIGN_UNITS_ORDERS_COB](DESIGN_UNITS_ORDERS_COB.md#modern-firing-positions).
+
+One short native pair compared `5c8b02934` then `92bbe87df`, using Go 1.27.1 on
+Darwin/arm64, twelve logical CPUs and `GOMAXPROCS=2`. Both binaries used the same
+build settings. The Modern scene used the default three 250-unit armies, seed 7,
+1,200 warm-up ticks and 300 measured ticks. Profiles, phase timing and thread CPU
+sampling were disabled. Other verification gates ran on the host. Each command
+had a 55-second deadline including lock wait; full sweeps were stopped at the
+maintainer's request to release the shared host. Raw reports are outside the
+repository in `/private/tmp/nanolathe-tick-quick-before/` and
+`/private/tmp/nanolathe-tick-quick-after/`.
+
+| Metric | Before | After |
+|---|---:|---:|
+| Process CPU/tick (ms) | 4.911 | 4.648 |
+| Wall mean (ms) | 7.973 | 10.069 |
+| Wall p50 (ms) | 5.376 | 6.282 |
+| Wall p95 (ms) | 14.081 | 30.146 |
+| Wall maximum (ms) | 157.543 | 134.914 |
+| Allocated bytes/tick | 132,709 | 108,069 |
+| Allocated objects/tick | 972.65 | 995.11 |
+
+Allocated bytes fell **18.6%**. Object count rose **2.3%**, as completed routes
+now allocate independent small point arrays. CPU time fell **5.4%** in this one
+pair, while wall latency was mixed and mostly worse. This loaded-host sample
+establishes the allocation reduction for this scene; it does not establish a
+repeatable tick-latency improvement, sustained-combat performance or a browser
+speedup.
+
+The pair matched scene metadata, catalog hash, all three partial fingerprints,
+both RNG draw counts, every census sample and tick restamp. It began with 748
+live units, 84 projectiles and 6,211 features, and ended with 719 live units,
+36 projectiles and 6,223 features. All twelve factories were building at both
+ends. The final partial fingerprint was `partial-v1:c48d1840a767b6ce`; partial
+fingerprints alone are not whole-state equivalence evidence.
+
+Before cancellation, 522 of the path sweep's 543 case/mode/size combinations
+completed against the path-only revision `9e57c7510`; all matched baseline
+inputs and outcomes exactly. The combined revision passed `tools/check`, native
+retail tests and amd64 fingerprint locks. Focused path and firing-position
+contracts also passed under js/wasm. The remaining path cases, the remainder of
+the whole-tree retail gate (stopped during js/wasm fingerprint locks), repeated
+sustained comparisons and browser performance measurements are deferred.
+After integrating main, focused short tests passed for path, movement, combat,
+orders and documentation; the deferred whole-tree gates were not restarted.
