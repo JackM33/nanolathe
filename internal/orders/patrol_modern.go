@@ -57,5 +57,14 @@ func (*ModernRules) AutomaticWorkResult(u *units.Unit, n *Node, satisfied uint32
 		q.patrolWorkPaused = true
 		return 8
 	}
+	// Successful work continues the pending leg from the job site (Modern
+	// policy, DESIGN_UNITS_ORDERS_COB "Modern patrol work", issue #122). The
+	// saved move remains the pursuit anchor and failure recovery until here;
+	// remove only this job's proven return, never an ordinary queued move.
+	if back := n.workReturn; back != nil && back.patrolReturn && back.workAssignment == n.workAssignment {
+		q.unlinkPrimary(back)
+		n.workAssignment.DynamicGate = 0
+		n.workAssignment.Satisfied &^= gateMoveOutcomes
+	}
 	return code
 }
