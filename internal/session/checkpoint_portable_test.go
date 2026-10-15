@@ -210,7 +210,7 @@ func checkpointPortableLog(t *testing.T, id checkpoint.Identity, record Checkpoi
 	p := record.Position
 	t.Logf("portable-v1 tick=%d boundary=%d pump=%d input=%d full=%x", p.Tick, p.Boundary, p.Pump, p.ConsumedInput, record.Digests.Full)
 	for i, digest := range record.Digests.Owners {
-		absent := append([]byte("NLCPSECT\x02\x00"), id.Content[:]...)
+		absent := append([]byte("NLCPSECT\x03\x00"), id.Content[:]...)
 		absent = append(absent, id.Config[:]...)
 		absent = binary.LittleEndian.AppendUint16(absent, uint16(i+1))
 		absent = append(absent, 0)
