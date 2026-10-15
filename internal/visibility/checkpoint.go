@@ -40,9 +40,10 @@ func (s *Service) CollectCheckpointReferences(c *CheckpointContext) (int, error)
 // exact terrain identity, without writing terrain data or pointer identity
 // (DESIGN_MULTIPLAYER §16.3.49).
 //
-// The mode excludes only ModeFogCacheValid. Fog, spoke and sensor caches,
-// sensor diagnostics, presentation identities/versions and rebuild flags are
-// excluded, never rebuilt here (DESIGN_MULTIPLAYER §16.3.5–§16.3.6, §16.3.11).
+// The mode excludes only ModeFogCacheValid. Fog, spoke and sensor caches, the
+// wide coverage count, sensor diagnostics, presentation identities/versions
+// and rebuild flags are excluded, never rebuilt here (DESIGN_MULTIPLAYER
+// §16.3.5–§16.3.6, §16.3.11).
 func (s *Service) WriteCheckpoint(e *checkpoint.Encoder, c *CheckpointContext) error {
 	e.Field("visibility.Service")
 	rayTables, shapes, err := s.checkpointBindings(c)

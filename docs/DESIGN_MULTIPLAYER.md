@@ -4379,7 +4379,11 @@ lengths and row-major bytes, one unsigned word per scalar. The caller owns
 service presence; a missing service or accumulator errors with no partial
 append. It reads no footprint map, dimension, sensor cache, rule or reader,
 allocates nothing and does not refresh visibility. Nil and empty grids both
-contribute zero length.
+contribute zero length. Under Modern's approved [coverage
+saturation](DESIGN_WORLD_VISIBILITY.md#modern-coverage-saturation) the
+byte rows hold `min(count, 255)`, so the fragment compares any overlap at or
+above 255 as 255; the wide count is derived state and is never a checkpoint
+field.
 
 #### 16.3.42 U6 closed stateless rule tags
 

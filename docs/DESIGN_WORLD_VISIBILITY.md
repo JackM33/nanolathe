@@ -865,3 +865,55 @@ never read a live rule set or derive behavior from content names. This changes
 no visibility grids or sensor contacts. Preferences, information boundaries
 and tests are owned by
 [Modern radar dots](DESIGN_INTERFACE_HUD_INPUT.md#modern-radar-dots).
+
+### Modern coverage saturation
+
+**Nanolathe Modern policy (user-authorized 2026-10-14).**
+`visibility.Rules.CoverageCountSaturates` answers whether the per-player
+coverage refcount saturates instead of wrapping. Strict 3.1 and Community 3.9
+answer false; Modern answers true.
+
+Strict behavior is retail's, and it is what the code did before this policy:
+the count is a plain `uint8` whose increment has no clamp, so a cell covered by
+256 simultaneous sight observers wraps to zero and reads as fogged [03 §3.1],
+and every cell whose overlap lands exactly on a multiple of 256 is a hole.
+Clumped aircraft are the pile that reaches those depths: their masks are wide
+(stock ARMCA/CORCA sight 280/270 selects the seventeen-tile shape) and they
+stack, so a few hundred around one build site or one cheat-spawn point made
+single-cell fog patches that appeared and disappeared as the pile moved.
+
+Modern behavior: the true overlap count is carried in a per-player wide row
+(`uint16`) beside the grids it derives from, and the byte grid stores
+`min(count, 255)`. Below 256 the byte grid is byte-identical to retail's, so
+ordinary states, their saved bytes, their checkpoint folds and their
+presentation are unchanged; at and above 255 the cell stays visible instead of
+reading as fog, and it clears exactly when the last observer leaves. Every
+reader is unchanged — the fog cache and the visibility predicate test only zero
+versus nonzero — so fog appearance, the non-presentation gates (path requests,
+placement and order-destination validation) and both renderers all follow the
+one grid.
+
+* **State and lifetime.** The wide row lives with the grids in
+  `internal/visibility.Service`; rule objects stay stateless and zero size. A
+  row is allocated on first saturating use, seeded from the byte row it
+  replaces, cleared by every grid refill (`RebuildEntry`, `RefreshMode`,
+  `RebuildAll`) and retired by any retail-arithmetic increment or decrement. No
+  save or checkpoint serializes it: restore rebuilds it through the observer
+  publication that rebuilds the byte grids, the same derived path the byte
+  grids already take. A set selected mid-battle continues the byte grid it
+  inherits; a wrap inherited from Strict stays wrapped until the grids are
+  refilled.
+* **Ordering, RNG and resources.** The answer is read inside one increment or
+  decrement. No draw, no resource and no ordering change: a fingerprint lock
+  that never reaches 255 overlap is byte-identical in every mode.
+* **Boundaries.** The wide count saturates at its `uint16` cap. The multiplayer
+  checkpoint payload and its cheap summary fold the byte grid, so overlap above
+  255 compares as 255 there (DESIGN_MULTIPLAYER §16.3.41); the true count is
+  rebuilt from observers on restore, never saved.
+
+Tests: `internal/visibility/modern_coverage_test.go` locks the Modern contract
+(a 256- or 512-observer stack leaves no covered cell at zero and a removal
+sequence clears exactly at zero), the set-switch seeding and retirement, and
+the Strict bypass (256 still wraps to zero, 257 reads one, and a spread pile's
+256-contour holes remain). The session-level regression drives the real phase-5
+publisher over a clump of flying observers in both modes.
