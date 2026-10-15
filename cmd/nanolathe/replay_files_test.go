@@ -310,7 +310,8 @@ func TestDefaultReplayDir(t *testing.T) {
 	}
 	t.Setenv("XDG_DATA_HOME", "")
 	t.Setenv("HOME", "/home/player")
-	if dir, err := defaultReplayDir(); err != nil || dir != filepath.Join("/home/player", ".local", "share", "nanolathe", "replays") {
+	home, _ := os.UserHomeDir()
+	if dir, err := defaultReplayDir(); err != nil || dir != filepath.Join(home, ".local", "share", "nanolathe", "replays") {
 		t.Fatalf("replay directory %q: %v", dir, err)
 	}
 }
