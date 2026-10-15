@@ -1954,6 +1954,9 @@ both ticks blends to its current view at every fraction, so it keeps the copy
 its first frame made. The pair key is the two frames, their ticks and the
 selection epoch the host composed onto the current frame, so a selection made
 between two presented frames still reaches the view.
+A synthetic 712-unit pair with half its units moving blends in about the same
+time as before at one draw per tick. At two draws per tick it takes about a
+tenth less, and at four about a third less.
 
 **Held walk axes — Nanolathe Enhanced policy (user-authorized 2026-10-06).**
 The renderer and regular unit viewer share `internal/poseblend`. A complete,
@@ -2242,6 +2245,16 @@ Two other records skip their work the same way:
 Counters are unchanged: a dropped record counts as drawn, as it would have
 when the executor's clip removed it. Debris and fragment pieces and lens
 projectiles already pass retail's origin and viewport gates.
+
+In the 1× Survival capture of §22, after 900 frames, about 3,700 of 3,800
+smoke puffs and 235 of 256 effects lie outside the view. Against the same build
+without the bound (medians of four alternating render-only runs on a shared
+host), `Record` fell from 0.48 to 0.42 ms at 1× and from 0.82 to 0.64 ms at
+0.5×. The classic executor's `Record` on the live 1× run fell from 3.6 to
+3.2 ms. The modern executor had already rejected an off-view record cheaply,
+before drawing anything, so its own time barely moved. Frames are byte-identical in every scene
+checked: frozen 1× and 0.5×, live 0.5× and 1×, the coastal fixture, and classic
+live 1×.
 
 ### 13.10 The record/submit pipeline
 
