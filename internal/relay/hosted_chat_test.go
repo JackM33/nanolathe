@@ -278,7 +278,10 @@ func TestHostedChatMixedVersionRoom(t *testing.T) {
 	defer cancel()
 	open := func(version uint16, room, name string, config []byte, size int) *HostedLobby {
 		t.Helper()
-		l, err := openHostedLobby(ctx, version, s.Addr(), room, versionTestHello(version, 0), config, size, HostedDialOptions{InsecureLoopback: true, Name: name})
+		hello := versionTestHello(version, 0)
+		// Mixed transport versions still need one game-command schema.
+		hello.Identity.Protocol = hostedV7CommandSchema
+		l, err := openHostedLobby(ctx, version, s.Addr(), room, hello, config, size, HostedDialOptions{InsecureLoopback: true, Name: name})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -389,7 +392,11 @@ func TestHostedChatMalformedFramesFailTheRoom(t *testing.T) {
 			s := listenHostedTest(t, HostedConfig{InsecureLoopback: true}, hostedDefaultTimeouts)
 			ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 			defer cancel()
-			host := openSizedLobby(t, s.Addr(), 2, []byte{1}, HostedDialOptions{InsecureLoopback: true})
+			host, err := openHostedLobby(ctx, hostedVersion, s.Addr(), "", versionTestHello(version, 0), []byte{1}, 2, HostedDialOptions{InsecureLoopback: true})
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = host.Close() })
 			sender, err := openHostedLobby(ctx, version, s.Addr(), host.Code(), versionTestHello(version, 1), nil, 0, HostedDialOptions{InsecureLoopback: true})
 			if err != nil {
 				t.Fatal(err)

@@ -143,6 +143,10 @@ func onlineRefusalText(err error) string {
 		return "The game closed after waiting 30 minutes without starting."
 	case has("logical path room capacity,"), has("logical path connection capacity,"):
 		return "The server is full. Try again later."
+	case has("logical path hello protocol,", "command schema version"):
+		return "The server does not support this game's command version. The relay needs updating."
+	case has("logical path hello protocol,"):
+		return "Your game and the host use different command versions. Update both games to the same release."
 	case has("logical path hello "):
 		rest := text[strings.Index(text, "logical path hello ")+len("logical path hello "):]
 		field, _, _ := strings.Cut(rest, ",")

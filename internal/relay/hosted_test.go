@@ -50,7 +50,9 @@ func dialHostedTest(t *testing.T, s *HostedServer, room string, seat uint8) (*Lo
 // hello names command schema 1.
 func versionTestHello(version uint16, seat uint8) LocalHello {
 	h := localTestHello(seat)
-	h.Identity.Protocol = hostedCommandSchema(version)
+	if version < hostedChatVersion {
+		h.Identity.Protocol = hostedV7CommandSchema
+	}
 	return h
 }
 
@@ -659,8 +661,8 @@ func TestHostedVersionAndHelloFraming(t *testing.T) {
 			t.Fatalf("version %d: %v", version, err)
 		}
 	}
-	// A version-7 hello has no name and names command schema 1; a version-8
-	// hello names this build's schema.
+	// Version 7 retains its historical schema 1 contract. Version 8 accepts
+	// any nonzero schema, independently of the relay's build (§12.2).
 	old, err := encodeHostedHelloVersion(7, "", 0, 2, versionTestHello(7, 0), []byte{1}, "")
 	if err != nil {
 		t.Fatal(err)
@@ -672,18 +674,17 @@ func TestHostedVersionAndHelloFraming(t *testing.T) {
 		t.Fatal("a version-7 hello carried a name")
 	}
 	for _, c := range []struct{ version, named uint16 }{
-		{7, hostedV7CommandSchema + 1}, {8, netproto.CommandSchemaVersion + 1}, {8, hostedV7CommandSchema},
+		{7, hostedV7CommandSchema + 1}, {8, 0},
 	} {
 		version, schema := c.version, hostedCommandSchema(c.version)
-		if c.named == schema {
-			continue // version 8's schema is still version 7's until it changes
-		}
 		h := versionTestHello(version, 0)
-		h.Identity.Protocol = c.named
-		raw, err := encodeLocalHello(h, c.named)
+		h.Identity.Protocol = max(c.named, 1)
+		raw, err := encodeLocalHello(h, h.Identity.Protocol)
 		if err != nil {
 			t.Fatal(err)
 		}
+		// These malformed versions fit one byte after the kind and seat.
+		raw[2] = byte(c.named)
 		var w netproto.Writer
 		w.U8(hostedHelloMessage)
 		w.U16(version)
@@ -697,7 +698,11 @@ func TestHostedVersionAndHelloFraming(t *testing.T) {
 		if version >= hostedChatVersion {
 			w.Text("")
 		}
-		if _, err := decodeHostedHello(w.Bytes()); err == nil || !strings.Contains(err.Error(), fmt.Sprintf("command schema version %d", schema)) {
+		want := fmt.Sprintf("command schema version %d", schema)
+		if c.named == 0 {
+			want = "nonzero command schema version"
+		}
+		if _, err := decodeHostedHello(w.Bytes()); err == nil || !strings.Contains(err.Error(), want) {
 			t.Fatalf("version %d with command schema %d: %v", version, c.named, err)
 		}
 	}

@@ -17,7 +17,10 @@ repository holds no app spec. `doctl apps spec get APP-ID` shows them.
 
 - **Pushing to `main` deploys.** Autodeploy is on, so every push to this
   repository's `main` branch builds and deploys it. Confirm afterwards that
-  `curl https://relay.nanolathe.gg/healthz` returns `ok`.
+  `curl https://relay.nanolathe.gg/healthz` returns `ok`, then run
+  `go run ./cmd/nanolathe-relay-check` in the engine checkout. The second
+  check uses the current client to create, describe and join a lobby;
+  HTTP health alone does not prove game compatibility.
 - **One always-running instance** of 1 shared vCPU / 512 MiB
   (`apps-s-1vcpu-0.5gb`). The app sets no environment, so the image's defaults
   apply: `GOMEMLIMIT=384MiB` and `GOMAXPROCS=1`. This is not a measured

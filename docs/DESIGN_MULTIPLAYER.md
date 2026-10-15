@@ -1951,13 +1951,23 @@ primitives, carried over TLS or WebSocket (§12.3).
 **Versions.** The relay serves versions 7 and 8 in the same rooms, one
 version back. It records each seat’s Hello version and answers its Welcome
 in that version; a Description is the same in both. Version 8 adds display
-names, chat and command schema 2 (§7.4.1): a version-7 seat speaks command
-schema 1 and receives no names or chat, and the identity check at Ready
-keeps it out of a room whose other seats speak schema 2. Other versions are
+names and chat. A version-7 seat retains command schema 1 and receives no
+names or chat. A version-8 hello carries any nonzero `u16` command schema
+(§7.4.1): the relay forwards commands without interpreting them, so its
+own build's command version cannot limit the clients. Every join must name
+the creator's exact command schema before a seat is reserved or welcomed,
+in both ordinary lobbies and auto-start rooms. Different command schemas
+can use different rooms on the same relay; matching schemas still need
+matching content, configuration and rehearsal digests. Other hosted versions are
 refused naming the served versions and the client’s. A client speaks
 version 8 and refuses a Welcome in another version. The relay must be
 upgraded before version-8 clients connect; a relay restart ends its live
 rooms (§12.5).
+
+Command additions alone do not change the hosted transport version. A
+change to the framing, messages, bounds or transport semantics must revise
+the hosted compatibility contract and pass the live release gate (§16.5.6).
+The development loopback relay retains its exact-current-schema check.
 
 | Direction | Message | Content |
 |---|---|---|
@@ -5986,6 +5996,29 @@ active rooms; there is no cross-instance room lookup, database, autoscaling
 or reconnect. The custom hostname `relay.nanolathe.gg` needs both its DNS
 CNAME and its registration on the app before App Platform issues the
 certificate.
+
+**Compatibility release gate.** `go run ./cmd/nanolathe-relay-check` uses
+the candidate build's client and command schema against
+`wss://relay.nanolathe.gg/relay`. It creates a two-seat lobby, describes it,
+joins it, verifies that both clients see both seats, and closes its own
+connections without starting a battle. It loads no game assets. Connection
+failures, refusals and incomplete handshakes fail the bounded check; a
+healthy HTTP endpoint alone is insufficient. Run it before landing changes
+to the hosted protocol or command schema and after deploying the relay.
+CI runs it on pushes and pull requests; browser publication depends on it
+and repeats it immediately before releasing. Native installers follow
+`main`, so the check must pass on the candidate before it lands too.
+
+**October 14, 2026 failure.** Command schema 3 reached desktop and browser
+clients while the deployed relay snapshot still required schema 2 under
+the same hosted protocol 8. Client-and-relay tests from one source revision
+passed; neither the release workflow nor `/healthz` tested the running
+relay's admission. Its refusal was also mislabeled as a host mismatch.
+Version-8 admission now compares clients within a room instead of using
+the relay build's command constant. Regression tests exercise older,
+future and maximum command versions, reject zero and mixed-schema joins
+without consuming a seat, and preserve version-7 and local-relay limits.
+Server schema refusals and host mismatches have distinct client messages.
 
 ### 16.6 First online lobby
 
