@@ -14,7 +14,7 @@ import (
 // The 45-tick dwell starts at this point's first arrival, not at battle start
 // or the previous point's arrival (Modern aircraft tactics, issue 121).
 func TestAirHoverDwellStartsAtCurrentArrival(t *testing.T) {
-	for _, priorArrival := range []uint32{0, 50} {
+	for _, priorArrival := range []uint32{0, 50, 100} {
 		sys, w, u := wideAirFixture(t)
 		target := airTargetFor(t, sys, w, 28, 16)
 		u.InstallWeapon(0, &content.WeaponDef{ID: 1, Range: 300})
@@ -23,6 +23,10 @@ func TestAirHoverDwellStartsAtCurrentArrival(t *testing.T) {
 		p.fresh, p.standSet, p.standHeld = false, true, true
 		p.standX, p.standZ = int64(u.X>>16), int64(u.Z>>16)
 		p.standTick, p.standArrive = 100, priorArrival
+		// Prior arrival may equal the next plan's tick: an exposed point
+		// is replaced on the very visit that first records its arrival.
+		sys.airChooseStandoff(u, p, int64(target.X>>16), int64(target.Z>>16), 300, nil, false, 100)
+		u.X, u.Z = numeric.FixedFromInt(p.standX), numeric.FixedFromInt(p.standZ)
 		random := *orders.QueueOfUnit(u).Binding().SimRNG
 		for _, tick := range []uint32{200, 244} {
 			sys.legAirToGroundHoverModern(u, n, tick)

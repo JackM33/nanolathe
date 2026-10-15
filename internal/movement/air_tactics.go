@@ -1472,7 +1472,7 @@ func (s *System) legAirToGroundHoverModern(u *units.Unit, n *orders.Node, tick u
 		ds := isqrt64((p.standX-px)*(p.standX-px) + (p.standZ-pz)*(p.standZ-pz))
 		arrived := ds <= 24
 		exposed := airPointExposure(p.standX, p.standZ, pic.list) > 0
-		if arrived && p.standArrive < p.standTick {
+		if arrived && p.standArrive == p.standTick-1 {
 			p.standArrive = tick
 		}
 		switch {
@@ -1592,6 +1592,10 @@ func (s *System) airChooseStandoff(u *units.Unit, p *airPilot, tx, tz, rng int64
 		bx, bz = px, pz
 	}
 	p.standX, p.standZ, p.standTick, p.standSet, p.refused = bx, bz, tick, true, 0
+	// Mark this point as not yet reached, even when the previous point was
+	// reached and replaced on this same tick. The relative sentinel also
+	// survives the tick counter wrapping through zero.
+	p.standArrive = tick - 1
 }
 
 // --- repair beside a constructor ---
