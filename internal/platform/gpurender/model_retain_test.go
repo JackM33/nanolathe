@@ -446,9 +446,10 @@ func checkModelRetainDevicePixels() error {
 		list.RecordClear()
 		list.RecordFill(drawlist.Fill{Rect: drawlist.Rect{X: 0, Y: 0, W: w, H: h}, Index: 7, Style: drawlist.FillSolid})
 		if shift {
-			// Off the canvas, packed first: every later region moves.
-			filler := directSubject(0, -400, 300, 120, directFace(0, 0, 298, 118, 100, 10, 10))
-			list.RecordModel(drawlist.Model{Geometry: filler})
+			// One recorded row at the frame's bottom edge, in the field's
+			// index: packed first, every later region moves; visible, it
+			// changes no byte.
+			list.RecordModel(drawlist.Model{Geometry: pageFiller(h, 300, 120, 7, 10)})
 		}
 		a := retainedPacket(48, 11)
 		a.AnchorX, a.AnchorY = 10, 10

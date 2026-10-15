@@ -2157,6 +2157,47 @@ consumed the previous list — and a per-frame stamp on each retained store make
 second write inside the same frame take fresh storage instead of moving faces a
 packet of that frame already addresses.
 
+**The view bound.** The bucket build admits units by plot row alone, as
+retail's painter does [03 R-RAST-01 §7]; retail clipped each finished draw, so
+an unseen unit cost it a blit. Here a unit's model present is the recorder's
+largest per-unit cost, and a battle spread across the map spent most of it on
+units the executor then clipped away entirely (§22 "A subject whose every
+image lies outside the clip takes no region"). So once the bucket build and
+both child lists — cargo and factory occupants — are complete, each bucketed
+unit is tested against the record extent (`unitOutsideView`,
+`internal/client/unit_view_cull.go`), and a unit whose conservative box misses
+it keeps its bucket place and its footprint quad while both stages skip its
+model present. The decision is the recorder's, so it holds for every executor.
+
+The box is built from the model's **reach**: the farthest any vertex can lie
+from the model origin under any piece rotation — for each piece, the summed
+lengths of its own and its ancestors' offsets plus its farthest vertex —
+computed once when the model is built, since the stage-one workers read it
+concurrently. Per unit it adds the length of every script translation, which
+the committed frame carries per piece. The body's box is that reach
+horizontally and one and a half reaches vertically (the height shear halves a
+vertex's height); the shadow's is one and a quarter reaches around the shadow
+anchor at the ground under the unit; a unit over reflecting water extends the
+body down by its height above the sea plus the reach; and a 32-pixel margin at
+the native scale covers the half-pixel projections, the underwater refraction
+and the soft aircraft shadow. A unit is never culled without a bound: a model
+with no known reach, the arriving commander, a unit presenting children, and
+every unit while a parity trace records presents.
+
+In the Survival captures of §22 (medians of three alternating runs, 60 draws a
+second), the 703-unit capture at 1× admits 137 units a frame and culls 117 of
+them: the recording work (`PreRecord`) fell from about 0.78 to 0.35 ms, `Record`
+on frames that record synchronously from 2.1–2.5 to 1.6–1.7 ms, and the classic
+executor's `Record` from 5.8 to 3.0 ms. The 735-unit capture at 0.5× culls about
+half its 332 admitted units: `PreRecord` fell from about 1.5 to 1.0 ms and the
+synchronous `Record` from 2.85 to 2.2 ms. A diagnostic build that still built
+every culled unit's geometry found none of it reaching the record extent in
+either capture or the coastal fixture. The 1× frames, the coastal fixture in
+both executors and the classic 1× frame are byte-identical; a frozen 0.5×
+frame moves 187 pixels by atlas repacking alone (§22), because the lane no
+longer places the off-screen reflecting and airborne subjects its own skip
+keeps.
+
 ### 13.10 The record/submit pipeline
 
 Ebitengine runs Update and Draw on the game goroutine and encodes to the device
@@ -5054,7 +5095,8 @@ retained-lane store (`model_retain.go`) and the texture page
 (`model_atlas.go`).
 
 Before `Replay`, every subject of the frame and its shadow — except a subject
-drawn from its sprites (§16.13), which takes none — are given a region of
+drawn from its sprites (§16.13) and one whose every image lies outside the
+frame's clip (below), which take none — are given a region of
 a per-frame 2× atlas page — 4096 × 4096 texels, two planes, shelf-packed
 tallest-first, **no residency** — and their faces are fan-triangulated straight
 from the packet's projected corners. A 1080p battle frame uses about 1,300 rows
@@ -5066,6 +5108,48 @@ a two-texel margin separates them (§11.2 "Every atlas cell carries a border").
 The doubled lane is the recorder's own packet when it carries one, half-pixel
 offset included (§17.3); a packet without one has its native corners doubled
 here.
+
+**A subject whose every image lies outside the clip takes no region.** The
+recorder's view bound (§13.9) is conservative and features are admitted by a
+cell window with margins, so a frame still records subjects whose body or group
+box and shadow box lie wholly outside the frame's world clip: units near the
+edge whose reach crosses it while their pixels do not, and off-screen
+features. Each commit tests that rectangle before it builds anything, so such a
+subject draws no pixel: `modelDirectClipsAway`
+(`internal/platform/gpurender/model_direct.go`) gives it no region, its faces
+enter no page pass and it compiles no commit; `ModelStats.DirectClipped` counts
+them. Placement tests the rectangle the commits will test — the framebuffer
+widened to the record extent the frame's WorldBegin carries, as `World` widens
+it — although that command is replayed after placement. A subject stays placed
+while anything it commits beyond its own box can reach the clip: a reflection,
+committed from geometry of its own; the blue waterline's underwater commit,
+which the refraction displaces; an aircraft's soft-shadow disc
+(`commitUnderwater`, `commitAircraftShadow`); its shadow's box, since a
+silhouette shadow is cut from the body's raster; and the same for each carried
+child, whose shadow is cut from the solo region the carrier's placement gives
+it. A skipped subject reaches its commit without a region and leaves the
+atlas fallback at its clip test, before the fallback would join the page
+passes, so it does not end their overlap with `Replay` ("Page passes beside
+Replay" below). A shadow without a region that lies wholly outside the clip is
+not counted in `ShadowsOmitted`, which keeps counting shadows a frame lost.
+
+In the Survival battle captures (medians of three alternating runs, 60 draws
+a second), the 703-unit capture at 1× placed 22 subjects instead of 145 and
+issued 42 device draws instead of 225; `Submit` fell from 1.25 to 0.53 ms and
+`OutsideDraw` from 2.30 to 1.33 ms. The 735-unit capture at 0.5× placed 161
+instead of 334, with 320 device draws instead of 782; `Submit` fell from 2.57
+to 1.52 ms and `OutsideDraw` from 3.74 to 2.45 ms. The coastal fixture culls
+nothing: its units stand near the camera.
+
+At a rest factor the frame is byte-identical, and so are both coastal
+renderers. Below one, a few edge pixels of a few remaining subjects change: 275
+pixels (0.017%) of a frozen 0.5× frame of the 735-unit capture, by up to 137
+levels where a fetch lands on the neighbouring texel of a hard edge. That is
+the atlas's own sensitivity, not the skip's: the remaining subjects pack into
+different positions, and at a fractional scale the commit's interpolated,
+floored fetches round differently at a different position. Shifting every
+region of the unculled frame by one empty allocation moves 132 pixels of the
+same frame the same way, as a unit entering or leaving the frame does.
 
 An ordinary attached-unit group composes in **one** region over the union of its bounds:
 the carrier's faces, then each mergeable child's with its signed height delta

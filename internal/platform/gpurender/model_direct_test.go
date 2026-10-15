@@ -262,6 +262,18 @@ func directSubject(ax, ay, w, h int32, faces ...drawlist.ModelFace) *drawlist.Mo
 	}
 }
 
+// pageFiller is the device fixtures' page-pressure subject: a box no page can
+// hold beside, so the subjects after it open or turn to the next page. It
+// hangs off the frame's bottom edge — only its top row is recorded — and that
+// row is painted in the fixture's background index, so the filler consumes a
+// shelf without changing a composite byte. A box wholly outside the frame
+// would take no region at all now (modelDirectClipsAway, model_direct.go),
+// which is the very waste the lane skips; the fixtures keep the pressure
+// visible instead of off-frame.
+func pageFiller(frameH, w, h int32, background uint8, key int32) *drawlist.ModelGeometry {
+	return directSubject(0, frameH-1, w, h, directFace(0, 0, w-2, h-4, background, key, key))
+}
+
 // checkModelDirectDevicePixels draws eight subjects through the lane and
 // reads the composite back (§22):
 //
@@ -381,12 +393,12 @@ func checkModelDirectDevicePixelsOn(secondPage bool) error {
 	list.RecordFill(drawlist.Fill{Rect: drawlist.Rect{X: 0, Y: 0, W: w, H: h}, Index: field, Style: drawlist.FillSolid})
 	bodies, wantPages := 11, 1
 	if secondPage {
-		// A subject 2,044 pixels tall and 2,046 wide, off the canvas, takes a
-		// page-wide shelf of 4,092 of the first page's 4,096 rows; packed
-		// tallest first it goes on before the rest, which then open the
-		// second page.
-		filler := directSubject(0, -2100, 2046, 2044, directFace(0, 0, 2044, 2040, 100, 10, 10))
-		list.RecordModel(drawlist.Model{Geometry: filler})
+		// A subject 2,044 pixels tall and 2,046 wide, its top edge on the
+		// frame's last row, takes a page-wide shelf of 4,092 of the first
+		// page's 4,096 rows; packed tallest first it goes on before the rest,
+		// which then open the second page. Its one recorded row is the
+		// field's own index, so it changes no pixel.
+		list.RecordModel(drawlist.Model{Geometry: pageFiller(h, 2046, 2044, field, 10)})
 		bodies, wantPages = 12, 2
 	}
 	for _, g := range []*drawlist.ModelGeometry{a, b, c, d, e, f, g, hc, i, j} {
@@ -525,8 +537,7 @@ func checkModelDirectFallbackCloak() error {
 		list.RecordClear()
 		list.RecordFill(drawlist.Fill{Rect: drawlist.Rect{X: 0, Y: 0, W: w, H: h}, Index: field, Style: drawlist.FillSolid})
 		for range modelDirectMaxPages {
-			filler := directSubject(0, -2100, 2046, 2044, directFace(0, 0, 2044, 2040, 100, 10, 10))
-			list.RecordModel(drawlist.Model{Geometry: filler})
+			list.RecordModel(drawlist.Model{Geometry: pageFiller(h, 2046, 2044, field, 10)})
 		}
 		g := directSubject(8, 8, 22, 18, directFace(0, 0, 20, 16, 200, 10, 10))
 		g.Cloaked = cloak
