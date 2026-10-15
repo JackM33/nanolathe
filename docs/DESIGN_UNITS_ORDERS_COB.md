@@ -624,7 +624,18 @@ failure results, and Strict returns every result unchanged. This policy adds no
 general kiting controller.
 
 Only when no effective response is available does a mobile unit consider
-withdrawal. It evaluates eight fixed directions at 64, 32 and 16 world units,
+withdrawal. A combat aircraft running `VTOL_Patrol` keeps its current route
+instead (issue 121): the short withdrawal's `VTOL_Move` brakes to a nearby
+endpoint and inhibits its weapon slots, producing repeated stops under fire.
+Anonymous hits and visible attackers it cannot answer therefore leave the
+patrol record, marker and queued waypoints intact. A suitable visible attacker
+still receives the ordinary counterattack above. Constructor repair patrol,
+idle aircraft and ground assignments keep their withdrawal policy. This is a
+Nanolathe Modern policy refinement; Strict and Community keep retail behavior.
+`air_patrol_danger_test.go` locks repeated anonymous/unanswerable hits, the
+retained route, visible counterattack, unchanged RNG and Strict bypass.
+
+Withdrawal evaluates eight fixed directions at 64, 32 and 16 world units,
 with diagonal components 45, 22 and 11 respectively, maximizing minimum separation from all
 remembered threat positions. Ties retain traversal order, and a candidate must
 strictly improve that minimum. All candidates first use the movement-owned
@@ -724,6 +735,13 @@ This includes guided shots whose moving-target fallback predicts only the
 first flight step, rather than a complete clear trajectory.
 Ordinary burst weapons can preview their first shot; subsequent pellets keep
 their independent admission. The helper never forces a shot through a blocker.
+
+**Preview storage.** The combat service owns reusable storage for the translated
+unit, physical shot query and initial-shot weapon copy. Each candidate saves
+and restores that complete scratch frame, including on refusal and across
+nested rule callbacks. Rule implementations cannot retain request arguments
+(DESIGN_GAMEPLAY_RULES §3). The observation, prediction work and returned verdict
+are unchanged; this scratch adds no saved or canonical state.
 
 **Execution and lifecycle.** The chosen point goal belongs to the same attack
 node, preserving its target, anchor and successors. While that movement is

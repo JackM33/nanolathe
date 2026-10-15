@@ -204,6 +204,18 @@ order, the per-player step allowance `[04 R-PATH-01 §10]` and the full-or-empty
 publication boundary `[04 §7.3]`, so a replacement kernel may change how a
 route is found and never when one publishes.
 
+**Finishing storage.** Straightening and smoothing allocate their owned point
+copies only after a search finishes with an eligible 3–64-point route. Each
+copy holds that route's actual length; neither wrapper reserves a maximum-size
+array at admission. Smoothing's per-leg cost array is local to its synchronous
+finishing pass. The output remains owned by the completed search after
+`Release`, because movement releases search storage before the scheduler
+publishes its result. Later searches cannot overwrite it. The wrapped route,
+probe accounting, completion slice and canonical checkpoint bytes are unchanged;
+unused output capacity and finishing scratch are not encoded
+(DESIGN_MULTIPLAYER §16.3.6). This is storage policy for the existing kernels,
+with no change to rule selection or path arithmetic.
+
 **The scheduler** (`queue.go`). `Scheduler` holds one active request at a time,
 and it also owns the search's per-cell `Workspace`. That ownership is the point:
 a generation-stamped table is shared storage, and the scheduler is what decides
@@ -1418,15 +1430,23 @@ longer flies three ranges past a target nothing covers before turning.
 the strafer's does. The gunship keeps retail's frozen marker
 about its target, so it faces the target as it settles [04 R-AIR-01 §8], but
 chooses the point: on rings at two thirds and seventeen twentieths of its
-weapon range on sixteen bearings, by least anti-air exposure, then clear of
-the points and bearings other gunships of its owner hold near the same
-target (so wingmen neither stack nor fire through one another), then a real
-move — 64 world units, 120 when under fire — then the shortest. It slides on
-to the next point 45 ticks after arriving, at once when it has lost health in
+weapon range on sixteen bearings. When leaving an existing point it first
+prefers a real move — at least 64 world units, 120 when under fire — then
+ranks those candidates by anti-air exposure, clearance from the points and
+bearings other gunships of its owner hold near the same target (so wingmen
+neither stack nor fire through one another), and travel distance. If no
+on-map candidate meets the move distance, it keeps the ordinary ranked
+fallback. The initial approach keeps its existing score. A lower-exposure
+current point cannot defeat every real move and make the gunship hover
+indefinitely (issue 121, `TestAirHoverRepositionMakesProgressUnderCover`).
+It slides on to the next point 45 ticks after arriving, at once when it has lost health in
 the last 90 ticks or its point is covered, and after 240 ticks regardless,
 as retail's orbit keeps a gunship moving. Far from the point it flies there
 round anti-air that does not cover the point. Two refused engagement checks
 move it to half range.
+The dwell begins on the first arrival at the current point, before testing
+its expiry; travel time and an earlier point's arrival cannot consume it
+(`TestAirHoverDwellStartsAtCurrentArrival`, issue 121).
 
 **Repair beside a constructor.** When a damaged aircraft's retail pad seek
 finds no pad (`AirStrike` phase 6, `AirToGround`'s break, a covered gunship,
