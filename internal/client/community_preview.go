@@ -229,5 +229,5 @@ func filterCommunityPreviewModel(src *unitModel, whitelistValue string) *unitMod
 			compiled.Pieces[i].Primitives = nil
 		}
 	}
-	return &unitModel{compiled: &compiled, pieceByName: src.pieceByName}
+	return &unitModel{compiled: &compiled, pieceByName: src.pieceByName, reach: src.reach}
 }

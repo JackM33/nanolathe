@@ -534,7 +534,7 @@ func (r *Renderer) scatterWorker(p *modelPlacePool) {
 			} else if v.Custom2 < 0 {
 				v.Custom2 -= shift
 			}
-			mode := int(v.Custom0)
+			mode := int(v.Custom0) % modelDirectSeedStride
 			if mode >= modelDirectLive {
 				mode -= modelDirectLive
 			}

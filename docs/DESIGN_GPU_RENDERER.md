@@ -2157,6 +2157,47 @@ consumed the previous list — and a per-frame stamp on each retained store make
 second write inside the same frame take fresh storage instead of moving faces a
 packet of that frame already addresses.
 
+**The view bound.** The bucket build admits units by plot row alone, as
+retail's painter does [03 R-RAST-01 §7]; retail clipped each finished draw, so
+an unseen unit cost it a blit. Here a unit's model present is the recorder's
+largest per-unit cost, and a battle spread across the map spent most of it on
+units the executor then clipped away entirely (§22 "A subject whose every
+image lies outside the clip takes no region"). So once the bucket build and
+both child lists — cargo and factory occupants — are complete, each bucketed
+unit is tested against the record extent (`unitOutsideView`,
+`internal/client/unit_view_cull.go`), and a unit whose conservative box misses
+it keeps its bucket place and its footprint quad while both stages skip its
+model present. The decision is the recorder's, so it holds for every executor.
+
+The box is built from the model's **reach**: the farthest any vertex can lie
+from the model origin under any piece rotation — for each piece, the summed
+lengths of its own and its ancestors' offsets plus its farthest vertex —
+computed once when the model is built, since the stage-one workers read it
+concurrently. Per unit it adds the length of every script translation, which
+the committed frame carries per piece. The body's box is that reach
+horizontally and one and a half reaches vertically (the height shear halves a
+vertex's height); the shadow's is one and a quarter reaches around the shadow
+anchor at the ground under the unit; a unit over reflecting water extends the
+body down by its height above the sea plus the reach; and a 32-pixel margin at
+the native scale covers the half-pixel projections, the underwater refraction
+and the soft aircraft shadow. A unit is never culled without a bound: a model
+with no known reach, the arriving commander, a unit presenting children, and
+every unit while a parity trace records presents.
+
+In the Survival captures of §22 (medians of three alternating runs, 60 draws a
+second), the 703-unit capture at 1× admits 137 units a frame and culls 117 of
+them: the recording work (`PreRecord`) fell from about 0.78 to 0.35 ms, `Record`
+on frames that record synchronously from 2.1–2.5 to 1.6–1.7 ms, and the classic
+executor's `Record` from 5.8 to 3.0 ms. The 735-unit capture at 0.5× culls about
+half its 332 admitted units: `PreRecord` fell from about 1.5 to 1.0 ms and the
+synchronous `Record` from 2.85 to 2.2 ms. A diagnostic build that still built
+every culled unit's geometry found none of it reaching the record extent in
+either capture or the coastal fixture. The 1× frames, the coastal fixture in
+both executors and the classic 1× frame are byte-identical; a frozen 0.5×
+frame moves 187 pixels by atlas repacking alone (§22), because the lane no
+longer places the off-screen reflecting and airborne subjects its own skip
+keeps.
+
 ### 13.10 The record/submit pipeline
 
 Ebitengine runs Update and Draw on the game goroutine and encodes to the device
@@ -5080,11 +5121,12 @@ offset included (§17.3); a packet without one has its native corners doubled
 here.
 
 **A subject whose every image lies outside the clip takes no region.** The
-recorder admits units by the Z-row window alone — retail's painter clips each
-draw, and the lane's commits are the executor's clip — so a battle spread
-across the map records subjects whose body or group box and shadow box lie
-wholly outside the frame's world clip. Each commit tests that rectangle before
-it builds anything, so such a subject draws no pixel: `modelDirectClipsAway`
+recorder's view bound (§13.9) is conservative and features are admitted by a
+cell window with margins, so a frame still records subjects whose body or group
+box and shadow box lie wholly outside the frame's world clip: units near the
+edge whose reach crosses it while their pixels do not, and off-screen
+features. Each commit tests that rectangle before it builds anything, so such a
+subject draws no pixel: `modelDirectClipsAway`
 (`internal/platform/gpurender/model_direct.go`) gives it no region, its faces
 enter no page pass and it compiles no commit; `ModelStats.DirectClipped` counts
 them. Placement tests the rectangle the commits will test — the framebuffer
@@ -5230,7 +5272,15 @@ competes against green, preserving the original winner independently of colour
 transparency. Reveal reads seeded red. Outline/live key and colour passes follow
 without clearing either plane; live writes leave original green alone and are
 never filtered through the resized seed. Packed retained vertices carry no
-per-frame seed decision; run phase and uniforms are chosen on each replay.
+per-frame seed decision: a capture strips it and each replay adds the phase of
+the run it replays into. Every lane vertex carries its run's phase in the mode
+lane, sixteen apart (`seedLane`), rather than in a uniform: a uniform that
+differs between runs stops Ebitengine merging them, and seeded bodies
+alternate with unseeded shadows. In the vertices the runs merge wherever their
+bindings agree, and the face order that settles the colour pass's ties is
+unchanged. On the Survival 0.5× capture the frame issues 41 device draws
+instead of 231, and Ebitengine's deferred flush (`OutsideDraw`) falls by about
+0.9 ms.
 
 Seeded group children use independent regions before ordered merges, including
 children without construction reveal. Construction groups still skip transparent

@@ -30,6 +30,11 @@ import (
 type unitModel struct {
 	compiled    *compiledmodel.Model
 	pieceByName map[string]int // lower-case name → piece index
+	// reach bounds every vertex's distance from the model origin under any
+	// piece rotation (modelReach); zero leaves the unit view cull off for it.
+	// It is set when the model is built, because the unit recording workers
+	// read it concurrently (unit_view_cull.go).
+	reach int32
 }
 
 func (c *Client) orientationCache(id uint64) *presentationrender.OrientationCache {
@@ -118,7 +123,7 @@ func expandModelFromFSStrict(fs *vfs.FS, name string) (*unitModel, error) {
 	}
 	// Loading, selection-primitive placement, primitive ordering, and the
 	// authored half-turn are complete in internal/model.Load [03 §2.4].
-	return &unitModel{compiled: compiled, pieceByName: byName}, nil
+	return &unitModel{compiled: compiled, pieceByName: byName, reach: modelReach(compiled)}, nil
 }
 
 func (c *Client) modelForUnit(v frame.UnitView) *unitModel {

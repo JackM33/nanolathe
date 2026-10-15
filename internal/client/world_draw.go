@@ -26,6 +26,10 @@ type worldDrawable struct {
 	// the stage-one slot this drawable's geometry is precomputed into
 	// (docs/DESIGN_GPU_RENDERER.md §13.9). It is -1 for a feature.
 	index int32
+	// offView is a unit whose model present cannot reach the record extent
+	// (unitOutsideView): it keeps its bucket place and its footprint quad,
+	// and both unit passes skip its model.
+	offView bool
 }
 
 // cellPixels is the side of one plot cell in map pixels [03 §2.1].
@@ -769,6 +773,16 @@ func (c *Client) drawWorldPass(cur *frame.Frame, ok bool) {
 		b.add(worldDrawable{row: featureBucketRow(f.CZ, camZ), feature: f, screenX: sx, screenY: sy, index: -1})
 	}
 	b.indexFactoryOccupants(win)
+	// The unit view cull decides once every child list is complete — cargo
+	// and factory occupants alike — because a unit presenting children is
+	// never culled (unit_view_cull.go). Its rectangle is the record extent
+	// every world site clips against.
+	recW, recH := c.recordExtent()
+	for i := range b.items {
+		if d := &b.items[i]; d.unit != nil {
+			d.offView = c.unitOutsideView(d.unit, d.screenX, d.screenY, recW, recH)
+		}
+	}
 	// Stage one: both unit passes' per-unit geometry, in parallel, into slots
 	// indexed by unit (docs/DESIGN_GPU_RENDERER.md §13.9). It runs over the
 	// finished bucket order and writes nothing to the list, so the two
@@ -885,6 +899,11 @@ func (c *Client) presentUnit(d worldDrawable) {
 		return
 	}
 	if isCarried(u) || c.worldBuckets.isFactoryOccupant(d.index) {
+		return
+	}
+	if d.offView {
+		// Nothing of its model can reach the record extent; the executor
+		// would clip every pixel of it (unit_view_cull.go).
 		return
 	}
 	if u.Model == "" && c.modelForUnit(u) == nil {

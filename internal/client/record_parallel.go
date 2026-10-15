@@ -299,7 +299,7 @@ func (c *Client) recordUnitGeometry(cur *frame.Frame, win worldWindow) {
 				continue
 			}
 		}
-		if isCarried(*d.unit) || c.worldBuckets.isFactoryOccupant(d.index) || (d.unit.Model == "" && c.modelForUnit(*d.unit) == nil) {
+		if d.offView || isCarried(*d.unit) || c.worldBuckets.isFactoryOccupant(d.index) || (d.unit.Model == "" && c.modelForUnit(*d.unit) == nil) {
 			continue
 		}
 		jobs = append(jobs, d.index)
