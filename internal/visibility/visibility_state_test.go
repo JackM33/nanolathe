@@ -37,10 +37,10 @@ func TestInvalidPlayerDoesNotAliasVisibilityState(t *testing.T) {
 func TestCoverageByteCounterWraps(t *testing.T) {
 	s := New(&world.Terrain{CellW: 2, CellH: 2}, ModeHistoryEnabled|ModeCurrentEnabled)
 	s.byteGrids[0][0] = 255
-	if !s.incByteGrid(0, 0) || s.byteGrids[0][0] != 0 {
+	if !s.incByteGrid(0, 0, false) || s.byteGrids[0][0] != 0 {
 		t.Fatalf("increment did not wrap 255 to 0: %d", s.byteGrids[0][0])
 	}
-	if !s.decByteGrid(0, 0) || s.byteGrids[0][0] != 255 {
+	if !s.decByteGrid(0, 0, false) || s.byteGrids[0][0] != 255 {
 		t.Fatalf("decrement did not wrap 0 to 255: %d", s.byteGrids[0][0])
 	}
 }
@@ -71,7 +71,7 @@ func TestSensorVisibilityUsesSinglePoint(t *testing.T) {
 	s.SetLocal(0)
 	// Coverage is deliberately on a different tile. Owner 0 must not get the
 	// gameplay owner bypass in the sensor's single-point final pass.
-	s.incByteGrid(int(2*s.W+2), 0)
+	s.incByteGrid(int(2*s.W+2), 0, false)
 	var status uint32
 	units := []SensorUnit{{Owner: 1, Status: &status, Alive: true, Active: true, X: 0, Y: 0, Z: 0, RadarDistance: 100, SonarDistance: 200}}
 	s.SensorTick(1, 2, units)

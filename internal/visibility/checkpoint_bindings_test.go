@@ -34,9 +34,9 @@ func TestVisibilityBindingsPresenceVectorAndPurity(t *testing.T) {
 	*s = Service{}
 	a := checkpoint.NewBindingAuthority()
 	registerVisibilityBindings(t, s, c, a)
-	// The independent empty-Service vector is 97 zero bytes. Each reader
+	// The independent empty-Service vector is 137 zero bytes. Each reader
 	// occupies its original one-byte slot in Community; proof emits no bytes.
-	want := make([]byte, 97)
+	want := make([]byte, 137)
 	if got := visibilityCheckpointBytes(t, s, c); !bytes.Equal(got, want) {
 		t.Fatalf("registered absent payload = %x", got)
 	}
@@ -255,14 +255,14 @@ func TestVisibilityBindingsRegistrationAndTerrain(t *testing.T) {
 	*s = Service{}
 	nilTerrainContext := NewCheckpointContext(c.Keys)
 	registerVisibilityBindings(t, s, nilTerrainContext, a)
-	if !bytes.Equal(visibilityCheckpointBytes(t, s, nilTerrainContext), make([]byte, 97)) {
+	if !bytes.Equal(visibilityCheckpointBytes(t, s, nilTerrainContext), make([]byte, 137)) {
 		t.Fatal("registered nil terrain changed absent vector")
 	}
 	s.terrain = terrain
 	visibilityBindingsRefusal(t, s, nilTerrainContext, "visibility.Service.terrain")
 	presentTerrainContext := NewCheckpointContext(c.Keys)
 	registerVisibilityBindings(t, s, presentTerrainContext, a)
-	want := make([]byte, 97)
+	want := make([]byte, 137)
 	want[91] = 1 // terrain's original singleton-presence slot
 	if got := visibilityCheckpointBytes(t, s, presentTerrainContext); !bytes.Equal(got, want) {
 		t.Fatalf("terrain presence payload = %x; want %x", got, want)

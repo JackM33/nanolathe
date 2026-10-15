@@ -2893,7 +2893,7 @@ function pointer alone does not establish the admitted binding.
 |---|---|---|
 | Terrain/plots | Row-major occupancy words, metal, feature index/sentinel, anchor/damage, gameplay flags; `metalSeeded`; feature names/definitions in record order, including nil rows and runtime appends. | Immutable geometry/heights, physics/map constants and LOS words bind admitted map inputs. The entry void sweep must be finished. Never-explored marker and placer nibble are presentation-only; any otherwise unclassified flag bits are retained. Static obstacle revision is diagnostic. |
 | `features.Service`, `Instance` | Global reproduction cursor, arena held, instances by sorted anchor index, exact active head-to-tail order; definition, cell/position/velocity/orientation, footprint, burning/animating/countdown/suppression, cursor frame/delay/sequence presence/key, active/arena/runtime-live flags, animation selector, damage accumulator. | `runtimeLive` affects replacement transforms. Lookup caches rebuild from sorted keys; active linkage reconstructs from the retained active order. Active-walk/pending-burn handoffs are rejected. Last reproduction index, reclaim/status/sinking/settled/shadow presentation and saved anchor staging are excluded. |
-| `visibility.Service` | Semantic mode bits, dimensions, row-major word mask; byte grids by player then row; local/team/viewer-defeated; footprints by observer ID with owner/cells/height/radius/quantized/live/stored cells/stored byte; effective Community inputs. | Fog caches, the mode cache-valid bit, publication versions/identities and rebuild flags are excluded. Spokes derive from immutable ray tables. The sensor index rebuilds every sensor tick; `sensorInputs` and `sensorStatusByID` have no production readers. Contact bits live in unit flags; cadence in session/ledger. |
+| `visibility.Service` | Semantic mode bits, dimensions, row-major word mask; byte grids and retained wide coverage counts by player then row; local/team/viewer-defeated; footprints by observer ID with owner/cells/height/radius/quantized/live/stored cells/stored byte; effective Community inputs. | Fog caches, the mode cache-valid bit, publication versions/identities and rebuild flags are excluded. Spokes derive from immutable ray tables. The sensor index rebuilds every sensor tick; `sensorInputs` and `sensorStatusByID` have no production readers. Contact bits live in unit flags; cadence in session/ledger. |
 | Movement base state | Per-handle routes, steers, collisions, flights, copied profiles/names, working sets, previous move tier/SFX band; layer registry, learned terrain, pending layers, active orders/next activation, arrival handles, move/record goals, provider, first requests, unreachable/jam/traffic/pocket state, work tick/smoothing budget, pilots, repair landings, air-base lists; effective fallback/Community/path-player/unit-limit inputs and current tick. | The tick must be ended, the overlap scan inactive and the provider eligibility cache invalid. Diagnostics, path failures, history/lab counters and per-call scratch walks are excluded. `passAlliance`/`trafficNow` are replaced at BeginTick for the recognized pure rules; unknown stateful rules cannot claim that exclusion. |
 | Route/profile/steer | Entire route `Points[20]`, count/active/dirty/repath/request/status/first-hold/pending; all eight profile footprint/water/slope fields; steer X/Z, heading/pending heading, dirty/speed/max velocity/turn rate/height/sea-level/definition flags/acceleration/brake. | Inactive route storage remains readable. `Route.StaticRevision` has only diagnostic readers. |
 | Collision/flight | All collision scalars, yard values, half-bias state, filing, saved/proposal/stamp/blocker/lean/turn fields; all flight scalars including mode mirror, targets, gravity/bank/pitch, and unit/command edges. Filing retains `Filed`, `OffMap`, `SX`, `SZ`, `Seq`, cargo included. The selected air sector is nil/record index/sentinel, never recomputed from position; tags are nil 0, record 1 then zero-based u32 index, sentinel 2. | Flight-command `Flags` is stream/publication bookkeeping; the command otherwise retains payload/owner/unit, position, velocity and heading. Immutable air-sector records bind terrain. Retained collision residuals are not reconstructed from current transforms. |
@@ -2949,10 +2949,14 @@ behaviour.
 
 #### 16.3.6 Canonical format and public API
 
-Schema 2 (2026-10-09) adds constructor patrol assignment/return references,
+Schema 3 (2026-10-14) adds visibility's retained wide coverage rows. Counts
+remain meaningful across rule switches and are not recoverable from saturated
+byte grids and observer records. The shared schema version also changes the
+AI application-history hash domains; their receipt payloads are unchanged.
+Schema 2 (2026-10-09) added constructor patrol assignment/return references,
 return outcome receipts and the route-wide recovery pause. Ordinary scalar
 command/AI order receipts keep their existing encoding; the canonical graph
-now preserves these simulation continuations.
+preserves these simulation continuations.
 
 **Leaf and files.** `internal/sim/checkpoint/{encoder,format,refs}.go` is a
 standard-library-only leaf: owners import it without pointing back to session
@@ -2963,7 +2967,7 @@ dependencies.
 
 ```go
 // internal/sim/checkpoint
-const SchemaVersion uint16 = 2
+const SchemaVersion uint16 = 3
 const OwnerCount = 13
 
 type Owner uint16
@@ -3559,9 +3563,11 @@ misses against admitted absence metadata.
 **Visibility:** Community values/binding tags, dimensions, rule binding,
 byte grids, sorted observer footprints, local player, semantic mode bits
 (all but fog-valid), ray-table and shape presence/keys, teams, terrain
-presence, viewer-defeated, word mask. Masks and ray tables resolve as
-admitted catalog objects. Readers are never invoked. Derived fog, spokes,
-sensor indexes and counters are excluded and not rebuilt. The key-collection
+presence, viewer-defeated, wide coverage rows, word mask. The ten wide rows
+carry their lengths and row-major `uint64` counts, including retained rows
+under Strict; absent and empty rows both have length zero. Masks and ray tables
+resolve as admitted catalog objects. Readers are never invoked. Derived fog,
+spokes, sensor indexes and counters are excluded and not rebuilt. The key-collection
 loop and its numeric sort are pinned by the I1 architecture audit.
 
 #### 16.3.12 U3 path-owner framing
@@ -4389,7 +4395,11 @@ lengths and row-major bytes, one unsigned word per scalar. The caller owns
 service presence; a missing service or accumulator errors with no partial
 append. It reads no footprint map, dimension, sensor cache, rule or reader,
 allocates nothing and does not refresh visibility. Nil and empty grids both
-contribute zero length.
+contribute zero length. Under Modern's approved [coverage
+saturation](DESIGN_WORLD_VISIBILITY.md#modern-coverage-saturation) the
+byte rows hold `min(count, 255)`, so the fragment compares any overlap at or
+above 255 as 255. Wide counts are a deliberate blind spot of this cheap
+fragment; the full checkpoint retains them (§16.3.11).
 
 #### 16.3.42 U6 closed stateless rule tags
 

@@ -427,7 +427,8 @@ DESIGN_SESSIONS_AI_SAVE "Modern save unit limits" and "Modern wave air
 targets", and DESIGN_UNITS_ORDERS_COB "Modern AI move retention", and
 DESIGN_UNITS_ORDERS_COB "Modern infection" with DESIGN_SURVIVAL "Modern
 infection hunters", DESIGN_WEAPONS_PROJECTILES "Modern infector target
-preference" and DESIGN_SESSIONS_AI_SAVE "Modern AI infector focus". Each
+preference" and DESIGN_SESSIONS_AI_SAVE "Modern AI infector focus", and
+DESIGN_WORLD_VISIBILITY "Modern coverage saturation". Each
 departure reaches its algorithm through the
 owning package's rule interface, bound once from the central session mode as
 one named rule set — not through independently configurable flags; new and
