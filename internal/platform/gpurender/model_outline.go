@@ -231,13 +231,14 @@ func (r *Renderer) appendOutline(d *modelPlaceCtx, g *drawlist.ModelGeometry, ox
 func (r *Renderer) appendOutlineRing(d *modelPlaceCtx, ring *modelOutlineRing, ox, oy float32, entry int) {
 	run := d.colourRun([2]*ebiten.Image{d.texturePage(r), r.tables.atlas}, 4)
 	base := uint32(len(d.verts)) - uint32(run.vOff)
+	lane := float32(modelDirectOutline|modelDirectLive) + run.seedLane()
 	x0, y0 := ox+2*float32(ring.x0), oy+2*float32(ring.y0)
 	x1, y1 := ox+2*float32(ring.x1), oy+2*float32(ring.y1)
 	for _, c := range [4][2]float32{{x0, y0}, {x1, y0}, {x1, y1}, {x0, y1}} {
 		d.verts = append(d.verts, ebiten.Vertex{
 			DstX: c[0], DstY: c[1],
 			ColorR: float32(d.keyDelta), ColorG: float32(ring.color), ColorB: float32(ring.entry), ColorA: ox,
-			Custom0: modelDirectOutline | modelDirectLive, Custom1: oy, Custom2: float32(entry),
+			Custom0: lane, Custom1: oy, Custom2: float32(entry),
 		})
 	}
 	d.idx = append(d.idx, base, base+1, base+2, base, base+2, base+3)

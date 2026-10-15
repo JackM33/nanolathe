@@ -125,7 +125,8 @@ const (
 // and is key-tested once, against the pixel's nearest-sampled key, as
 // retail's 1× outline pass is [03 R-COMP-01 §3]. modelDirectLive is added to
 // a face drawn after the reveal — outline endpoints and the live lane — which
-// the reveal therefore never rewrites.
+// the reveal therefore never rewrites. Each vertex adds its run's seed phase
+// times modelDirectSeedStride on top (seedLane).
 const (
 	modelDirectFlat          = 0
 	modelDirectTextured      = 1
@@ -136,6 +137,7 @@ const (
 	modelDirectFlatQuadShade = 6
 	modelDirectOutline       = 7
 	modelDirectLive          = 8
+	modelDirectSeedStride    = 16
 )
 
 // modelDirectRegion is one subject's place on the atlas this frame: the page
@@ -220,15 +222,14 @@ type modelDirectLane struct {
 	// keyed bodies, claimOrder the order the pool claims jobs in when a test
 	// sets one, place the pre-check's tuning and placeMode how the last frame
 	// was placed (model_place_pool.go).
-	packets     []modelPlacePacket
-	jobs        []modelPlaceJob
-	slots       frameArena[modelTextureSlot]
-	placeKeys   map[modelBodyKey]struct{}
-	claimOrder  []int32
-	place       modelPlaceTuning
-	placeMode   modelPlaceMode
-	opts        ebiten.DrawTrianglesShaderOptions
-	seedUniform [1]float32
+	packets    []modelPlacePacket
+	jobs       []modelPlaceJob
+	slots      frameArena[modelTextureSlot]
+	placeKeys  map[modelBodyKey]struct{}
+	claimOrder []int32
+	place      modelPlaceTuning
+	placeMode  modelPlaceMode
+	opts       ebiten.DrawTrianglesShaderOptions
 
 	// retain holds the packed vertices of subjects whose cached lane the
 	// recorder proved unchanged (model_retain.go).
@@ -546,9 +547,6 @@ func (r *Renderer) drawModelPages(fill *ebiten.Image) {
 	if params == nil {
 		params = fill
 	}
-	if d.opts.Uniforms == nil {
-		d.opts.Uniforms = map[string]any{"SeedPhase": d.seedUniform[:]}
-	}
 	for p := range d.pages {
 		pg := &d.pages[p]
 		if pg.usedRows == 0 {
@@ -578,7 +576,6 @@ func (r *Renderer) drawModelPages(fill *ebiten.Image) {
 				if run.iLen == 0 || int(run.page) != p || (run.seedPhase == modelSeedLive) != late {
 					continue
 				}
-				d.seedUniform[0] = float32(run.seedPhase)
 				a.submitted(int(run.vLen), int(run.iLen))
 				pg.key.DrawTrianglesShader32(a.spans.span(pg.key, d.verts, int(run.vOff), int(run.vLen)), d.idx[run.iOff:run.iOff+run.iLen], d.keyShader, &d.opts)
 			}
@@ -592,7 +589,6 @@ func (r *Renderer) drawModelPages(fill *ebiten.Image) {
 				if run.iLen == 0 || int(run.page) != p || (run.seedPhase == modelSeedLive) != late {
 					continue
 				}
-				d.seedUniform[0] = float32(run.seedPhase)
 				d.opts.Images = [4]*ebiten.Image{run.imgs[0], run.imgs[1], pg.key, params}
 				for j := range 2 {
 					if d.opts.Images[j] == nil {
@@ -607,6 +603,22 @@ func (r *Renderer) drawModelPages(fill *ebiten.Image) {
 	}
 	r.mergeModelGroupsInto(a)
 	r.bakeModelSprites(a)
+}
+
+// seedLane is what a run's vertices add to their mode lane: the run's seed
+// phase, modelDirectSeedStride apart (modelDirectSeedMode). The phase is a
+// vertex lane rather than a uniform because a uniform that changes between
+// runs keeps Ebitengine from merging them, and seeded bodies alternate with
+// unseeded shadows: nearly every run was its own device draw. In the vertices
+// the runs merge wherever their bindings agree, and their order — which
+// decides the colour pass's ties — is unchanged. A fallback face has no run
+// and no phase. The retained store keeps its vertices without it
+// (finishCapture) and a replay adds the replaying run's.
+func (run *modelDirectRun) seedLane() float32 {
+	if run == nil {
+		return 0
+	}
+	return float32(int(run.seedPhase) * modelDirectSeedStride)
 }
 
 // deviceAcct is the device accounting a stretch of device calls charges when
@@ -1233,12 +1245,13 @@ func (r *Renderer) appendSoloFace(d *modelPlaceCtx, f *drawlist.ModelFace, slot 
 		colorB = float32((int32(slot.x)+u1)*4096 + int32(slot.y) + v1)
 	}
 	base := uint32(len(d.verts)) - uint32(run.vOff)
+	lane := float32(mode) + run.seedLane()
 	for _, v := range f.Vertices {
 		d.verts = append(d.verts, ebiten.Vertex{
 			DstX: ox + modelSamplePos(v.X, s), DstY: oy + modelSamplePos(v.Y, s),
 			SrcX: float32(slot.x + int(v.U)), SrcY: float32(slot.y + int(v.V)),
 			ColorR: 1, ColorG: float32(f.Color), ColorB: colorB, ColorA: colorA,
-			Custom0: float32(mode), Custom1: d.laneKey(v.Key), Custom2: float32(entry), Custom3: 0,
+			Custom0: lane, Custom1: d.laneKey(v.Key), Custom2: float32(entry), Custom3: 0,
 		})
 	}
 	for i := 1; i+1 < n; i++ {
@@ -1366,6 +1379,7 @@ func (r *Renderer) appendFaceCore(d *modelPlaceCtx, f *drawlist.ModelFace, tex m
 	d.verts = slices.Grow(d.verts, n)[:vi+n]
 	dst := d.verts[vi : vi+n]
 	shaded := f.Shaded && !shadow
+	lane := float32(mode) + run.seedLane()
 	for i := range f.Vertices {
 		v := &f.Vertices[i]
 		k := float32(1)
@@ -1387,7 +1401,7 @@ func (r *Renderer) appendFaceCore(d *modelPlaceCtx, f *drawlist.ModelFace, tex m
 			SrcX: float32(tex.x + v.U), SrcY: float32(tex.y + v.V),
 			ColorR: k, ColorG: colorG, ColorB: colorB,
 			ColorA:  colorA,
-			Custom0: float32(mode), Custom1: custom1, Custom2: custom2, Custom3: custom3,
+			Custom0: lane, Custom1: custom1, Custom2: custom2, Custom3: custom3,
 		}
 	}
 	ii := len(d.idx)
@@ -1417,11 +1431,12 @@ func (r *Renderer) appendDirectGPUFace(d *modelPlaceCtx, f modelGPUFace, ox, oy,
 	}
 	run := d.colourRun([2]*ebiten.Image{d.texturePage(r), r.tables.atlas}, 8)
 	base := uint32(len(d.verts)) - uint32(run.vOff)
+	lane := float32(modelDirectOutline|modelDirectLive) + run.seedLane()
 	for _, v := range f.Vertices {
 		d.verts = append(d.verts, ebiten.Vertex{
 			DstX: ox + v.X*s, DstY: oy + v.Y*s,
 			ColorR: 1, ColorG: float32(f.Color),
-			Custom0: modelDirectOutline | modelDirectLive, Custom1: d.laneKey(int32(v.Key)), Custom2: float32(entry), Custom3: 0,
+			Custom0: lane, Custom1: d.laneKey(int32(v.Key)), Custom2: float32(entry), Custom3: 0,
 		})
 	}
 	for i := 1; i+1 < n; i++ {
@@ -1774,6 +1789,13 @@ func modelDirectFaceAt(g *drawlist.ModelGeometry, index int32) *drawlist.ModelFa
 // mode's key comes from the parameter image's two-chain mapping.
 func modelDirectMappedSource() string {
 	return `
+// modelDirectSeedMode splits the mode lane into the run's seed phase and the
+// face's mode (seedLane).
+func modelDirectSeedMode(lane float) (float, int) {
+	seed := floor((lane + 0.5) / ` + fmt.Sprint(modelDirectSeedStride) + `.0)
+	return seed, int(lane - seed*` + fmt.Sprint(modelDirectSeedStride) + `.0 + 0.5)
+}
+
 func modelDirectMapped(mode int) bool {
 	return mode == ` + fmt.Sprint(modelDirectQuad) + ` || mode == ` + fmt.Sprint(modelDirectQuadShade) + ` ||
 		mode == ` + fmt.Sprint(modelDirectFlatQuad) + ` || mode == ` + fmt.Sprint(modelDirectFlatQuadShade) + `
@@ -1792,10 +1814,8 @@ func modelDirectKeyShaderSource() string {
 
 package main
 ` + modelQuadMapperSource + modelOutlineSource + modelDirectMappedSource() + `
-var SeedPhase float
-
 func Fragment(dstPos vec4, srcPos vec2, color vec4, custom vec4) vec4 {
-	mode := int(custom.x + 0.5)
+	seedPhase, mode := modelDirectSeedMode(custom.x)
 	if mode >= ` + fmt.Sprint(modelDirectLive) + ` {
 		mode -= ` + fmt.Sprint(modelDirectLive) + `
 	}
@@ -1817,9 +1837,9 @@ func Fragment(dstPos vec4, srcPos vec2, color vec4, custom vec4) vec4 {
 	}
 	key = key - floor(key/256.0)*256.0
 	original := 0.0
- if SeedPhase == 1.0 || SeedPhase == 2.0 {
+ if seedPhase == 1.0 || seedPhase == 2.0 {
   original = key
-  if SeedPhase == 2.0 && key == 1.0 { key = 0.0 }
+  if seedPhase == 2.0 && key == 1.0 { key = 0.0 }
  }
  return vec4(key/255.0, original/255.0, 0.0, 1.0)
 }
@@ -1840,8 +1860,6 @@ func modelDirectColourShaderSource() string {
 	return `//kage:unit pixels
 
 package main
-
-var SeedPhase float
 
 const palRow = ` + fmt.Sprint(tableRowPAL) + `.0
 const blueRow = ` + fmt.Sprint(tableRowBlue) + `.0
@@ -1873,7 +1891,7 @@ func clipIndex(idx float, key float, wl float, wlKey float, digger float, digger
 
 func Fragment(dstPos vec4, srcPos vec2, color vec4, custom vec4) vec4 {
 	d := floor(dstPos.xy - imageDstOrigin())
-	mode := int(custom.x + 0.5)
+	seedPhase, mode := modelDirectSeedMode(custom.x)
 	live := mode >= ` + fmt.Sprint(modelDirectLive) + `
 	if live {
 		mode -= ` + fmt.Sprint(modelDirectLive) + `
@@ -1911,7 +1929,7 @@ func Fragment(dstPos vec4, srcPos vec2, color vec4, custom vec4) vec4 {
 		}
 		storedPixel := imageSrc2AtFromSrc0Pos(imageSrc0Origin()+at+vec2(0.5, 0.5))
   stored := floor(storedPixel.r*255.0 + 0.5)
-  if SeedPhase == 1.0 || SeedPhase == 2.0 {
+  if seedPhase == 1.0 || seedPhase == 2.0 {
    // Cached winner selection precedes the independently seeded key.
    stored = floor(storedPixel.g*255.0 + 0.5)
   }
@@ -1965,7 +1983,7 @@ func Fragment(dstPos vec4, srcPos vec2, color vec4, custom vec4) vec4 {
 		// lane carries the group delta, which is taken back off here.
 		delta := modelQuadU16(g.r, g.g) - 32768.0
   own := vkey - delta
-  if SeedPhase > 0.5 {
+  if seedPhase > 0.5 {
    own = vkey
    vkey = clamp(vkey + delta, 0.0, 255.0)
   }
@@ -2009,7 +2027,7 @@ func Fragment(dstPos vec4, srcPos vec2, color vec4, custom vec4) vec4 {
 	if idx == 1.0 {
   // A winning live write replaces the seeded colour, including with the
   // composition transparent index. Cached transparent winners started clear.
-  if SeedPhase == 3.0 { return vec4(0.0) }
+  if seedPhase == 3.0 { return vec4(0.0) }
   discard()
 		return vec4(0.0)
 	}

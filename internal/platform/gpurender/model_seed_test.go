@@ -284,3 +284,60 @@ func clearModelSeedFixture(g *drawlist.ModelGeometry) {
 	}
 	clearModelSeedFixture(g.Supersample)
 }
+
+// TestModelSeedPhaseRidesEveryRunVertex locks the seed phase's vertex lane
+// (seedLane): every vertex in the lane's batch carries its run's phase in its
+// mode lane, whether its face was appended, captured or replayed from the
+// retained store, and the store keeps none of it. A vertex that lost its phase
+// would draw a seeded face as an unseeded one, which a raw seed's colour test
+// can hide. The placement scenario's keyed packets are seeded here, every
+// other one at a size its region does not have, so both seeds occur.
+func TestModelSeedPhaseRidesEveryRunVertex(t *testing.T) {
+	skipAfterDeviceLoop(t)
+	r := newPlaceRenderer(t)
+	sc := newPlaceScenario()
+	runs := map[modelSeedPhase]int{}
+	replayed := 0
+	for f := 0; f < modelPlaceFrames; f++ {
+		list, walk := sc.frame(f)
+		n := 0
+		list.VisitModels(func(m drawlist.Model) {
+			if g := m.Geometry; g != nil && g.KeyPlane && g.Width > 0 {
+				g.CachedSeed = drawlist.ModelCachedSeed{Width: g.Width + int32(n%2), Height: g.Height, OriginX: g.OriginX, OriginY: g.OriginY}
+				n++
+			}
+		})
+		r.modelDirect.walkOutlines = walk
+		r.modelStats = ModelStats{}
+		r.modelPrep.reset()
+		r.reflections.resetFrame()
+		r.placeModelDirectFrame(&list)
+		replayed += r.modelStats.DirectRetained
+		d := &r.modelDirect
+		for i, run := range d.runs {
+			for k, v := range d.verts[run.vOff : run.vOff+run.vLen] {
+				if got := modelSeedPhase(int(v.Custom0) / modelDirectSeedStride); got != run.seedPhase {
+					t.Fatalf("frame %d run %d vertex %d: lane %v carries phase %d, run's is %d", f, i, k, v.Custom0, got, run.seedPhase)
+				}
+			}
+			if run.vLen > 0 {
+				runs[run.seedPhase]++
+			}
+		}
+		for key, e := range d.retain.entries {
+			for _, v := range e.verts {
+				if v.Custom0 >= modelDirectSeedStride {
+					t.Fatalf("frame %d: retained %v keeps lane %v", f, key, v.Custom0)
+				}
+			}
+		}
+	}
+	for _, phase := range []modelSeedPhase{modelSeedNone, modelSeedRaw, modelSeedResized, modelSeedLive} {
+		if runs[phase] == 0 {
+			t.Errorf("no run of phase %d drew (%v)", phase, runs)
+		}
+	}
+	if replayed == 0 {
+		t.Error("no seeded packet replayed from the retained store")
+	}
+}
