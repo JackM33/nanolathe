@@ -64,8 +64,8 @@ func TestApplicationTypedCodecChainVectors(t *testing.T) {
 		intent string
 		want   string
 	}{
-		{1, classicOrderFixture().WriteCheckpoint, classicOrderVector + applicationOperandsVector, "0737f5734966a55692e23a4dda41949c696002940126aefd5dde317ce2bc504c"},
-		{2, modernIntentFixture().WriteCheckpoint, modernIntentVector + applicationOperandsVector, "79231513c39cdd86de99dbfca14d64e3fec9d56a990aadb286a3d8e2be157974"},
+		{1, classicOrderFixture().WriteCheckpoint, classicOrderVector + applicationOperandsVector, "187bc13e8c3ebed0f30e1f6fb64fdc5951c7cdc7748d3038bcd9531fe736ce99"},
+		{2, modernIntentFixture().WriteCheckpoint, modernIntentVector + applicationOperandsVector, "46e8cf5e3de5086bdbbb65635e641debf8cf83c9343ffa5fff5bc68b6ff03e40"},
 	} {
 		h := historyFixture(t, tt.kind)
 		serial := h.NextSerial()
@@ -95,7 +95,7 @@ func TestApplicationTypedCodecChainVectors(t *testing.T) {
 			// and typed intent, but no receipt operations.
 			h.BeginAttempt(0x01020304, serial, 3, tt.write).Finish(3, 3)
 			s, err = h.Snapshot()
-			if err != nil || s.Count != 2 || !bytes.Equal(s.Hash[:], applicationCodecHex(t, "ac8f5463e9db5a720334133d1f5b56e6f24efc9e08ff93173b433b60b879e85e")) {
+			if err != nil || s.Count != 2 || !bytes.Equal(s.Hash[:], applicationCodecHex(t, "89262118d49f983d8d60b081eca100ffea31e6a543435f828a5d7e62427e3088")) {
 				t.Fatalf("APM rejection chain = %x, count %d, error %v", s.Hash, s.Count, err)
 			}
 		}

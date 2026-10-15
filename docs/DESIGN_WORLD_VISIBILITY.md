@@ -865,3 +865,66 @@ never read a live rule set or derive behavior from content names. This changes
 no visibility grids or sensor contacts. Preferences, information boundaries
 and tests are owned by
 [Modern radar dots](DESIGN_INTERFACE_HUD_INPUT.md#modern-radar-dots).
+
+### Modern coverage saturation
+
+**Nanolathe Modern policy (user-authorized 2026-10-14).**
+`visibility.Rules.CoverageCountSaturates` answers whether the per-player
+coverage refcount saturates instead of wrapping. Strict 3.1 and Community 3.9
+answer false; Modern answers true.
+
+Strict behavior is retail's, and it is what the code did before this policy:
+the count is a plain `uint8` whose increment has no clamp, so a cell covered by
+256 simultaneous sight observers wraps to zero and reads as fogged [03 §3.1],
+and every cell whose overlap lands exactly on a multiple of 256 is a hole.
+Clumped aircraft are the pile that reaches those depths: their masks are wide
+(stock ARMCA/CORCA sight 280/270 selects the seventeen-tile shape) and they
+stack, so a few hundred around one build site or one cheat-spawn point made
+single-cell fog patches that appeared and disappeared as the pile moved.
+
+Modern behavior: the true overlap count is carried in a per-player wide row
+(`uint64`) beside the grids, and the byte grid stores
+`min(count, 255)`. Below 256 the byte grid is byte-identical to retail's, so
+ordinary byte grids, their cheap checkpoint folds and their
+presentation are unchanged; from 256 the cell stays visible instead of reading
+as fog, and it clears exactly when the last observer leaves. Every
+reader is unchanged — the fog cache and the visibility predicate test only zero
+versus nonzero — so fog appearance, the non-presentation gates (path requests,
+placement and order-destination validation) and both renderers all follow the
+one grid.
+
+* **State and lifetime.** The wide row lives with the grids in
+  `internal/visibility.Service`; rule objects stay stateless and zero size. A
+  row is allocated on first saturating use, seeded from the byte row it
+  replaces, cleared by every grid refill (`RebuildEntry`, `RefreshMode`,
+  `RebuildAll`) and retired by any retail-arithmetic increment or decrement.
+  Retail saves do not serialize it: restore rebuilds it through the observer
+  publication that rebuilds the byte grids, the same derived path the byte
+  grids already take. A set selected mid-battle continues the byte grid it
+  inherits; a wrap inherited from Strict stays wrapped until the grids are
+  refilled. Full checkpoints retain all ten wide rows, including residual rows
+  under Strict: a later switch can read them, and byte grids plus observer
+  records cannot reconstruct the effective counts after a switch. This is
+  retained authoritative state, distinct from the retail save rebuild.
+* **Ordering, RNG and resources.** The answer is read once per `Publish` or
+  `Unpublish`, before walking any cells or team members (DESIGN_GAMEPLAY_RULES
+  §4). No draw, no resource and no ordering change: below 256 overlap the byte
+  grids and their cheap summary folds stay identical to retail's.
+* **Boundaries.** Only the byte projection saturates. A terrain ray can visit a
+  cell repeatedly, so a supported team can exceed 65535 contributions even
+  without that many observers. The wide row retains each visit in `uint64`
+  and removes each matching visit. The cheap summary still compares overlap
+  at or above 255 as 255 (DESIGN_MULTIPLAYER §16.3.41); full checkpoint schema 3
+  retains the wide counts (DESIGN_MULTIPLAYER §16.3.6, §16.3.11).
+
+Tests: `internal/visibility/modern_coverage_test.go` locks the Modern contract
+(a 256- or 512-observer stack leaves no covered cell at zero and a removal
+sequence clears exactly at zero), the set-switch seeding and retirement, and
+the Strict bypass (256 still wraps to zero, 257 reads one, and a spread pile's
+256-contour holes remain). `internal/session/modern_coverage_test.go` drives
+the real phase-5 publisher over a clump of flying observers in Modern, Strict
+and Community, and guards that publication spends no RNG or resources. The
+visibility tests also cover repeated terrain-ray visits beyond 65535, balanced
+team retirement, all three refill paths and one policy query per raster.
+`internal/visibility/checkpoint_test.go` distinguishes equal byte grids whose
+retained wide counts cause different future decrements across a rule switch.

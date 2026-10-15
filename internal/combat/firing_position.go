@@ -1,6 +1,7 @@
 package combat
 
 import (
+	"github.com/nanolathe-gg/nanolathe/internal/content"
 	"github.com/nanolathe-gg/nanolathe/internal/sim/numeric"
 	"github.com/nanolathe-gg/nanolathe/internal/units"
 	"github.com/nanolathe-gg/nanolathe/internal/world"
@@ -21,6 +22,17 @@ type firingPositionShot struct {
 	launch                 Slot
 	origin, muzzle, aim    Vec3
 	yawSpread, pitchSpread uint16
+}
+
+// firingPositionPreview is one candidate's scratch. The service owns it so
+// passing the translated unit, adjusted weapon and query through rule callbacks
+// does not allocate. Each call restores the whole frame before returning, so a
+// nested preview preserves the pointers an outer callback is still using.
+// Rules cannot retain request arguments (DESIGN_GAMEPLAY_RULES §3).
+type firingPositionPreview struct {
+	shooter units.Unit
+	query   ShotQuery
+	weapon  content.WeaponDef
 }
 
 func (s *Service) observeFiringPosition(q *ShotQuery, before *Slot, idx int, fired bool) {
@@ -82,19 +94,22 @@ func (s *Service) FiringPositionClear(shooter, target *units.Unit, tick uint32, 
 	if shot == nil || w == nil || terrain == nil || w.Unit(shooter.Handle) != shooter || w.Unit(target.Handle) != target {
 		return false
 	}
-	copyShooter := *shooter
-	copyShooter.X, copyShooter.Y, copyShooter.Z = x, y, z
+	saved := s.firingPreview
+	defer func() { s.firingPreview = saved }()
+	preview := &s.firingPreview
+	preview.shooter = *shooter
+	preview.shooter.X, preview.shooter.Y, preview.shooter.Z = x, y, z
 	launch := shot.launch
 	weapon := launch.Weapon
 	// Predict only the initial projectile. Later burst pellets retain their
 	// own real admission, including inherited spray and refreshed muzzle.
 	if weapon.Burst != 0 && (liveCreationFamilyForWeapon(weapon) != CreationOrdinary || MotionFamilyForWeapon(weapon) != MotionDirect) {
-		initial := *weapon
-		initial.Burst = 0
-		weapon = &initial
+		preview.weapon = *weapon
+		preview.weapon.Burst = 0
+		weapon = &preview.weapon
 		launch.Weapon = weapon
 	}
-	if !checkAdmission(s, &copyShooter, weapon, shot.aim, terrain) {
+	if !checkAdmission(s, &preview.shooter, weapon, shot.aim, terrain) {
 		return false
 	}
 	muzzle := Vec3{X: shot.muzzle.X.Add(x.Sub(shot.origin.X)), Y: shot.muzzle.Y.Add(y.Sub(shot.origin.Y)), Z: shot.muzzle.Z.Add(z.Sub(shot.origin.Z))}
@@ -118,9 +133,9 @@ func (s *Service) FiringPositionClear(shooter, target *units.Unit, tick uint32, 
 	if modernTerrainAdmission(launch, muzzle, shot.aim, tick, terrain, target, s.ProjectileWind) != terrainShotClear {
 		return false
 	}
-	q := ShotQuery{Service: s, World: w, Shooter: &copyShooter, Target: target, Tick: tick, Terrain: terrain,
+	preview.query = ShotQuery{Service: s, World: w, Shooter: &preview.shooter, Target: target, Tick: tick, Terrain: terrain,
 		Launch: launch, Muzzle: muzzle, Aim: shot.aim, Wind: s.ProjectileWind}
 	// Do not call AdmitShot: incoming-damage coordination must never choose
 	// a place to move. Only the physical obstruction kernels apply here.
-	return !modernObstructedShot(&q)
+	return !modernObstructedShot(&preview.query)
 }

@@ -736,6 +736,13 @@ first flight step, rather than a complete clear trajectory.
 Ordinary burst weapons can preview their first shot; subsequent pellets keep
 their independent admission. The helper never forces a shot through a blocker.
 
+**Preview storage.** The combat service owns reusable storage for the translated
+unit, physical shot query and initial-shot weapon copy. Each candidate saves
+and restores that complete scratch frame, including on refusal and across
+nested rule callbacks. Rule implementations cannot retain request arguments
+(DESIGN_GAMEPLAY_RULES §3). The observation, prediction work and returned verdict
+are unchanged; this scratch adds no saved or canonical state.
+
 **Execution and lifecycle.** The chosen point goal belongs to the same attack
 node, preserving its target, anchor and successors. While that movement is
 active the helper suspends only primary dispatch; secondary orders continue.

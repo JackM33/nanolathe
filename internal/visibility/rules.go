@@ -2,9 +2,9 @@ package visibility
 
 // Rules is the gameplay-policy seam owned by visibility. It decides whether
 // one jammer suppresses the viewing player's contacts, answers one complete
-// unit-visibility request and admits Modern main-view dots. Each question is
-// asked at its request boundary;
-// implementations hold no session state and draw no random numbers
+// unit-visibility request, admits Modern main-view dots and selects the
+// coverage refcount arithmetic. Each question is asked at its request
+// boundary; implementations hold no session state and draw no random numbers
 // [DESIGN_COMMUNITY_PATCH §4.4] [DESIGN_GAMEPLAY_RULES §9].
 type Rules interface {
 	JammerSuppresses(s *Service, viewer, jammerOwner PlayerID) bool
@@ -12,6 +12,12 @@ type Rules interface {
 	// MainViewRadarDots admits the Modern presentation/attack feature.
 	// The answer is published, never read from live rules by presentation.
 	MainViewRadarDots() bool
+	// CoverageCountSaturates selects the coverage refcount arithmetic of
+	// DESIGN_WORLD_VISIBILITY "Modern coverage saturation". Strict keeps
+	// retail's plain uint8 wrap [03 §3.1]; a saturating answer carries the
+	// true overlap count in the service's wide row and stores
+	// min(count, 255) in the byte grid.
+	CoverageCountSaturates() bool
 }
 
 // StrictRules is the retail baseline. It is zero size, so binding it and asking
@@ -108,3 +114,12 @@ func (StrictRules) MainViewRadarDots() bool { return false }
 // MainViewRadarDots enables the approved Modern display/attack preference
 // (DESIGN_INTERFACE_HUD_INPUT "Modern radar dots").
 func (ModernRules) MainViewRadarDots() bool { return true }
+
+// CoverageCountSaturates keeps retail's un-clamped uint8 coverage refcount,
+// whose 256-observer wrap reads as fog [03 §3.1]. Community inherits it.
+func (StrictRules) CoverageCountSaturates() bool { return false }
+
+// CoverageCountSaturates carries the true overlap count in the wide row and
+// stores min(count, 255) in the byte grid (DESIGN_WORLD_VISIBILITY "Modern
+// coverage saturation").
+func (ModernRules) CoverageCountSaturates() bool { return true }
