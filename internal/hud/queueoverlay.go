@@ -539,7 +539,6 @@ func appendRangeRing(out []QueuePrimitive, base QueuePrimitive, center QueueWorl
 	step := int32(65536 / chords)
 	angle := int32(0)
 	a, aOK := rangeRingPoint(center, numeric.Angle(uint16(angle)), radius, opt)
-	last := a
 	labelAt := QueuePoint{}
 	for chord := int32(0); chord <= chords; chord++ {
 		angle += step
@@ -555,11 +554,16 @@ func appendRangeRing(out []QueuePrimitive, base QueuePrimitive, center QueueWorl
 		if chord == int32(labelOrdinal*3) && bOK {
 			labelAt = b
 		}
-		a, aOK, last = b, bOK, b
+		a, aOK = b, bOK
 	}
 	if label != "" {
 		if labelAt.X == 0 && labelAt.Y == 0 {
-			labelAt = last
+			// A rejected final endpoint has no screen position for the
+			// fallback label; the endpoint bound applies to text too.
+			if !aOK {
+				return out
+			}
+			labelAt = a
 		}
 		text := base
 		text.Kind = QueuePrimitiveLabel

@@ -702,6 +702,53 @@ func TestRangeRingRejectsWrappedEndpoints(t *testing.T) {
 	}
 }
 
+// Rejected endpoints cannot anchor a label at the viewport origin. A valid
+// final endpoint still supplies the established fallback [07 R-P0-11 §3].
+func TestRangeRingLabelFallbackBounds(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		x, z      int64
+		radius    int32
+		wantLabel bool
+	}{
+		{"both endpoints rejected", 8192, 8192, 27000, false},
+		{"anti-nuke endpoints rejected", 1632, 30000, 32000, false},
+		{"valid final endpoint", 1632, 1632, 32000, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			opt := QueueOverlayOptions{
+				Project:      queueTestProject,
+				GroundHeight: func(numeric.Fixed, numeric.Fixed) numeric.Fixed { return 0 },
+			}
+			center := QueueWorldPoint{X: numeric.FixedFromInt(tc.x), Z: numeric.FixedFromInt(tc.z)}
+			out := WeaponRangeOverlay(center, [3]RangeWeapon{{Enabled: true, Range: tc.radius}}, opt)
+			if len(out) == 0 {
+				t.Fatal("endpoint rejection removed the valid ring arcs")
+			}
+			var lastPoint QueuePoint
+			labels := 0
+			for _, op := range out {
+				switch op.Kind {
+				case QueuePrimitiveCircle:
+					lastPoint = op.B
+				case QueuePrimitiveLabel:
+					labels++
+					if !tc.wantLabel {
+						t.Fatalf("rejected endpoints emitted label %q at %+v", op.Text, op.A)
+					}
+					want := QueuePoint{X: lastPoint.X, Y: lastPoint.Y + 4}
+					if op.Text != "weapon1 range" || op.A != want {
+						t.Fatalf("label %q at %+v, want weapon1 range at final endpoint %+v", op.Text, op.A, want)
+					}
+				}
+			}
+			if tc.wantLabel && labels != 1 {
+				t.Fatalf("valid final endpoint emitted %d labels, want one", labels)
+			}
+		})
+	}
+}
+
 // The chord count is derived from a raw authored dword and the walk appends
 // one primitive per chord, so a modded or corrupted range asked for billions
 // of primitives. The upper bound is a host bounds rejection like the

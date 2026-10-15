@@ -5004,8 +5004,10 @@ reach it on ordinary maps — the anti-nuke's authored 32000 range wraps around
 any site more than ~768 map pixels from the origin — so both the placement guide
 and the Shift weapon branch depend on the rejection. It is a host bound (I11
 bounds rejection) like the chord-count caps: every ring whose endpoints fit the
-domain is unchanged. Runtime enabled-bit quirks stay with the live queue branch;
-a prospective product supplies its active authored slots independently.
+domain is unchanged. Labels retain their preferred endpoint and final-endpoint
+fallback; when neither supplies a valid anchor, the label is omitted rather than
+placed at the viewport origin. Runtime enabled-bit quirks stay with the live queue
+branch; a prospective product supplies its active authored slots independently.
 
 The placement adapter appends these primitives to `drawQueueOverlay`, using its
 projection, palette lookup, FNT labels and integer line rasterizer inside the
