@@ -253,10 +253,10 @@ const (
 	lockBenchModernInitial           = "partial-v1:55165c066f8b6eaa"
 	lockBenchStrictWarm              = "partial-v1:92288be0462952a2"
 	lockBenchCommunityWarm           = "partial-v1:9ca4bb1bae72a0e7"
-	lockBenchModernWarm              = "partial-v1:1f33b019b6af0f03"
+	lockBenchModernWarm              = "partial-v1:a636ffbde1e6e2c0"
 	lockBenchStrictFinal             = "partial-v1:4a9bfa48817da57c"
 	lockBenchCommunityFinal          = "partial-v1:a97cef8ec7ca358d"
-	lockBenchModernFinal             = "partial-v1:c48d1840a767b6ce"
+	lockBenchModernFinal             = "partial-v1:45f7b3a50adfd6c6"
 )
 
 // The expanded retail audit corrects active-search budget continuation
@@ -372,6 +372,13 @@ func TestCommunityFingerprintIsLocked(t *testing.T) {
 	runFingerprintLock(t, gameplay.Community39, lockAshapCommunity6000, lockAshapCommunity54000, lockAshapCommunityEnd, lockBenchCommunityInitial, lockBenchCommunityWarm, lockBenchCommunityFinal)
 }
 
+// Issue 121's Modern combat patrol retention (DESIGN_UNITS_ORDERS_COB
+// "Modern danger response") moves the benchmark warm/final locks: aircraft
+// keep their patrol routes when no visible counterattack is available, rather
+// than braking into short withdrawal moves. An overlay restoring only the
+// old danger handler reproduces both old hashes. Modern's initial and both
+// Ashap locks, and every Strict and Community lock, remain unchanged.
+//
 // TestModernFingerprintIsLocked holds the approved Modern policy set the same
 // way, so an unintended change to a Modern rule is as loud as a change to the
 // retail path [I11].
