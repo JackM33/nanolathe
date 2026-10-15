@@ -653,6 +653,102 @@ func TestRangeRingAdaptiveTerrainAndBounds(t *testing.T) {
 	}
 }
 
+// TestRangeRingRejectsWrappedEndpoints locks the host bounds rejection for ring
+// endpoints outside the signed dword domain. The anti-nuke's authored 32000
+// range reaches it on an ordinary map: an endpoint that wraps to the opposite
+// side of the map spans tens of thousands of screen pixels, and the clipped
+// integer line drawer then paints that chord across the whole viewport
+// (issue #119). Wrapped chords are dropped; every in-domain ring keeps its
+// inclusive walk.
+func TestRangeRingRejectsWrappedEndpoints(t *testing.T) {
+	const radius = int32(32000) // the stock anti-nuke's authored range
+	opt := QueueOverlayOptions{
+		Project:      queueTestProject,
+		GroundHeight: func(numeric.Fixed, numeric.Fixed) numeric.Fixed { return 0 },
+	}
+	// The sine-table peak is the endpoint that wraps first. It is
+	// unrepresentable beyond the dword threshold and representable at the
+	// origin, which is the guard's whole contract.
+	peak := numeric.Angle(16384)
+	center := QueueWorldPoint{X: numeric.FixedFromInt(1632), Z: numeric.FixedFromInt(1632)}
+	if _, ok := rangeRingPoint(center, peak, radius, opt); ok {
+		t.Fatal("a wrapping endpoint was reported representable")
+	}
+	if _, ok := rangeRingPoint(QueueWorldPoint{}, peak, radius, opt); !ok {
+		t.Fatal("an in-domain endpoint was rejected")
+	}
+
+	full := int(rangeChordCount(radius)) + 1
+	if got := appendRangeRing(nil, QueuePrimitive{}, QueueWorldPoint{}, radius, 14, "", 0, opt); len(got) != full {
+		t.Fatalf("in-domain ring emitted %d primitives, want the full %d-chord walk", len(got), full)
+	}
+	out := appendRangeRing(nil, QueuePrimitive{}, center, radius, 14, "", 0, opt)
+	if len(out) == 0 || len(out) >= full {
+		t.Fatalf("wrapped ring emitted %d primitives, want a partial walk below %d", len(out), full)
+	}
+	for _, op := range out {
+		if op.Kind != QueuePrimitiveCircle {
+			continue
+		}
+		span := numeric.Abs(op.A.X - op.B.X)
+		if dy := numeric.Abs(op.A.Y - op.B.Y); dy > span {
+			span = dy
+		}
+		// A table-quantized chord at this radius spans a few hundred screen
+		// pixels; a wrapped one spans the map.
+		if span > 1000 {
+			t.Fatalf("wrapped chord spans %d pixels: A=%+v B=%+v", span, op.A, op.B)
+		}
+	}
+}
+
+// Rejected endpoints cannot anchor a label at the viewport origin. A valid
+// final endpoint still supplies the established fallback [07 R-P0-11 §3].
+func TestRangeRingLabelFallbackBounds(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		x, z      int64
+		radius    int32
+		wantLabel bool
+	}{
+		{"both endpoints rejected", 8192, 8192, 27000, false},
+		{"anti-nuke endpoints rejected", 1632, 30000, 32000, false},
+		{"valid final endpoint", 1632, 1632, 32000, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			opt := QueueOverlayOptions{
+				Project:      queueTestProject,
+				GroundHeight: func(numeric.Fixed, numeric.Fixed) numeric.Fixed { return 0 },
+			}
+			center := QueueWorldPoint{X: numeric.FixedFromInt(tc.x), Z: numeric.FixedFromInt(tc.z)}
+			out := WeaponRangeOverlay(center, [3]RangeWeapon{{Enabled: true, Range: tc.radius}}, opt)
+			if len(out) == 0 {
+				t.Fatal("endpoint rejection removed the valid ring arcs")
+			}
+			var lastPoint QueuePoint
+			labels := 0
+			for _, op := range out {
+				switch op.Kind {
+				case QueuePrimitiveCircle:
+					lastPoint = op.B
+				case QueuePrimitiveLabel:
+					labels++
+					if !tc.wantLabel {
+						t.Fatalf("rejected endpoints emitted label %q at %+v", op.Text, op.A)
+					}
+					want := QueuePoint{X: lastPoint.X, Y: lastPoint.Y + 4}
+					if op.Text != "weapon1 range" || op.A != want {
+						t.Fatalf("label %q at %+v, want weapon1 range at final endpoint %+v", op.Text, op.A, want)
+					}
+				}
+			}
+			if tc.wantLabel && labels != 1 {
+				t.Fatalf("valid final endpoint emitted %d labels, want one", labels)
+			}
+		})
+	}
+}
+
 // The chord count is derived from a raw authored dword and the walk appends
 // one primitive per chord, so a modded or corrupted range asked for billions
 // of primitives. The upper bound is a host bounds rejection like the

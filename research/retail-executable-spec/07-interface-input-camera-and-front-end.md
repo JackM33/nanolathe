@@ -8575,6 +8575,11 @@ orders, and multiplayer packets.
 - Whether any retail path draws the sweeping build-site lines with Shift up
   (a play observation contradicts the traced Shift gate) · §9 [R-P0-11 §3] ·
   a retail session with the Shift key state observed, not recalled.
+- Whether retail's range-ring walk draws an endpoint whose dword coordinate
+  addition wraps the signed 32-bit domain, or clips it · §9 [R-P0-11 §3] · a
+  retail session holding Shift with `+showranges` on a 32000-range weapon (an
+  anti-nuke or a silo) placed more than ~768 map pixels from the origin, with
+  the drawn ring observed.
 
 
 ## 10. Camera, scrolling, projection, and radar/minimap
