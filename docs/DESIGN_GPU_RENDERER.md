@@ -1944,6 +1944,20 @@ matches on `PresentationID` when nonzero, else on `ID`, `EventSeq` and
 presentation constant chosen above any retail movement rate; it is not a retail
 datum.
 
+**Matching once per pair.** Identity, the walk history and whether a subject
+moved at all depend on the committed pair, not on the fraction. A display
+faster than the tick presents each pair several times. So a pair's first
+presented frame matches every subject as it blends it, on the recorder's pool
+as before, and records which subjects moved. Each later frame of the pair
+re-blends only those. A subject whose position, angles and pieces are equal in
+both ticks blends to its current view at every fraction, so it keeps the copy
+its first frame made. The pair key is the two frames, their ticks and the
+selection epoch the host composed onto the current frame, so a selection made
+between two presented frames still reaches the view.
+A synthetic 712-unit pair with half its units moving blends in about the same
+time as before at one draw per tick. At two draws per tick it takes about a
+tenth less, and at four about a third less.
+
 **Held walk axes — Nanolathe Enhanced policy (user-authorized 2026-10-06).**
 The renderer and regular unit viewer share `internal/poseblend`. A complete,
 unattached ground/surface mobile observed moving between the committed pair
@@ -2197,6 +2211,50 @@ both executors and the classic 1× frame are byte-identical; a frozen 0.5×
 frame moves 187 pixels by atlas repacking alone (§22), because the lane no
 longer places the off-screen reflecting and airborne subjects its own skip
 keeps.
+
+**Effects, strips and projectiles.** The effect, strip and projectile passes
+walk every published record wherever it is, as retail's composer did [03 §1].
+In a spread-out battle most of the thousands of smoke puffs and hundreds of
+explosions lie far from the camera, and each still became a command the
+executor fetched art for, tested against the battle's lights and clipped away.
+Each producer still builds its complete record, and emits it only when
+something an executor builds from it can reach the record extent
+(`internal/client/effect_view_cull.go`). Three things can reach it:
+
+* the frame at its anchor, a composite by the union of its leaves;
+* a keyed billboard's water reflection: the frame's box flipped about the
+  anchor and moved down by its height above the sea;
+* an emitter's reach: the battle light every executor gathers from an
+  explosion, fire, spark or projectile body, and an explosion's blast ring.
+  `drawlist.Sprite.Reach` and `drawlist.Line.Reach` state it, and a GPU
+  executor test holds that executor's radii within it.
+
+A glow never leaves its source's clipped box. The one exception is a
+nanolathe particle's two-pixel pad, which the fill test includes. The light
+gather already rejects a source whose reach misses the same extent (§31.2),
+so no dropped record ever held a light budget slot.
+
+Two other records skip their work the same way:
+
+* lit-ground halos and the point lane's calculated flash disc skip their
+  per-pixel walk when their disc box misses the extent;
+* a projectile model is tested with the unit box above at its own point. Its
+  standalone piece and its header child draw untranslated about that point,
+  so the model's reach bounds both.
+
+Counters are unchanged: a dropped record counts as drawn, as it would have
+when the executor's clip removed it. Debris and fragment pieces and lens
+projectiles already pass retail's origin and viewport gates.
+
+In the 1× Survival capture of §22, after 900 frames, about 3,700 of 3,800
+smoke puffs and 235 of 256 effects lie outside the view. Against the same build
+without the bound (medians of four alternating render-only runs on a shared
+host), `Record` fell from 0.48 to 0.42 ms at 1× and from 0.82 to 0.64 ms at
+0.5×. The classic executor's `Record` on the live 1× run fell from 3.6 to
+3.2 ms. The modern executor had already rejected an off-view record cheaply,
+before drawing anything, so its own time barely moved. Frames are byte-identical in every scene
+checked: frozen 1× and 0.5×, live 0.5× and 1×, the coastal fixture, and classic
+live 1×.
 
 ### 13.10 The record/submit pipeline
 

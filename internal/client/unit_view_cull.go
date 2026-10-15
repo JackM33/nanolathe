@@ -103,23 +103,29 @@ func (c *Client) unitOutsideView(u *frame.UnitView, sx, sy int32, recW, recH int
 	if m == nil || m.reach <= 0 {
 		return false
 	}
+	return c.modelOutsideView(u.X, u.Y, u.Z, sx, sy, m.reach+unitTranslationReach(u.Pieces), recW, recH)
+}
+
+// modelOutsideView is unitOutsideView's box for any model present: a body
+// standing at (x, y, z), anchored at (sx, sy), none of whose vertices lies
+// farther than reach world pixels from its origin.
+func (c *Client) modelOutsideView(x, y, z numeric.Fixed, sx, sy, reach int32, recW, recH int) bool {
 	s := c.viewScale()
-	reach := m.reach + unitTranslationReach(u.Pieces)
 	r := s.Px(reach)
 	margin := s.Px(unitViewMargin)
 	// The body.
 	bodyY := r + (r+1)/2
 	x0, x1 := sx-r, sx+r
 	y0, y1 := sy-bodyY, sy+bodyY
-	if c.reflectionWaterAt(u.X, u.Z) {
+	if c.reflectionWaterAt(x, z) {
 		// A reflected vertex lands its height above the sea below its own
 		// place (water_reflections.go), and no vertex is higher than the
-		// unit's own height above the sea plus its reach.
-		above := int32(max(0, int64(u.Y-c.seaLevel())>>16)) + 1
+		// body's own height above the sea plus its reach.
+		above := int32(max(0, int64(y-c.seaLevel())>>16)) + 1
 		y1 += s.Px(above + reach)
 	}
-	// The shadow, at the ground under the unit (shadowAnchorAt).
-	gx, gy := c.cam.WorldToScreen(u.X, c.groundHeightUnder(u.X, u.Z), u.Z)
+	// The shadow, at the ground under the body (shadowAnchorAt).
+	gx, gy := c.cam.WorldToScreen(x, c.groundHeightUnder(x, z), z)
 	gx += s.Px(shadowXOffset) - camera.OriginX
 	gy -= camera.OriginY
 	shadow := r + (r+3)/4

@@ -85,8 +85,9 @@ func TestLightingExplosionRequiresVisibleLiveExplicitProducer(t *testing.T) {
 func TestLightingSmokeIdentityComesFromStripFamily(t *testing.T) {
 	c := stripTestClient(t)
 	for _, family := range []frame.StripFamily{frame.StripFamilySmokePuff, frame.StripFamilyVentSteam, frame.StripFamilyFlameTrail} {
-		// Deliberately use identical smoke art: the producer family alone decides.
-		c.blitStripFrame(frame.StripView{Family: family, Bank: "fx", Entry: "smoke 1", Y: numeric.FixedFromInt(6)})
+		// Deliberately use identical smoke art: the producer family alone
+		// decides. The puffs stand inside the view, which keeps them.
+		c.blitStripFrame(frame.StripView{Family: family, Bank: "fx", Entry: "smoke 1", X: numeric.FixedFromInt(20), Y: numeric.FixedFromInt(6), Z: numeric.FixedFromInt(20)})
 	}
 	var kinds []drawlist.SpriteLightingKind
 	c.list.VisitSprites(func(s drawlist.Sprite) {

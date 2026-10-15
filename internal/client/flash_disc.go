@@ -270,6 +270,12 @@ func (c *Client) drawCalculatedFlash(table int, frameIndex int32, cx, cy int, co
 	// once and the emitted points are the same points, in the same order.
 	s := c.viewScale()
 	recW, recH := c.recordExtent()
+	// A disc wholly outside the record extent emits no point; emitFlashDisc's
+	// projected extent is the box the loop below walks.
+	side, offset := int32(d.Side), int32(d.Offset)
+	if c.recordBoxOutside(int32(cx)+s.Project(-offset), int32(cy)+s.Project(-offset), int32(cx)+s.Project(side-offset), int32(cy)+s.Project(side-offset)) {
+		return false
+	}
 	off := len(c.pointArena)
 	for row := 0; row < d.Side; row++ {
 		base := row * d.Side

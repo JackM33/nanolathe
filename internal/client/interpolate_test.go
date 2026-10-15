@@ -2,6 +2,7 @@ package client
 
 import (
 	"math"
+	"reflect"
 	"testing"
 
 	"github.com/nanolathe-gg/nanolathe/internal/camera"
@@ -516,5 +517,37 @@ func TestCameraBlendBoundsFitTransitions(t *testing.T) {
 				}
 			}
 		}
+	}
+}
+
+// A committed pair is matched once and presented at several fractions; each
+// presented frame re-blends only the subjects that moved (§13.5). Whatever
+// fractions came before, the view must be the one a fresh blend of the pair
+// gives, and a selection the host composes onto the current frame between two
+// presented frames must reach the view rather than an earlier copy.
+func TestPairReblendMatchesFreshBlend(t *testing.T) {
+	pieces := func(rot uint16) []frame.PieceView { return []frame.PieceView{{Tx: wu(1), RotY: rot}} }
+	moving, still, turret, born := unitAt(1, wu(100), wu(50), 1000), unitAt(2, wu(10), wu(10), 0), unitAt(3, wu(20), wu(20), 0), unitAt(4, wu(30), wu(30), 0)
+	moving.Pieces, still.Pieces, turret.Pieces, born.Pieces = pieces(100), pieces(100), pieces(100), pieces(100)
+	prev := &frame.Frame{Tick: 1, Units: []frame.UnitView{moving, still, turret},
+		Projectiles: []frame.ProjectileView{{PresentationID: 9, WeaponID: 5, X: wu(0), Yaw: 100}},
+		Effects:     []frame.EffectView{{PresentationID: 40, X: wu(0)}, {PresentationID: 41, X: wu(7)}}}
+	moving.X, moving.Heading, moving.Pieces = wu(110), 3000, pieces(900)
+	turret.Pieces = pieces(5000)
+	cur := &frame.Frame{Tick: 2, Units: []frame.UnitView{moving, still, turret, born},
+		Projectiles: []frame.ProjectileView{{PresentationID: 9, WeaponID: 5, X: wu(40), Yaw: 900}, {PresentationID: 10, WeaponID: 5, X: wu(3)}},
+		Effects:     []frame.EffectView{{PresentationID: 40, X: wu(8)}, {PresentationID: 41, X: wu(7)}, {PresentationID: 42, X: wu(2)}}}
+	var in interpolator
+	for _, f := range []int64{int64(fractionOne) / 4, int64(fractionOne) * 3 / 4, 0, int64(fractionOne) / 2} {
+		got := in.blend(prev, cur, f)
+		var fresh interpolator
+		want := fresh.blend(prev, cur, f)
+		if !reflect.DeepEqual(got.Units, want.Units) || !reflect.DeepEqual(got.Projectiles, want.Projectiles) || !reflect.DeepEqual(got.Effects, want.Effects) {
+			t.Fatalf("fraction %d: re-blended pair differs from a fresh blend", f)
+		}
+	}
+	cur.Units[1].Flags, cur.Selection.Composed = 1, 7
+	if got := in.blend(prev, cur, int64(fractionOne)/2); got.Units[1].Flags != 1 {
+		t.Fatal("a recomposed selection kept the earlier copy of a still unit")
 	}
 }

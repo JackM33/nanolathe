@@ -371,6 +371,11 @@ func (c *Client) drawProjectileModel(p frame.ProjectileView) bool {
 	if parent == nil {
 		return false
 	}
+	// A model nothing of which reaches the view is one the model lane would
+	// skip whole (effect_view_cull.go).
+	if c.projectileModelOutsideView(p, m) {
+		return true
+	}
 	// A projectile is not a unit instance: retail draws each standalone model
 	// piece through the unshaded effect entry. The parent is one call, and only
 	// the header child can become the second one; grandchildren are not walked
