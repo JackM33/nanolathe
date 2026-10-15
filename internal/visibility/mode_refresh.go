@@ -126,10 +126,9 @@ func (s *Service) fillEligibleByteGrids(eligible [10]bool) {
 		for i := range s.byteGrids[p] {
 			s.byteGrids[p][i] = fill
 		}
-		// The wide count is derived state: a refilled byte row starts with no
-		// overlap, whatever the bound answer. A row that was never allocated
-		// has nothing to clear, and the next saturating increment seeds a new
-		// one from the fill.
+		// A refill discards retained coverage counts before republishing the
+		// observers, whatever the bound answer. A row that was never allocated
+		// has nothing to clear; its first saturating use seeds it from the fill.
 		if s.wide[p] != nil {
 			clear(s.wide[p])
 		}

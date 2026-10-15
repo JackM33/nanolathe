@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/nanolathe-gg/nanolathe/internal/content"
 	"github.com/nanolathe-gg/nanolathe/internal/world"
 )
 
@@ -190,5 +191,116 @@ func TestModernCoverageSetSwitchSeedsFromTheByte(t *testing.T) {
 	s.Publish(0, cx, cz, 0, 128)
 	if got := center(); got != 1 {
 		t.Fatalf("modern byte after re-seeding = %d, want 1", got)
+	}
+}
+
+// True LOS counts raster visits, not distinct observers [03 §3.2]. Authored
+// spokes may share cells, so a supported vision team can exceed 65535 visits
+// before any observer leaves (DESIGN_WORLD_VISIBILITY "Modern coverage saturation").
+func TestModernCoverageRetainsRepeatedRayVisitsAboveUint16(t *testing.T) {
+	s := New(flatTerrain(16, 0), ModeHistoryEnabled|ModeCurrentEnabled|ModeTerrainRay)
+	s.Rules = ModernRules{}
+	const visits = 7
+	table := content.LOSTable{TableNum: 1, NumLines: visits}
+	for range visits {
+		table.Lines = append(table.Lines, []int32{1, 1, 1})
+	}
+	s.SetRayTables(&content.LOSTables{NumTables: 2, Tables: []content.LOSTable{table}})
+	team := []PlayerID{0, 1, 2}
+	s.SetVisionTeam(team)
+	const perOwner = 3275 // Leaves a commander slot within the supported 3276 limit.
+	for _, owner := range team {
+		for range perOwner {
+			s.Publish(owner, 3, 3, 30, 32)
+		}
+	}
+	idx := int(2*s.W + 4) // The first quadrant's repeated (1,-1) cell.
+	remaining := len(team) * perOwner
+	if got := s.wide[0][idx]; got != uint64(remaining*visits) {
+		t.Fatalf("overlap = %d, want every one of %d raster visits", got, remaining*visits)
+	}
+	for _, owner := range team {
+		for range perOwner {
+			s.Unpublish(owner, 3, 3, 30, 32)
+			remaining--
+			for _, viewer := range team {
+				if got, want := s.ByteGrid(viewer)[idx], uint8(min(remaining*visits, 255)); got != want {
+					t.Fatalf("%d observers remain: viewer %d coverage = %d, want %d", remaining, viewer, got, want)
+				}
+			}
+		}
+	}
+}
+
+func TestModernCoverageRefillsDiscardPreviousCounts(t *testing.T) {
+	ob := Observer{Owner: 0, CX: 3, CZ: 3, Radius: 160}
+	observers := make([]Observer, 300)
+	stamped := make([]ModeRefreshObserver, len(observers))
+	for i := range observers {
+		observers[i] = ob
+		stamped[i] = ModeRefreshObserver{ID: ObserverID(i + 1), Observer: ob}
+	}
+	for _, tc := range []struct {
+		name    string
+		rebuild func(*Service)
+	}{
+		{"restore", func(s *Service) { s.RebuildAll(observers) }},
+		{"entry", func(s *Service) { s.RebuildEntry(allSlotsEligible, stamped) }},
+		{"mode", func(s *Service) {
+			s.RefreshMode(ModeHistoryEnabled, false, allSlotsEligible, stamped)
+			s.RefreshMode(ModeHistoryEnabled|ModeCurrentEnabled, false, allSlotsEligible, stamped)
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := newTestService(flatTerrain(16, 0), ModeHistoryEnabled|ModeCurrentEnabled)
+			s.Rules = ModernRules{}
+			s.RebuildAll(observers)
+			tc.rebuild(s)
+			idx := int(ob.CZ*s.W + ob.CX)
+			for remaining := len(observers) - 1; remaining >= 0; remaining-- {
+				s.Unpublish(ob.Owner, ob.CX, ob.CZ, ob.HeightByte, ob.Radius)
+				if got, want := s.ByteGrid(0)[idx], uint8(min(remaining, 255)); got != want {
+					t.Fatalf("%d observers remain: coverage = %d, want %d", remaining, got, want)
+				}
+			}
+		})
+	}
+}
+
+// The request-level answer must not multiply by raster cells or team members
+// (DESIGN_GAMEPLAY_RULES §4). This test-only wrapper observes dispatch count.
+type coverageCountingRules struct {
+	StrictRules
+	calls     *int
+	saturates bool
+}
+
+func (r coverageCountingRules) CoverageCountSaturates() bool {
+	*r.calls++
+	return r.saturates
+}
+
+func TestCoveragePolicyIsReadOncePerRaster(t *testing.T) {
+	for _, saturates := range []bool{false, true} {
+		t.Run(fmt.Sprintf("saturates=%v", saturates), func(t *testing.T) {
+			s := newTestService(flatTerrain(32, 0), ModeHistoryEnabled|ModeCurrentEnabled)
+			s.SetVisionTeam([]PlayerID{0, 1, 2})
+			calls := 0
+			s.Rules = coverageCountingRules{calls: &calls, saturates: saturates}
+			s.Publish(0, 8, 8, 30, 280)
+			if calls != 1 {
+				t.Fatalf("publication asked the rule %d times, want one", calls)
+			}
+			s.Unpublish(0, 8, 8, 30, 280)
+			if calls != 2 {
+				t.Fatalf("retirement asked the rule %d times, want one", calls-1)
+			}
+			s.RefreshMode(ModeHistoryEnabled, false, allSlotsEligible, nil)
+			s.Publish(0, 8, 8, 30, 280)
+			s.Unpublish(0, 8, 8, 30, 280)
+			if calls != 2 {
+				t.Fatal("disabled current coverage consulted the count policy")
+			}
+		})
 	}
 }

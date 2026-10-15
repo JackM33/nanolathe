@@ -33,17 +33,18 @@ func (s *Service) CollectCheckpointReferences(c *CheckpointContext) (int, error)
 
 // WriteCheckpoint emits only the visibility payload. The expanded Service
 // field order is Community, H, Rules, W, byteGrids, footprints, local, mode,
-// rayTables, shapes, team, terrain, viewerDefeated, wordMask. Community order
+// rayTables, shapes, team, terrain, viewerDefeated, wide, wordMask. Community order
 // is Allied, AlliedJammingIgnored, OffMap, OffMapAircraftMarginTiles. Rules use
 // the closed stateless tag; readers use absent 0 or verified-present 1.
 // The terrain edge is singleton presence. A registered capture validates its
 // exact terrain identity, without writing terrain data or pointer identity
 // (DESIGN_MULTIPLAYER §16.3.49).
 //
-// The mode excludes only ModeFogCacheValid. Fog, spoke and sensor caches, the
-// wide coverage count, sensor diagnostics, presentation identities/versions
-// and rebuild flags are excluded, never rebuilt here (DESIGN_MULTIPLAYER
-// §16.3.5–§16.3.6, §16.3.11).
+// The mode excludes only ModeFogCacheValid. Fog, spoke and sensor caches,
+// sensor diagnostics, presentation identities/versions and rebuild flags are
+// excluded, never rebuilt here (DESIGN_MULTIPLAYER §16.3.5–§16.3.6, §16.3.11).
+// Wide coverage rows are retained even under Strict: a later switch can
+// consume them, and the byte grids cannot recover a saturated count.
 func (s *Service) WriteCheckpoint(e *checkpoint.Encoder, c *CheckpointContext) error {
 	e.Field("visibility.Service")
 	rayTables, shapes, err := s.checkpointBindings(c)
@@ -103,6 +104,14 @@ func (s *Service) WriteCheckpoint(e *checkpoint.Encoder, c *CheckpointContext) e
 	e.Bool(s.terrain != nil)
 	e.Field("visibility.Service.viewerDefeated")
 	e.Bool(s.viewerDefeated)
+	e.Field("visibility.Service.wide")
+	for player, row := range s.wide {
+		e.Field(fmt.Sprintf("visibility.Service.wide[%d]", player))
+		e.Count(len(row))
+		for _, count := range row {
+			e.U64(count)
+		}
+	}
 	e.Field("visibility.Service.wordMask")
 	e.Count(len(s.wordMask))
 	for _, bits := range s.wordMask {

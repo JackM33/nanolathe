@@ -113,7 +113,7 @@ func TestHullSamplesAccumulate(t *testing.T) {
 	s.SetLocal(0)
 	// Set one tile by hand so the fixture does not depend on the raster shape.
 	s.setWordBit(int(2*s.W+2), 0)
-	s.incByteGrid(int(2*s.W+2), 0)
+	s.incByteGrid(int(2*s.W+2), 0, false)
 
 	const px = 65536 // one map pixel in world units
 	target := Target{

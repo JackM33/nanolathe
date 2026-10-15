@@ -56,6 +56,7 @@ func visibilityCheckpointFixture(t *testing.T) (*Service, *CheckpointContext) {
 	for player := range s.byteGrids {
 		s.byteGrids[player] = []byte{byte(player), 255 - byte(player)}
 	}
+	s.wide[0] = []uint64{0, 1 << 40}
 	return s, NewCheckpointContext(keys)
 }
 
@@ -90,6 +91,8 @@ func TestVisibilityCheckpointByteVector(t *testing.T) {
 		"0101000000000b0000007369676874736861706573" + // shapes
 		"010002000400080010002000400080000001ffff" + // teams
 		"0101" + // terrain presence, viewer-defeated
+		"0200000000000000000000000000000000010000" + // wide[0], including a count above uint32
+		"000000000000000000000000000000000000000000000000000000000000000000000000" + // nine absent rows
 		"020000000180ff02" // word-mask count and row-major values
 	want, err := hex.DecodeString(vector)
 	if err != nil {
@@ -124,6 +127,10 @@ func TestVisibilityCheckpointRetainsStoredState(t *testing.T) {
 		{"team", func(v *Service) { v.team[9]-- }},
 		{"terrain.presence", func(v *Service) { v.terrain = nil }},
 		{"viewerDefeated", func(v *Service) { v.viewerDefeated = false }},
+		{"wide.playerOrder", func(v *Service) { v.wide[0], v.wide[9] = v.wide[9], v.wide[0] }},
+		{"wide.rowOrder", func(v *Service) { slices.Reverse(v.wide[0]) }},
+		{"wide.highBits", func(v *Service) { v.wide[0][1] += 1 << 32 }},
+		{"wide.presence", func(v *Service) { v.wide[0] = nil }},
 		{"wordMask.rowOrder", func(v *Service) { slices.Reverse(v.wordMask) }},
 		{"wordMask.unclassified", func(v *Service) { v.wordMask[0] ^= 0x8000 }},
 		{"footprints.key", func(v *Service) { v.footprints[3] = v.footprints[2]; delete(v.footprints, 2) }},
@@ -208,17 +215,53 @@ func TestVisibilityCheckpointAbsence(t *testing.T) {
 	*s = Service{}
 	got := visibilityCheckpointBytes(t, s, c)
 	// Community 11, H/Rules/W 9, ten empty grids 40, empty footprint map 4,
-	// local/mode 5, two table presences 2, team 20, terrain/defeat 2, words 4.
-	if !bytes.Equal(got, make([]byte, 97)) {
-		t.Fatalf("empty payload = %x; want 97 zero bytes", got)
+	// local/mode 5, two table presences 2, team 20, terrain/defeat 2,
+	// ten empty wide rows 40, words 4.
+	if !bytes.Equal(got, make([]byte, 137)) {
+		t.Fatalf("empty payload = %x; want 137 zero bytes", got)
 	}
 	s.footprints = make(map[ObserverID]footprint)
 	s.wordMask = []uint16{}
 	for i := range s.byteGrids {
 		s.byteGrids[i] = []byte{}
+		s.wide[i] = []uint64{}
 	}
 	if !bytes.Equal(visibilityCheckpointBytes(t, s, c), got) {
 		t.Fatal("nil and empty sequences have different logical values")
+	}
+}
+
+// A retail-arithmetic write retires the whole wide row, including counts at
+// untouched cells. Equal byte grids and footprints therefore do not imply
+// equal future coverage after returning to Modern (DESIGN_MULTIPLAYER §9.1).
+func TestVisibilityCheckpointRetainsCoverageAcrossRuleSwitches(t *testing.T) {
+	fixture, context := visibilityCheckpointFixture(t)
+	build := func() *Service {
+		s := New(flatTerrain(16, 0), ModeCurrentEnabled)
+		s.Rules = ModernRules{}
+		s.SetShapes(fixture.shapes)
+		for id := ObserverID(1); id <= 300; id++ {
+			s.Refresh(id, Observer{Owner: 0, CX: 3, CZ: 3, Radius: 160})
+		}
+		s.Refresh(301, Observer{Owner: 0, CX: 6, CZ: 6, Radius: 160})
+		return s
+	}
+	a, b := build(), build()
+	b.Rules = StrictRules{}
+	b.Refresh(301, Observer{Owner: 0, CX: 7, CZ: 7, Radius: 160})
+	b.Refresh(301, Observer{Owner: 0, CX: 6, CZ: 6, Radius: 160})
+	b.Rules = ModernRules{}
+	if !reflect.DeepEqual(a.byteGrids, b.byteGrids) || !reflect.DeepEqual(a.footprints, b.footprints) {
+		t.Fatal("the distant round trip did not preserve bytes and footprints")
+	}
+	if bytes.Equal(visibilityCheckpointBytes(t, a, context), visibilityCheckpointBytes(t, b, context)) {
+		t.Fatal("checkpoint omitted the effective coverage counts")
+	}
+	a.RetireObserver(1)
+	b.RetireObserver(1)
+	idx := int(3*a.W + 3)
+	if a.ByteGrid(0)[idx] != 255 || b.ByteGrid(0)[idx] != 254 {
+		t.Fatal("the fixture no longer exposes different future coverage")
 	}
 }
 
@@ -292,6 +335,7 @@ func cloneVisibilityCheckpointFixture(s *Service) *Service {
 	out.wordMask = slices.Clone(s.wordMask)
 	for i := range s.byteGrids {
 		out.byteGrids[i] = slices.Clone(s.byteGrids[i])
+		out.wide[i] = slices.Clone(s.wide[i])
 	}
 	out.footprints = maps.Clone(s.footprints)
 	out.fog.ch0, out.fog.ch1, out.fog.in = slices.Clone(s.fog.ch0), slices.Clone(s.fog.ch1), slices.Clone(s.fog.in)

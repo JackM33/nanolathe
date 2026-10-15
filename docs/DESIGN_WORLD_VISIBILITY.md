@@ -883,9 +883,9 @@ stack, so a few hundred around one build site or one cheat-spawn point made
 single-cell fog patches that appeared and disappeared as the pile moved.
 
 Modern behavior: the true overlap count is carried in a per-player wide row
-(`uint16`) beside the grids it derives from, and the byte grid stores
+(`uint64`) beside the grids, and the byte grid stores
 `min(count, 255)`. Below 256 the byte grid is byte-identical to retail's, so
-ordinary states, their saved bytes, their checkpoint folds and their
+ordinary byte grids, their cheap checkpoint folds and their
 presentation are unchanged; from 256 the cell stays visible instead of reading
 as fog, and it clears exactly when the last observer leaves. Every
 reader is unchanged — the fog cache and the visibility predicate test only zero
@@ -897,19 +897,25 @@ one grid.
   `internal/visibility.Service`; rule objects stay stateless and zero size. A
   row is allocated on first saturating use, seeded from the byte row it
   replaces, cleared by every grid refill (`RebuildEntry`, `RefreshMode`,
-  `RebuildAll`) and retired by any retail-arithmetic increment or decrement. No
-  save or checkpoint serializes it: restore rebuilds it through the observer
+  `RebuildAll`) and retired by any retail-arithmetic increment or decrement.
+  Retail saves do not serialize it: restore rebuilds it through the observer
   publication that rebuilds the byte grids, the same derived path the byte
   grids already take. A set selected mid-battle continues the byte grid it
   inherits; a wrap inherited from Strict stays wrapped until the grids are
-  refilled.
-* **Ordering, RNG and resources.** The answer is read inside one increment or
-  decrement. No draw, no resource and no ordering change: a state in which no
-  cell reaches 256 overlap folds byte-identically in every mode.
-* **Boundaries.** The wide count saturates at its `uint16` cap. The multiplayer
-  checkpoint payload and its cheap summary fold the byte grid, so overlap above
-  255 compares as 255 there (DESIGN_MULTIPLAYER §16.3.41); the true count is
-  rebuilt from observers on restore, never saved.
+  refilled. Full checkpoints retain all ten wide rows, including residual rows
+  under Strict: a later switch can read them, and byte grids plus observer
+  records cannot reconstruct the effective counts after a switch. This is
+  retained authoritative state, distinct from the retail save rebuild.
+* **Ordering, RNG and resources.** The answer is read once per `Publish` or
+  `Unpublish`, before walking any cells or team members (DESIGN_GAMEPLAY_RULES
+  §4). No draw, no resource and no ordering change: below 256 overlap the byte
+  grids and their cheap summary folds stay identical to retail's.
+* **Boundaries.** Only the byte projection saturates. A terrain ray can visit a
+  cell repeatedly, so a supported team can exceed 65535 contributions even
+  without that many observers. The wide row retains each visit in `uint64`
+  and removes each matching visit. The cheap summary still compares overlap
+  at or above 255 as 255 (DESIGN_MULTIPLAYER §16.3.41); full checkpoint schema 3
+  retains the wide counts (DESIGN_MULTIPLAYER §16.3.6, §16.3.11).
 
 Tests: `internal/visibility/modern_coverage_test.go` locks the Modern contract
 (a 256- or 512-observer stack leaves no covered cell at zero and a removal
@@ -917,4 +923,8 @@ sequence clears exactly at zero), the set-switch seeding and retirement, and
 the Strict bypass (256 still wraps to zero, 257 reads one, and a spread pile's
 256-contour holes remain). `internal/session/modern_coverage_test.go` drives
 the real phase-5 publisher over a clump of flying observers in Modern, Strict
-and Community, and guards that publication spends no RNG or resources.
+and Community, and guards that publication spends no RNG or resources. The
+visibility tests also cover repeated terrain-ray visits beyond 65535, balanced
+team retirement, all three refill paths and one policy query per raster.
+`internal/visibility/checkpoint_test.go` distinguishes equal byte grids whose
+retained wide counts cause different future decrements across a rule switch.
