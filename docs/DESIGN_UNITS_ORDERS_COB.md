@@ -624,7 +624,18 @@ failure results, and Strict returns every result unchanged. This policy adds no
 general kiting controller.
 
 Only when no effective response is available does a mobile unit consider
-withdrawal. It evaluates eight fixed directions at 64, 32 and 16 world units,
+withdrawal. A combat aircraft running `VTOL_Patrol` keeps its current route
+instead (issue 121): the short withdrawal's `VTOL_Move` brakes to a nearby
+endpoint and inhibits its weapon slots, producing repeated stops under fire.
+Anonymous hits and visible attackers it cannot answer therefore leave the
+patrol record, marker and queued waypoints intact. A suitable visible attacker
+still receives the ordinary counterattack above. Constructor repair patrol,
+idle aircraft and ground assignments keep their withdrawal policy. This is a
+Nanolathe Modern policy refinement; Strict and Community keep retail behavior.
+`air_patrol_danger_test.go` locks repeated anonymous/unanswerable hits, the
+retained route, visible counterattack, unchanged RNG and Strict bypass.
+
+Withdrawal evaluates eight fixed directions at 64, 32 and 16 world units,
 with diagonal components 45, 22 and 11 respectively, maximizing minimum separation from all
 remembered threat positions. Ties retain traversal order, and a candidate must
 strictly improve that minimum. All candidates first use the movement-owned
