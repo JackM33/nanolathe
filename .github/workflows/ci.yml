@@ -172,7 +172,8 @@ jobs:
             ./internal/relay/... \
             ./internal/lockstep/... \
             ./internal/replay/... \
-            ./cmd/nanolathe-server/...
+            ./cmd/nanolathe-server/... \
+            ./cmd/nanolathe-relay-check/...
           go test -race -run 'Online|Hosted|Relay|Lobby|Multiplayer' ./cmd/nanolathe
 
   # The artifact users actually run.
@@ -225,13 +226,27 @@ jobs:
           retention-days: 14
           if-no-files-found: error
 
+  # Exercise the deployed relay with this build's schema, without game assets
+  # or graphics. Both pushes and pull requests must expose admission drift.
+  public-relay:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: verify public relay compatibility
+        run: go run ./cmd/nanolathe-relay-check
+
   # Main's asset-free browser build becomes this run's immutable "browser-<n>"
   # prerelease, which the website pulls in (docs/DESIGN_BROWSER_HOST.md §6);
   # tools/browser-publish keeps this run's release and the one before it. No
   # demo or retail content enters this repository's releases.
   browser-publish:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: [browser, hygiene, simulation]
+    needs: [browser, hygiene, simulation, public-relay]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -255,6 +270,12 @@ jobs:
           cp build/browser/build.json build.json
           sha256sum nanolathe-browser.tar.gz build.json > SHA256SUMS
           cat SHA256SUMS
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: recheck public relay immediately before publication
+        run: go run ./cmd/nanolathe-relay-check
       - name: publish this run's browser release
         id: publish
         run: tools/browser-publish --revision "$GITHUB_SHA" --run-number "$GITHUB_RUN_NUMBER" nanolathe-browser.tar.gz build.json SHA256SUMS
