@@ -1,5 +1,7 @@
 package path
 
+import "slices"
+
 // Nanolathe Modern route straightening (DESIGN_MOVEMENT_PATH "Modern route
 // straightening"). The retail search reconstructs a route from its turn cells
 // [04 R-PATH-01 §7], and for a goal a little off the start's row or column its
@@ -33,7 +35,6 @@ type straightenSearch struct {
 	Search
 	cfg    SearchConfig
 	probes int
-	points [straightenCap]Point
 	out    []Point
 	done   bool
 	status Status
@@ -58,16 +59,20 @@ func (s *straightenSearch) Resume(budget int) ([]Point, Status, bool) {
 	if len(points) < 3 || len(points) > straightenCap || s.cfg.PassableValue == nil {
 		return points, status, true
 	}
-	n := copy(s.points[:], points)
+	// Only a finished route needs owned output storage. Keep the wrapped
+	// search's result intact, and retain this copy after Release so the
+	// scheduler can still publish it [04 §7.3].
+	points = slices.Clone(points)
+	n := len(points)
 	for i := 0; i+2 < n; {
-		if s.straightLine(s.points[i], s.points[i+2]) {
-			copy(s.points[i+1:n], s.points[i+2:n])
+		if s.straightLine(points[i], points[i+2]) {
+			copy(points[i+1:n], points[i+2:n])
 			n--
 			continue
 		}
 		i++
 	}
-	s.out = s.points[:n]
+	s.out = points[:n]
 	return s.out, status, true
 }
 

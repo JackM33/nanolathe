@@ -152,9 +152,12 @@ func TestCheckpointWrapperPropagationDiscoveryAndOwnConfig(t *testing.T) {
 		t.Fatal("shared goal lost identity")
 	}
 	before := pathCheckpointBytes(t, q, c)
-	// Scratch fields are not read outside the synchronous finishing pass.
-	straight.points[30] = Point{99, 98}
-	smooth.points[30], smooth.dear[20], smooth.limit, smooth.limited, smooth.legDir = Point{99, 98}, 97, 96, true, 7
+	// Unused output capacity and finishing scratch are not future state.
+	straight.out = append(make([]Point, 0, straightenCap), straight.out...)
+	smooth.out = append(make([]Point, 0, straightenCap), smooth.out...)
+	straight.out[:cap(straight.out)][30] = Point{99, 98}
+	smooth.out[:cap(smooth.out)][30] = Point{99, 98}
+	smooth.limit, smooth.limited, smooth.legDir = 96, true, 7
 	if got := pathCheckpointBytes(t, q, c); !bytes.Equal(got, before) {
 		t.Fatal("wrapper scratch changed bytes")
 	}

@@ -1,5 +1,7 @@
 package path
 
+import "slices"
+
 // SmoothKernel is Modern's search kernel (docs/DESIGN_MOVEMENT_PATH.md
 // "Modern route smoothing"). It runs the straightening kernel and, on the
 // slice that search finishes, pulls the route taut: a run of turns is
@@ -40,18 +42,15 @@ type smoothSearch struct {
 	Search
 	cfg    SearchConfig
 	probes int
-	// dear is the dearest extra cost (SearchConfig.CostDir) along each leg of the
-	// searched route, and limit the dearest along the stretch a straight leg
-	// would replace: the leg may not cross dearer ground than the search
-	// accepted there, or pulling the route taut would undo the way round the
-	// search paid for.
-	dear    [straightenCap]int32
+	// limit is the dearest extra cost (SearchConfig.CostDir) along the stretch
+	// a straight leg would replace: the leg may not cross dearer ground than
+	// the search accepted there, or pulling the route taut would undo the way
+	// round the search paid for.
 	limit   int32
 	limited bool
 	// legDir is the sector of the leg being judged, for a cost that depends
 	// on the way a step goes.
 	legDir uint8
-	points [straightenCap]Point
 	out    []Point
 	done   bool
 	status Status
@@ -71,11 +70,16 @@ func (s *smoothSearch) Resume(budget int) ([]Point, Status, bool) {
 	if len(points) < 3 || len(points) > straightenCap || s.cfg.PassableValue == nil {
 		return points, status, true
 	}
-	n := copy(s.points[:], points)
+	// The finishing pass is synchronous: only its output must outlive this
+	// call. Short and unfinished routes need no extra point storage, and
+	// the per-leg costs stay on the stack rather than in every search.
+	points = slices.Clone(points)
+	n := len(points)
+	var dear [straightenCap]int32
 	if s.cfg.CostDir != nil {
 		s.limited = true
 		for i := 0; i+1 < n; i++ {
-			s.dear[i] = s.dearest(s.points[i], s.points[i+1])
+			dear[i] = s.dearest(points[i], points[i+1])
 		}
 	}
 	out := 1 // points[0] stays
@@ -90,19 +94,19 @@ func (s *smoothSearch) Resume(budget int) ([]Point, Status, bool) {
 			if s.limited {
 				s.limit = 0
 				for m := i; m < k; m++ {
-					s.limit = max(s.limit, s.dear[m])
+					s.limit = max(s.limit, dear[m])
 				}
 			}
-			if s.clear(s.points[i], s.points[k]) {
+			if s.clear(points[i], points[k]) {
 				j = k
 				break
 			}
 		}
-		s.points[out] = s.points[j]
+		points[out] = points[j]
 		out++
 		i = j
 	}
-	s.out = s.points[:out]
+	s.out = points[:out]
 	return s.out, status, true
 }
 
