@@ -886,8 +886,8 @@ Modern behavior: the true overlap count is carried in a per-player wide row
 (`uint16`) beside the grids it derives from, and the byte grid stores
 `min(count, 255)`. Below 256 the byte grid is byte-identical to retail's, so
 ordinary states, their saved bytes, their checkpoint folds and their
-presentation are unchanged; at and above 255 the cell stays visible instead of
-reading as fog, and it clears exactly when the last observer leaves. Every
+presentation are unchanged; from 256 the cell stays visible instead of reading
+as fog, and it clears exactly when the last observer leaves. Every
 reader is unchanged — the fog cache and the visibility predicate test only zero
 versus nonzero — so fog appearance, the non-presentation gates (path requests,
 placement and order-destination validation) and both renderers all follow the
@@ -904,8 +904,8 @@ one grid.
   inherits; a wrap inherited from Strict stays wrapped until the grids are
   refilled.
 * **Ordering, RNG and resources.** The answer is read inside one increment or
-  decrement. No draw, no resource and no ordering change: a fingerprint lock
-  that never reaches 255 overlap is byte-identical in every mode.
+  decrement. No draw, no resource and no ordering change: a state in which no
+  cell reaches 256 overlap folds byte-identically in every mode.
 * **Boundaries.** The wide count saturates at its `uint16` cap. The multiplayer
   checkpoint payload and its cheap summary fold the byte grid, so overlap above
   255 compares as 255 there (DESIGN_MULTIPLAYER §16.3.41); the true count is
@@ -915,5 +915,6 @@ Tests: `internal/visibility/modern_coverage_test.go` locks the Modern contract
 (a 256- or 512-observer stack leaves no covered cell at zero and a removal
 sequence clears exactly at zero), the set-switch seeding and retirement, and
 the Strict bypass (256 still wraps to zero, 257 reads one, and a spread pile's
-256-contour holes remain). The session-level regression drives the real phase-5
-publisher over a clump of flying observers in both modes.
+256-contour holes remain). `internal/session/modern_coverage_test.go` drives
+the real phase-5 publisher over a clump of flying observers in Modern, Strict
+and Community, and guards that publication spends no RNG or resources.

@@ -60,7 +60,7 @@ func modernCoverageService() *Service {
 
 // TestModernCoverageSaturatesInsteadOfWrapping locks the Modern answer: a
 // stack deep enough to wrap the byte grid leaves every covered cell visible,
-// and removals clear the cell exactly when the last observer leaves.
+// with the byte reading the 255 saturation.
 func TestModernCoverageSaturatesInsteadOfWrapping(t *testing.T) {
 	const cx, cz = 64, 64
 	for _, count := range []int{256, 512} {
