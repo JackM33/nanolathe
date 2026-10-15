@@ -1472,6 +1472,9 @@ func (s *System) legAirToGroundHoverModern(u *units.Unit, n *orders.Node, tick u
 		ds := isqrt64((p.standX-px)*(p.standX-px) + (p.standZ-pz)*(p.standZ-pz))
 		arrived := ds <= 24
 		exposed := airPointExposure(p.standX, p.standZ, pic.list) > 0
+		if arrived && p.standArrive < p.standTick {
+			p.standArrive = tick
+		}
 		switch {
 		case dt > rng*9/10:
 			replan = true // the target moved away from the point
@@ -1483,9 +1486,6 @@ func (s *System) legAirToGroundHoverModern(u *units.Unit, n *orders.Node, tick u
 			replan = true // slide on to the next firing point, as retail's orbit does
 		case tick-p.standTick >= 240:
 			replan = true
-		}
-		if arrived && p.standArrive < p.standTick {
-			p.standArrive = tick
 		}
 	}
 	if replan {
@@ -1517,10 +1517,11 @@ func (s *System) legAirToGroundHoverModern(u *units.Unit, n *orders.Node, tick u
 }
 
 // airChooseStandoff ranks standoff points on two rings about the target and
-// sixteen bearings: least anti-air exposure first; then clear of the points
-// and bearings other gunships attacking near it hold, so wingmen neither
-// stack nor fire through one another; then a real move away from the current
-// point — a long one under fire — and finally the shortest such move.
+// sixteen bearings. Repositioning prefers a real move, longer under fire,
+// before ranking exposure, wingmen and distance; otherwise a low-exposure
+// current point can win forever. A short move remains the fallback when no
+// full move fits. Nanolathe Modern policy: DESIGN_MOVEMENT_PATH
+// "Modern aircraft tactics".
 func (s *System) airChooseStandoff(u *units.Unit, p *airPilot, tx, tz, rng int64, threats []airThreat, under bool, tick uint32) {
 	px, pz := int64(u.X>>16), int64(u.Z>>16)
 	// Wingmen: other aircraft of this owner whose pilots hold a standoff
@@ -1552,6 +1553,7 @@ func (s *System) airChooseStandoff(u *units.Unit, p *airPilot, tx, tz, rng int64
 		minMove = 120
 	}
 	best := -1
+	bestMoves := false
 	var bestCost int64
 	var bx, bz int64
 	for ring := 0; ring < 2; ring++ {
@@ -1569,6 +1571,7 @@ func (s *System) airChooseStandoff(u *units.Unit, p *airPilot, tx, tz, rng int64
 				continue
 			}
 			move := isqrt64((sx-px)*(sx-px) + (sz-pz)*(sz-pz))
+			moves := !p.standSet || move >= minMove
 			cost := airPointExposure(sx, sz, threats)*64 + move
 			if move < minMove {
 				cost += 4000
@@ -1579,8 +1582,9 @@ func (s *System) airChooseStandoff(u *units.Unit, p *airPilot, tx, tz, rng int64
 					cost += 3000
 				}
 			}
-			if best < 0 || cost < bestCost {
+			if best < 0 || moves && !bestMoves || moves == bestMoves && cost < bestCost {
 				best, bestCost, bx, bz = ring*16+j, cost, sx, sz
+				bestMoves = moves
 			}
 		}
 	}

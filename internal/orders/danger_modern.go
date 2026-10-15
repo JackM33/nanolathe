@@ -505,8 +505,16 @@ func (*ModernRules) StepDangerResponse(u *units.Unit, tick uint32) {
 			return
 		}
 	}
-	// No suitable visible threat can be answered within this stance. A mobile
-	// unit may withdraw along a movement-owned locally feasible corridor.
+	// A combat air patrol already has a flight route. Short withdrawal moves
+	// brake at their endpoint and inhibit its weapons, so an unanswered hit
+	// must not replace that route. Visible counterattacks above still suspend
+	// it normally. Nanolathe Modern policy: DESIGN_UNITS_ORDERS_COB
+	// "Modern danger response".
+	if unitCanFly(u) && len(q.primary) > 0 && q.primary[0].ID == Lookup("VTOL_Patrol") {
+		return
+	}
+	// No suitable visible threat can be answered within this stance. Other
+	// mobile assignments may withdraw along a locally feasible corridor.
 	if move == 0 || !hasLiveMover(u) || !u.Def.CanMove || b.DangerStepFeasibleHook() == nil {
 		return
 	}

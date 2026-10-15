@@ -1418,15 +1418,23 @@ longer flies three ranges past a target nothing covers before turning.
 the strafer's does. The gunship keeps retail's frozen marker
 about its target, so it faces the target as it settles [04 R-AIR-01 §8], but
 chooses the point: on rings at two thirds and seventeen twentieths of its
-weapon range on sixteen bearings, by least anti-air exposure, then clear of
-the points and bearings other gunships of its owner hold near the same
-target (so wingmen neither stack nor fire through one another), then a real
-move — 64 world units, 120 when under fire — then the shortest. It slides on
-to the next point 45 ticks after arriving, at once when it has lost health in
+weapon range on sixteen bearings. When leaving an existing point it first
+prefers a real move — at least 64 world units, 120 when under fire — then
+ranks those candidates by anti-air exposure, clearance from the points and
+bearings other gunships of its owner hold near the same target (so wingmen
+neither stack nor fire through one another), and travel distance. If no
+on-map candidate meets the move distance, it keeps the ordinary ranked
+fallback. The initial approach keeps its existing score. A lower-exposure
+current point cannot defeat every real move and make the gunship hover
+indefinitely (issue 121, `TestAirHoverRepositionMakesProgressUnderCover`).
+It slides on to the next point 45 ticks after arriving, at once when it has lost health in
 the last 90 ticks or its point is covered, and after 240 ticks regardless,
 as retail's orbit keeps a gunship moving. Far from the point it flies there
 round anti-air that does not cover the point. Two refused engagement checks
 move it to half range.
+The dwell begins on the first arrival at the current point, before testing
+its expiry; travel time and an earlier point's arrival cannot consume it
+(`TestAirHoverDwellStartsAtCurrentArrival`, issue 121).
 
 **Repair beside a constructor.** When a damaged aircraft's retail pad seek
 finds no pad (`AirStrike` phase 6, `AirToGround`'s break, a covered gunship,

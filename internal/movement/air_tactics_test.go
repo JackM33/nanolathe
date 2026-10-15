@@ -5,10 +5,77 @@ import (
 
 	"github.com/nanolathe-gg/nanolathe/internal/combat"
 	"github.com/nanolathe-gg/nanolathe/internal/content"
+	"github.com/nanolathe-gg/nanolathe/internal/orders"
 	"github.com/nanolathe-gg/nanolathe/internal/sim/numeric"
 	"github.com/nanolathe-gg/nanolathe/internal/units"
 	"github.com/nanolathe-gg/nanolathe/internal/world"
 )
+
+// The 45-tick dwell starts at this point's first arrival, not at battle start
+// or the previous point's arrival (Modern aircraft tactics, issue 121).
+func TestAirHoverDwellStartsAtCurrentArrival(t *testing.T) {
+	for _, priorArrival := range []uint32{0, 50} {
+		sys, w, u := wideAirFixture(t)
+		target := airTargetFor(t, sys, w, 28, 16)
+		u.InstallWeapon(0, &content.WeaponDef{ID: 1, Range: 300})
+		n := &orders.Node{ID: orders.Lookup("AirToGroundHover"), Owner: u.Handle, Target: target.Handle, Phase: 2}
+		p := sys.airPilotFor(u, n, 100)
+		p.fresh, p.standSet, p.standHeld = false, true, true
+		p.standX, p.standZ = int64(u.X>>16), int64(u.Z>>16)
+		p.standTick, p.standArrive = 100, priorArrival
+		random := *orders.QueueOfUnit(u).Binding().SimRNG
+		for _, tick := range []uint32{200, 244} {
+			sys.legAirToGroundHoverModern(u, n, tick)
+			if p.standTick != 100 || p.standArrive != 200 {
+				t.Fatalf("prior arrival=%d tick=%d: point changed before 45 ticks of dwell: planned=%d arrived=%d", priorArrival, tick, p.standTick, p.standArrive)
+			}
+		}
+		sys.legAirToGroundHoverModern(u, n, 245)
+		if p.standTick != 245 || p.standX == int64(u.X>>16) && p.standZ == int64(u.Z>>16) {
+			t.Fatal("gunship did not slide on at the dwell boundary")
+		}
+		if *orders.QueueOfUnit(u).Binding().SimRNG != random {
+			t.Fatal("Modern standoff selection drew RNG")
+		}
+	}
+}
+
+// A lower exposure score must not turn a requested slide into another hold
+// at the same firing point. Both minimum moves are existing Modern tuning.
+func TestAirHoverRepositionMakesProgressUnderCover(t *testing.T) {
+	for _, underFire := range []bool{false, true} {
+		sys, _, u := wideAirFixture(t)
+		u.X, u.Z = numeric.FixedFromInt(1330), numeric.FixedFromInt(512)
+		p := &airPilot{standSet: true, standX: 1330, standZ: 512}
+		threats := []airThreat{{x: 824, z: 512, r: 550, w: 100}}
+		minMove := int64(64)
+		if underFire {
+			minMove = 120
+		}
+		for tick := uint32(100); tick < 103; tick++ {
+			x, z := int64(u.X>>16), int64(u.Z>>16)
+			sys.airChooseStandoff(u, p, 1024, 512, 360, threats, underFire, tick)
+			dx, dz := p.standX-x, p.standZ-z
+			if dx*dx+dz*dz < minMove*minMove {
+				t.Fatalf("under fire=%v: repeated standoff moved only (%d,%d)", underFire, dx, dz)
+			}
+			u.X, u.Z = numeric.FixedFromInt(p.standX), numeric.FixedFromInt(p.standZ)
+		}
+	}
+}
+
+func TestAirHoverRepositionKeepsFallbackWhenNoFullMoveFits(t *testing.T) {
+	sys, _, u := wideAirFixture(t)
+	u.X, u.Z = numeric.FixedFromInt(1024), numeric.FixedFromInt(512)
+	p := &airPilot{standSet: true, standX: 1024, standZ: 512}
+	// Both rings lie within 120 units. Keep an on-map firing point rather
+	// than dropping the marker or inventing an out-of-range destination.
+	sys.airChooseStandoff(u, p, 1024, 512, 64, nil, true, 100)
+	dx, dz := p.standX-1024, p.standZ-512
+	if dx*dx+dz*dz == 0 || dx*dx+dz*dz >= 120*120 || !sys.airOnMap(p.standX, p.standZ, 48) {
+		t.Fatal("short-range gunship lost its valid fallback firing point")
+	}
+}
 
 // Only Modern flies the aircraft pilots; Strict 3.1 and Community 3.9 keep the
 // retail legs [04 R-AIR-01 §8] (DESIGN_MOVEMENT_PATH "Modern aircraft tactics").
