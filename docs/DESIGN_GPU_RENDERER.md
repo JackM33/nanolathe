@@ -1946,12 +1946,12 @@ datum.
 
 **Matching once per pair.** Identity, the walk history and whether a subject
 moved at all depend on the committed pair, not on the fraction. A display
-faster than the tick presents each pair several times, so the recorder matches
-a pair once (`preparePair`). It copies the current tick's views into the
-blended buffers and lists the subjects whose two views differ, and each
-presented frame re-blends only those. A subject whose position, angles and
-pieces are equal in both ticks blends to its current view at every fraction,
-so it keeps the copy. The pair key is the two frames, their ticks and the
+faster than the tick presents each pair several times. So a pair's first
+presented frame matches every subject as it blends it, on the recorder's pool
+as before, and records which subjects moved. Each later frame of the pair
+re-blends only those. A subject whose position, angles and pieces are equal in
+both ticks blends to its current view at every fraction, so it keeps the copy
+its first frame made. The pair key is the two frames, their ticks and the
 selection epoch the host composed onto the current frame, so a selection made
 between two presented frames still reaches the view.
 
