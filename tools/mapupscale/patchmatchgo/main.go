@@ -18,7 +18,6 @@ import (
 	"path/filepath"
 	"runtime"
 	"runtime/pprof"
-	"syscall"
 	"time"
 
 	"github.com/nanolathe-gg/nanolathe/internal/upscale"
@@ -127,9 +126,10 @@ func run(dataPath, outPrefix string, params upscale.TerrainParams, workers int, 
 	finished := time.Now()
 
 	stats := result.Stats
-	var usage syscall.Rusage
-	_ = syscall.Getrusage(syscall.RUSAGE_SELF, &usage)
-	cpu := time.Duration(usage.Utime.Nano() + usage.Stime.Nano())
+	cpu := "unmeasured on this platform"
+	if used, ok := processCPU(); ok {
+		cpu = used.Round(time.Millisecond).String()
+	}
 	var memory runtime.MemStats
 	runtime.ReadMemStats(&memory)
 	fmt.Printf("iterations=%d mean-cost=%.2f unmatched=%d\n", stats.Iterations, stats.MeanCost, stats.Unmatched)
@@ -141,7 +141,7 @@ func run(dataPath, outPrefix string, params upscale.TerrainParams, workers int, 
 		stats.PCA.Round(time.Millisecond), stats.Features.Round(time.Millisecond),
 		stats.PatchMatch.Round(time.Millisecond), stats.Assemble.Round(time.Millisecond),
 		finished.Sub(synthesized).Round(time.Millisecond), finished.Sub(started).Round(time.Millisecond))
-	fmt.Printf("cpu=%s (user+sys over the whole run; wall times above depend on machine load)\n", cpu.Round(time.Millisecond))
+	fmt.Printf("cpu=%s (user+sys over the whole run; wall times above depend on machine load)\n", cpu)
 	fmt.Printf("seam=%d seamzone=%d\n", params.Seam, stats.SeamZone)
 	fmt.Printf("database-pixels=%d supplemented=%d query-pixels=%d iterations=%d unmatched=%d mean-cost=%.2f cycle=%.4f heap-in-use=%0.1fMiB\n",
 		stats.DatabasePixels, stats.Supplemented, stats.QueryPixels, stats.Iterations, stats.Unmatched,

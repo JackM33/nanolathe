@@ -14,7 +14,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"syscall"
 	"testing"
 	"time"
 
@@ -23,14 +22,6 @@ import (
 	"github.com/nanolathe-gg/nanolathe/internal/testsupport"
 	"github.com/nanolathe-gg/nanolathe/vfs"
 )
-
-func processCPU() time.Duration {
-	var usage syscall.Rusage
-	if err := syscall.Getrusage(syscall.RUSAGE_SELF, &usage); err != nil {
-		return 0
-	}
-	return time.Duration(usage.Utime.Nano() + usage.Stime.Nano())
-}
 
 // cacheFileSizes describes what one synthesis costs on disk, which is the
 // number the load-time budget of §14.4 is spent against.
