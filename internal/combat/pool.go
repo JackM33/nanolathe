@@ -282,6 +282,9 @@ type Service struct {
 	// firingPosition belongs only to the most recent unit weapon visit.
 	// It is transient Modern observation, never saved or indexed by unit.
 	firingPosition firingPositionObservation
+	// firingPreview is candidate-local storage, saved and restored across nested
+	// previews. It carries no observation or state outside the active call.
+	firingPreview firingPositionPreview
 
 	events      func(Event)               // optional ordered combat event sink; nil-safe
 	pendingAims map[pendingKey]pendingAim // Aim dispatch tracking ON-04 [06 §3.3]
