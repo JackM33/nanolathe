@@ -222,14 +222,14 @@ type modelDirectLane struct {
 	// keyed bodies, claimOrder the order the pool claims jobs in when a test
 	// sets one, place the pre-check's tuning and placeMode how the last frame
 	// was placed (model_place_pool.go).
-	packets     []modelPlacePacket
-	jobs        []modelPlaceJob
-	slots       frameArena[modelTextureSlot]
-	placeKeys   map[modelBodyKey]struct{}
-	claimOrder  []int32
-	place       modelPlaceTuning
-	placeMode   modelPlaceMode
-	opts        ebiten.DrawTrianglesShaderOptions
+	packets    []modelPlacePacket
+	jobs       []modelPlaceJob
+	slots      frameArena[modelTextureSlot]
+	placeKeys  map[modelBodyKey]struct{}
+	claimOrder []int32
+	place      modelPlaceTuning
+	placeMode  modelPlaceMode
+	opts       ebiten.DrawTrianglesShaderOptions
 
 	// retain holds the packed vertices of subjects whose cached lane the
 	// recorder proved unchanged (model_retain.go).
