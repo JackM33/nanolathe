@@ -304,7 +304,7 @@ func writeAccessorCheckpoint(e *checkpoint.Encoder, a CheckpointAccessor, p stri
 }
 
 // Wrappers retain Search, cfg, done, out, probes, status. The synchronous
-// finishing buffers (points and smooth's dear/limit/limited/legDir) are scratch.
+// finishing locals and smooth's limit/limited/legDir are synchronous scratch.
 func writeWrapperCheckpoint(e *checkpoint.Encoder, done bool, out []Point, probes int, status Status, p string) {
 	e.Field(p + ".done")
 	e.Bool(done)

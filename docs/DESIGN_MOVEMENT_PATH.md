@@ -204,6 +204,18 @@ order, the per-player step allowance `[04 R-PATH-01 §10]` and the full-or-empty
 publication boundary `[04 §7.3]`, so a replacement kernel may change how a
 route is found and never when one publishes.
 
+**Finishing storage.** Straightening and smoothing allocate their owned point
+copies only after a search finishes with an eligible 3–64-point route. Each
+copy holds that route's actual length; neither wrapper reserves a maximum-size
+array at admission. Smoothing's per-leg cost array is local to its synchronous
+finishing pass. The output remains owned by the completed search after
+`Release`, because movement releases search storage before the scheduler
+publishes its result. Later searches cannot overwrite it. The wrapped route,
+probe accounting, completion slice and canonical checkpoint bytes are unchanged;
+unused output capacity and finishing scratch are not encoded
+(DESIGN_MULTIPLAYER §16.3.6). This is storage policy for the existing kernels,
+with no change to rule selection or path arithmetic.
+
 **The scheduler** (`queue.go`). `Scheduler` holds one active request at a time,
 and it also owns the search's per-cell `Workspace`. That ownership is the point:
 a generation-stamped table is shared storage, and the scheduler is what decides
