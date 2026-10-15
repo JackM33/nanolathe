@@ -1944,6 +1944,17 @@ matches on `PresentationID` when nonzero, else on `ID`, `EventSeq` and
 presentation constant chosen above any retail movement rate; it is not a retail
 datum.
 
+**Matching once per pair.** Identity, the walk history and whether a subject
+moved at all depend on the committed pair, not on the fraction. A display
+faster than the tick presents each pair several times, so the recorder matches
+a pair once (`preparePair`). It copies the current tick's views into the
+blended buffers and lists the subjects whose two views differ, and each
+presented frame re-blends only those. A subject whose position, angles and
+pieces are equal in both ticks blends to its current view at every fraction,
+so it keeps the copy. The pair key is the two frames, their ticks and the
+selection epoch the host composed onto the current frame, so a selection made
+between two presented frames still reaches the view.
+
 **Held walk axes — Nanolathe Enhanced policy (user-authorized 2026-10-06).**
 The renderer and regular unit viewer share `internal/poseblend`. A complete,
 unattached ground/surface mobile observed moving between the committed pair

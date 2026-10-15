@@ -384,6 +384,14 @@ func (c *Client) hasCameraBlend() bool {
 // interpolator owns the blended view and retained buffers. A blend is reused
 // while its inputs (the pair, their ticks and the fraction) are unchanged:
 // while paused, and when several recorders read one presented frame.
+//
+// Everything but the fraction is fixed for a committed pair, which a display
+// faster than the tick presents several times: which subject continues which,
+// the walk history, and which subjects moved at all. So the pair is matched
+// once (preparePair), the blended copies start as the current tick's views,
+// and each presented frame re-blends only the subjects that moved. A subject
+// that did not move blends to its current view at every fraction, so it keeps
+// the copy (§13.5).
 type interpolator struct {
 	walkState
 	blendKey    blendInputs
@@ -400,6 +408,15 @@ type interpolator struct {
 	projAt   map[uint64]int32
 	effectAt map[effectKey]int32
 
+	// pairKey names the committed pair the moving lists were matched for: the
+	// blend key with a zero fraction. Each list entry pairs a current view's
+	// index with its previous view's.
+	pairKey          blendInputs
+	pairValid        bool
+	movingUnits      []movingUnit
+	movingProjectile []blendMatch
+	movingEffects    []blendMatch
+
 	// each, when set, runs the unit blend over the recorder's §13.9 pool
 	// (presentationFrame); blendPrev, blendCur and blendF16 are the pair the
 	// running blend reads, and blendRangeFn the unit range method, bound once
@@ -410,10 +427,22 @@ type interpolator struct {
 	blendRangeFn        func(lo, hi int)
 }
 
-// Units below parallelBlendFloor blend on the recording goroutine: waking the
-// pool costs more than it saves. A chunk of parallelBlendChunk units keeps the
-// shared cursor's traffic small next to the work. Both are timing thresholds,
-// not behavioural ones: every unit blends from its own two views alone.
+// blendMatch pairs a current view's index with the previous tick's view it
+// continues.
+type blendMatch struct{ cur, prev int32 }
+
+// movingUnit is a blendMatch for a unit, with whether its pieces differ
+// between the two ticks.
+type movingUnit struct {
+	blendMatch
+	pieces bool
+}
+
+// Moving units below parallelBlendFloor blend on the recording goroutine:
+// waking the pool costs more than it saves. A chunk of parallelBlendChunk units
+// keeps the shared cursor's traffic small next to the work. Both are timing
+// thresholds, not behavioural ones: every unit blends from its own two views
+// alone.
 const (
 	parallelBlendFloor = 256
 	parallelBlendChunk = 64
@@ -447,6 +476,11 @@ const snapDistance = numeric.Fixed(64) * numeric.FixedOne
 // Every other field — fog, visibility, selection, orders, events, the HUD
 // readouts and Tick — is the current tick's.
 func (in *interpolator) blend(prev, cur *frame.Frame, f16 int64) *frame.Frame {
+	pair := blendInputs{prev, cur, prev.Tick, cur.Tick, cur.Selection.Composed, 0}
+	if !in.pairValid || in.pairKey != pair {
+		in.preparePair(prev, cur)
+		in.pairKey, in.pairValid = pair, true
+	}
 	in.view = *cur
 	in.view.Units = in.blendUnits(prev, cur, f16)
 	in.view.Projectiles = in.blendProjectiles(prev, cur, f16)
@@ -454,7 +488,16 @@ func (in *interpolator) blend(prev, cur *frame.Frame, f16 int64) *frame.Frame {
 	return &in.view
 }
 
-func (in *interpolator) blendUnits(prev, cur *frame.Frame, f16 int64) []frame.UnitView {
+// preparePair matches a committed pair: it copies the current tick's views
+// into the blended buffers and lists the subjects whose blend differs from
+// their current view at some fraction.
+func (in *interpolator) preparePair(prev, cur *frame.Frame) {
+	in.prepareUnits(prev, cur)
+	in.prepareProjectiles(prev, cur)
+	in.prepareEffects(prev, cur)
+}
+
+func (in *interpolator) prepareUnits(prev, cur *frame.Frame) {
 	in.unitAt = resetIndex(in.unitAt, maxUnitSlot(prev.Units))
 	for i := range prev.Units {
 		if slot := int(prev.Units[i].Slot); slot < len(in.unitAt) {
@@ -462,6 +505,7 @@ func (in *interpolator) blendUnits(prev, cur *frame.Frame, f16 int64) []frame.Un
 		}
 	}
 	in.units = growSlice(in.units, len(cur.Units))
+	copy(in.units, cur.Units)
 	// Every unit's piece buffer slot exists before any unit blends, so a unit
 	// writes only its own two slots and the units may blend in any order, on
 	// any participant.
@@ -469,43 +513,59 @@ func (in *interpolator) blendUnits(prev, cur *frame.Frame, f16 int64) []frame.Un
 		in.pieces = append(in.pieces, nil)
 	}
 	in.prepareWalk(prev, cur)
+	in.movingUnits = in.movingUnits[:0]
+	for i := range cur.Units {
+		u := &cur.Units[i]
+		p := in.previousUnit(prev, u)
+		if p == nil {
+			continue
+		}
+		// Equal lanes blend to themselves, so a unit whose script held still
+		// keeps the current tick's pieces without a copy.
+		pieces := !slices.Equal(p.Pieces, u.Pieces)
+		if in.walkForUnit[i] == nil && !pieces && p.X == u.X && p.Y == u.Y && p.Z == u.Z &&
+			p.Heading == u.Heading && p.Pitch == u.Pitch && p.Bank == u.Bank {
+			continue
+		}
+		in.movingUnits = append(in.movingUnits, movingUnit{blendMatch{int32(i), in.unitAt[u.Slot] - 1}, pieces})
+	}
+}
+
+func (in *interpolator) blendUnits(prev, cur *frame.Frame, f16 int64) []frame.UnitView {
 	in.blendPrev, in.blendCur, in.blendF16 = prev, cur, f16
-	if in.each == nil || len(cur.Units) < parallelBlendFloor {
-		in.blendUnitRange(0, len(cur.Units))
+	if n := len(in.movingUnits); in.each == nil || n < parallelBlendFloor {
+		in.blendUnitRange(0, n)
 	} else {
 		if in.blendRangeFn == nil {
 			in.blendRangeFn = in.blendUnitRange
 		}
-		in.each(len(cur.Units), parallelBlendChunk, in.blendRangeFn)
+		in.each(n, parallelBlendChunk, in.blendRangeFn)
 	}
 	in.blendPrev, in.blendCur = nil, nil
 	return in.units
 }
 
-// blendUnitRange blends units [lo, hi) of the pair blendUnits installed.
+// blendUnitRange blends moving units [lo, hi) of the pair blendUnits
+// installed.
 func (in *interpolator) blendUnitRange(lo, hi int) {
 	prev, cur, f16 := in.blendPrev, in.blendCur, in.blendF16
-	for i := lo; i < hi; i++ {
-		// Blend in place: a unit view is a few hundred bytes, and a frame
-		// blends every unit.
+	for _, m := range in.movingUnits[lo:hi] {
+		i := m.cur
+		// Blend in place: a unit view is a few hundred bytes.
 		u := &in.units[i]
 		*u = cur.Units[i]
-		p := in.previousUnit(prev, u)
-		if p != nil {
-			u.X = lerpFixed(p.X, u.X, f16)
-			u.Y = lerpFixed(p.Y, u.Y, f16)
-			u.Z = lerpFixed(p.Z, u.Z, f16)
-			u.Heading = lerpAngle(p.Heading, u.Heading, f16)
-			u.Pitch = lerpAngle(p.Pitch, u.Pitch, f16)
-			u.Bank = lerpAngle(p.Bank, u.Bank, f16)
-			if h := in.walkForUnit[i]; h != nil {
-				in.pieces[i] = h.pose.Blend(in.pieces[i], p.Pieces, u.Pieces, cur.Tick, f16)
-				u.Pieces = in.pieces[i]
-			} else if !slices.Equal(p.Pieces, u.Pieces) {
-				// Equal lanes blend to themselves, so a unit whose script held
-				// still keeps the current tick's pieces without a copy.
-				u.Pieces = in.blendPieces(i, p.Pieces, u.Pieces, f16)
-			}
+		p := &prev.Units[m.prev]
+		u.X = lerpFixed(p.X, u.X, f16)
+		u.Y = lerpFixed(p.Y, u.Y, f16)
+		u.Z = lerpFixed(p.Z, u.Z, f16)
+		u.Heading = lerpAngle(p.Heading, u.Heading, f16)
+		u.Pitch = lerpAngle(p.Pitch, u.Pitch, f16)
+		u.Bank = lerpAngle(p.Bank, u.Bank, f16)
+		if h := in.walkForUnit[i]; h != nil {
+			in.pieces[i] = h.pose.Blend(in.pieces[i], p.Pieces, u.Pieces, cur.Tick, f16)
+			u.Pieces = in.pieces[i]
+		} else if m.pieces {
+			u.Pieces = in.blendPieces(int(i), p.Pieces, u.Pieces, f16)
 		}
 	}
 }
@@ -581,7 +641,7 @@ func (in *interpolator) blendPieces(unit int, prev, cur []frame.PieceView, f16 i
 	return buf
 }
 
-func (in *interpolator) blendProjectiles(prev, cur *frame.Frame, f16 int64) []frame.ProjectileView {
+func (in *interpolator) prepareProjectiles(prev, cur *frame.Frame) {
 	if in.projAt == nil {
 		in.projAt = make(map[uint64]int32, len(prev.Projectiles))
 	} else {
@@ -593,36 +653,46 @@ func (in *interpolator) blendProjectiles(prev, cur *frame.Frame, f16 int64) []fr
 		}
 	}
 	in.projectiles = growSlice(in.projectiles, len(cur.Projectiles))
+	copy(in.projectiles, cur.Projectiles)
+	in.movingProjectile = in.movingProjectile[:0]
 	for i := range cur.Projectiles {
-		v := cur.Projectiles[i]
+		v := &cur.Projectiles[i]
 		// A nonzero admission identity stays with a projectile when the packed
 		// pool compacts. A zero fixture identity never borrows history: a handle
 		// is a packed-array position, not a subject identity [06 §5.1][§5.2].
 		if prior := in.projAt[v.PresentationID]; v.PresentationID != 0 && prior != 0 {
 			p := &prev.Projectiles[prior-1]
 			if p.WeaponID == v.WeaponID && p.Shooter == v.Shooter && p.CreationTick == v.CreationTick {
-				v.X = lerpFixed(p.X, v.X, f16)
-				v.Y = lerpFixed(p.Y, v.Y, f16)
-				v.Z = lerpFixed(p.Z, v.Z, f16)
-				v.StartX = lerpFixed(p.StartX, v.StartX, f16)
-				v.StartY = lerpFixed(p.StartY, v.StartY, f16)
-				v.StartZ = lerpFixed(p.StartZ, v.StartZ, f16)
-				v.TailX = lerpFixed(p.TailX, v.TailX, f16)
-				v.TailY = lerpFixed(p.TailY, v.TailY, f16)
-				v.TailZ = lerpFixed(p.TailZ, v.TailZ, f16)
-				v.Yaw = lerpAngle(p.Yaw, v.Yaw, f16)
-				v.Pitch = lerpAngle(p.Pitch, v.Pitch, f16)
-				v.Roll = lerpAngle(p.Roll, v.Roll, f16)
-				v.PropellerRoll = lerpAngle(p.PropellerRoll, v.PropellerRoll, f16)
-				v.MeteorPitch = lerpAngle(p.MeteorPitch, v.MeteorPitch, f16)
+				in.movingProjectile = append(in.movingProjectile, blendMatch{int32(i), prior - 1})
 			}
 		}
-		in.projectiles[i] = v
+	}
+}
+
+func (in *interpolator) blendProjectiles(prev, cur *frame.Frame, f16 int64) []frame.ProjectileView {
+	for _, m := range in.movingProjectile {
+		v := cur.Projectiles[m.cur]
+		p := &prev.Projectiles[m.prev]
+		v.X = lerpFixed(p.X, v.X, f16)
+		v.Y = lerpFixed(p.Y, v.Y, f16)
+		v.Z = lerpFixed(p.Z, v.Z, f16)
+		v.StartX = lerpFixed(p.StartX, v.StartX, f16)
+		v.StartY = lerpFixed(p.StartY, v.StartY, f16)
+		v.StartZ = lerpFixed(p.StartZ, v.StartZ, f16)
+		v.TailX = lerpFixed(p.TailX, v.TailX, f16)
+		v.TailY = lerpFixed(p.TailY, v.TailY, f16)
+		v.TailZ = lerpFixed(p.TailZ, v.TailZ, f16)
+		v.Yaw = lerpAngle(p.Yaw, v.Yaw, f16)
+		v.Pitch = lerpAngle(p.Pitch, v.Pitch, f16)
+		v.Roll = lerpAngle(p.Roll, v.Roll, f16)
+		v.PropellerRoll = lerpAngle(p.PropellerRoll, v.PropellerRoll, f16)
+		v.MeteorPitch = lerpAngle(p.MeteorPitch, v.MeteorPitch, f16)
+		in.projectiles[m.cur] = v
 	}
 	return in.projectiles
 }
 
-func (in *interpolator) blendEffects(prev, cur *frame.Frame, f16 int64) []frame.EffectView {
+func (in *interpolator) prepareEffects(prev, cur *frame.Frame) {
 	if in.effectAt == nil {
 		in.effectAt = make(map[effectKey]int32, len(prev.Effects))
 	}
@@ -631,17 +701,28 @@ func (in *interpolator) blendEffects(prev, cur *frame.Frame, f16 int64) []frame.
 		in.effectAt[keyForEffect(prev.Effects[i])] = int32(i) + 1
 	}
 	in.effects = growSlice(in.effects, len(cur.Effects))
+	copy(in.effects, cur.Effects)
+	in.movingEffects = in.movingEffects[:0]
 	for i := range cur.Effects {
-		e := cur.Effects[i]
+		e := &cur.Effects[i]
 		// Only the position blends: sprite and animation cursors, the flash
-		// tables and the strip assignment are the current tick's (§13.5).
-		if at := in.effectAt[keyForEffect(e)]; at != 0 {
-			p := &prev.Effects[at-1]
-			e.X = lerpFixed(p.X, e.X, f16)
-			e.Y = lerpFixed(p.Y, e.Y, f16)
-			e.Z = lerpFixed(p.Z, e.Z, f16)
+		// tables and the strip assignment are the current tick's (§13.5). An
+		// effect that stood still keeps its current position.
+		if at := in.effectAt[keyForEffect(*e)]; at != 0 {
+			if p := &prev.Effects[at-1]; p.X != e.X || p.Y != e.Y || p.Z != e.Z {
+				in.movingEffects = append(in.movingEffects, blendMatch{int32(i), at - 1})
+			}
 		}
-		in.effects[i] = e
+	}
+}
+
+func (in *interpolator) blendEffects(prev, cur *frame.Frame, f16 int64) []frame.EffectView {
+	for _, m := range in.movingEffects {
+		e := &in.effects[m.cur]
+		p, c := &prev.Effects[m.prev], &cur.Effects[m.cur]
+		e.X = lerpFixed(p.X, c.X, f16)
+		e.Y = lerpFixed(p.Y, c.Y, f16)
+		e.Z = lerpFixed(p.Z, c.Z, f16)
 	}
 	return in.effects
 }
