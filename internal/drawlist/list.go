@@ -76,6 +76,46 @@ func (k SpriteLightingKind) Emitter() bool {
 		k == SpriteLightingProjectile || k == SpriteLightingSpark
 }
 
+// The farthest an executor lets an emitter light the world, and an explosion's
+// blast ring distort it, from the source's anchor, in world pixels at the
+// native record step (docs/DESIGN_GPU_RENDERER.md §13.9 "The view bound", §25,
+// §31). The recorder drops a world effect whose pixels, reflection and reach
+// all miss the record extent, so an executor must keep its reaches within
+// these; a test in the GPU executor locks its own against them.
+const (
+	ExplosionLightReach  = 288
+	FireLightReach       = 160
+	ProjectileLightReach = 96
+	SparkLightReach      = 56
+	StrokeLightReach     = 160
+	// A blast ring reaches its outer radius plus its width, and the width grows
+	// with the explosion's authored size.
+	BlastRingReach        = 330
+	BlastRingReachPerSize = 0.12
+	// A nanolathe particle's glow pads its two-by-two mark on every side.
+	NanoGlowPad = 2
+)
+
+// Reach is how far, in recording pixels, an executor lets this sprite light or
+// distort the world beyond its anchor: zero for a sprite that is no emitter.
+func (sp *Sprite) Reach() float32 {
+	scale := sp.LightingScale
+	if scale <= 0 {
+		scale = 1
+	}
+	switch sp.LightingKind {
+	case SpriteLightingExplosion:
+		return max(ExplosionLightReach, BlastRingReach+BlastRingReachPerSize*max(sp.BlastSize, 0)) * scale
+	case SpriteLightingFire:
+		return FireLightReach * scale
+	case SpriteLightingProjectile:
+		return ProjectileLightReach * scale
+	case SpriteLightingSpark:
+		return SparkLightReach * scale
+	}
+	return 0
+}
+
 // Sprite records one GAF-frame blit (docs/DESIGN_GPU_RENDERER.md §2.1). The
 // frame reference is immutable after load; every carried byte is physical
 // [C-G2].
@@ -318,6 +358,20 @@ type Line struct {
 	// light from (§31); classic ignores both. LightingScale is recording pixels
 	// per world pixel, as on Sprite.
 	WorldHeight0, WorldHeight1, LightingScale float32
+}
+
+// Reach is how far, in recording pixels, an executor lets this line light the
+// world beyond its own extent: an emissive stroke is a light source, and its
+// glow quad is narrower than its light (docs/DESIGN_GPU_RENDERER.md §13.9, §31).
+func (l *Line) Reach() float32 {
+	if !l.Emissive {
+		return 0
+	}
+	scale := l.LightingScale
+	if scale <= 0 {
+		scale = 1
+	}
+	return StrokeLightReach * scale
 }
 
 // Point is one packed (x, y, operand) triple. The Index field is a physical

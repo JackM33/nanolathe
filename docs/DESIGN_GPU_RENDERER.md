@@ -2198,6 +2198,40 @@ frame moves 187 pixels by atlas repacking alone (§22), because the lane no
 longer places the off-screen reflecting and airborne subjects its own skip
 keeps.
 
+**Effects, strips and projectiles.** The effect, strip and projectile passes
+walk every published record wherever it is, as retail's composer did [03 §1].
+In a spread-out battle most of the thousands of smoke puffs and hundreds of
+explosions lie far from the camera, and each still became a command the
+executor fetched art for, tested against the battle's lights and clipped away.
+Each producer still builds its complete record, and emits it only when
+something an executor builds from it can reach the record extent
+(`internal/client/effect_view_cull.go`). Three things can reach it:
+
+* the frame at its anchor, a composite by the union of its leaves;
+* a keyed billboard's water reflection: the frame's box flipped about the
+  anchor and moved down by its height above the sea;
+* an emitter's reach: the battle light every executor gathers from an
+  explosion, fire, spark or projectile body, and an explosion's blast ring.
+  `drawlist.Sprite.Reach` and `drawlist.Line.Reach` state it, and a GPU
+  executor test holds that executor's radii within it.
+
+A glow never leaves its source's clipped box. The one exception is a
+nanolathe particle's two-pixel pad, which the fill test includes. The light
+gather already rejects a source whose reach misses the same extent (§31.2),
+so no dropped record ever held a light budget slot.
+
+Two other records skip their work the same way:
+
+* lit-ground halos and the point lane's calculated flash disc skip their
+  per-pixel walk when their disc box misses the extent;
+* a projectile model is tested with the unit box above at its own point. Its
+  standalone piece and its header child draw untranslated about that point,
+  so the model's reach bounds both.
+
+Counters are unchanged: a dropped record counts as drawn, as it would have
+when the executor's clip removed it. Debris and fragment pieces and lens
+projectiles already pass retail's origin and viewport gates.
+
 ### 13.10 The record/submit pipeline
 
 Ebitengine runs Update and Draw on the game goroutine and encodes to the device

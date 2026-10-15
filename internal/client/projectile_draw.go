@@ -122,7 +122,11 @@ func (c *Client) DrawProjectileViews(current []frame.ProjectileView, now uint32,
 			sprite.LightingScale = scale
 			sprite.ReflectWater = c.reflectionWaterAt(view.X, view.Z)
 			sprite.ReflectionHeight = c.reflectionHeight(view.Y)
-			c.emitSprite(sprite)
+			// A body nothing of which reaches the view is one the executor
+			// would clip away whole (effect_view_cull.go).
+			if !c.effectSpriteOutsideView(&sprite) {
+				c.emitSprite(sprite)
+			}
 			stats.Sprites++
 		}
 	}
@@ -152,8 +156,13 @@ func (c *Client) drawProjectileShadow(shadow *formats.GAFFrame, v frame.Projecti
 	floor := numeric.Fixed(int64(v.FloorHeight) << 16)
 	sx, sy := c.cam.WorldToScreen(v.X, floor, v.Z)
 	// The ground shadow is a plain keyed frame-anchor blit [03 §5.4]; Anchored
-	// selects the offset-subtracting placement (WU-1.7b).
-	c.emitSprite(drawlist.Sprite{Frame: c.viewFrame(shadow), X: sx - camera.OriginX, Y: sy - camera.OriginY, Kind: drawlist.BlitKeyed, Anchored: true})
+	// selects the offset-subtracting placement (WU-1.7b). One wholly outside
+	// the view is clipped away here rather than by the executor
+	// (effect_view_cull.go).
+	sprite := drawlist.Sprite{Frame: c.viewFrame(shadow), X: sx - camera.OriginX, Y: sy - camera.OriginY, Kind: drawlist.BlitKeyed, Anchored: true}
+	if !c.effectSpriteOutsideView(&sprite) {
+		c.emitSprite(sprite)
+	}
 	return true
 }
 
@@ -210,7 +219,7 @@ func (c *Client) drawProjectileBeam(d render.ProjectileDraw, v frame.ProjectileV
 		line := drawlist.Line{X0: stroke.X0, Y0: stroke.Y0, X1: stroke.X1, Y1: stroke.Y1, Index: c.paletteIndex(indexedColor(stroke.Color)), Emissive: true}
 		c.setLineHeights(&line, head.Y, tail.Y)
 		c.setLineReflection(&line, head, tail)
-		c.emitLine(line)
+		c.emitViewLine(line)
 	}
 	return len(strokes)
 }
@@ -247,7 +256,7 @@ func (c *Client) drawProjectileSegmentTrail(segments []render.ProjectilePoint, c
 		line := drawlist.Line{X0: ax - 128, Y0: ay - 32, X1: bx - 128, Y1: by - 32, Index: c.paletteIndex(indexedColor(color)), Emissive: true}
 		c.setLineHeights(&line, a.Y, b.Y)
 		c.setLineReflection(&line, a, b)
-		c.emitLine(line)
+		c.emitViewLine(line)
 		count++
 	}
 	return count

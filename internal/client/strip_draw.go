@@ -141,11 +141,16 @@ func (c *Client) drawStripViews(cur *frame.Frame, views []frame.StripView) Strip
 			side := c.viewScale().Px(stripParticleSize)
 			rw, rh := c.recordExtent()
 			index, team := c.nanoParticleColor(v)
+			rect := drawlist.Rect{X: sx - camera.OriginX, Y: sy - camera.OriginY, W: side, H: side}
+			// A mark whose glow pad lies outside the record extent fills and
+			// glows nothing, and the nano light gather admits only marks inside
+			// it (effect_view_cull.go).
+			if pad := c.viewScale().Px(drawlist.NanoGlowPad) + 1; c.recordBoxOutside(rect.X-pad, rect.Y-pad, rect.X+rect.W+pad, rect.Y+rect.H+pad) {
+				stats.Filled++
+				continue
+			}
 			c.emitFill(drawlist.Fill{
-				Rect: drawlist.Rect{
-					X: sx - camera.OriginX, Y: sy - camera.OriginY,
-					W: side, H: side,
-				},
+				Rect:          rect,
 				Index:         index,
 				NanoTeam:      team,
 				Style:         drawlist.FillSolid,
@@ -217,7 +222,7 @@ func (c *Client) blitStripFrame(v frame.StripView) bool {
 	// returned bool mirrors tintedBlitAnchor's own gate (ALP table and surface
 	// present): a resolved identity that could run counts Blitted even when every
 	// pixel clipped away, and only a missing table counts Unresolved.
-	c.emitSprite(drawlist.Sprite{
+	sprite := drawlist.Sprite{
 		// The strip frame's 2x variant in the detail view; the tinted blitter
 		// places by the anchor, and the variant's authored offsets are already
 		// doubled (DESIGN_GPU_RENDERER §14.2, §14.3).
@@ -235,7 +240,12 @@ func (c *Client) blitStripFrame(v frame.StripView) bool {
 		WorldHeight:     float32(v.Y.Raw()) / 65536 * scale,
 		LightingGround:  lightingGround,
 		LightingScale:   scale,
-	})
+	}
+	// A puff nothing of which reaches the view is one the executor would clip
+	// away whole, so it still counts as blitted (effect_view_cull.go).
+	if !c.effectSpriteOutsideView(&sprite) {
+		c.emitSprite(sprite)
+	}
 	return c.pal != nil && len(c.indexed) != 0
 }
 

@@ -54,7 +54,7 @@ func (r *Renderer) glowHaloPacket(x0, y0, x1, y1 int, high, lx0, ly0, lx1, ly1, 
 	return q
 }
 func (r *Renderer) glowNanoPacket(f drawlist.Fill) glowPacket {
-	pad := 2 * nanoScale(f)
+	pad := drawlist.NanoGlowPad * nanoScale(f)
 	s := &r.sched
 	return glowRect(s.txx(max(float32(f.Rect.X)-pad, 0)), s.txy(max(float32(f.Rect.Y)-pad, 0)), s.txx(min(float32(f.Rect.X+f.Rect.W)+pad, float32(r.clipW()))), s.txy(min(float32(f.Rect.Y+f.Rect.H)+pad, float32(r.clipH()))), 0, 0, 0, 0, [4]float32{float32(f.Index), nanoGlowGain * glowGain * r.nanoFamilyScale(), 0, 0}, [4]float32{})
 }

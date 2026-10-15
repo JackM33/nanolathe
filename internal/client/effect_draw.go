@@ -321,11 +321,16 @@ func (c *Client) DrawEffectViews(effects []frame.EffectView, options EffectDrawO
 		// impact throws its upper half back into the sea. reflectionWaterAt
 		// already returns false when the water reflections switch is off
 		// (§30).
-		c.emitSprite(drawlist.Sprite{Frame: c.viewFrame(frame), X: x - 128, Y: y - 32, Kind: drawlist.BlitKeyed, Anchored: true, Emissive: true,
+		sprite := drawlist.Sprite{Frame: c.viewFrame(frame), X: x - 128, Y: y - 32, Kind: drawlist.BlitKeyed, Anchored: true, Emissive: true,
 			BlastAge: blastAge, BlastSize: blastSize,
 			HasBlastProfile: view.HasBlastProfile, BlastAreaOfEffect: view.BlastAreaOfEffect, BlastDamage: view.BlastDamage,
 			ReflectWater: c.reflectionWaterAt(d.X, d.Z), ReflectionHeight: c.reflectionHeight(d.Y),
-			LightingKind: lightingKind, LightingSize: lightingSize, LightingAge: lightingAge, HasLightingAge: hasLightingAge, WorldHeight: float32(d.Y.Raw()) / 65536 * scale, LightingGround: effectLightingGround, LightingScale: scale})
+			LightingKind: lightingKind, LightingSize: lightingSize, LightingAge: lightingAge, HasLightingAge: hasLightingAge, WorldHeight: float32(d.Y.Raw()) / 65536 * scale, LightingGround: effectLightingGround, LightingScale: scale}
+		// An effect nothing of which reaches the view is one the executor
+		// would clip away whole (effect_view_cull.go).
+		if !c.effectSpriteOutsideView(&sprite) {
+			c.emitSprite(sprite)
+		}
 		stats.Sprites++
 	}
 	return stats
@@ -409,6 +414,11 @@ func (c *Client) drawLHTHalo(cx, cy, radius, level int, terrainCoverage func(x, 
 	row := level
 	if row > 31 {
 		row = 31
+	}
+	// A disc wholly outside the record extent lights no pixel on either lane
+	// (effect_view_cull.go).
+	if c.recordBoxOutside(int32(cx-radius), int32(cy-radius), int32(cx+radius+1), int32(cy+radius+1)) {
+		return
 	}
 	if c.recordModelGeometry {
 		c.emitHalo(drawlist.Halo{
