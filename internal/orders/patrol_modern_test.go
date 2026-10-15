@@ -229,7 +229,7 @@ func TestModernPatrolRecoveryReplacementAndStrictBypass(t *testing.T) {
 	}
 }
 
-func TestModernPatrolSuccessfulWorkReturnsBeforeBorrowing(t *testing.T) {
+func TestModernPatrolSuccessfulWorkContinuesPendingLeg(t *testing.T) {
 	for _, air := range []bool{false, true} {
 		t.Run(fmt.Sprintf("air%v", air), func(t *testing.T) {
 			f := newModernWorkFixture(air)
@@ -239,18 +239,123 @@ func TestModernPatrolSuccessfulWorkReturnsBeforeBorrowing(t *testing.T) {
 			if air {
 				id = rowVTOLHelpBuild
 			}
-			f.q.SetOwnedHandler(id, func(*units.Unit, *Node, uint32, uint32) (Code, bool) { target.Remaining = 0; return 5, true })
+			f.q.SetOwnedHandler(id, func(*units.Unit, *Node, uint32, uint32) (Code, bool) {
+				target.Remaining, target.Health = 0, target.Def.MaxDamage
+				return 5, true
+			})
 			f.q.Pump(f.u, 100)
-			back := f.q.Head()
-			if !back.IsPatrolReturn() || f.q.PatrolWorkPaused() {
-				t.Fatal("successful work did not enter unpaused saved return")
+			if f.q.Head() != f.patrol || f.q.PatrolWorkPaused() || len(f.q.primary) != 3 {
+				t.Fatal("successful work did not resume the pending patrol leg without returning")
 			}
-			scans := f.scans
-			f.q.Pump(f.u, 200)
-			if f.q.Head() != back || f.scans != scans {
-				t.Fatal("borrowed from the side-job location before return arrival")
+			if f.q.primary[1] != f.next || f.q.primary[2] != f.successor {
+				t.Fatal("successful work changed the remaining route")
 			}
 		})
+	}
+}
+
+// Issue #122: three nearby jobs must not install a backward return between
+// contributions, and finishing them must not rotate a three-waypoint route.
+func TestModernPatrolConsecutiveJobsKeepWaypointOrder(t *testing.T) {
+	for _, air := range []bool{false, true} {
+		for stance := uint32(0); stance < 3; stance++ {
+			t.Run(fmt.Sprintf("air%v/stance%d", air, stance), func(t *testing.T) {
+				f := newModernWorkFixture(air)
+				f.u.Flags = f.u.Flags&^(stanceFieldMask<<stanceMoveShift) | stance<<stanceMoveShift
+				f.next.GoalX = numeric.FixedFromInt(1000)
+				f.successor.ID, f.successor.Phase = f.patrol.ID, 1
+				f.successor.GoalX, f.successor.GoalZ = 0, 0
+				for i := 0; i < 3; i++ {
+					f.units = append(f.units, modernPatient(pool.Handle(i+2), int32(200+i*100), 0, true))
+				}
+				var goals []*Node
+				f.q.binding.Movement = NewMovementGoalAdapter(MovementGoalAdapterConfig{
+					InstallPoint: func(req PointGoalRequest) bool { goals = append(goals, req.Node); return true },
+					InstallAir:   func(req AirGoalRequest) bool { goals = append(goals, req.Node); return true },
+				})
+				id := rowHelpBuild
+				if air {
+					id = rowVTOLHelpBuild
+				}
+				completed := 0
+				f.q.SetOwnedHandler(id, func(_ *units.Unit, n *Node, _ uint32, _ uint32) (Code, bool) {
+					target := f.units[completed]
+					if n.Target != target.Handle || n.workReturn.GoalX != f.u.X {
+						t.Fatal("next job lost distance ordering or its new acquisition anchor")
+					}
+					// Stand in for paid work and its approach; stock session fixtures
+					// below exercise those executors and actual onward movement.
+					f.u.X = target.X
+					target.Remaining, target.Health = 0, target.Def.MaxDamage
+					completed++
+					return 5, true
+				})
+				random, resources := f.sim, f.resources
+				f.q.Pump(f.u, 100)
+				if completed != 3 || f.q.Head() != f.patrol || len(f.q.primary) != 3 || f.sim != random || f.resources != resources {
+					t.Fatal("successful chain failed to retain pending waypoint without extra RNG/resources")
+				}
+				for _, n := range goals {
+					if n != f.patrol {
+						t.Fatal("job chain installed a return or later waypoint before pending waypoint arrival")
+					}
+				}
+				for i, want := range []*Node{f.next, f.successor, f.patrol} {
+					head := f.q.Head()
+					f.u.X, f.u.Z = head.GoalX, head.GoalZ
+					head.Satisfied = gateArrived
+					f.q.Pump(f.u, uint32(101+i))
+					if f.q.Head() != want || goals[len(goals)-1] != want {
+						t.Fatal("job chain changed subsequent waypoint rotation")
+					}
+				}
+			})
+		}
+	}
+}
+
+func TestPatrolSuccessfulWorkRemovalRequiresModernProvenance(t *testing.T) {
+	for _, air := range []bool{false, true} {
+		for _, kind := range []string{"build", "repair", "reclaim"} {
+			for _, rules := range []Rules{StrictRules{}, &CommunityRules{}, &ModernRules{}} {
+				for _, proven := range []bool{false, true} {
+					t.Run(fmt.Sprintf("air%v/%s/%T/proven%v", air, kind, rules, proven), func(t *testing.T) {
+						f := newModernWorkFixture(air)
+						target := modernPatient(2, 32, 0, true)
+						f.units = []*units.Unit{target}
+						f.visit(100)
+						work, back := f.q.Head(), f.q.primary[1]
+						target.Remaining, target.Health = 0, target.Def.MaxDamage
+						if kind == "repair" {
+							work.ID = rowRepairUnit
+							if air {
+								work.ID = rowVTOLRepairUnit
+							}
+						} else if kind == "reclaim" {
+							work.ID, work.Phase = Lookup("Reclaim"), 5
+							if air {
+								work.ID, work.Phase = Lookup("VTOL_Reclaim"), 4
+							}
+						}
+						if !proven {
+							work.workAssignment = nil
+						}
+						f.q.binding.Rules = rules
+						random, resources := f.sim, f.resources
+						if code := rules.AutomaticWorkResult(f.u, work, 0, 5, 101); code != 5 {
+							t.Fatalf("successful work changed result to %d", code)
+						}
+						_, modern := rules.(*ModernRules)
+						if removed := f.q.indexOfPrimary(back) < 0; removed != (modern && proven) {
+							t.Fatal("return removal crossed the mode/provenance boundary")
+						}
+						if f.sim != random || f.resources != resources || f.q.PatrolWorkPaused() {
+							t.Fatal("successful outcome changed RNG, resources or failure pause")
+						}
+					})
+				}
+			}
+		}
 	}
 }
 

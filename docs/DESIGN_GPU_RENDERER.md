@@ -5082,8 +5082,18 @@ a Modern drag suppresses it. Shift retains its normal selection and queue input.
 weapon-ring helper. It supplies the established tick-parity GUI colour, the
 `weapon1 range` through `weapon3 range` labels, terrain-following chord walk,
 field narrowing and label placement [07 R-P0-11 §3]. The existing malformed-radius
-bounds guards apply. Runtime enabled-bit quirks stay with the live queue branch;
-a prospective product supplies its active authored slots independently.
+bounds guards apply, including the endpoint-domain rejection: an endpoint whose
+dword coordinate addition leaves the signed 32-bit domain is dropped instead of
+drawn, because the wrapped chord spans tens of thousands of screen pixels and
+the clipped line drawer paints it across the viewport. Stock strategic weapons
+reach it on ordinary maps — the anti-nuke's authored 32000 range wraps around
+any site more than ~768 map pixels from the origin — so both the placement guide
+and the Shift weapon branch depend on the rejection. It is a host bound (I11
+bounds rejection) like the chord-count caps: every ring whose endpoints fit the
+domain is unchanged. Labels retain their preferred endpoint and final-endpoint
+fallback; when neither supplies a valid anchor, the label is omitted rather than
+placed at the viewport origin. Runtime enabled-bit quirks stay with the live queue
+branch; a prospective product supplies its active authored slots independently.
 
 The placement adapter appends these primitives to `drawQueueOverlay`, using its
 projection, palette lookup, FNT labels and integer line rasterizer inside the
@@ -5102,7 +5112,8 @@ both tick parities and uneven terrain, preserving slot labels even for equal
 radii. Adapter tests cover the snapped invalid site, active-slot admission,
 interceptor range, the per-mod default and explicit-command override, focus,
 Classic, pointer bounds, disarming and drag suppression. Existing queue-overlay
-tests own the chord-count arithmetic, terrain lift, label position and bounds.
+tests own the chord-count arithmetic, terrain lift, label position, bounds and
+the endpoint-domain rejection.
 
 `--shot-build <name>` captures placement; `--shot-shift --shot-select` with a
 profile setting `presentation.show_ranges` true captures the ordinary queue

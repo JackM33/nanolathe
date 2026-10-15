@@ -624,7 +624,18 @@ failure results, and Strict returns every result unchanged. This policy adds no
 general kiting controller.
 
 Only when no effective response is available does a mobile unit consider
-withdrawal. It evaluates eight fixed directions at 64, 32 and 16 world units,
+withdrawal. A combat aircraft running `VTOL_Patrol` keeps its current route
+instead (issue 121): the short withdrawal's `VTOL_Move` brakes to a nearby
+endpoint and inhibits its weapon slots, producing repeated stops under fire.
+Anonymous hits and visible attackers it cannot answer therefore leave the
+patrol record, marker and queued waypoints intact. A suitable visible attacker
+still receives the ordinary counterattack above. Constructor repair patrol,
+idle aircraft and ground assignments keep their withdrawal policy. This is a
+Nanolathe Modern policy refinement; Strict and Community keep retail behavior.
+`air_patrol_danger_test.go` locks repeated anonymous/unanswerable hits, the
+retained route, visible counterattack, unchanged RNG and Strict bypass.
+
+Withdrawal evaluates eight fixed directions at 64, 32 and 16 world units,
 with diagonal components 45, 22 and 11 respectively, maximizing minimum separation from all
 remembered threat positions. Ties retain traversal order, and a candidate must
 strictly improve that minimum. All candidates first use the movement-owned
@@ -1087,7 +1098,9 @@ the original row finishes.
 ### Modern patrol work
 
 **Nanolathe Modern policy — user-authorized 2026-10-08, issue #98, refined
-2026-10-09 after the constructor patrol audit below.** While actually
+2026-10-09 after the constructor patrol audit below, with successful-work
+continuation refined by the maintainer's 2026-10-14 request to fix
+[issue #122](https://github.com/nanolathe-gg/nanolathe/issues/122).** While actually
 patrolling, a mobile constructor considers eligible units and authored
 automatic-reclaim features within or on its current authored sight circle.
 There is no route-line, waypoint-proximity or extra LOS/radar veto. This
@@ -1115,12 +1128,22 @@ interruption.
 
 A borrowed patrol job saves the acquisition XYZ and prepends ordinary queue
 rows in this order: work, saved-position return move, then the exact retained
-patrol and all successors. Ground and air do this in every stance. No patrol
-scan runs from the side-job location. During work, the target must remain within
-or on the authored sight circle anchored at that saved position. Successful work
-returns before normal patrol scanning resumes. Modern arrival-place assignment
-and exchange do not change a proven return's saved destination; settling
-elsewhere cannot establish that the helper returned.
+patrol and all successors. Ground and air do this in every stance. During work,
+the target must remain within or on the authored sight circle anchored at that
+saved position. On successful construction, repair or reclaim, remove only that
+job's proven return move and immediately resume the exact pending patrol leg
+from the job site. Its normal scan may acquire another nearby job there; a new
+job gets its own acquisition anchor. No completed job sends the helper back to
+its acquisition position or rotates the pending waypoint. Thus A → work → B
+and A → work 1 → work 2 → B retain the original route direction. The result
+hook adds no RNG draw or resource transaction; ordinary subsequent work retains
+its own effects. This supersedes the October 9 successful-work return policy,
+which caused the backtracking reported in issue #122.
+
+The saved move remains the pursuit anchor and failure-recovery destination
+until work succeeds. Modern arrival-place assignment and exchange do not change
+a proven recovery return's saved destination; settling elsewhere cannot
+establish that the helper returned.
 
 Invalid targets, abandoned pursuit and ordinary executor failures retain the
 return move and pause borrowing across the whole retained patrol route. Failed
@@ -1155,8 +1178,9 @@ separate save extension, outside this change.
 
 Verification locks inclusive sight/pursuit boundaries, late work during actual
 patrol motion, delivered construction/repair/reclaim and refused payment,
-factory products/gaps, saved choices and resource deficits, return and route
-retention, semantic failure/return failure, danger/rebinding, and Strict/Community
+factory products/gaps, saved choices and resource deficits, onward movement and
+route retention after success, consecutive jobs and multiple waypoints, semantic
+failure/return failure, danger/rebinding, and Strict/Community
 bypass. Ground/air and all stances use stock-unit session fixtures; fine arithmetic
 and state transitions use authored orders/movement fixtures. Both whole-tree
 gates, simulation-cost and applicable movement/path checks are landing gates.
@@ -1304,7 +1328,7 @@ findings; the owning contract above states implementation and state boundaries.
 | Acquisition area | While actually patrolling, consider eligible units and reclaimable features within or on the current authored sight-radius circle. Apply no route-line or waypoint proximity veto and no extra LOS/radar requirement. | Restore the baseline's unit-assistance area and retire Modern's patrol corridor. A sight-radius circle for feature reclaim is an intentional departure from Community's sampled squares. |
 | Priority | Choose unfinished construction first, then damaged units, then reclaim. Within a category choose nearest, with deterministic identity ties. Include a factory's current unfinished product. | Intentional priority, deterministic selection and factory-product extensions. No selection RNG; ordinary executor draws remain. |
 | Resources and execution | Use the baseline executor, including its ordinary eligibility, energy admission, approach, payment and script/effect ordering. Reclaim only when the feature yields a resource below its capacity. A refused payment is not a successful contribution or, by itself, an abandoned job. | Retain Modern's deficit-based reclaim; no percentage commands or new resource ledger. |
-| Completion and return | Save the acquisition position, finish or ordinarily end the borrowed job, return to that position with an ordinary move, then continue the exact retained patrol. Do this for ground and air in every stance. Do not borrow from the side-job location. | Explicit Modern return behavior for every stance; retain every waypoint and successor. After successful work, normal patrol scanning resumes. |
+| Completion and return | Save the acquisition position for pursuit and failure recovery. On successful work, remove its proven recovery move and immediately continue the exact pending patrol leg from the job site, including normal work scanning there. Ground and air do this in every stance. | The maintainer's 2026-10-14 issue #122 fix request supersedes the original successful-work return; every waypoint and successor stays intact. |
 | Failure | If the target becomes invalid, pursuit is abandoned, or the ordinary work executor reports failure, return and pause borrowing across the retained patrol route until genuine arrival at a patrol waypoint. If the return move fails, continue the retained patrol under the same pause. | Intentional bounded recovery: no immediate retry loop, invented timeout or discarded route. Queue rotation, goal release and no-route outcomes do not count as arrival. Replacing the patrol assignment resets the pause. |
 | Moving targets | During a borrowed job, the target must remain within or on the authored sight-radius circle around the saved acquisition position. Leaving that circle abandons the job through the failure rule. Do not validate it against the old route corridor. | A separately defined Modern pursuit limit, shared by selection/provenance validation rather than a wider route constant. |
 | Safety and Guard | Keep the existing low-health pad precedence and danger/quiet-period admission, including protection for construction assistance already in progress. Keep Guard's approved 128-unit ward area. | No safety or Guard changes in this patrol proposal. Danger can still delay acquiring a new unfinished target; that exception is explicit. |
@@ -1312,10 +1336,10 @@ findings; the owning contract above states implementation and state boundaries.
 
 The ordinary saved-position return-move row already exists in the retail issuer
 and is used for this lifecycle in all stances with the approved acquisition
-circle and failed-job pause. Returning to the saved position adds backtracking,
-including in Roam. If no retained waypoint can be reached, failed-job borrowing
-stays paused until the player replaces the assignment. These are explicit
-approved tradeoffs.
+circle and failed-job pause. The 2026-10-14 refinement removes it after success;
+failed work still returns, including in Roam. If no retained waypoint can be
+reached, failed-job borrowing stays paused until the player replaces the
+assignment. These are explicit approved tradeoffs.
 
 Queue provenance, pursuit validation, parity fingerprints and canonical
 checkpoint capture must change together, with stable ordinal/reference links
