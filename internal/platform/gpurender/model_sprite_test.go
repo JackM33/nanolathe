@@ -200,6 +200,102 @@ func TestModelSpritePageKeepsItsShelfOnAMiss(t *testing.T) {
 	}
 }
 
+// The sprite pages lie on as few sheets as the device's largest texture side
+// allows (§16.13 "Storage"): all eight on one sheet from 8192 up, four to a
+// sheet at 4096, and a texture each below that or before the device answers.
+func TestModelSpriteSheetLayout(t *testing.T) {
+	for _, c := range []struct{ side, cols, rows int }{
+		{0, 1, 1}, {2048, 1, 1}, {4096, 2, 2}, {8192, 4, 2}, {16384, 4, 2},
+	} {
+		cols, rows := modelSpriteSheetLayout(c.side)
+		if int(cols) != c.cols || int(rows) != c.rows {
+			t.Errorf("side %d: %d×%d pages to a sheet, want %d×%d", c.side, cols, rows, c.cols, c.rows)
+		}
+	}
+}
+
+// A page's sprites are placed in its own region of its sheet, and a page given
+// up starts over in that region (§16.13 "Storage").
+func TestModelSpritePagesTileTheirSheets(t *testing.T) {
+	skipAfterDeviceLoop(t)
+	for _, side := range []int{8192, 4096} {
+		var s modelSpriteStore
+		s.entries = make(map[modelSpriteKey]modelSprite)
+		s.cols, s.rows = modelSpriteSheetLayout(side)
+		perSheet := s.cols * s.rows
+		// At level one a box this size is one whole page with its pad.
+		box := image.Rect(0, 0, 2*(modelSpritePageSize-2*modelSpritePad), 2*(modelSpritePageSize-2*modelSpritePad))
+		s.frame = 1
+		for i := range int32(modelSpriteMaxPages) {
+			sp, ok := s.alloc(box, 1)
+			if !ok || sp.page != i {
+				t.Fatalf("side %d: sprite %d placed on page %d (ok %v), want a page of its own", side, i, sp.page, ok)
+			}
+			at := i % perSheet
+			if sp.x != at%s.cols*modelSpritePageSize || sp.y != at/s.cols*modelSpritePageSize {
+				t.Fatalf("side %d: page %d's sprite at (%d,%d), want its page's origin", side, i, sp.x, sp.y)
+			}
+			s.ensureSheet(sp.page)
+			if s.pages[i].img != s.sheets[i/perSheet] {
+				t.Fatalf("side %d: page %d is not on sheet %d", side, i, i/perSheet)
+			}
+			if b := s.pages[i].img.Bounds(); b.Dx() != int(s.cols*modelSpritePageSize) || b.Dy() != int(s.rows*modelSpritePageSize) {
+				t.Fatalf("side %d: sheet is %v, want %d×%d pages", side, b, s.cols, s.rows)
+			}
+		}
+		if want := modelSpriteMaxPages / int(perSheet); len(s.sheets) != want {
+			t.Fatalf("side %d: %d sheets, want %d", side, len(s.sheets), want)
+		}
+		s.frame++
+		for i := range s.pages {
+			s.pages[i].used = s.frame
+		}
+		s.pages[5].used = 1
+		sp, ok := s.alloc(box, 1)
+		at := int32(5) % perSheet
+		if !ok || sp.page != 5 || sp.x != at%s.cols*modelSpritePageSize || sp.y != at/s.cols*modelSpritePageSize {
+			t.Fatalf("side %d: after giving up page 5 a sprite went to page %d at (%d,%d), want page 5's origin", side, sp.page, sp.x, sp.y)
+		}
+	}
+}
+
+// Wrecks drawn from sprites on different pages of one sheet share a device
+// run however painter order alternates between the pages; with a texture to
+// each page every alternation ended the run (§16.13 "Storage").
+func TestModelSpritesOnOneSheetShareARun(t *testing.T) {
+	skipAfterDeviceLoop(t)
+	runs := func(side int) int {
+		r := newPlaceRenderer(t)
+		s := &r.modelDirect.sprites
+		s.entries = make(map[modelSpriteKey]modelSprite)
+		s.cols, s.rows = modelSpriteSheetLayout(side)
+		box := image.Rect(0, 0, 2*(modelSpritePageSize-2*modelSpritePad), 2*(modelSpritePageSize-2*modelSpritePad))
+		var on [2]modelSprite
+		for i := range on {
+			sp, ok := s.alloc(box, 1)
+			if !ok {
+				t.Fatal("no room for a page-sized sprite on empty pages")
+			}
+			s.ensureSheet(sp.page)
+			on[i] = modelSprite{page: sp.page, x: sp.x + 1, y: sp.y + 1, w: 18, h: 18, ok: true}
+		}
+		r.sched.resetFrame(640, 480)
+		for i := range 6 {
+			r.commitModelSprite(spriteSubject(int32(10+40*i), 10, 16, 16, 120, uint64(i+1)), on[i%2])
+		}
+		if r.sched.nphase != 1 {
+			t.Fatalf("side %d: six opaque sprites compiled %d phases, want 1", side, r.sched.nphase)
+		}
+		return len(r.sched.phases[0].batch[schedOpaque].runs)
+	}
+	if got := runs(8192); got != 1 {
+		t.Fatalf("sprites alternating between two pages of one sheet compiled %d runs, want 1", got)
+	}
+	if got := runs(2048); got != 6 {
+		t.Fatalf("sprites alternating between two textures compiled %d runs, want 6: the fixture no longer alternates", got)
+	}
+}
+
 // checkModelSpriteDevicePixels draws two offered packets in a world region at a
 // quarter scale (§16.13): the first frame commits them through the lane and
 // bakes them, the second draws them from their sprites. A flat face's interior
