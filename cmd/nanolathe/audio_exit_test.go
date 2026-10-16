@@ -77,6 +77,8 @@ func TestBattleExitFadeSurvivesShellMenuPump(t *testing.T) {
 	}
 	defer fs.Close()
 	s := audio.NewService(fs)
+	// Release the re-entered track, so its file can be removed on Windows.
+	defer s.Close()
 	var now uint32
 	s.Music.SetPresentationClock(func() uint32 { return now })
 	s.ConfigureMusic(false)
