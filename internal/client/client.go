@@ -334,6 +334,8 @@ type Client struct {
 	crtBound     bool
 	frameTick    uint32 // committed tick of the frame being composed
 	worldBuckets worldBuckets
+	// childScratch backs attachedChildren's result.
+	childScratch []frame.UnitView
 	// parallelRecord and recordPool are the two-stage unit record of
 	// docs/DESIGN_GPU_RENDERER.md §13.9. The pool is created on the first
 	// modern frame that would use it and parked between frames; the flag is the

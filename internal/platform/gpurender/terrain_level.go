@@ -116,18 +116,14 @@ func (r *Renderer) terrainLevel(c drawlist.Terrain, dstW, dstH int) bool {
 // draws from a level does.
 func (r *Renderer) terrainLevelSet(t *world.Terrain, tilesW, tilesH int, need bool) *terrainLevelSet {
 	s := &r.terrainLevels
-	pal := r.displayPalette
-	if s.terrain == t && s.palette == pal && (s.ready || s.failed) {
+	if s.terrain == t && s.palette == r.displayPalette && (s.ready || s.failed) {
 		if s.failed {
 			return nil
 		}
 		return s
 	}
-	if s.pending == nil || s.pendingTerrain != t || s.pendingPalette != pal {
-		maxSide := terrainAtlasMaxSide()
-		ch := make(chan terrainLevelBuild, 1)
-		s.pending, s.pendingTerrain, s.pendingPalette = ch, t, pal
-		go func() { ch <- buildTerrainLevels(t, tilesW, tilesH, pal, maxSide) }()
+	if s.pending == nil || s.pendingTerrain != t || s.pendingPalette != r.displayPalette {
+		r.startTerrainLevels(t, tilesW, tilesH)
 	}
 	var b terrainLevelBuild
 	if need {
@@ -140,11 +136,25 @@ func (r *Renderer) terrainLevelSet(t *world.Terrain, tilesW, tilesH int, need bo
 		}
 	}
 	s.pending = nil
-	r.installTerrainLevels(t, pal, tilesW, tilesH, b)
+	r.installTerrainLevels(t, s.pendingPalette, tilesW, tilesH, b)
 	if s.failed {
 		return nil
 	}
 	return s
+}
+
+// startTerrainLevels starts a build of t's levels at the current display
+// palette on a goroutine of its own. The palette copy the goroutine captures
+// lives on the heap, so it is made here, where a build starts, rather than in
+// terrainLevelSet, which every strategic frame calls and which allocated the
+// copy each time it did.
+func (r *Renderer) startTerrainLevels(t *world.Terrain, tilesW, tilesH int) {
+	s := &r.terrainLevels
+	pal := r.displayPalette
+	maxSide := terrainAtlasMaxSide()
+	ch := make(chan terrainLevelBuild, 1)
+	s.pending, s.pendingTerrain, s.pendingPalette = ch, t, pal
+	go func() { ch <- buildTerrainLevels(t, tilesW, tilesH, pal, maxSide) }()
 }
 
 // buildTerrainLevels is a build's CPU half; it reads only the tile set, which

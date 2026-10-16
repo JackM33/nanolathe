@@ -210,7 +210,7 @@ func (r *Renderer) commitFeatureLayer(c drawlist.FeatureLayer, e featureLayerEnt
 	if x0 >= x1 || y0 >= y1 {
 		return
 	}
-	if !r.sched.begin(schedOpaque, int(x0), int(y0), int(x1), int(y1), [4]*ebiten.Image{2: r.layers.pages[e.page].img}) {
+	if !r.sched.begin(schedOpaque, int(x0), int(y0), int(x1), int(y1), [4]*ebiten.Image{3: r.layers.pages[e.page].img}) {
 		return
 	}
 	inv := 1 / float32(k)

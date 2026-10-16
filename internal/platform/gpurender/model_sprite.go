@@ -517,7 +517,7 @@ func (r *Renderer) commitModelSprite(g *drawlist.ModelGeometry, sp modelSprite) 
 	if x0 >= x1 || y0 >= y1 {
 		return
 	}
-	if !r.sched.begin(schedOpaque, int(x0), int(y0), int(x1), int(y1), [4]*ebiten.Image{2: s.pages[sp.page].img}) {
+	if !r.sched.begin(schedOpaque, int(x0), int(y0), int(x1), int(y1), [4]*ebiten.Image{3: s.pages[sp.page].img}) {
 		return
 	}
 	inv := 1 / float32(step)
@@ -537,11 +537,12 @@ func (r *Renderer) commitModelSprite(g *drawlist.ModelGeometry, sp modelSprite) 
 // commitModelSpriteShadow is commitModelDirectShadow for a packet drawn from
 // its sprites: one quad over the shadow's clipped world rectangle whose
 // fragment takes the shadow sprite's texel under the pixel (source 3),
-// punches it where the body sprite's texel at the same pixel (source 2,
-// Custom0/1 texels away, inside the body sprite's rectangle in Color) is
-// wholly covered, and composites the ALP half-colour
-// (sceneOpModelSpriteShadow). Both sprites are level zero, a texel to a record
-// pixel, so this is the lane's shadow commit on resolved texels.
+// punches it where the body sprite's texel at the same pixel (source 2, or
+// source 3 when both sprites share a page; Custom0/1 texels away, inside the
+// body sprite's rectangle in Color) is wholly covered, and composites the ALP
+// half-colour (sceneOpModelSpriteShadow, sceneModelPageSlots). Both sprites
+// are level zero, a texel to a record pixel, so this is the lane's shadow
+// commit on resolved texels.
 func (r *Renderer) commitModelSpriteShadow(g *drawlist.ModelGeometry, sd modelSpriteDraw) {
 	s := &r.modelDirect.sprites
 	sh, bd := sd.shadow, sd.body
@@ -552,7 +553,12 @@ func (r *Renderer) commitModelSpriteShadow(g *drawlist.ModelGeometry, sd modelSp
 		r.modelStats.Shadows++
 		return
 	}
-	if !r.sched.begin(schedOpaque, x0, y0, x1, y1, [4]*ebiten.Image{2: s.pages[bd.page].img, 3: s.pages[sh.page].img}) {
+	imgs := [4]*ebiten.Image{3: s.pages[sh.page].img}
+	onePage := float32(1)
+	if bodyPage := s.pages[bd.page].img; bodyPage != imgs[3] {
+		imgs[2], onePage = bodyPage, 0
+	}
+	if !r.sched.begin(schedOpaque, x0, y0, x1, y1, imgs) {
 		return
 	}
 	// A record pixel's shadow texel is the padded rectangle's origin, one pad
@@ -566,7 +572,7 @@ func (r *Renderer) commitModelSpriteShadow(g *drawlist.ModelGeometry, sd modelSp
 		float32(x0), float32(y0), float32(x1), float32(y1),
 		sx0, sy0, sx0+float32(x1-x0), sy0+float32(y1-y0),
 		[4]float32{float32(bd.x), float32(bd.y), float32(bd.x + bd.w), float32(bd.y + bd.h)},
-		[4]float32{kx, ky, 0, sceneOpModelSpriteShadow})
+		[4]float32{kx, ky, onePage, sceneOpModelSpriteShadow})
 	r.modelStats.Shadows++
 	r.modelStats.DirectSpriteShadows++
 }

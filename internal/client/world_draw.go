@@ -943,12 +943,16 @@ func (c *Client) presentUnit(d worldDrawable) {
 // them into its own staging image when it has a key plane [R-REN-03A §4]; see
 // composeCarrier. A child with no model is dropped here, as it was when this
 // function drew them itself.
+//
+// The slice is the client's scratch, valid until the next call: the world
+// pass presents one carrier at a time and keeps no child past it, and a
+// fresh slice of unit views per carrier per frame was steady garbage.
 func (c *Client) attachedChildren(carrier pool.Handle) []frame.UnitView {
 	if c == nil {
 		return nil
 	}
 	b := &c.worldBuckets
-	var out []frame.UnitView
+	out := c.childScratch[:0]
 	for i := b.firstChild(carrier); i >= 0; i = b.nextChild(i) {
 		if i >= len(b.units) {
 			break
@@ -959,6 +963,7 @@ func (c *Client) attachedChildren(carrier pool.Handle) []frame.UnitView {
 		}
 		out = append(out, child)
 	}
+	c.childScratch = out[:0]
 	return out
 }
 
