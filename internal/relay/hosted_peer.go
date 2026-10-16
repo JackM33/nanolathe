@@ -26,6 +26,7 @@ type hostedPeer struct {
 	seat          uint8 // assigned at admission
 	slot          uint8 // assigned at Start
 	timeout       time.Duration
+	linger        time.Duration // bounds the connection after its last frame
 	helloDeadline time.Time
 	out           chan hostedOutput
 	written       chan struct{}
@@ -151,7 +152,12 @@ func minDeadline(a, b time.Time) time.Time {
 
 func (p *hostedPeer) write() {
 	defer close(p.written)
-	defer p.conn.Close()
+	finished := false
+	defer func() {
+		if !finished {
+			_ = p.conn.Close()
+		}
+	}()
 	firstDeadline := p.helloDeadline
 	for {
 		select {
@@ -180,6 +186,11 @@ func (p *hostedPeer) write() {
 				return
 			}
 			if message.last {
+				// The connection's owner reads through the client's close
+				// within the linger, then closes (HostedServer.finish).
+				closeHostedWrite(p.conn)
+				_ = p.conn.SetReadDeadline(time.Now().Add(p.linger))
+				finished = true
 				return
 			}
 		}

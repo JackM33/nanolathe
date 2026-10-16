@@ -6,6 +6,7 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"strings"
 	"sync"
@@ -111,6 +112,9 @@ type hostedTimeouts struct {
 	// ping is the WebSocket keepalive interval; report the interval between
 	// a running match's progress reports.
 	ping, report time.Duration
+	// linger bounds a closing connection after the relay's last frame: the
+	// client's own close ends it sooner (§16.5.1).
+	linger time.Duration
 }
 
 // A lobby and, after Started, an unfinished opening each have a 30-minute
@@ -118,7 +122,7 @@ type hostedTimeouts struct {
 var hostedDefaultTimeouts = hostedTimeouts{
 	handshake: 10 * time.Second, waiting: 30 * time.Minute, opening: 30 * time.Minute,
 	write: 5 * time.Second, progress: 10 * time.Second,
-	ping: websocketPingInterval, report: time.Second,
+	ping: websocketPingInterval, report: time.Second, linger: time.Second,
 }
 
 // hostedClientIdle bounds a running client's wait for a relay message. It
@@ -322,19 +326,26 @@ func (s *HostedServer) serve(raw net.Conn) {
 	}
 	_ = conn.SetWriteDeadline(minDeadline(handshakeDeadline, time.Now().Add(s.timeouts.write)))
 	if body[0] == hostedDescribeMessage {
-		_ = writeLocalFrame(conn, s.describe(body))
+		if writeLocalFrame(conn, s.describe(body)) == nil {
+			s.finish(conn)
+		}
 		return
 	}
 	hello, err := decodeHostedHello(body)
 	if err != nil {
-		_ = writeLocalFrame(conn, localFailureBody(localRefusedMessage, err))
+		if writeLocalFrame(conn, localFailureBody(localRefusedMessage, err)) == nil {
+			s.finish(conn)
+		}
 		return
 	}
 	peer := newHostedPeer(conn, hello.hello, s.timeouts.write)
 	peer.version, peer.name, peer.helloDeadline = hello.version, hello.name, handshakeDeadline
+	peer.linger = s.timeouts.linger
 	room, creator, err := s.admit(hello.code, hello.flags, hello.size, hello.config, peer)
 	if err != nil {
-		_ = writeLocalFrame(conn, localFailureBody(localRefusedMessage, err))
+		if writeLocalFrame(conn, localFailureBody(localRefusedMessage, err)) == nil {
+			s.finish(conn)
+		}
 		return
 	}
 	_ = conn.SetDeadline(time.Time{})
@@ -356,6 +367,37 @@ func (s *HostedServer) serve(raw net.Conn) {
 	// The room's writer must flush explicit completion before this owner closes
 	// the connection. The reader exiting is not permission to discard that frame.
 	<-peer.written
+	// After a last frame the writer has half-closed and bounded reads by the
+	// linger; read through to the client's close so its late bytes are never
+	// left unread. After a failed or stopped writer the connection is closed.
+	_, _ = io.Copy(io.Discard, conn)
+}
+
+// finish ends a connection after the relay's last frame: it half-closes, then
+// reads and discards until the client closes or the linger passes, before the
+// caller closes. Closing with client bytes unread would send a reset, and a
+// reset makes some stacks, Windows among them, discard the last frame before
+// the client reads it (§16.5.1).
+func (s *HostedServer) finish(conn net.Conn) {
+	closeHostedWrite(conn)
+	_ = conn.SetReadDeadline(time.Now().Add(s.timeouts.linger))
+	_, _ = io.Copy(io.Discard, conn)
+}
+
+// closeHostedWrite ends this side's sending, outermost layer first: a
+// WebSocket close, the TLS close_notify, then a TCP half-close. Each step is
+// best effort; the caller's linger still bounds the connection.
+func closeHostedWrite(conn net.Conn) {
+	switch c := conn.(type) {
+	case *websocketConn:
+		_ = c.writeControl(8, []byte{0x03, 0xe8}) // 1000, normal closure
+		closeHostedWrite(c.Conn)
+	case *tls.Conn:
+		_ = c.CloseWrite()
+		closeHostedWrite(c.NetConn())
+	case interface{ CloseWrite() error }:
+		_ = c.CloseWrite()
+	}
 }
 
 // describe answers a joiner's request for a room's base configuration and

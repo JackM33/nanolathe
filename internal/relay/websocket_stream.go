@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"crypto/rand"
 	"encoding/binary"
+	"fmt"
 	"io"
 	"net"
 	"sync"
@@ -72,7 +73,11 @@ func (c *websocketConn) keepalive(interval time.Duration) {
 			var sent [8]byte
 			binary.BigEndian.PutUint64(sent[:], uint64(time.Since(c.epoch)))
 			if err := c.writeControl(9, sent[:]); err != nil {
-				c.shutdown()
+				// After this side's close frame the owner drains and closes
+				// the stream; stop pinging without cutting that short.
+				if err != errWebSocketCloseSent {
+					c.shutdown()
+				}
 				return
 			}
 		}
@@ -201,7 +206,14 @@ func (c *websocketConn) readHeader() error {
 		// A WebSocket close is never the relay's explicit both-ended frame.
 		return io.ErrUnexpectedEOF
 	case 9:
-		return c.writeControl(10, body)
+		err := c.writeControl(10, body)
+		// Once the relay half-closes, a ping already in flight cannot get
+		// a pong. Keep draining its later bytes instead of closing the raw
+		// connection with them unread (DESIGN_MULTIPLAYER §16.5.1).
+		if err == errWebSocketCloseSent {
+			return nil
+		}
+		return err
 	default:
 		// A pong echoing one of this side's pings measures the round trip;
 		// unsolicited pongs are permitted by RFC 6455 §5.5.3.
@@ -254,6 +266,10 @@ func (c *websocketConn) writeControl(opcode byte, p []byte) error {
 	return c.writeFrame(opcode, p)
 }
 
+// errWebSocketCloseSent refuses frames after this side's close frame. It is
+// net.ErrClosed to callers that only ask whether the stream is closed.
+var errWebSocketCloseSent = fmt.Errorf("WebSocket close sent: %w", net.ErrClosed)
+
 func (c *websocketConn) writeFrame(opcode byte, p []byte) error {
 	select {
 	case <-c.done:
@@ -261,7 +277,7 @@ func (c *websocketConn) writeFrame(opcode byte, p []byte) error {
 	default:
 	}
 	if c.closeSent {
-		return net.ErrClosed
+		return errWebSocketCloseSent
 	}
 	if opcode == 8 {
 		c.closeSent = true

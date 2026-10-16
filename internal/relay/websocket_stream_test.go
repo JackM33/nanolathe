@@ -181,6 +181,24 @@ func TestWebSocketCloseReplyAndNoNormalEOF(t *testing.T) {
 	}
 }
 
+// A ping already in flight must not turn the relay's bounded drain into an
+// immediate close with unread client data (DESIGN_MULTIPLAYER §16.5.1).
+func TestWebSocketSentCloseDrainsThroughPing(t *testing.T) {
+	payload := []byte("late acknowledgment")
+	wire := websocketTestFrame(0x89, []byte("in-flight ping"), true)
+	wire = append(wire, websocketTestFrame(0x82, payload, true)...)
+	c, raw := memoryWebSocket(wire, false, 1024)
+	defer c.Close()
+	closeHostedWrite(c)
+	got := make([]byte, len(payload))
+	if _, err := io.ReadFull(c, got); err != nil || !bytes.Equal(got, payload) || raw.closed {
+		t.Fatalf("ping interrupted closing drain: data=%q closed=%v err=%v", got, raw.closed, err)
+	}
+	if want := websocketTestFrame(0x88, []byte{3, 232}, false); !bytes.Equal(raw.out.Bytes(), want) {
+		t.Fatalf("sent more frames after close: %x", raw.out.Bytes())
+	}
+}
+
 func TestWebSocketWriterMaskingAndLength(t *testing.T) {
 	for _, client := range []bool{false, true} {
 		for _, size := range []int{0, 125, 126, 65535, 65536, 70001} {
