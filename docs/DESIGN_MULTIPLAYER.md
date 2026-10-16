@@ -5801,15 +5801,31 @@ advertised public capacity:
   connection the relay admits at once stays under the image's 384 MiB soft
   memory limit. A hosted client refuses to send a larger command;
 - deadlines of 10 seconds for the handshake, 30 minutes for a lobby to
-  start, 5 seconds per write, and 10 seconds without execution progress
-  once the battle runs;
+  start, 5 seconds per write, 10 seconds without execution progress
+  once the battle runs, and 1 second for a closing connection after the
+  relay's last frame;
 - once grants flow, a client that receives no relay message for 25 seconds
   stops; that exceeds the 10-second progress abort. Pings do not count,
   since a browser answers them without telling the page.
 
 Per-peer writers are bounded and separate from room pacing, so a slow
 reader blocks no other room. Every close and error path releases its
-connection and room capacity. A transient accept error, such as descriptor
+connection and room capacity.
+
+**Closing after a last frame.** A refusal, description, failure or
+completion is the last frame the relay sends. It then ends its sending,
+outermost layer first — a WebSocket close (status 1000), the TLS
+close_notify, then a TCP half-close — and reads and discards whatever the
+client still sends until the client closes or the 1-second linger passes,
+and only then closes. Closing with client bytes unread would send a TCP
+reset, and Windows discards received data its program has not yet read when
+a reset arrives, so a seat that was still acknowledging would lose the
+relay's reason; a WebSocket client whose write meets that reset closes its
+own stream before reading it, on every platform. The linger bounds capacity
+release whether or not the client stops sending, and a write error or Close
+still closes at once (`TestHostedLastFrameSurvivesLateClientWrites`).
+
+A transient accept error, such as descriptor
 exhaustion, is retried with bounded backoff; only Close ends the service.
 The health listener sits outside the connection limit (§16.5.6).
 
