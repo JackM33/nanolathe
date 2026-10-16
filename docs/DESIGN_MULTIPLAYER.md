@@ -5832,6 +5832,11 @@ relay's reason; a WebSocket client whose write meets that reset closes its
 own stream before reading it, on every platform. The linger bounds capacity
 release whether or not the client stops sending, and a write error or Close
 still closes at once (`TestHostedLastFrameSurvivesLateClientWrites`).
+After the relay sends its WebSocket close, its keepalive stops and an
+incoming ping cannot send a pong through the half-closed transport. That
+refused control write does not end the drain; later client bytes are still
+consumed until the client's close or the linger expires
+(`TestWebSocketSentCloseDrainsThroughPing`).
 
 A transient accept error, such as descriptor
 exhaustion, is retried with bounded backoff; only Close ends the service.
@@ -5857,11 +5862,7 @@ or later, whose global WebSocket stands in for the browser's, against a
 native relay on loopback.
 
 **Known gaps (M7).** One client can hold rooms open by creating a room,
-joining it with a second socket and acknowledging at 30 Hz. The final done
-or failure frame can be lost to a TCP reset on Linux. The server answers a
-client's WebSocket close frame with its own but never starts the closing
-handshake: it ends a room by closing the socket after the done or failure
-frame.
+joining it with a second socket and acknowledging at 30 Hz.
 
 #### 16.5.2 Continuous grants and client playout
 

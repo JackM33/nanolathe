@@ -63,6 +63,15 @@ func TestHostedLastFrameSurvivesLateClientWrites(t *testing.T) {
 			case <-time.After(3 * time.Second):
 				t.Fatal("the room did not finish")
 			}
+			lingerStarted := time.Now()
+			if transport == "ws" || transport == "wss" {
+				// A keepalive can cross the relay's close before this client
+				// reads it. Its refused pong must not abort the drain.
+				stream := c.conn.(hostedClientConn).Conn.(*websocketConn)
+				if err := stream.writeControl(9, []byte("in-flight ping")); err != nil {
+					t.Fatal(err)
+				}
+			}
 			// The client has not read the failure and is still sending, as a
 			// battle client acknowledges every tick.
 			if err := c.Acknowledge(1, [32]byte{}, false, false); err != nil {
@@ -87,6 +96,9 @@ func TestHostedLastFrameSurvivesLateClientWrites(t *testing.T) {
 				t.Fatalf("late writes lost the relay's reason: %v", err)
 			}
 			awaitHostedCapacity(t, s, 0, 0)
+			if elapsed := time.Since(lingerStarted); elapsed < timeouts.linger/2 {
+				t.Fatalf("connection closed before its linger: %v", elapsed)
+			}
 		})
 	}
 }

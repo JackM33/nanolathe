@@ -206,7 +206,14 @@ func (c *websocketConn) readHeader() error {
 		// A WebSocket close is never the relay's explicit both-ended frame.
 		return io.ErrUnexpectedEOF
 	case 9:
-		return c.writeControl(10, body)
+		err := c.writeControl(10, body)
+		// Once the relay half-closes, a ping already in flight cannot get
+		// a pong. Keep draining its later bytes instead of closing the raw
+		// connection with them unread (DESIGN_MULTIPLAYER §16.5.1).
+		if err == errWebSocketCloseSent {
+			return nil
+		}
+		return err
 	default:
 		// A pong echoing one of this side's pings measures the round trip;
 		// unsolicited pongs are permitted by RFC 6455 §5.5.3.
