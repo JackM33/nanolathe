@@ -283,6 +283,7 @@ func (u *Unit) SetRenderPieceFlag(piece int, mask uint8, set bool) bool {
 	} else {
 		u.RenderPieceFlags[piece] &^= mask // higher opcode clears
 	}
+	u.renderProjection.refresh() // the script binding's cached projection (bindRenderFlags)
 	return true
 }
 
@@ -446,6 +447,12 @@ type Unit struct {
 	// vertices. A fixture may build this table before script attachment; it must
 	// NOT live inside the VM, which is only allocated for scripted units.
 	RenderPieceFlags []uint8
+	// renderProjection is the script binding's cached projection of
+	// RenderPieceFlags (bindRenderFlags), held here so a write that does not
+	// come through the binding's own setter can rebuild it. Derived
+	// bookkeeping, never simulation state; nil for a unit with no
+	// model-mapped script binding.
+	renderProjection *renderFlagProjection
 
 	// Typed per-unit state introduced for P0-I02 real pipeline [04 §1.1][04 §4][06][GAP T15].
 	// These fields own the authoritative per-unit data that the phase-2 sweep
@@ -2656,6 +2663,22 @@ func (w *World) FirstLive(match func(*Unit) bool) *Unit {
 		}
 	}
 	return nil
+}
+
+// EachLive calls visit for every live unit in Iter's order — pool-slot
+// ascending (I1) — without building a slice. It reads the pool as it goes, so
+// it is for a visitor that neither creates nor destroys units; such a visitor
+// sees exactly the units an Iter snapshot taken at the call would hold. With
+// no buffer there is nothing a nested walk could overwrite.
+func (w *World) EachLive(visit func(*Unit)) {
+	if w == nil {
+		return
+	}
+	for i := 1; i < len(w.units); i++ {
+		if u := w.units[i]; u != nil && u.Alive {
+			visit(u)
+		}
+	}
 }
 
 // AppendLive is Iter writing into a destination the caller owns: it appends the

@@ -331,7 +331,12 @@ func (s *Service) registerGetBuilt(q *orders.Queue) {
 		return
 	}
 	s.ensureRegistrationRows()
-	s.setCheckpointOrderHandler(q, s.getBuiltRow, s.boundGetBuilt, s.checkpointHandlers.built)
+	key := s.orderHandlerKey(&s.boundGetBuilt, &s.checkpointHandlers.built)
+	if q.OwnedRowsCurrent(key) {
+		return // the row still holds this installation (orders.Queue.OwnedRowsCurrent)
+	}
+	s.setCheckpointOrderHandler(q, s.getBuiltRow, &s.boundGetBuilt, &s.checkpointHandlers.built)
+	q.MarkOwnedRows(key)
 }
 
 // placementRecord retains the occupancy rectangle, definition and derived
@@ -391,8 +396,15 @@ func (s *Service) RegisterOrderHandlers(q *orders.Queue) {
 		return
 	}
 	s.ensureRegistrationRows()
+	// A queue this service registered whole, with no owned-row write since,
+	// still holds every row below; the check touches the queue alone
+	// (orders.Queue.OwnedRowsCurrent).
+	key := s.orderHandlerKey(&s.boundConstructionWake, &s.checkpointHandlers.wake)
+	if q.OwnedRowsCurrent(key) {
+		return
+	}
 	for _, id := range s.stepDrivenRows {
-		s.setCheckpointOrderHandler(q, id, s.boundConstructionWake, s.checkpointHandlers.wake)
+		s.setCheckpointOrderHandler(q, id, &s.boundConstructionWake, &s.checkpointHandlers.wake)
 	}
 	// The two mobile-build rows use the same handler so their stop/cancel
 	// notifications are delivered before their phase-1 movement wake. Their
@@ -400,8 +412,9 @@ func (s *Service) RegisterOrderHandlers(q *orders.Queue) {
 	// wake and arrives as the ordinary handler argument [04 §3.3][05 R-WORK-01
 	// §13]. StepUnit still owns all continuing state-machine arms.
 	for _, id := range s.mobileWakeRows {
-		s.setCheckpointOrderHandler(q, id, s.boundConstructionWake, s.checkpointHandlers.wake)
+		s.setCheckpointOrderHandler(q, id, &s.boundConstructionWake, &s.checkpointHandlers.wake)
 	}
+	q.MarkOwnedRows(key)
 }
 
 // constructionWakeVisit receives an ordinary pump delivery for a row whose
@@ -1066,11 +1079,7 @@ func (s *Service) Pump(factory *units.Unit, tick uint32) {
 	if q == nil || q.LenPrimary() == 0 {
 		return
 	}
-	prim := q.Primary()
-	if len(prim) == 0 {
-		return
-	}
-	head := firstWorkNode(factory, prim)
+	head := firstWorkNode(factory, q)
 	if head == nil {
 		return
 	}
@@ -1168,14 +1177,15 @@ func isStandingOpID(id orders.ID) bool {
 // placement arm and the work phase have no range test [05 R-WORK-01 §12]
 // [05 R-WORK-01 §13], so the nanoframe was stamped and built from the pad
 // however far away the site was.
-func firstWorkNode(builder *units.Unit, prim []*orders.Node) *orders.Node {
+func firstWorkNode(builder *units.Unit, q *orders.Queue) *orders.Node {
 	mobile := isMobileBuilder(builder)
-	for _, n := range prim {
-		if n == nil {
+	for i, n := 0, q.PrimaryLen(); i < n; i++ {
+		rec := q.PrimaryAt(i)
+		if rec == nil {
 			continue
 		}
-		if !isStandingOpID(n.ID) {
-			return n
+		if !isStandingOpID(rec.ID) {
+			return rec
 		}
 		if mobile {
 			return nil
@@ -1345,22 +1355,20 @@ func (s *Service) StepUnit(ctx TickContext, handle pool.Handle) WorkResult {
 	if q == nil || q.LenPrimary() == 0 {
 		return WorkResult{Builder: handle, Owner: builder.Owner, State: State0}
 	}
-	prim := q.Primary()
 	// A standalone GetBuilt head is advanced through the real queue pump. This
 	// keeps unit-local construction stepping composable without the old
 	// direct per-tick resolver; a preceding BeCarried record still exclusively
 	// controls when the walk can reach GetBuilt [04 R-FAC-02 §4].
-	if len(prim) > 0 && prim[0] != nil && prim[0].ID == getBuiltRowID {
+	if q.LenPrimary() > 0 && q.PrimaryAt(0) != nil && q.PrimaryAt(0).ID == getBuiltRowID {
 		q.Pump(builder, tick)
-		prim = q.Primary()
 	}
-	if len(prim) == 0 {
+	if q.LenPrimary() == 0 {
 		return WorkResult{Builder: handle, Owner: builder.Owner, State: State0}
 	}
 	// A factory's work discovery skips its standing rally records so it keeps
 	// producing [RX-05][05 "Queue insertion"]; a unit with a mover advances its
 	// front record only (firstWorkNode).
-	head := firstWorkNode(builder, prim)
+	head := firstWorkNode(builder, q)
 	if head == nil {
 		return WorkResult{Builder: handle, Owner: builder.Owner, State: State0}
 	}
@@ -1422,7 +1430,7 @@ func (s *Service) StepUnit(ctx TickContext, handle pool.Handle) WorkResult {
 	var afterKey string
 	var afterState State
 	if newQ != nil && newQ.LenPrimary() > 0 {
-		afterHead := newQ.Primary()[0]
+		afterHead := newQ.PrimaryAt(0)
 		afterTarget = afterHead.Target
 		afterKey = afterHead.BuildDefKey
 		afterState = State(afterHead.Phase)
@@ -1467,7 +1475,7 @@ func (s *Service) StepUnit(ctx TickContext, handle pool.Handle) WorkResult {
 	} else {
 		// Check if a new nanoframe was just created this tick (state2 → state3) and product handle newly set.
 		if newQ != nil && newQ.LenPrimary() > 0 {
-			ah := newQ.Primary()[0]
+			ah := newQ.PrimaryAt(0)
 			if ah.Target != 0 && beforeTarget == 0 {
 				productHandle = ah.Target
 				defKey = ah.BuildDefKey

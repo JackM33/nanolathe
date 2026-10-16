@@ -207,6 +207,19 @@ type Service struct {
 	// which is what keeps the flag honest — see sortedInstanceKeys.
 	instanceKeys      []int
 	instanceKeysStale bool
+	// gridRevision counts the writes that can give the grid reconciliation
+	// work; syncedGrid is what the last reconciliation read, and gridSynced
+	// says one has run (grid_sync.go). verifyGridSync makes every motion
+	// phase reconcile and panic if a skipped one would have changed anything;
+	// tests and verification builds set it. None of it is simulation state.
+	gridRevision   uint64
+	syncedGrid     gridInputs
+	gridSynced     bool
+	verifyGridSync bool
+	// near is the position index behind AppendInstancesNear (near.go),
+	// rebuilt after the instance set changes. Not simulation state.
+	near nearIndex
+
 	// instanceValues is the key list's parallel value row: instanceValues[i]
 	// is what the map holds for instanceKeys[i]. The two per-tick walks over
 	// the whole table — the publication's AppendInstances and the grid resync
@@ -384,7 +397,7 @@ func (s *Service) crt() *rng.CRT {
 // the active walk [01 §4.4][05 R-FEAT-01 §10].
 func (s *Service) TickMotion(tick uint32) {
 	_ = tick
-	s.syncInstancesToGrid()
+	s.reconcileGrid()
 }
 
 // TickLifecycle runs reproduction, then pass 3 of feature phase 6
@@ -877,6 +890,7 @@ func (s *Service) clearFootprintNoRevision(cx, cz int, def *content.FeatureDef) 
 	if s.Terrain == nil {
 		return
 	}
+	s.noteGridChange() // the plot words below (grid_sync.go)
 	w := int(s.Terrain.CellW)
 	h := int(s.Terrain.CellH)
 	fx, fz := 1, 1
@@ -1044,6 +1058,7 @@ func (s *Service) stampFeature(cx, cz int, def *content.FeatureDef, pos *[3]nume
 	// same geometry with the overlap one cell off the anchor replaced the tree
 	// normally.
 	torn := s.coveredAnchors(cx, cz, footX, footZ)
+	s.noteGridChange() // the stamp and its dense-pack teardown (grid_sync.go)
 	stampErr := s.Terrain.StampFeatureRect(int32(cx), int32(cz), featIdx, footX, footZ)
 	tornAway := s.releaseTornInstances(torn, stampErr == nil)
 	// The stamping service ENDS by restamping every named movement class over
@@ -1305,6 +1320,7 @@ func (s *Service) setInstance(idx int, inst *Instance) {
 	if s.instances == nil {
 		s.instances = make(map[int]*Instance)
 	}
+	s.noteGridChange()
 	old, existed := s.instances[idx]
 	if !existed {
 		s.instanceKeysStale = true
@@ -1325,6 +1341,7 @@ func (s *Service) setInstance(idx int, inst *Instance) {
 func (s *Service) deleteInstance(idx int) {
 	inst, existed := s.instances[idx]
 	if existed {
+		s.noteGridChange()
 		s.instanceKeysStale = true
 		s.unlinkActive(inst)
 		s.releaseArena(inst)
@@ -1367,6 +1384,7 @@ func (s *Service) arenaOccupants() int {
 // resetInstances empties the map, the active list and the arena — the
 // zero-fill of the whole instance pool at battle entry [08 R-SAVE-FEATURE-01].
 func (s *Service) resetInstances() {
+	s.noteGridChange()
 	s.publicationEpoch++
 	s.instances = make(map[int]*Instance)
 	s.instanceKeys, s.instanceValues, s.instanceKeysStale = nil, nil, true

@@ -408,7 +408,17 @@ writes a resting record directly renews its revision itself
 (`MarkPublicationChanged`). `Session.verifyFeatureRevisions` reads and compares
 every record and panics on a view that changed without its revision; the
 retail busy-battle test runs with it on, and the session, headless, command
-and client retail suites pass with it forced on.
+and client retail suites pass with it forced on. The same switch turns on the
+feature service's grid reconciliation check (`SetVerifyGridSync`): the motion
+phase's reconciliation of instances against the plot normally runs only after
+a recorded grid change, and with the check on it runs every phase and panics
+when a skipped one would have changed anything (DESIGN_ECONOMY_CONSTRUCTION
+"Grid reconciliation"). It also turns on the Modern patrol's restricted
+feature scan check (`orders.WorldQueryAdapter.SetVerifyFeatureScan`): the
+patrol's reclaim pick reads only the features inside the square around its
+radius (`QueueBinding.ForEachFeatureNear`, served from the feature service's
+position index, `features/near.go`), and with the check on it also scans every
+feature and panics on a different pick.
 
 **The paused boundary.** A pump with the pause bit set runs no sub-tick, and the
 input queue's only consumer is phase 1. The boundary that drains that queue and

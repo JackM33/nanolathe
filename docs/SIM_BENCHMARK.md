@@ -513,3 +513,68 @@ baseline (ms/tick of publication proxy):
 | Order queues only for the viewer's and the local seat's units | 0.259 → 0.223 | the F11 developer overlay and the developer probe read any unit's queue; the snapshots run on the workers |
 | `Frame.Reset` leaving unit, queue and contact bodies uncleared | 0.274 → 0.259 | inside the run-to-run noise; a weaker reset contract for no measurable gain |
 | Visibility stamp table as a dense slice | profile share 0.2% of the tick | the stamp sweep's 3.9% is the observer ray walk (`visibility.Refresh` 3.3%), not the map write |
+
+## Behaviour-identical simulation work comparison (2026-10-15)
+
+Branch `sim-identical` against `5fbfc59d2`: eight changes that skip or shorten
+simulation work without changing any answer, in every mode. The render-piece
+flag projection is kept instead of rebuilt per read; a refreshed observer's
+coverage removal replays the cells its publication visited
+([DESIGN_WORLD_VISIBILITY §2.2](DESIGN_WORLD_VISIBILITY.md#22-internalvisibility));
+order queues are read without copying and weapon damage keys are folded once
+at compile time; piece lanes grow once and the AI placement validator words no
+refusals; the target-observer walk reads the live units in place; owned order
+rows are registered once per installation, with a per-queue confirmation in
+place of the per-visit rewrite; feature instances are reconciled against the
+grid only after a grid change
+([DESIGN_ECONOMY_CONSTRUCTION §5](DESIGN_ECONOMY_CONSTRUCTION.md#5-divergences));
+and the Modern patrol's reclaim pick reads only the features inside the square
+of its radius, from the feature service's position index
+([DESIGN_RUNTIME_DETERMINISM §2.5](DESIGN_RUNTIME_DETERMINISM.md#25-internalsession--composition-the-tick-publication)).
+
+**Identity.** HugeBattle (seed 7, 300 + 600 steps) ended on the same partial
+fingerprint, `partial-v1:51ed12f523d1d057`, and all 1,350 committed frames
+hashed identically over every exported field. A populated retail skirmish in
+Strict 3.1, Community 3.9 and Modern (162–169 live units, so publication ran on
+its workers) hashed 900 committed frames per mode identically. The default
+scene's initial, warm and final fingerprints, both RNG draw totals and every
+census sample matched in all three modes. Modern renderer `--shot` frames of
+Greenhaven at zoom 1 and 0.5 were byte identical. HugeBattle and the session,
+headless, command and client retail suites also ran with the grid
+reconciliation and the patrol's restricted scan checked against their full
+forms on every tick, with no difference.
+
+**HugeBattle,** stepped synchronously in the window binary with no window,
+Go 1.27.1 on Darwin/arm64 (Apple M3 Pro, twelve logical CPUs), binaries
+alternating, other agents' gates on the host. Medians of the runs; the change
+column is the median of the per-pair changes.
+
+| Run | Pairs (load) | Wall ms/tick | Sim-thread CPU ms/tick | Change, wall | Pairs favouring the branch |
+|---|---|---:|---:|---:|---:|
+| Back to back | 6 (load 5) | 2.081 → 1.943 | 1.896 → 1.754 | −9.0% | 5 of 6 |
+| Back to back | 6 (load 10–13) | 2.911 → 2.596 | 2.605 → 2.291 | −6.2% | 5 of 6 |
+| Paced at 30 Hz | 4 (load 5–9) | 3.027 → 2.767 | 2.725 → 2.462 | −10.6% | 4 of 4 |
+| `GOMAXPROCS=1` | 8 (load 5) | 2.793 → 2.829, 2.681 → 2.702 | — | −4.2%, −5.2% | 6 of 8 |
+
+The back-to-back and paced improvements are larger than the pair-to-pair
+spread at load 5; the single-processor batches favour the branch in most pairs
+but their run medians do not separate, so no single-processor gain is claimed.
+Allocation fell from 53,100 to 32,900 bytes and from 451 to 428 objects per
+tick.
+
+Simulation-thread share by change, from Instruments CPU profiles of the same
+run (two of the base, one of the branch):
+
+| Change | Function | Base share | Branch share |
+|---|---|---:|---:|
+| Grid reconciliation | `features.syncInstancesToGrid` | 3.3–4.0% | 0.9% |
+| Owned-row registration | `bindExistingOrderQueue` + `construction.queueForUnit` | 2.9–3.0% | 1.4% |
+| Render-flag projection | `cob.renderPieceFlags` + `invalidateCachedPiece` | 2.2–2.7% | 0.1% |
+| Patrol reclaim scan | `orders.ModernRules.PatrolWorkVisit` | 1.8–2.4% | 0.5% |
+| Coverage removal replay | `visibility.removeFootprint` | 1.8–2.0% | 1.0% |
+| Queue reads without copying | `construction.StepUnit` | 2.9% | 2.1% |
+
+The target-observer walk, the damage-key fold, the piece lanes and the
+placement validator remove allocation; their CPU change is inside the
+profiles' noise. Over the whole simulation thread the profiled branch ran
+4.8% fewer cycles than the closer of the two base profiles.

@@ -198,6 +198,15 @@ func (s *Session) publishFeatures(published *frame.Frame, publication *publicati
 	if s.Features == nil {
 		return 0
 	}
+	// The same check covers the service's grid reconciliation skip: with it
+	// on, every motion phase reconciles and a skip that would have missed a
+	// change panics (features.Service.SetVerifyGridSync).
+	s.Features.SetVerifyGridSync(s.verifyFeatureRevisions)
+	// And the Modern patrol's restricted feature scan, which with it on also
+	// scans every feature and panics on a different pick.
+	if s.Build != nil && s.Build.OrderBinding != nil {
+		s.Build.OrderBinding.World.SetVerifyFeatureScan(s.verifyFeatureRevisions)
+	}
 	cache := s.featureCacheFor(published)
 	known := cache.inputs // the inputs of the views the slot still holds
 	revisions := cache.revisions

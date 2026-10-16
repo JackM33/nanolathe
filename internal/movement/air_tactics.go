@@ -1659,7 +1659,7 @@ func (s *System) airFieldRepairer(u, c *units.Unit, b *orders.QueueBinding) bool
 	if q == nil || q.LenPrimary() == 0 {
 		return false
 	}
-	switch orders.DescriptorFor(q.Primary()[0].ID).Name {
+	switch orders.DescriptorFor(q.PrimaryAt(0).ID).Name {
 	case "Patrol", "RepairPatrol":
 		return true
 	}

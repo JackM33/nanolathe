@@ -90,13 +90,15 @@ func notifyTargetObservers(w *units.World, target pool.Handle, event uint32, unl
 	if w == nil || target == 0 {
 		return
 	}
-	for _, u := range w.Iter() {
-		if u == nil || !u.Alive {
-			continue
-		}
+	// The walk visits the live units in place rather than through an Iter
+	// snapshot: it runs once per target removal, cloak edge and notice, many
+	// times a tick at battle scale, and the snapshot was a fresh slice each
+	// time. The body only marks records, so no unit is created or destroyed
+	// while the pool is read, and no nested walk shares a buffer with it.
+	w.EachLive(func(u *units.Unit) {
 		q := QueueOfUnit(u)
 		if q == nil {
-			continue
+			return
 		}
 		for _, segment := range [][]*Node{q.primary, q.secondary} {
 			for _, n := range segment {
@@ -109,7 +111,7 @@ func notifyTargetObservers(w *units.World, target pool.Handle, event uint32, unl
 				}
 			}
 		}
-	}
+	})
 }
 
 // FrontPrimaryGateMask returns the static gate-mask word of a unit's front

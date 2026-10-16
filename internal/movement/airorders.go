@@ -445,11 +445,15 @@ func (s *System) legVTOLLandIfCan(u *units.Unit, head *orders.Node, satisfied ui
 	// A successor ends landing before either outcomes or recovery are handled
 	// [04 R-AIR-01 §6]. The pump must first admit this visit through its gate.
 	if q := orders.QueueOfUnit(u); q != nil {
-		chain := q.Primary()
-		for i, n := range chain {
-			if n == head && i+1 < len(chain) {
+		chainLen := q.PrimaryLen()
+		for i := 0; i < chainLen; i++ {
+			if q.PrimaryAt(i) != head {
+				continue
+			}
+			if i+1 < chainLen {
 				return 5
 			}
+			break
 		}
 	}
 	// The recovered ordinary producers supply arrival plus release together;
@@ -1314,7 +1318,7 @@ func airHeadFor(u *units.Unit) *orders.Node {
 		return nil
 	}
 	if q.LenPrimary() > 0 {
-		return q.Primary()[0]
+		return q.PrimaryAt(0)
 	}
 	return q.Head()
 }
@@ -1382,11 +1386,25 @@ func (s *System) RegisterOrderHandlers(q *orders.Queue) {
 			s.checkpointAirLegHandler = orders.NewCheckpointOwnedHandler(s.airLegHandler, orders.CheckpointAirStandby, s.checkpointOrderHandlers.source)
 		}
 	}
+	// The two fields hold their values for the system's lifetime once set
+	// above, so their addresses name the installation: a queue still holding
+	// it is skipped without touching the row (orders.Queue.OwnedRowsCurrent),
+	// and a row already holding it is not rewritten.
 	if s.hasCheckpointOrderHandlerSource() && s.checkpointAirLegHandler.Handler() != nil {
-		q.SetOwnedHandlerWithCheckpointBinding(airStandbyRowID, s.checkpointAirLegHandler)
-	} else {
-		q.SetOwnedHandler(airStandbyRowID, s.airLegHandler)
+		key := orders.OwnedKey{Proof: &s.checkpointAirLegHandler}
+		if q.OwnedRowsCurrent(key) {
+			return
+		}
+		q.RegisterOwnedHandlerWithCheckpointBinding(airStandbyRowID, &s.checkpointAirLegHandler, s.checkpointAirLegHandler)
+		q.MarkOwnedRows(key)
+		return
 	}
+	key := orders.OwnedKey{Handler: &s.airLegHandler}
+	if q.OwnedRowsCurrent(key) {
+		return
+	}
+	q.RegisterOwnedHandler(airStandbyRowID, &s.airLegHandler, s.airLegHandler)
+	q.MarkOwnedRows(key)
 }
 
 // AirLegRunner returns this system's executor for installation on a

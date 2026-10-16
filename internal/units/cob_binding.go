@@ -277,18 +277,23 @@ func bindRenderFlags(binding *cob.Binding, modelFlags []uint8, u *Unit, authorit
 	// the setter below, which goes straight to the model record, and the one
 	// caller that writes through a returned slice (internal/cob's retail
 	// restore) takes that path only when no getter is bound at all.
-	scratch := make([]uint8, len(pm))
-	get := func() []uint8 {
-		flags := scratch
-		for i, modelPiece := range pm {
-			if modelPiece >= 0 && modelPiece < len(mf) {
-				flags[i] = mf[modelPiece]
-			} else {
-				flags[i] = 0x06
-			}
-		}
-		return flags
+	//
+	// The projection is also kept rather than rebuilt per call. Every
+	// piece-pose write reads it (the cache gate of the trans and angle
+	// setters) and publication reads it once per unit, while the model record
+	// changes only through the setter below or the unit's own
+	// SetRenderPieceFlag, and both rebuild it in place. That keeps every
+	// rebuild on the simulation goroutine, so a publication worker's read is
+	// a plain read of what the tick left (DESIGN_RUNTIME_DETERMINISM "Parallel
+	// publication"). The first build is here, at bind time, which answers the
+	// first read exactly as the per-call projection did: nothing writes the
+	// record between this bind and the first setter call.
+	projection := &renderFlagProjection{flags: make([]uint8, len(pm)), modelFlags: mf, pieceMap: pm}
+	projection.refresh()
+	if u != nil {
+		u.renderProjection = projection
 	}
+	get := func() []uint8 { return projection.flags }
 	set := func(piece int, mask uint8, set bool) bool {
 		if piece < 0 || piece >= len(pm) || (mask != 0x01 && mask != 0x02 && mask != 0x04) {
 			return false
@@ -309,12 +314,36 @@ func bindRenderFlags(binding *cob.Binding, modelFlags []uint8, u *Unit, authorit
 		} else {
 			mf[modelPiece] &^= mask
 		}
+		projection.refresh()
 		return true
 	}
 	if authority != nil {
 		u.RetainCheckpointVMInstallation(binding.Callbacks.VM.BindRenderFlagHandlersWithPendingCheckpointBinding(get, set, mf, pm, authority))
 	} else {
 		binding.Callbacks.BindRenderFlags(get, set)
+	}
+}
+
+// renderFlagProjection is a model-mapped script binding's render-flag table:
+// flags[i] is the model record's byte for script piece i, or 0x06 for a script
+// piece with no model piece [04 R-COB-01 §4]. refresh rebuilds it from the
+// model record; the getter hands flags out read-only.
+type renderFlagProjection struct {
+	flags      []uint8
+	modelFlags []uint8
+	pieceMap   []int
+}
+
+func (p *renderFlagProjection) refresh() {
+	if p == nil {
+		return
+	}
+	for i, modelPiece := range p.pieceMap {
+		if modelPiece >= 0 && modelPiece < len(p.modelFlags) {
+			p.flags[i] = p.modelFlags[modelPiece]
+		} else {
+			p.flags[i] = 0x06
+		}
 	}
 }
 

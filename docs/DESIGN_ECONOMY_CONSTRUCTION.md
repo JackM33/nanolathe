@@ -1302,18 +1302,34 @@ active-list order `[05 R-FEAT-01 §10]` [I1].
 
 ## 5. Divergences
 
-**Grid reconciliation cost (P01).** `TickMotion` still scans sorted lookup
-instances. Live resurrection removes plot words through
-`construction.Service.removeFeature`; session integration synchronously calls
-`Features.ReleaseRemovedAt` to return the runtime slot before another allocation,
-then bumps the static-obstacle revision. Failed unit allocation preserves both
-plot and runtime state [05 R-WORK-01 §7][05 R-FEAT-01 §4]. Ordinary session reclaim uses `Features.ReclaimAt`,
-but the terrain-only `ReclaimTransition` remains callable and can replace
-nonblocking definitions without changing that revision. World stamp/teardown
-APIs and exposed plot cells also have no feature-identity revision. Therefore
-static-obstacle revision alone cannot safely skip reconciliation. A narrow
-optimization requires covering those writers or routing them through the
-feature service; that ownership change remains open.
+**Grid reconciliation (P01).** `TickMotion` reconciles the lookup instances
+against the plot only when something the reconciliation reads can have
+changed since it last ran (`features/grid_sync.go`). It reads the instance
+set, each instance's anchor feature word and the definition that word binds,
+and it is idempotent, so a skipped pass is one that would have changed
+nothing. The service keeps a grid revision that every instance-set write
+(`setInstance`, `deleteInstance`, `resetInstances`) and every plot write it
+makes (the footprint clear, the stamp and its dense-pack teardown) renews,
+and it compares the identity of the terrain, its plot storage and its
+definition list besides. The static-obstacle revision is not used: it misses
+nonblocking definitions.
+
+Live resurrection is the one writer outside the service in a composed battle:
+it removes plot words through `construction.Service.removeFeature`, and
+session integration synchronously calls `Features.ReleaseRemovedAt`, which
+returns the runtime slot before another allocation and renews the grid
+revision, then bumps the static-obstacle revision. Failed unit allocation
+preserves both plot and runtime state [05 R-WORK-01 §7][05 R-FEAT-01 §4].
+Ordinary session reclaim uses `Features.ReclaimAt`. The terrain-only
+`ReclaimTransition`, the world stamp/teardown APIs and exposed plot cells
+remain writable without the service; a fixture that writes the plot that way
+while it runs a feature service reports the write through
+`ReleaseRemovedAt`. `Service.SetVerifyGridSync`, which the session drives
+from its `verifyFeatureRevisions` check, makes every motion phase reconcile
+and panic when a skip would have missed a change; `grid_sync_test.go` runs
+the service's writers with it on, and the session, headless, command and
+client retail suites and a HugeBattle run pass with it forced on. On
+HugeBattle the reconciliation runs on about one motion phase in twelve.
 
 The existing deterministic lookup cache reuses its key and pointer buffers
 when feature placement or removal invalidates it. Its only borrowers are

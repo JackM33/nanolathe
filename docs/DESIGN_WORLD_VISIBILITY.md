@@ -261,6 +261,23 @@ mode, the quantized shape index changed. Removal is branch-specific, because the
 stored coverage byte means the emitter height in one branch and the shape index
 in the other `[03 R-VIS-01 §2]`.
 
+A `Refresh` publication also keeps a *removal record*: the cells its walk
+visited, in visit order, with the raster and the walk inputs (tile, emitter
+byte, radius) that produced them. Both rasters are pure functions of those
+inputs and of data fixed for the battle — the shape table, the ray tables and
+the load-time LOS words — so when the footprint being removed carries the same
+inputs under the current raster, the removal replays the record: the same
+decrements, in the same order, under whichever arithmetic (wrapping byte or
+saturating count) the bound rule answers at removal. Anything else walks as
+before: a mode-refresh or rebuild publication (both drop every record), a
+raster switch, a new shape or ray table. The record is derived storage — no
+checkpoint, save or simulation read carries it — and it halves the stamping
+cost of a moved observer, which used to walk its shape twice per refresh.
+`removal_replay_test.go` drives a replaying and a walking service through the
+same thousands of refreshes and retirements, both rasters, Strict and Modern
+arithmetic, with a vision team and stacks deep enough to wrap a byte, and
+compares every grid after every operation.
+
 A live `LOSType`, `LOS`, `Mapping`, or `NowISee` command uses `RefreshMode`,
 not `SetMode`: it always refills eligible current grids, refills history only
 for Mapping and NowISee (including a repeated NowISee), and skips every observer

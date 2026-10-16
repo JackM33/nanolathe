@@ -38,6 +38,7 @@ func (s *Service) RebuildEntry(eligible [10]bool, observers []ModeRefreshObserve
 	}
 	s.fillWordGrid()
 	s.fillEligibleByteGrids(eligible)
+	s.dropRemovalRecords()
 	if s.mode.CurrentEnabled() {
 		previous := s.footprints
 		s.footprints = make(map[ObserverID]footprint, len(observers))
@@ -82,6 +83,7 @@ func (s *Service) RefreshMode(m Mode, resetHistory bool, eligible [10]bool, obse
 		s.fillWordGrid()
 	}
 	s.fillEligibleByteGrids(eligible)
+	s.dropRemovalRecords()
 
 	// Retail skips the whole saved-observer clear/publication block while
 	// current coverage is disabled. In particular, it does not retire or

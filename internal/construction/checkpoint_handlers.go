@@ -41,12 +41,28 @@ func (s *Service) hasCheckpointHandlerSource() bool {
 // Every caller is an existing installation site. Ordinary cached functions
 // have no copied value, so neither later registration nor a copied Service can
 // retroactively attest them. The setter still installs the function once.
-func (s *Service) setCheckpointOrderHandler(q *orders.Queue, id orders.ID, handler orders.OwnedHandler, proof orders.CheckpointOwnedHandler) {
+//
+// handler and proof are this service's own fields, which hold their values
+// for the service's lifetime once ensureRegistrationRows has filled them, so
+// their addresses name the installation: the queue skips a row it already
+// holds under the same key (orders.Queue.RegisterOwnedHandler). A copied
+// Service has fields of its own and therefore keys of its own.
+func (s *Service) setCheckpointOrderHandler(q *orders.Queue, id orders.ID, handler *orders.OwnedHandler, proof *orders.CheckpointOwnedHandler) {
 	if s.hasCheckpointHandlerSource() && proof.Handler() != nil {
-		q.SetOwnedHandlerWithCheckpointBinding(id, proof)
+		q.RegisterOwnedHandlerWithCheckpointBinding(id, proof, *proof)
 	} else {
-		q.SetOwnedHandler(id, handler)
+		q.RegisterOwnedHandler(id, handler, *handler)
 	}
+}
+
+// orderHandlerKey is the key setCheckpointOrderHandler installs a row under
+// for this handler and proof pair, so a registrant can name its whole
+// registration with it (orders.Queue.MarkOwnedRows).
+func (s *Service) orderHandlerKey(handler *orders.OwnedHandler, proof *orders.CheckpointOwnedHandler) orders.OwnedKey {
+	if s.hasCheckpointHandlerSource() && proof.Handler() != nil {
+		return orders.OwnedKey{Proof: proof}
+	}
+	return orders.OwnedKey{Handler: handler}
 }
 
 // RegisterCheckpointOrderHandlers admits only the constructor's original

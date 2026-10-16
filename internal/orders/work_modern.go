@@ -78,19 +78,12 @@ func (r *ModernRules) PatrolWorkVisit(u *units.Unit, n *Node, tick uint32) (Code
 	if option == PatrolAssistOnly || !hasResources || !u.Def.CanReclamate {
 		return 2, true
 	}
-	var best FeatureView
-	var bestDistance modernWide
-	found := false
-	b.ForEachFeature(func(feature FeatureView) bool {
-		if !feature.Reclaimable || !feature.Autoreclaimable || !modernPatrolCandidate(u, feature.X, feature.Z) || !modernFeatureNeeded(feature, resources) {
-			return scanNext
+	best, found := modernPatrolFeature(b, u, resources, true)
+	if b.World != nil && b.World.verifyFeatureScan {
+		if full, fullFound := modernPatrolFeature(b, u, resources, false); full != best || fullFound != found {
+			panic("orders: the restricted patrol feature scan chose differently from the full scan")
 		}
-		distance := modernDistanceSquared(u.X, u.Z, feature.X, feature.Z)
-		if !found || distance.less(bestDistance) || distance == bestDistance && modernFeatureBefore(feature, best) {
-			best, bestDistance, found = feature, distance, true
-		}
-		return scanNext
-	})
+	}
 	if found {
 		id := Lookup("Reclaim")
 		if u.Def.CanFly {
@@ -99,6 +92,34 @@ func (r *ModernRules) PatrolWorkVisit(u *units.Unit, n *Node, tick uint32) (Code
 		modernBorrowWork(u, n, NewNodeForOrder(id, 0, best.X, best.Y, best.Z, tick, u.Handle, false))
 	}
 	return 2, true
+}
+
+// modernPatrolFeature is the patrol's reclaim pick: the nearest candidate
+// feature, ties broken by modernFeatureBefore. That is a strict total order —
+// no two features share an anchor — so the pick is the same in any visiting
+// order. near restricts the traversal to the square around the patrol
+// radius, which holds every feature modernPatrolCandidate admits, so the
+// restricted and full scans see the same candidates.
+func modernPatrolFeature(b *QueueBinding, u *units.Unit, resources ResourceView, near bool) (FeatureView, bool) {
+	var best FeatureView
+	var bestDistance modernWide
+	found := false
+	visit := func(feature FeatureView) bool {
+		if !feature.Reclaimable || !feature.Autoreclaimable || !modernPatrolCandidate(u, feature.X, feature.Z) || !modernFeatureNeeded(feature, resources) {
+			return scanNext
+		}
+		distance := modernDistanceSquared(u.X, u.Z, feature.X, feature.Z)
+		if !found || distance.less(bestDistance) || distance == bestDistance && modernFeatureBefore(feature, best) {
+			best, bestDistance, found = feature, distance, true
+		}
+		return scanNext
+	}
+	if near {
+		b.ForEachFeatureNear(u.X, u.Z, u.Def.SightDistance, visit)
+	} else {
+		b.ForEachFeature(visit)
+	}
+	return best, found
 }
 
 func modernFeatureNeeded(feature FeatureView, resources ResourceView) bool {

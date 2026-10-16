@@ -71,6 +71,11 @@ type Service struct {
 	// footprints holds each observer's last published raster so the refresh
 	// throttle can compare against it [03 §3.2] C6.
 	footprints map[ObserverID]footprint
+	// removalRecords holds each observer's last Refresh publication as the
+	// cells it visited, so its removal can replay them (removalRecord).
+	// Derived storage only: never checkpointed, saved or read by anything but
+	// removal, and any record may be dropped at any time.
+	removalRecords map[ObserverID]*removalRecord
 
 	// wide carries the true coverage overlap count per player cell when the
 	// bound rule saturates instead of wrapping; the byte grid then stores

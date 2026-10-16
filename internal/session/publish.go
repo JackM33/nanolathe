@@ -3,6 +3,7 @@ package session
 import (
 	"fmt"
 	"math"
+	"slices"
 
 	"github.com/nanolathe-gg/nanolathe/internal/cob"
 	"github.com/nanolathe-gg/nanolathe/internal/combat"
@@ -612,20 +613,41 @@ func appendPieceViews(dst []frame.PieceView, vm *cob.VM, link []int) []frame.Pie
 		return dst
 	}
 	flags := vm.RenderPieceFlags()
-	var names []string
-	if link == nil {
-		if prog := vm.Program(); prog != nil {
-			names = prog.Pieces
+	// The destination grows once, and the linked and named cases run as two
+	// loops, so neither the per-lane capacity test nor the per-lane branch on
+	// the link remains. Every lane keeps its index, name, pose and flag bits.
+	base := len(dst)
+	dst = slices.Grow(dst, len(vmPieces))[:base+len(vmPieces)]
+	lanes := dst[base:]
+	if link != nil {
+		for i := range vmPieces {
+			ps := &vmPieces[i]
+			pv := &lanes[i]
+			*pv = frame.PieceView{
+				Index: -1,
+				RotX:  ps.RotX,
+				RotY:  ps.RotY,
+				RotZ:  ps.RotZ,
+				Tx:    ps.Trans[0],
+				Ty:    ps.Trans[1],
+				Tz:    ps.Trans[2],
+			}
+			if i < len(link) {
+				pv.Index = link[i]
+			}
+			if i < len(flags) {
+				decodePieceFlags(pv, flags[i])
+			}
 		}
+		return dst
+	}
+	var names []string
+	if prog := vm.Program(); prog != nil {
+		names = prog.Pieces
 	}
 	for i := range vmPieces {
 		ps := &vmPieces[i]
-		if len(dst) == cap(dst) {
-			dst = append(dst, frame.PieceView{})
-		} else {
-			dst = dst[:len(dst)+1]
-		}
-		pv := &dst[len(dst)-1]
+		pv := &lanes[i]
 		*pv = frame.PieceView{
 			Index: i,
 			RotX:  ps.RotX,
@@ -635,23 +657,23 @@ func appendPieceViews(dst []frame.PieceView, vm *cob.VM, link []int) []frame.Pie
 			Ty:    ps.Trans[1],
 			Tz:    ps.Trans[2],
 		}
-		switch {
-		case link != nil && i < len(link):
-			pv.Index = link[i]
-		case link != nil:
-			pv.Index = -1
-		case i < len(names):
+		if i < len(names) {
 			pv.Name = names[i]
 		}
 		if i < len(flags) {
-			f := flags[i]
-			pv.Hidden = (f & 0x01) == 0     // show bit [04 §4.3]
-			pv.DontCache = (f & 0x02) == 0  // cache bit [04 §4.3]
-			pv.DontShade = (f & 0x04) == 0  // shade bit [04 §4.3] 0x1000d/e000
-			pv.DontShadow = (f & 0x08) == 0 // dont-shadow [04 §4.3] 0x1000a000
+			decodePieceFlags(pv, flags[i])
 		}
 	}
 	return dst
+}
+
+// decodePieceFlags turns one render-flag byte into the lane's four
+// presentation bits.
+func decodePieceFlags(pv *frame.PieceView, f uint8) {
+	pv.Hidden = (f & 0x01) == 0     // show bit [04 §4.3]
+	pv.DontCache = (f & 0x02) == 0  // cache bit [04 §4.3]
+	pv.DontShade = (f & 0x04) == 0  // shade bit [04 §4.3] 0x1000d/e000
+	pv.DontShadow = (f & 0x08) == 0 // dont-shadow [04 §4.3] 0x1000a000
 }
 
 // commitFrame closes the pending write. An ordinary publication advances the

@@ -254,6 +254,13 @@ type Queue struct {
 	secondaryTick uint32
 
 	binding *QueueBinding
+	// ownedEpoch counts the writes to owned rows, and ownedStamps records the
+	// registrations confirmed whole at a count (OwnedRowsCurrent). They sit
+	// beside binding because the same unit step that rebinds the queue checks
+	// them. Derived bookkeeping like ownedKeys: never checkpointed or copied.
+	ownedEpoch     uint64
+	ownedStamps    [3]ownedStamp
+	ownedStampNext uint8
 
 	// lastPumpTick is the tick this queue was last pumped at. It is the tick a
 	// handler invoked OUTSIDE a pump visit is given — the cancel notification
@@ -276,6 +283,11 @@ type Queue struct {
 	ownedHandlers []OwnedHandler
 	// Immutable handler values transfer with the existing row copy (§16.3.62).
 	checkpointOwnedHandlers []CheckpointOwnedHandler
+	// ownedKeys names, per row, the keyed registration that installed the
+	// row's current handler and proof, or nil when any other write did
+	// (RegisterOwnedHandler). Derived bookkeeping, never checkpointed and
+	// never copied to a replacement queue.
+	ownedKeys []OwnedKey
 }
 
 // [P2-03][P1-I09] Queue storage is dynamic, matching retail's heap-linked list

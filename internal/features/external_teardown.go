@@ -5,7 +5,14 @@ package features
 // same-tick stamps can use the returned arena slot [05 R-WORK-01 §7 phase 5]
 // [05 R-FEAT-01 §4 step 4]. It performs no successor or animation transition.
 func (s *Service) ReleaseRemovedAt(cx, cz int) {
-	if s == nil || s.Terrain == nil || cx < 0 || cz < 0 || cx >= int(s.Terrain.CellW) || cz >= int(s.Terrain.CellH) {
+	if s == nil {
+		return
+	}
+	// The owner's plot write can have reached anchors other than this one
+	// (the reread after allocation resolves the cell's current feature), so
+	// the next motion phase reconciles the whole set (grid_sync.go).
+	s.noteGridChange()
+	if s.Terrain == nil || cx < 0 || cz < 0 || cx >= int(s.Terrain.CellW) || cz >= int(s.Terrain.CellH) {
 		return
 	}
 	s.deleteInstance(cz*int(s.Terrain.CellW) + cx)

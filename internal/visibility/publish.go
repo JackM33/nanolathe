@@ -7,8 +7,16 @@ package visibility
 // Mode bit 2 selects the raster shape only; both paths write the same word mask
 // and the same per-player byte refcount [C2].
 func (s *Service) Publish(owner PlayerID, cx, cz int32, heightByte uint8, radius int32) {
+	s.publish(owner, cx, cz, heightByte, radius, nil)
+}
+
+// publish is Publish's body. A non-nil record collects every cell the walk
+// visits, in visit order, and is returned extended; Refresh keeps it as the
+// footprint's removal record (removalRecord). A publication that returns
+// before walking returns nil, which leaves its removal to the walk.
+func (s *Service) publish(owner PlayerID, cx, cz int32, heightByte uint8, radius int32, record []int32) []int32 {
 	if s == nil || !validPlayer(owner) || s.wordMask == nil || s.W == 0 || s.H == 0 {
-		return
+		return nil
 	}
 	changed := false
 	saturates := s.mode.CurrentEnabled() && s.coverageSaturates()
@@ -21,6 +29,9 @@ func (s *Service) Publish(owner PlayerID, cx, cz int32, heightByte uint8, radius
 		if s.mode.CurrentEnabled() {
 			changed = s.incByteGrid(idx, owner, saturates) || changed
 		}
+		if record != nil {
+			record = append(record, int32(idx))
+		}
 	}
 	if s.mode&ModeTerrainRay != 0 {
 		s.walkTerrainRay(cx, cz, heightByte, radius, visit)
@@ -32,6 +43,7 @@ func (s *Service) Publish(owner PlayerID, cx, cz int32, heightByte uint8, radius
 	if s.localSide(owner) && changed {
 		s.invalidatePresentation()
 	}
+	return record
 }
 
 // Unpublish removes an observer's contribution from the byte refcount. The word
@@ -56,6 +68,62 @@ func (s *Service) Unpublish(owner PlayerID, cx, cz int32, heightByte uint8, radi
 		s.invalidatePresentation()
 	}
 	return changed
+}
+
+// removalRecord is the exact cell sequence one Refresh publication visited,
+// with the walk inputs that produced it. Both rasters are pure functions of
+// those inputs and of authored data fixed for the battle — the shape table,
+// the ray tables and the load-time LOS words [03 §3.2] — so a removal whose
+// footprint carries the same inputs, under the same raster, would walk exactly
+// these cells in this order. Replaying them applies the same decrements in the
+// same order without walking the shape a second time: a moved observer used to
+// pay two walks a tick, one to publish and one to remove.
+//
+// The record is derived storage, never simulation state: no checkpoint or
+// save carries it, and a footprint with no matching record — a mode-refresh
+// publication, a raster switch, a record dropped by a rebuild — removes by
+// walking, which stays the reference behaviour.
+type removalRecord struct {
+	ray        bool
+	cx, cz     int32
+	heightByte uint8
+	radius     int32
+	cells      []int32
+}
+
+// matches reports whether the record was produced by the walk a removal of
+// old would run now.
+func (r *removalRecord) matches(old footprint, ray bool) bool {
+	return r != nil && r.cells != nil && r.ray == ray && r.cx == old.cx && r.cz == old.cz &&
+		r.heightByte == old.heightByte && r.radius == old.radius
+}
+
+// unpublishRecorded is Unpublish replaying a removal record instead of
+// walking: the same entry test, the same decrements in the same order under
+// the same arithmetic — wrapping bytes or the saturating wide count, whichever
+// the bound rule answers now — and the same local invalidation.
+func (s *Service) unpublishRecorded(owner PlayerID, cells []int32) bool {
+	if s == nil || !validPlayer(owner) || s.wordMask == nil || s.W == 0 || s.H == 0 {
+		return false
+	}
+	changed := false
+	saturates := s.mode.CurrentEnabled() && s.coverageSaturates()
+	if s.mode.CurrentEnabled() {
+		for _, idx := range cells {
+			changed = s.decByteGrid(int(idx), owner, saturates) || changed
+		}
+	}
+	if s.localSide(owner) && changed {
+		s.invalidatePresentation()
+	}
+	return changed
+}
+
+// dropRemovalRecords discards every removal record. Any later removal walks.
+func (s *Service) dropRemovalRecords() {
+	if s != nil {
+		s.removalRecords = nil
+	}
 }
 
 // spriteShapeIndex quantizes a sight radius to a shape index [03 §3.2] C2 [P0-18].
@@ -261,6 +329,7 @@ func (s *Service) Refresh(id ObserverID, ob Observer) {
 	}
 
 	old, had := s.footprints[id]
+	record := s.removalRecords[id]
 	if had {
 		moved := old.owner != ob.Owner || old.storedCX != storedCX || old.storedCZ != storedCZ
 		changed := old.storedByte != storedByte
@@ -275,7 +344,7 @@ func (s *Service) Refresh(id ObserverID, ob Observer) {
 			return // throttled even when no active contribution remains [C6]
 		}
 		if old.live {
-			s.removeFootprint(old)
+			s.removeFootprint(old, record)
 		}
 	}
 
@@ -292,7 +361,15 @@ func (s *Service) Refresh(id ObserverID, ob Observer) {
 	}
 	next.live = true
 	s.footprints[id] = next
-	s.Publish(ob.Owner, ob.CX, ob.CZ, ob.HeightByte, ob.Radius)
+	if record == nil {
+		if s.removalRecords == nil {
+			s.removalRecords = make(map[ObserverID]*removalRecord)
+		}
+		record = &removalRecord{cells: make([]int32, 0, 64)}
+		s.removalRecords[id] = record
+	}
+	*record = removalRecord{ray: ray, cx: ob.CX, cz: ob.CZ, heightByte: ob.HeightByte, radius: ob.Radius,
+		cells: s.publish(ob.Owner, ob.CX, ob.CZ, ob.HeightByte, ob.Radius, record.cells[:0])}
 }
 
 // RetireObserver removes the stored current-coverage footprint, rather than
@@ -306,8 +383,9 @@ func (s *Service) RetireObserver(id ObserverID) bool {
 	if !ok {
 		return false
 	}
-	dirty := s.removeFootprint(old)
+	dirty := s.removeFootprint(old, s.removalRecords[id])
 	delete(s.footprints, id)
+	delete(s.removalRecords, id)
 	return dirty
 }
 
@@ -328,14 +406,23 @@ func (s *Service) RetireObserver(id ObserverID) bool {
 //     own unbalanced first-refresh decrement — a record that was never
 //     actually published is never removed here, without reproducing that
 //     decrement itself.
-func (s *Service) removeFootprint(old footprint) bool {
+//
+// record, when it matches old under the current raster, replays the cells
+// old's publication visited instead of walking them again (removalRecord).
+func (s *Service) removeFootprint(old footprint, record *removalRecord) bool {
 	if s == nil || !old.live || !s.mode.CurrentEnabled() {
 		return false
 	}
-	if s.mode&ModeTerrainRay != 0 && old.heightByte == 0 {
+	ray := s.mode&ModeTerrainRay != 0
+	if ray && old.heightByte == 0 {
 		return false // ray branch's storedByte != 0 guard [03 R-VIS-01 §2]
 	}
-	changed := s.Unpublish(old.owner, old.cx, old.cz, old.heightByte, old.radius)
+	var changed bool
+	if record.matches(old, ray) {
+		changed = s.unpublishRecorded(old.owner, record.cells)
+	} else {
+		changed = s.Unpublish(old.owner, old.cx, old.cz, old.heightByte, old.radius)
+	}
 	return s.localSide(old.owner) && changed
 }
 
@@ -344,5 +431,8 @@ func (s *Service) removeFootprint(old footprint) bool {
 func (s *Service) Forget(id ObserverID) {
 	if s != nil && s.footprints != nil {
 		delete(s.footprints, id)
+	}
+	if s != nil {
+		delete(s.removalRecords, id)
 	}
 }

@@ -164,6 +164,12 @@ type WeaponDef struct {
 	// The override map retains spellings; this vector keeps the lower-bound
 	// winner ahead of case variants across same-ID parses [06 R-DMG-01 §1].
 	damageOrder []string
+	// damageFold is the derived lower-cased projection of damageOrder, built
+	// once by the compiler. The runtime lookup binary-searches it instead of
+	// lower-casing each retained key on every comparison, which at battle
+	// scale was one allocation per probed key per damage query. It is never
+	// authored, saved or hashed; a nil vector falls back to folding on the fly.
+	damageFold []string
 
 	// Unknown retains inert parsed keys so a later phase can consume them without re-parsing [02 §5] C14.
 	// Keys are OriginalKey preserved case; e.g., aimrate, startfire, ovradjust etc have no reader.
@@ -188,6 +194,10 @@ func (w *WeaponDef) DamageKeysSorted() []string {
 // copying the compiled lookup order [06 §9.2][06 R-DMG-01 §1]. The order stays
 // private, and the value is read from Damage on every call so battle catalog
 // edits remain visible. Authored Go fixtures keep their sorted-map fallback.
+//
+// The compiler also supplies damageFold, the order's lower-cased projection, so
+// the binary search compares strings instead of folding a retained key on every
+// comparison; the projection allocates once at load, not per damage query.
 func (w *WeaponDef) DamageOverride(unitName string) (int32, bool) {
 	if w == nil || len(w.Damage) == 0 {
 		return 0, false
@@ -196,8 +206,15 @@ func (w *WeaponDef) DamageOverride(unitName string) (int32, bool) {
 	if keys == nil {
 		keys = w.DamageKeysSorted()
 	}
+	fold := w.damageFold
+	if len(fold) != len(keys) {
+		fold = nil
+	}
 	name := strings.ToLower(unitName)
 	i := sort.Search(len(keys), func(i int) bool {
+		if fold != nil {
+			return fold[i] >= name
+		}
 		return strings.ToLower(keys[i]) >= name
 	})
 	if i < len(keys) && strings.EqualFold(keys[i], unitName) {
@@ -460,6 +477,15 @@ func compileWeaponSectionWithPrior(section *formats.Section, sectionName string,
 			damageMap[key] = val
 		}
 	}
+	// The derived lower-cased projection of the retained order: a pure function
+	// of damageOrder, built once here so the runtime lookup never folds a key.
+	var damageFold []string
+	if len(damageOrder) != 0 {
+		damageFold = make([]string, len(damageOrder))
+		for i, key := range damageOrder {
+			damageFold[i] = strings.ToLower(key)
+		}
+	}
 
 	// Unknown inert keys retained per C14 [02 §5]
 	unknown := make(map[string]string)
@@ -573,6 +599,7 @@ func compileWeaponSectionWithPrior(section *formats.Section, sectionName string,
 		DamageDefault:      damageDefault,
 		Damage:             damageMap,
 		damageOrder:        damageOrder,
+		damageFold:         damageFold,
 		Unknown:            unknown,
 	}
 
