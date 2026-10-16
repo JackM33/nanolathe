@@ -32,5 +32,6 @@ __pycache__/
 # (internal/version/stampgen); never source.
 /internal/version/stamp_generated.go
 
-# Static browser distribution artifacts (may contain local demo content).
-/build/browser/
+# Build outputs: tools/build.cmd and the static browser distribution
+# (which may contain local demo content).
+/build/
