@@ -26,7 +26,6 @@ has its own design document; this one only says where the boundaries are.
 | [DESIGN_DEVELOPER_TOOLS](DESIGN_DEVELOPER_TOOLS.md) | planned developer views, reconnected dormant probes, diagnostic publication and portable host tooling |
 | [DESIGN_GAMEPLAY_RULES](DESIGN_GAMEPLAY_RULES.md) | the gameplay rule seams, how a Modern or Strict 3.1 rule set is bound, and what it may cost |
 | [DESIGN_GPU_RENDERER](DESIGN_GPU_RENDERER.md) | the recorded frame draw list, the classic (software) and modern (GPU) executors, the renderer switch, visual parity policy and prototype gates |
-| [DESIGN_METAL_RENDERER](DESIGN_METAL_RENDERER.md) | the experimental native Metal renderer for one battle on macOS (`--metal`): retained meshes and textures, the pure-Go Objective-C call layer, its window and input, coverage, limits and verification |
 | [DESIGN_COMMUNITY_PATCH](DESIGN_COMMUNITY_PATCH.md) | the Community 3.9 gameplay profile: the third reserved rule set, the feature table a content set or player configures, the mapping of every community-patch contract onto a seam, and the decisions still open (design, not implemented) |
 | [DESIGN_MODS_MUTATORS](DESIGN_MODS_MUTATORS.md) | the mod library and the nanolathe.gg catalogue, global mutators applied to the per-battle catalog in every mode, and the save sidecar that records and restores a match's selection (implemented; follow-ups in its §13 unit 9) |
 | [DESIGN_SURVIVAL](DESIGN_SURVIVAL.md) | the Survival mode, alone or online: the attacker slot, the wave director, build-tree tech tiers, the no-victory result and score, available in every gameplay mode |
@@ -199,17 +198,17 @@ simulation or presentation.
 | `internal/drawlist` | The recorded committed-frame draw list: command families carrying physical palette indices, the `Sink` executor interface, ordered replay and model packet boundary | DESIGN_GPU_RENDERER |
 | `internal/platform/screenkit` | Device-resolution toolkit for the Nanolathe screen: film typefaces as glyph mip levels, paint helpers, hit regions | DESIGN_INTERFACE_HUD_INPUT §3.17 |
 | `internal/platform/gpurender` | The modern executor: replays a draw list through Ebitengine in palette-index space, table textures, atlases, per-subject GPU model prototypes, expansion to RGB | DESIGN_GPU_RENDERER |
-| `internal/meshscene` | Platform-neutral scene preparation for the Metal renderer: compiled meshes and atlases, terrain and sprite atlases, and `RetainedBattle`, which turns the pinned committed frame pair into retained instances, poses, sprites, lights, fog and effects | DESIGN_METAL_RENDERER |
-| `internal/metalhud` | The Metal renderer's HUD: the client's foreground draw list as overlay quads over one RGBA atlas | DESIGN_METAL_RENDERER |
-| `internal/platform/metalrender` | The macOS Metal renderer: device, pipelines, resident resources, per-frame packing and encoding, the Cocoa window and input pump, embedded MSL | DESIGN_METAL_RENDERER |
-| `internal/platform/mtl` | Calls the Objective-C runtime, Metal, AppKit and Core Graphics from Go with no cgo; imports nothing from the game | DESIGN_METAL_RENDERER §5 |
 | `internal/upscale` | Load-time 2× synthesis of terrain tiles and feature sprite banks from the map's own pixels, with the on-disk cache; the `tools/mapupscale` synthesizers are wrappers over it | DESIGN_GPU_RENDERER §14 |
+
+The modern executor is the only GPU executor. The retired native Metal
+renderer and the Metal and WebGPU prototypes are preserved on the
+`archive/metal-webgpu` branch.
 
 ### Commands
 
 | Package | Responsibility | Design document |
 |---|---|---|
-| `cmd/nanolathe` | The game: front-end screens, briefing, battle composition and dispatch, the battle HUD wiring, load/save screens, post-battle, `--shot` captures, `--headless`; on macOS the `--metal` battle host (`metal_*_darwin.go`) | DESIGN_INTERFACE_HUD_INPUT (screens, dispatch), DESIGN_SESSIONS_AI_SAVE (composition, headless), DESIGN_METAL_RENDERER |
+| `cmd/nanolathe` | The game: front-end screens, briefing, battle composition and dispatch, the battle HUD wiring, load/save screens, post-battle, `--shot` captures, `--headless` | DESIGN_INTERFACE_HUD_INPUT (screens, dispatch), DESIGN_SESSIONS_AI_SAVE (composition, headless) |
 | `cmd/nanolathe-headless` | The displayless runner: one authoritative session to a tick limit or result, JSON report | DESIGN_SESSIONS_AI_SAVE |
 | `cmd/ai-arena` | Displayless computer-versus-computer matches and tournaments for the Modern AI research; registers its own `aikit` rule set, which the game never links | MODERN_AI_RESEARCH |
 | `mods`, `mods/example`, `mods/aikit` | What a build links beyond the three reserved rule sets, each registering itself from an init: `mods/example` a rule set selected by name, and `mods/aikit` the Modern AI's think step (`session.RegisterModernAI`), which is not a rule set and which the session gives every computer player marked Modern; imported only by commands | DESIGN_GAMEPLAY_RULES, DESIGN_SESSIONS_AI_SAVE |
@@ -237,9 +236,6 @@ platform      cmd/nanolathe, cmd/nanolathe-headless ─► mods ─► session  
               mods/aikit ─► session, aikit, aikit/core, aikit/brains, ai, economy, units, gameplay   (the Modern AI step, the arena's sets)
               cmd/ai-arena ─► mods, mods/aikit, headless, session, aikit, aikit/core, aikit/brains   (research arena)
               cmd/nanolathe ─► platform/ebitenapp ─► client, audiobackend
-              cmd/nanolathe ─► platform/metalrender ─► meshscene, drawlist, platform/mtl   (macOS --metal, DESIGN_METAL_RENDERER)
-              cmd/nanolathe ─► metalhud ─► client, meshscene
-              meshscene ─► session, render, drawlist, frame, visibility, world, model, content, palette, camera, formats, vfs, pool, numeric
               cmd/nanolathe ─► upscale ─► formats, palette   (load-time 2× art, DESIGN_GPU_RENDERER §14)
               cmd/nanolathe ─► modfetch ─► modlibrary ─► content, gameplay, vfs   (mods, DESIGN_MODS_MUTATORS §4–§5)
               cmd/nanolathe-headless ─► headless
@@ -284,14 +280,13 @@ rather than by convention:
 
 * **Only the platform adapter reaches Ebitengine.** `internal/platform/ebitenapp`,
   `internal/platform/gpurender`, `internal/platform/screenkit`,
-  `internal/platform/metalrender`, `internal/platform/mtl`,
   `internal/audiobackend` and `cmd/nanolathe` are the only packages whose
   import closure (including their test binaries) may contain the Ebitengine
   modules, purego among them. Every other package, and every other test, stands up with no
   window and no audio device.
 * **Simulation never imports the window.** `internal/client` is imported only
-  by the platform adapter, the Metal renderer's HUD (`internal/metalhud`), the
-  two desktop commands and the presentation conformance tests; no simulation package can reach it, and the headless
+  by the platform adapter, the two desktop commands and the presentation
+  conformance tests; no simulation package can reach it, and the headless
   command's dependency closure contains neither the client nor the device
   packages. `internal/session` does import `frame`, `render`, `hud` and
   `audio`: those are the publication targets it fills at the end of each
@@ -574,14 +569,6 @@ The gate detects a window server — an Aqua session on macOS,
 Renderer work is merged from a host with a display. The invocation inherits the
 gate's exported retail root, so the few device fixtures that render installed
 art opt in there; run by hand without it they return early and assert nothing.
-
-**Metal device test.** On macOS, `tools/check-retail` then runs
-`go test ./internal/platform/metalrender -run '^TestDevicePipelines$'` with
-`NANOLATHE_METAL_DEVICE_TEST=1`: its `TestMain` builds the whole offscreen
-Metal renderer on the main thread, compiling the shader library and every
-pipeline (DESIGN_METAL_RENDERER §9). It prints `SKIPPED` elsewhere. The Metal
-call layer's own tests (`internal/platform/mtl`) need no device and run in
-both tiers on macOS.
 
 **Partial state fingerprint.** The headless report retains the JSON key
 `state_hash`; its value now starts with `partial-v1:`. This diagnostic covers

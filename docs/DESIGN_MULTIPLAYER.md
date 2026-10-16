@@ -1672,8 +1672,8 @@ owns the recording seams (`SetReplayRecorder`, `PrepareRecordedBattle`,
   header.
 - **Not recorded.** Campaign missions, battles continued from a saved game,
   watched or computer-only battles, measured or staged windows, content from
-  an extra `--root` or `--mod-config`, a mod without an archive digest, the
-  loopback play test (§16.4) and `--metal` windows.
+  an extra `--root` or `--mod-config`, a mod without an archive digest and the
+  loopback play test (§16.4).
 
 **Header.** Format version, a kind byte (single-player or online,
 skirmish or Survival), the encoded battle configuration (§8.6; for

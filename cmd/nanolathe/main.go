@@ -243,10 +243,6 @@ func run(opts Options, out, errOut *os.File) error {
 		return runHeadless(opts, content, out)
 	}
 
-	if opts.Metal {
-		return runMetal(opts, content)
-	}
-
 	// --replay plays one replay in the battle window, as --map plays a map.
 	if opts.Replay != "" {
 		return runBattleView(launch, opts, content)

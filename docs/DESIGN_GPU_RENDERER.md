@@ -7,10 +7,7 @@ composer writing palette indices into a byte surface. The **modern** executor
 replays the same list through Ebitengine, composing in true colour on the GPU.
 The public choices are `--renderer=classic|modern`, default modern, also
 selectable on the Nanolathe options page and with F10. The simulation cannot
-tell which executor is selected. On macOS, `--metal` plays one battle in an
-experimental native Metal renderer instead; it draws the world from retained
-meshes rather than replaying this list, and
-[DESIGN_METAL_RENDERER.md](DESIGN_METAL_RENDERER.md) describes it.
+tell which executor is selected.
 
 This document states what the code does now. The measurement record behind it —
 benchmark runs, capture comparisons, the rounds of work that got here, and the

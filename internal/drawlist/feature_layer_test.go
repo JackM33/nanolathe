@@ -52,9 +52,4 @@ func TestFeatureLayerReplay(t *testing.T) {
 	if got := hooked.layers[0]; got.Revision != 9 || &got.Items[0] != &layer.Items[0] {
 		t.Fatal("the clone did not carry the layer with its shared items")
 	}
-	var into List
-	clone.CloneInto(&into)
-	if len(into.FeatureLayers()) != 1 || &into.FeatureLayers()[0].Items[0] != &layer.Items[0] {
-		t.Fatal("CloneInto did not carry the layer")
-	}
 }

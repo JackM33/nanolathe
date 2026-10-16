@@ -98,18 +98,10 @@ type Client struct {
 	presentationPaused  bool
 	pausedWorldRevision uint64
 	pausedLayer         pausedRecordLayer
-	retainedForeground  bool
-	// externalSelection hands selected-unit quads to the retained host, which
-	// draws them in each unit's paint slot (RetainedSelections).
-	externalSelection       bool
-	retainedSelections      []RetainedSelection
-	retainedSelectionWS     drawlist.WorldSpace
-	retainedLightBuckets    worldBuckets               // tall-feature order for retained light sources
-	effectOptions           EffectDrawOptions          // bound once; method values would allocate per strip
-	retainedProjectileOrder *[]RetainedProjectileModel // active only during the source-only projectile batch
-	communityHUD            CommunityHUDOptions
-	communityColors         communityColorState
-	infectionNanoRamp       [7]uint8
+	effectOptions       EffectDrawOptions // bound once; method values would allocate per strip
+	communityHUD        CommunityHUDOptions
+	communityColors     communityColorState
+	infectionNanoRamp   [7]uint8
 
 	// debugDeviceCapture is a host-owned, on-demand diagnostics bridge. It is
 	// invoked only after the frame recorder has joined, outside simulation.

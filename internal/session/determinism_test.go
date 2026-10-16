@@ -224,9 +224,7 @@ func TestRS06_FloatAudit(t *testing.T) {
 				continue
 			}
 			if re.MatchString(line) && !strings.Contains(line, "TODO(") {
-				// Presentation packages, including the Metal renderer's scene
-				// preparation, never feed the simulation [I2][DESIGN_METAL_RENDERER §3].
-				if strings.Contains(rel, "internal/client") || strings.Contains(rel, "internal/render") || strings.Contains(rel, "internal/audio") || strings.HasPrefix(rel, "internal/meshscene/") {
+				if strings.Contains(rel, "internal/client") || strings.Contains(rel, "internal/render") || strings.Contains(rel, "internal/audio") {
 					continue
 				}
 				t.Fatalf("authoritative float math %s line %d not in I2 allowlist: %s", rel, i+1, strings.TrimSpace(line))

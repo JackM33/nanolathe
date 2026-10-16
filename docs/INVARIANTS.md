@@ -88,7 +88,6 @@ Allowed floating point, exhaustively:
 | Load-time 2× art synthesis (`internal/upscale`: PCA basis, feature distances, tone terms) | `float32`/`float64` presentation-only; runs on the loader goroutine, its output is index art the simulation never reads | DESIGN_GPU_RENDERER §14.4 |
 | Enhanced glow layer geometry and kernel (`internal/platform/gpurender/glow.go`: stroke length `sqrt`, Gaussian weights) | `float32`/`float64` presentation-only; device-side executor state built from the recorded list, never read by the simulation | DESIGN_GPU_RENDERER §19 |
 | Enhanced blast radius and displacement boosts (`internal/platform/gpurender/distortion.go`) | `float32`/`float64` presentation-only square-root tuning, never simulation inputs | DESIGN_GPU_RENDERER §25.2 |
-| The macOS Metal renderer (`internal/meshscene`, `internal/metalhud`, `internal/platform/metalrender`, `internal/platform/mtl`, `cmd/nanolathe/metal_*_darwin.go`), including its copy of the blast boosts | `float32`/`float64` presentation-only geometry, poses, shader operands and timing, built from the committed frame pair the production client pins; never simulation inputs | DESIGN_METAL_RENDERER §3 |
 | Enhanced model normals and battle-light response (`internal/client/model_compose.go`, `internal/platform/gpurender/lighting.go`) | `float32`/`float64` presentation-only geometry and light calculations; never simulation inputs | DESIGN_GPU_RENDERER §23 |
 | Enhanced coastal surface and particle geometry (`internal/client/water_wakes.go`, `water_motion.go`, `water_buildings.go`, `internal/platform/gpurender/water.go`, `water_reflections.go`) | `float32`/`float64` presentation-only screen geometry, drift, fades and shader operands; never simulation inputs | DESIGN_GPU_RENDERER §26 |
 | Offline film capture (`internal/film`: overlay glyph rasterization, camera-track easing, cue envelopes) | `float64` presentation-only capture geometry and timing; it runs after the frame is composed, reads no session state and is never a simulation input | docs/FILM_CAPTURE.md |
@@ -572,11 +571,6 @@ separately designed zoom, lighting, glow, antialiasing and optional interpolatio
 These choices never change authoritative state. Departures from classic are
 listed in that design document's Divergences. New public modes and interpolation
 are deferred beyond the prototype human-review gate.
-On macOS, `--metal` (user-authorized 2026-10-08) plays one `--map` or
-`--mission` battle in the experimental native Metal renderer of
-[DESIGN_METAL_RENDERER.md](DESIGN_METAL_RENDERER.md). It is a command-line
-host, not a persisted option, and like the other renderers it reads only the
-committed frame pair and never changes authoritative state.
 
 ## I12 — Standard library first
 

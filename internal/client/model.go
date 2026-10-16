@@ -385,13 +385,11 @@ func (c *Client) drawProjectileModel(p frame.ProjectileView) bool {
 	if !c.drawModel(parent, 0, teamColor{}, projectilePresentationID(p), modelCursorProjectile, nil, 0) {
 		return false
 	}
-	c.recordRetainedProjectileModel(p, RetainedProjectileParent)
 	if child != nil {
 		child.KeyPlane, child.Structure = false, false
 		if !c.drawModel(child, 0, teamColor{}, projectilePresentationID(p), modelCursorProjectile, nil, 0) {
 			return false
 		}
-		c.recordRetainedProjectileModel(p, RetainedProjectileChild)
 	}
 	return true
 }
