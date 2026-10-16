@@ -247,6 +247,12 @@ func TestWebSocketKeepaliveAndCloseUnblocksIO(t *testing.T) {
 	}
 	readDone := make(chan error, 1)
 	go func() { var p [1]byte; _, err := c.Read(p[:]); readDone <- err }()
+	// A pipe echoes within one tick of a coarse monotonic clock (about 1ms on
+	// Windows), which would measure a zero round trip; let the clock pass the
+	// ping's send time first.
+	for sent := time.Duration(binary.BigEndian.Uint64(ping[2:])); time.Since(c.epoch) <= sent; {
+		time.Sleep(time.Millisecond)
+	}
 	if err := websocketWriteAll(b, websocketTestFrame(0x8a, ping[2:], true)); err != nil {
 		t.Fatal(err)
 	}

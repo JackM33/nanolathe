@@ -14,6 +14,7 @@ import (
 	"io"
 	"math/big"
 	"net"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -582,6 +583,9 @@ func TestHostedWriterBudgetIncludesInflightAndFlushes(t *testing.T) {
 }
 
 func TestHostedSlowReaderDoesNotBlockOtherRoom(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows loopback keeps the receive window advertised at connect, so a 1 KiB buffer set afterwards still accepts megabytes and the maximum grant never blocks the writer")
+	}
 	timeouts := hostedDefaultTimeouts
 	timeouts.write = 150 * time.Millisecond
 	s := listenHostedTest(t, HostedConfig{InsecureLoopback: true}, timeouts)
