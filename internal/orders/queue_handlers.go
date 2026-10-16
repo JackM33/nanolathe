@@ -62,6 +62,13 @@ func (q *Queue) SetOwnedHandler(id ID, handler OwnedHandler) {
 	if int(id) < len(q.checkpointOwnedHandlers) {
 		q.checkpointOwnedHandlers[id] = CheckpointOwnedHandler{}
 	}
+	// Whatever installed the row before, this write is not a keyed
+	// registration's (RegisterOwnedHandler sets the key after calling here),
+	// and it ends every registration's confirmation (OwnedRowsCurrent).
+	if int(id) < len(q.ownedKeys) {
+		q.ownedKeys[id] = OwnedKey{}
+	}
+	q.ownedEpoch++
 	if q.ownedHandlers == nil {
 		if handler == nil {
 			return
@@ -69,6 +76,113 @@ func (q *Queue) SetOwnedHandler(id ID, handler OwnedHandler) {
 		q.ownedHandlers = make([]OwnedHandler, len(table))
 	}
 	q.ownedHandlers[id] = handler
+}
+
+// OwnedKey names one installation by the registrant field it installs from:
+// Handler for an ordinary installation, Proof for one carrying its checkpoint
+// proof, never both. A registrant names an installation only by a field that
+// holds its value for the registrant's lifetime once filled, so one key always
+// means one handler (and proof) value.
+type OwnedKey struct {
+	Handler *OwnedHandler
+	Proof   *CheckpointOwnedHandler
+}
+
+// RegisterOwnedHandler is SetOwnedHandler for a registrant that installs the
+// same row on every visit — the construction and movement services, from each
+// unit's step. key is the field handler was read from (OwnedKey). When the row
+// was last installed by this call with the same key, and nothing has written
+// it since, it already holds exactly what this call would write, so the call
+// changes nothing. Otherwise it installs through SetOwnedHandler and records
+// the key.
+//
+// The key is per row, so a different installation on one row — a test's
+// handler, SetGetBuiltHandler, a row cleared to nil — sends only that row
+// back through the setter on the next visit, and a queue built by
+// replacement carries no keys at all. The keys are derived bookkeeping: no
+// dispatch, checkpoint or comparison reads them.
+func (q *Queue) RegisterOwnedHandler(id ID, key *OwnedHandler, handler OwnedHandler) {
+	k := OwnedKey{Handler: key}
+	if q.ownedKeyCurrent(id, k) {
+		return
+	}
+	q.SetOwnedHandler(id, handler)
+	q.setOwnedKey(id, k, handler != nil)
+}
+
+// RegisterOwnedHandlerWithCheckpointBinding is RegisterOwnedHandler for an
+// installation carrying its checkpoint proof: key is the field the proof was
+// read from, and the proof is installed through
+// SetOwnedHandlerWithCheckpointBinding.
+func (q *Queue) RegisterOwnedHandlerWithCheckpointBinding(id ID, key *CheckpointOwnedHandler, handler CheckpointOwnedHandler) {
+	k := OwnedKey{Proof: key}
+	if q.ownedKeyCurrent(id, k) {
+		return
+	}
+	q.SetOwnedHandlerWithCheckpointBinding(id, handler)
+	q.setOwnedKey(id, k, handler.handler != nil)
+}
+
+// OwnedRowsCurrent reports whether the registration named by key confirmed
+// every one of its rows on this queue (MarkOwnedRows) and no owned row has
+// been written since. Then each of those rows still holds exactly key's
+// installation, so a registrant may skip its per-row walk: this is the check
+// a unit's step makes on the queue it holds, and it reads the queue's own
+// words rather than one row slot per registered row.
+func (q *Queue) OwnedRowsCurrent(key OwnedKey) bool {
+	if q == nil || key == (OwnedKey{}) {
+		return false
+	}
+	for i := range q.ownedStamps {
+		if q.ownedStamps[i].key == key {
+			return q.ownedStamps[i].epoch == q.ownedEpoch
+		}
+	}
+	return false
+}
+
+// MarkOwnedRows records that every row of the registration named by key holds
+// key's installation now — the registrant has just registered each of them
+// through RegisterOwnedHandler or its checkpoint form. The record holds until
+// the next write to any owned row. A queue keeps three records, one for each
+// registration a composed battle makes; a further key replaces one in turn,
+// which only costs that registrant its per-row walk on a later visit.
+func (q *Queue) MarkOwnedRows(key OwnedKey) {
+	if q == nil || key == (OwnedKey{}) {
+		return
+	}
+	for i := range q.ownedStamps {
+		if q.ownedStamps[i].key == key {
+			q.ownedStamps[i].epoch = q.ownedEpoch
+			return
+		}
+	}
+	q.ownedStamps[q.ownedStampNext] = ownedStamp{key: key, epoch: q.ownedEpoch}
+	q.ownedStampNext = (q.ownedStampNext + 1) % uint8(len(q.ownedStamps))
+}
+
+// ownedStamp is one MarkOwnedRows record: the registration's key and the
+// owned-row write count at which it was confirmed whole.
+type ownedStamp struct {
+	key   OwnedKey
+	epoch uint64
+}
+
+// ownedKeyCurrent reports whether row id was last installed under key.
+func (q *Queue) ownedKeyCurrent(id ID, key OwnedKey) bool {
+	return q != nil && key != (OwnedKey{}) && int(id) > 0 && int(id) < len(q.ownedKeys) && q.ownedKeys[id] == key
+}
+
+// setOwnedKey records key as row id's installation. A nil handler stores no
+// key: a cleared row is cheap to clear again and keeps the queue unallocated.
+func (q *Queue) setOwnedKey(id ID, key OwnedKey, installed bool) {
+	if q == nil || key == (OwnedKey{}) || !installed || int(id) <= 0 || int(id) >= len(table) {
+		return
+	}
+	if q.ownedKeys == nil {
+		q.ownedKeys = make([]OwnedKey, len(table))
+	}
+	q.ownedKeys[id] = key
 }
 
 // OwnedHandlerFor returns the handler registered for row id on this queue, or

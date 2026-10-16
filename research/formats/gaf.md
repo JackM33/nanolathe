@@ -243,6 +243,17 @@ simulation-only success. The pixel-geometry budget remains an acceptance bound
 for the metadata reader even though it has no pixel allocation, keeping the
 two readers on one corrupt-content policy.
 
+## Nanolathe decoded-only loading
+
+**Established (Nanolathe host storage policy).** `LoadGAFDecodedFile` uses
+the ordinary reader's whole-bank validation, allocation bounds and eager
+materialization, including shared entries/frames, ordered composite children,
+decoded pixels and transparency. It omits only the separate encoded RLE views
+described below. Raw leaves still share their decoded storage. Feature-sprite
+banks select this product because their body/shadow blitters use decoded
+images; direct-storage consumers retain the ordinary loader. No authored
+dispatch, geometry, delay or image changes, and no decoding moves into Draw.
+
 ## Nanolathe on-demand source
 
 **Established (Nanolathe host storage policy).** `GAFSource` retains encoded
@@ -274,7 +285,7 @@ establish supported nested layouts or any still-unknown consumer operation.
 **Established (Nanolathe host-boundary policy).** `GAFFrame.DirectRaster`
 returns a checked immutable view for consumers that read storage directly
 `[02 R-MALF-01 §6]`. Raw leaves reuse their decoded bytes, which preserve the
-key byte. For RLE leaves the pixel reader preserves a separate, at-most
+key byte. For RLE leaves the ordinary pixel reader preserves a separate, at-most
 `width × height` copy starting at the authored data location; this is encoded
 storage, including row counts and commands, not the expanded image. This
 adds at most one byte per accepted decoded pixel to pixel-reader storage;

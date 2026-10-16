@@ -1512,12 +1512,13 @@ func (r *Renderer) commitModelDirect(g *drawlist.ModelGeometry) {
 
 // commitModelDirectShadow compiles one subject's shadow commit: a command
 // over the shadow's clipped world rectangle whose fragment resolves the
-// silhouette from the shadow's page (source 3) and punches the body's wholly
-// covered blocks read from the body's page (source 2)
-// (sceneOpModelDirectShadow). The body image is the subject's own — a carried
-// child's solo region, not the group's texels — so the punch tests the
-// subject's coverage and nothing else. A shadow without a region is omitted, as
-// the slot stage omitted one it could not place.
+// silhouette from the shadow's page (source 3, or source 2 when it is the
+// body's page) and punches the body's wholly covered blocks read from the
+// body's page (source 2) (sceneOpModelDirectShadow, sceneModelPageSlots).
+// The body image is the subject's own — a carried child's solo region, not
+// the group's texels — so the punch tests the subject's coverage and nothing
+// else. A shadow without a region is omitted, as the slot stage omitted one
+// it could not place.
 //
 // The commit composites the ALP half-colour under source-over, the opaque
 // class's own blend, so it is compiled into the opaque batch: it shares a run
@@ -1547,7 +1548,14 @@ func (r *Renderer) commitModelDirectShadow(g *drawlist.ModelGeometry) {
 		r.modelStats.Shadows++
 		return
 	}
-	if !r.sched.begin(schedOpaque, x0, y0, x1, y1, [4]*ebiten.Image{1: r.tables.atlas, 2: d.pages[body.page].colour, 3: d.pages[shadow.page].colour}) {
+	imgs := [4]*ebiten.Image{1: r.tables.atlas, 2: d.pages[body.page].colour}
+	lane := r.modelSampleLane()
+	if shadowPage := d.pages[shadow.page].colour; shadowPage != imgs[2] {
+		imgs[3] = shadowPage
+	} else {
+		lane += sceneShadowOnePage
+	}
+	if !r.sched.begin(schedOpaque, x0, y0, x1, y1, imgs) {
 		return
 	}
 	// A pixel's shadow block is the region origin plus twice its offset from
@@ -1561,7 +1569,7 @@ func (r *Renderer) commitModelDirectShadow(g *drawlist.ModelGeometry) {
 		float32(x0), float32(y0), float32(x1), float32(y1),
 		sx0, sy0, sx0+2*float32(x1-x0), sy0+2*float32(y1-y0),
 		[4]float32{float32(body.x), float32(body.y), float32(body.x) + 2*float32(bb.Dx()), float32(body.y) + 2*float32(bb.Dy())},
-		[4]float32{kx, ky, r.modelSampleLane(), sceneOpModelDirectShadow})
+		[4]float32{kx, ky, lane, sceneOpModelDirectShadow})
 	r.modelStats.Shadows++
 }
 
@@ -1580,9 +1588,9 @@ func (r *Renderer) omitShadow(g *drawlist.ModelGeometry) {
 // commitModelSilhouetteShadow compiles a Digger or mobile subject's shadow:
 // an opaque-class command, like the projected shadow's, over the body's box at
 // the shadow's placement whose
-// fragment resolves the body's own colour texels as the silhouette, erased at
-// and below the packet's clip key read from the body's key page (slot 2, bound
-// only when a clip applies), and
+// fragment resolves the body's own colour texels (slot 2) as the silhouette,
+// erased at and below the packet's clip key read from the body's key page
+// (slot 3, bound only when a clip applies), and
 // composites the ALP half-colour of index 0 (sceneOpModelSilhouetteShadow)
 // [03 R-REN-03D §1, §4]. The body's region is the source, so the shadow costs
 // no region and no faces of its own; a body without a region (the fallback)
@@ -1611,15 +1619,16 @@ func (r *Renderer) commitModelSilhouetteShadow(g *drawlist.ModelGeometry) {
 		r.modelStats.Silhouettes++
 		return
 	}
-	// The colour page rides slots 2 and 3, the projected shadow commit's own
-	// binding, so the two kinds of shadow share a run; only a clipped
-	// silhouette (a Digger, a submerged mobile) binds the key page in slot 2.
+	// The colour page rides slot 2, the binding of the body commits and the
+	// projected shadow commits, so they all share a run and slot 3 stays free
+	// for the sprite family (sceneModelPageSlots); only a clipped silhouette
+	// (a Digger, a submerged mobile) binds the key page, in slot 3.
 	pg := &d.pages[body.page]
-	slot2 := pg.colour
+	imgs := [4]*ebiten.Image{1: r.tables.atlas, 2: pg.colour}
 	if sg.SilhouetteClip != 0 {
-		slot2 = pg.key
+		imgs[3] = pg.key
 	}
-	if !r.sched.begin(schedOpaque, x0, y0, x1, y1, [4]*ebiten.Image{1: r.tables.atlas, 2: slot2, 3: pg.colour}) {
+	if !r.sched.begin(schedOpaque, x0, y0, x1, y1, imgs) {
 		return
 	}
 	// The shadow's local space is the body's: a pixel's block is the body's

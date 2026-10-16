@@ -7,10 +7,7 @@ composer writing palette indices into a byte surface. The **modern** executor
 replays the same list through Ebitengine, composing in true colour on the GPU.
 The public choices are `--renderer=classic|modern`, default modern, also
 selectable on the Nanolathe options page and with F10. The simulation cannot
-tell which executor is selected. On macOS, `--metal` plays one battle in an
-experimental native Metal renderer instead; it draws the world from retained
-meshes rather than replaying this list, and
-[DESIGN_METAL_RENDERER.md](DESIGN_METAL_RENDERER.md) describes it.
+tell which executor is selected.
 
 This document states what the code does now. The measurement record behind it —
 benchmark runs, capture comparisons, the rounds of work that got here, and the
@@ -1256,6 +1253,43 @@ are cleared after submission and page subject references are retired at the next
 frame boundary, including dormant overflow pages; numeric arenas retain their
 capacity and contents. The recorded list is the contract and must not change:
 classic output stays byte-identical.
+
+**Allocation (2026-10-15).** Ebitengine's Metal driver allocates about 3 KB of
+Go heap per device draw (its per-draw uniform layout and the Objective-C sends
+behind each encoder call) and about 2 KB per destination switch, whatever the
+draw holds, so a modern frame's allocation follows its draw count. In the
+HugeBattle save (Greenhaven, ~775 units, ~2,700 wrecks, 1600×1034, 120 FPS cap)
+painter order interleaves the units the model lane commits with the wrecks drawn
+from their sprites (§16.13), and both families bound their pages in the scene
+shader's slots 2 and 3, so every switch between them split a run. The lane's
+commits and shadows now bind its page in slot 2 alone and the sprite family —
+model sprites, sprite shadows and strategic feature layers (§16.14) — its page in
+slot 3 alone; a command takes the other slot only when its two rasters lie on
+different pages, or for a clipped silhouette's key page, and a Custom2 lane tells
+the shader which (`sceneModelPageSlots`). A surface blit binds its own page in
+slot 2, so the minimap no longer splits the HUD's run (`sceneSurfaceSlot`).
+Device draws per frame fell from 63 to 19 at 0.12×, 80 to 36 at 0.6×, 20 to 18
+at 1× and 12 to 10 at 2×. Over alternating 15-second live traces of the save, the
+whole process allocated 35.4 → 23.2 MB/s at 0.12× (six and four runs), 48.7 →
+32.6 at 0.6×, 23.7 → 22.0 at 1× and 20.6 → 18.6 at 2× (four and two), with
+execute, pre-record and draw times and the on-time share unchanged within
+run-to-run noise. Pixels are byte-identical: seeded Greenhaven `--shot` at 1×
+and 0.5×, 340-frame `--shot-debris` sequences at 1×, 0.5× and 0.2× (wreck sprites
+from frame 150), the battle benchmark's capture at 1× and 0.5×, and the device
+fixtures, which fail under a mutation of either page lane. The recorder also
+stopped allocating a lowered key per hover-hull lookup, a walk history per unit
+that starts walking, a child slice per carrier and a palette copy per strategic
+frame. What remains is mostly not the renderer's: at 2× about 5 MB/s is the
+Metal driver's cost for the ten draws a frame needs, about 4 MB/s audio (MP3
+music decoding and the PCM conversion of each sound played), 3–4 MB/s the
+simulation and its publication, and about 1 MB/s Ebitengine's own window loop;
+the renderer's largest own remainder is the lane store's captures, about
+1.1 MB/s at 0.6×. Zooming out to 0.12× leaves about 400 MB more live heap than
+2×: the retained wreck bodies (§13.12, ~155 MB while in view) and high-water
+storage from the first zoomed-out frame, which rasterizes every wreck in view
+before baking its sprite — Ebitengine's command queue vertex buffers (~110 MB,
+never shrunk), the lane's batch arrays (~65 MB) and the recorder's model scratch
+pool (~50 MB of draw scratch, pointerful) (§35).
 
 **Uploads come first.** Ebitengine holds an image's `WritePixels` until the
 first draw that reads or writes that image and queues the upload there, and its
@@ -4127,6 +4161,21 @@ through the lane rather than turning its sprites over every frame.
 `ModelStats.DirectSpriteShort` counts the sprites a frame had no room for and
 `DirectSpritePages` the pages held.
 
+The pages are regions of shared textures, **sheets**, as many to a sheet as the
+device's largest texture side (`ebiten.MaxImageSize`) allows: all eight on one
+8192 × 4096 sheet from 8192 up, which every Mac the Metal driver runs on and
+desktop browsers report, four to a 4096² sheet at 4096, and a texture to each
+page below that (`modelSpriteSheetLayout`). A sheet is created when the first
+of its pages is, and a page given up clears its own region alone. Every sprite
+and sprite shadow binds its page's texture in slot 3 (`sceneModelPageSlots`),
+and a device draw binds one texture there, so with a texture to each page a
+sprite whose page differed from the one before it in painter order ended the
+run. The pages hold sprites baked at different times, so after a long session's
+panning a view's wrecks lie on every page in no order and a zoomed-out frame
+split into about a device draw per wreck. On one sheet the sprites, their
+shadows and the lane commits between them share runs, and a shadow whose body
+lies on another page of the sheet still binds slot 3 alone.
+
 **Effect.** On a 1,900-wreck battle at 0.12×: 120 frames a second at the cap
 against 64 (the executor 8.8 → 4.0 ms, placement 2.2 → 0.2 ms, 1.3 M → 0.24 M
 submitted vertices, about 1,150 → 10 device draws). Compared with the lane, a
@@ -4146,9 +4195,12 @@ evicted; a level-zero offer bakes its shadow with it and draws neither on the
 lane, a lost shadow sprite brings both back to the lane, a shadow projected per
 frame keeps its body there, and the resolve switch bakes again; a frame short
 of room on pages all in view retires the page least in view and keeps pages
-mostly in view, and a rectangle a page cannot hold leaves its open shelf. The
-device
-fixtures check a strategic sprite's flat interior is the lane's colour exactly
+mostly in view, and a rectangle a page cannot hold leaves its open shelf; the
+sheet layout follows the largest texture side, a page's sprites lie in its own
+region of its sheet and a page given up starts over there, and sprites
+alternating between two pages of one sheet compile one run where a texture to
+each page compiles one per sprite. The device fixtures, which run on a sheet,
+check a strategic sprite's flat interior is the lane's colour exactly
 and its edge spends the same ink, and that shadowed level-zero sprites with
 partly covered edges give the lane's picture within one level at the native
 step, exactly under the single-sample resolve, and all but a sliver of pixels
@@ -7986,6 +8038,11 @@ back should be heard before the lane becomes permanent.
   packet that is keyless or itself has children (§22.3).
 - `DontShadow` exists in the pose and is compared with it but the shadow
   projection does not consult it (§13.12).
+- The recorder's model scratch pool and the model lane's batch arrays keep the
+  high-water size of the largest frame they served, and the first frame of a
+  zoomed-out view is the largest: about 115 MB stays live after a 0.12× view of
+  the HugeBattle save (§11.5 "Allocation"). Trimming them after a peak trades
+  memory for regrowth on the next zoom-out and is a policy not yet decided.
 - The strategic icon catalog's AA, fighter, artillery and heavy-role
   distinctions are unresolved, as are levels with neither a reachable build path
   nor one unambiguous authored token (§18.3).

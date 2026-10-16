@@ -17,6 +17,8 @@ import (
 type modernNoPathfinding struct{ movement.ModernRules }
 
 func (*modernNoPathfinding) PathWorkBound(*movement.System) (int32, bool)      { return 0, false }
+func (*modernNoPathfinding) PathBatch(*movement.System) (int, int32)           { return 0, 0 }
+func (*modernNoPathfinding) PathOpenList(*movement.System) path.OpenList       { return path.OpenListHeap }
 func (*modernNoPathfinding) GroupDestinationSlots(*movement.System) bool       { return false }
 func (*modernNoPathfinding) UnreachableMoves(*movement.System) (int32, uint32) { return 0, 0 }
 func (*modernNoPathfinding) WedgeEscape(*movement.System) bool                 { return false }
@@ -26,6 +28,16 @@ func (*modernNoPathfinding) RepathDelay(*movement.System, int, uint32) uint32  {
 type modernNoBound struct{ movement.ModernRules }
 
 func (*modernNoBound) PathWorkBound(*movement.System) (int32, bool) { return 0, false }
+
+// modernNoBatch keeps the retail single-request scheduler.
+type modernNoBatch struct{ movement.ModernRules }
+
+func (*modernNoBatch) PathBatch(*movement.System) (int, int32) { return 0, 0 }
+
+// modernNoBuckets keeps the retail heap as every search's open list.
+type modernNoBuckets struct{ movement.ModernRules }
+
+func (*modernNoBuckets) PathOpenList(*movement.System) path.OpenList { return path.OpenListHeap }
 
 type modernNoSlots struct{ movement.ModernRules }
 
@@ -43,6 +55,13 @@ func (*modernNoWedge) WedgeEscape(*movement.System) bool { return false }
 type modernNoPrompt struct{ movement.ModernRules }
 
 func (*modernNoPrompt) RepathDelay(*movement.System, int, uint32) uint32 { return 60 }
+
+// modernNoAdaptiveRepath asks every follower again fifteen ticks after its
+// last admission, held or not: Modern's prompt re-routing without its held
+// followers (docs/DESIGN_MOVEMENT_PATH.md "Modern prompt re-routing").
+type modernNoAdaptiveRepath struct{ movement.ModernRules }
+
+func (*modernNoAdaptiveRepath) RepathDelay(*movement.System, int, uint32) uint32 { return 15 }
 
 // modernTrafficWithout is Modern with one part of its traffic policy switched
 // off.
@@ -73,10 +92,13 @@ func init() {
 		return RuleSet{Movement: &movement.OverlapRules{}, Path: path.StraightenKernel{}}
 	})
 	RegisterRuleSet("modern-no-bound", func() RuleSet { return RuleSet{Movement: &modernNoBound{}} })
+	RegisterRuleSet("modern-no-batch", func() RuleSet { return RuleSet{Movement: &modernNoBatch{}} })
+	RegisterRuleSet("modern-no-buckets", func() RuleSet { return RuleSet{Movement: &modernNoBuckets{}} })
 	RegisterRuleSet("modern-no-slots", func() RuleSet { return RuleSet{Movement: &modernNoSlots{}} })
 	RegisterRuleSet("modern-no-unreach", func() RuleSet { return RuleSet{Movement: &modernNoUnreach{}} })
 	RegisterRuleSet("modern-no-wedge", func() RuleSet { return RuleSet{Movement: &modernNoWedge{}} })
 	RegisterRuleSet("modern-no-prompt", func() RuleSet { return RuleSet{Movement: &modernNoPrompt{}} })
+	RegisterRuleSet("modern-no-adaptive-repath", func() RuleSet { return RuleSet{Movement: &modernNoAdaptiveRepath{}} })
 	RegisterRuleSet("modern-no-straighten", func() RuleSet { return RuleSet{Path: path.RetailKernel{}} })
 	RegisterRuleSet("modern-no-smooth", func() RuleSet { return RuleSet{Path: path.StraightenKernel{}} })
 	for _, set := range []struct {

@@ -108,7 +108,7 @@ func (s *Service) QueryBuildInfo(factory *units.Unit, m *model.Model) (world.Cel
 	// 4. Load product definition and snap using packed footprint extents each biased by half extent [05 C16][P0-I05].
 	footX, footZ := 1, 1 // default 1x1 when the product is unknown
 	if q := s.queueForUnit(factory); q != nil && q.LenPrimary() > 0 {
-		head := q.Primary()[0]
+		head := q.PrimaryAt(0)
 		var def *content.UnitDef
 		if head.BuildDefKey != "" && s.Catalog != nil {
 			if d, ok := s.Catalog.Unit(head.BuildDefKey); ok {

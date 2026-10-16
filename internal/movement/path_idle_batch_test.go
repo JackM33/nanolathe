@@ -92,13 +92,21 @@ func TestPathProviderIdleBatchingMatchesSinglePolls(t *testing.T) {
 	}
 }
 
+// modernSerialPathRules is Modern with the retail single-request scheduler,
+// so a search hook sees every admission: a Modern path batch opens its
+// searches through the provider instead (DESIGN_MOVEMENT_PATH "Modern parallel
+// path batches"), and its admission loop is this one.
+type modernSerialPathRules struct{ ModernRules }
+
+func (*modernSerialPathRules) PathBatch(*System) (int, int32) { return 0, 0 }
+
 // Modern's futile-sweep cutoff applies to idle polls too. An idle call must
 // leave the same cursors, and therefore the same admission order next call,
 // whether those polls were individual or batched.
 func TestPathProviderBoundedIdleBatchingMatchesSinglePolls(t *testing.T) {
 	run := func(batch bool) ([10]int, []pool.Handle) {
 		sys, handles := idleBatchFixture(t, batch)
-		sys.Rules = &ModernRules{}
+		sys.Rules = &modernSerialPathRules{}
 		sys.BeginTick(100)
 		sys.Scheduler.Tick(100)
 		cursors := sys.pathProvider.cursor

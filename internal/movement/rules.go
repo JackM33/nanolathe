@@ -1,6 +1,9 @@
 package movement
 
-import "github.com/nanolathe-gg/nanolathe/internal/units"
+import (
+	"github.com/nanolathe-gg/nanolathe/internal/path"
+	"github.com/nanolathe-gg/nanolathe/internal/units"
+)
 
 // Rules is the movement system's gameplay seam. It carries the learned-terrain
 // policy, the contested-cell claim answer, the follower's re-route throttle,
@@ -73,8 +76,13 @@ type Rules interface {
 	// last admitted poll was at tick last may be admitted again once
 	// last+delay <= the current tick [04 R-MOV-01 §7]. slot is the unit's
 	// stable pool index. It is asked only for an armed follower, by the
-	// follower's staging test and by the scheduler's poll, which must agree.
-	// It must be a pure function of its arguments: no writes, no RNG.
+	// follower's staging test and by the scheduler's poll, through the same
+	// due test. It may read the committed movement state s keeps — Modern
+	// reads the follower's collision record and route and the record of the
+	// unit that refused its last step — and must write nothing and draw no
+	// RNG. Staging reads that state before the unit's own step and the poll
+	// after it, so a request one stages may wait for its poll, or be staged
+	// on the next visit.
 	RepathDelay(s *System, slot int, last uint32) uint32
 
 	// FirstRequestSpread is the group-order admission spread: when at least
@@ -96,6 +104,24 @@ type Rules interface {
 	// [04 R-PATH-01 §6]. It is asked once per scheduler call and must be a
 	// pure answer: no writes, no RNG.
 	PathWorkBound(s *System) (carryShares int32, sweepStop bool)
+
+	// PathBatch is the scheduler's parallel path batches: searches > 0 lets
+	// the path scheduler latch up to that many admitted searches at once and
+	// expand them concurrently, each at most pops heap pops per scheduler
+	// call, charging and publishing in admission order
+	// (docs/DESIGN_MOVEMENT_PATH.md "Modern parallel path batches"). (0, 0)
+	// is retail's single-request scheduler [04 R-PATH-01 §6]. It is asked
+	// once per scheduler call and must be a pure answer: no writes, no RNG,
+	// and nothing of the host — the answer may not depend on how many
+	// processors run the batch.
+	PathBatch(s *System) (searches int, pops int32)
+
+	// PathOpenList is the open list every route search the System opens
+	// keeps: path.OpenListHeap is retail's binary heap and its tie order
+	// [04 R-PATH-01 §1]; path.OpenListBuckets is the Modern bucket queue
+	// (docs/DESIGN_MOVEMENT_PATH.md "Modern bucket open list"). It is asked
+	// once per opened search and must be a pure answer: no writes, no RNG.
+	PathOpenList(s *System) path.OpenList
 
 	// GroupDestinationSlots reports whether an ordinary group move gives each
 	// ground actor its own destination footprint: outliers keep their bearing
@@ -233,6 +259,15 @@ func (StrictRules) FirstRequestSpread(*System) (int, int) { return 0, 0 }
 // [04 R-PATH-01 §6].
 func (StrictRules) PathWorkBound(*System) (int32, bool) { return 0, false }
 
+// PathBatch is retail's scheduler under Strict 3.1: one search at a time,
+// run until it publishes before the next request is polled
+// [04 R-PATH-01 §6]. Community inherits it.
+func (StrictRules) PathBatch(*System) (int, int32) { return 0, 0 }
+
+// PathOpenList is retail's binary heap under Strict 3.1 [04 R-PATH-01 §1].
+// Community inherits it.
+func (StrictRules) PathOpenList(*System) path.OpenList { return path.OpenListHeap }
+
 // GroupDestinationSlots is off under Strict 3.1: actors keep retail's
 // centroid offsets and outliers share the clicked point [04 R-STANCE-01 §5].
 func (StrictRules) GroupDestinationSlots(*System) bool { return false }
@@ -261,15 +296,19 @@ func (StrictRules) WedgeEscape(*System) bool { return false }
 // retailRepathDelay is the follower poll's throttle period [04 R-MOV-01 §7].
 const retailRepathDelay = 60
 
-// modernRepathDelay is Modern's throttle period: a mover that is held, or
+// modernRepathDelay is Modern's throttle period: a mover that is blocked, or
 // has come to the end of what its route told it, asks again after half a
 // second. It is Nanolathe Modern policy tuning
 // (docs/DESIGN_MOVEMENT_PATH.md "Modern prompt re-routing").
 const modernRepathDelay = 15
 
 // RepathDelay lets a follower ask for a route again half a second after its
-// last admission (docs/DESIGN_MOVEMENT_PATH.md "Modern prompt re-routing").
-func (*ModernRules) RepathDelay(*System, int, uint32) uint32 { return modernRepathDelay }
+// last admission, and a held follower when the unit in its way would be
+// walled, within retail's sixty (repath_held.go;
+// docs/DESIGN_MOVEMENT_PATH.md "Modern prompt re-routing").
+func (*ModernRules) RepathDelay(s *System, slot int, last uint32) uint32 {
+	return s.modernRepathDelayFor(slot, last)
+}
 
 // modernSpreadMinGroup and modernSpreadTicks are the Modern group-order
 // spread's threshold and width. They are Nanolathe Modern policy tuning
@@ -287,6 +326,24 @@ const modernCarryShares = 4
 // PathWorkBound bounds carried search work and stops futile polling
 // (docs/DESIGN_MOVEMENT_PATH.md "Modern bounded path work").
 func (*ModernRules) PathWorkBound(*System) (int32, bool) { return modernCarryShares, true }
+
+// modernPathBatch is the most searches a Modern path batch latches at once,
+// and modernPathBatchPops the most heap pops one search expands in one
+// scheduler call. They are Nanolathe Modern policy tuning, constants rather
+// than anything of the host, so every machine computes the same batches
+// (docs/DESIGN_MOVEMENT_PATH.md "Modern parallel path batches").
+const (
+	modernPathBatch     = 16
+	modernPathBatchPops = 4096
+)
+
+// PathBatch runs Modern's route searches in parallel batches
+// (docs/DESIGN_MOVEMENT_PATH.md "Modern parallel path batches").
+func (*ModernRules) PathBatch(*System) (int, int32) { return modernPathBatch, modernPathBatchPops }
+
+// PathOpenList keeps every route search's open list in a bucket queue
+// (docs/DESIGN_MOVEMENT_PATH.md "Modern bucket open list").
+func (*ModernRules) PathOpenList(*System) path.OpenList { return path.OpenListBuckets }
 
 // GroupDestinationSlots gives each actor of an ordinary group move its own
 // destination (DESIGN_INTERFACE_HUD_INPUT "Modern group destination slots").

@@ -48,6 +48,12 @@ type Workspace struct {
 	nodes         []Node
 	heapEntries   []heapEntry
 	heapPositions []int32
+	// The bucket queue's rows travel the same way under Modern bucket open
+	// lists. A search hands bucketWords back with every word clear.
+	bucketEntries []bucketEntry
+	bucketHeads   []int32
+	bucketWords   []uint64
+	bucketOver    []overflowEntry
 }
 
 // workspaceSlotLimit caps the table a workspace will size itself to. No retail

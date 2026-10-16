@@ -72,6 +72,10 @@ func TestFeaturePublicationOrderedSnapshot(t *testing.T) {
 	t.Logf("authored feature snapshot sha256 %x", sha256.Sum256(before))
 	s.Features.InstanceAt(0, 0).Heading = 300
 	s.Features.InstanceAt(0, 0).Def.NoDrawUnderGray = true
+	// The fixture writes a resting record directly, so it renews the record's
+	// publication revision as every production mutation point does
+	// (features/publication.go).
+	s.Features.MarkPublicationChanged(s.Features.InstanceAt(0, 0))
 	s.publishSnapshot(2)
 	after, err := json.Marshal(first.Features)
 	if err != nil {

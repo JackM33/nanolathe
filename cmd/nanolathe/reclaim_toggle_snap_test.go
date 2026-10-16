@@ -83,8 +83,10 @@ func reclaimSnapFixture(t *testing.T, features community.Features) (*battleSessi
 	reclaimable := *b.cat.Features["deposit"]
 	reclaimable.Reclaimable = true
 	b.cat.Features["deposit"] = &reclaimable
-	b.sess.Features.InstanceAt(20, 20).Def = &reclaimable
-	b.sess.World.FeatureDefs[0] = &reclaimable // the snap's cell test reads the world's table
+	inst := b.sess.Features.InstanceAt(20, 20)
+	inst.Def = &reclaimable
+	b.sess.Features.MarkPublicationChanged(inst) // a direct write renews the publication revision (features/publication.go)
+	b.sess.World.FeatureDefs[0] = &reclaimable   // the snap's cell test reads the world's table
 	b.cat.Units["armcons"].CanReclamate = true
 	b.sess.Community = features
 	prefs := settings.DefaultPresentation()

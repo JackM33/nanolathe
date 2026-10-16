@@ -128,8 +128,8 @@ func (r *Renderer) resetSources(release func(*ebiten.Image)) {
 	// use, and survive like the output surfaces.
 	r.reflections = waterReflections{disabled: r.reflections.disabled, sourceShader: r.reflections.sourceShader, resolveShader: r.reflections.resolveShader, softResolveShader: r.reflections.softResolveShader,
 		source: r.reflections.source, height: r.reflections.height}
-	for _, p := range r.modelDirect.sprites.pages {
-		retire(p.img)
+	for _, img := range r.modelDirect.sprites.sheets {
+		retire(img)
 	}
 	for _, p := range r.layers.pages {
 		retire(p.img)

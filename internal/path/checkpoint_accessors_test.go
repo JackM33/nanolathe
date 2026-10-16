@@ -19,8 +19,10 @@ func checkpointAllAccessors() CheckpointAccessors {
 			{Kind: 6, Inputs: []uint32{5, 1}, Start: Cell{7, 8}, Bounds: Rect{Min: Cell{6, 6}, Max: Cell{9, 10}}, FootprintX: 1, FootprintZ: 2},
 			{Kind: 7, ClaimCounts: 5, ClaimOwn: 6, Owner: 3, Serial: 10, Width: 20, Height: 30, FootprintX: 1, FootprintZ: 2, Per: 4, Against: 5, Row: 2},
 			{Kind: 8, Layer: 1, Profile: [8]int32{1, 2, 3, 4, 5, 6, 7, 8}, Requester: 2, Tick: 4},
+			{Kind: 9, Layer: 1, Requester: 2, Owner: 3, Profile: [8]int32{1, 2, 3, 4, 5, 6, 7, 8}, Tick: 4, FootprintX: 1, FootprintZ: 2, Bounds: Rect{Min: Cell{-1, 0}, Max: Cell{3, 4}}},
+			{Kind: 2, Inputs: []uint32{9}, Learned: 4, FootprintX: 1, FootprintZ: 2},
 		},
-		Passable: 6, Leg: 3, Cost: 7, Revise: 8,
+		Passable: 6, Leg: 10, Cost: 7, Revise: 8,
 	}
 }
 
@@ -70,7 +72,10 @@ func TestCheckpointAccessorRejectsMalformedDAG(t *testing.T) {
 		name   string
 		mutate func(*CheckpointAccessors)
 	}{
-		{"unknown kind", func(a *CheckpointAccessors) { a.Nodes[0].Kind = 9 }},
+		{"unknown kind", func(a *CheckpointAccessors) { a.Nodes[0].Kind = 10 }},
+		{"own view irrelevant field", func(a *CheckpointAccessors) { a.Nodes[8].Serial = 4 }},
+		{"own view with input", func(a *CheckpointAccessors) { a.Nodes[8].Inputs = []uint32{1} }},
+		{"wrong revise kind own view", func(a *CheckpointAccessors) { a.Revise = 9 }},
 		{"wrong operand count", func(a *CheckpointAccessors) { a.Nodes[1].Inputs = nil }},
 		{"absent operand", func(a *CheckpointAccessors) { a.Nodes[1].Inputs[0] = 0 }},
 		{"forward operand", func(a *CheckpointAccessors) { a.Nodes[1].Inputs[0] = 3 }},

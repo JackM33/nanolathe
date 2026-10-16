@@ -154,6 +154,14 @@ func newUnstampedClassLayer(p Profile, t *world.Terrain, grid *OccupancyGrid) *C
 // terrain and features only. A building takes the mover-null arm below and
 // blocks at every watermark, map load included [04 R-PATH-01 §14].
 func (l *ClassLayer) classifyCell(x, z int32) uint8 {
+	return l.classifyCellFresh(x, z, 0)
+}
+
+// classifyCellFresh is classifyCell with the occupant-age gate passing unit
+// fresh's occupancy, as if its commit tick were the current tick. Zero names
+// no unit. Only the own reading of a Modern parallel path batch search names
+// one (own_footprint.go); every restamp and the map-load stamp pass zero.
+func (l *ClassLayer) classifyCellFresh(x, z int32, fresh pool.Handle) uint8 {
 	tier := LayerClear
 	switch l.Profile.classifyCell(l.Terrain, x, z) {
 	case ClassBlocked:
@@ -178,7 +186,7 @@ func (l *ClassLayer) classifyCell(x, z int32) uint8 {
 			if l.movers != nil && !l.movers.HasMover(h) {
 				return LayerBlocked
 			}
-			if l.commitTick(h) < l.watermark {
+			if h != fresh && l.commitTick(h) < l.watermark {
 				return LayerBlocked
 			}
 		}
@@ -924,6 +932,12 @@ func mappingTile(x, z int32, footX, footZ int16) (bx, bz int32) {
 // invented; that fallback is stricter than retail and bounded — it only makes
 // the search refuse ground it would otherwise cross blind.
 func (l *ClassLayer) Passable(x, z int32, footX, footZ int16, player uint8) uint8 {
+	return l.passableOwn(x, z, footX, footZ, player, nil)
+}
+
+// passableOwn is Passable read through a search's own reading of its
+// requester's footprint (own_footprint.go); nil is the shared layer's read.
+func (l *ClassLayer) passableOwn(x, z int32, footX, footZ int16, player uint8, own *ownFootprint) uint8 {
 	if l == nil || x < 0 || z < 0 || x >= l.W || z >= l.H {
 		return LayerBlocked
 	}
@@ -938,5 +952,5 @@ func (l *ClassLayer) Passable(x, z int32, footX, footZ int16, player uint8) uint
 			return LayerUnmapped
 		}
 	}
-	return l.Value(x, z)
+	return l.valueOwn(x, z, own)
 }

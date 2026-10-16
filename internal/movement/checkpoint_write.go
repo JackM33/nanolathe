@@ -12,7 +12,7 @@ import (
 // WriteCheckpoint writes section7's lexical System record and tables 5–8,11.
 // Diagnostic exclusions: collisionHistory/Trace/Limit/Dropped, pathFailures,
 // labStats/countRefusals. Per-call scratch: airBaseWalkScratch, firstGroup,
-// unreachableGoals, visit/searchCfg, pocketCells/Seen/Stack. tickStarted and
+// unreachableGoals, visit/searchCfg, searchSlot, pocketCells/Seen/Stack. tickStarted and
 // checkpointSearch must be quiescent. passAlliance/trafficNow are reset before
 // the next tick; unknown Rules cannot claim that exclusion and are refused.
 // Scheduler and pathProvider are presence edges; their bodies belong to paths.

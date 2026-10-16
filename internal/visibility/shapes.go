@@ -20,6 +20,7 @@ type step struct {
 func (s *Service) SetShapes(sh *content.SightShapes) {
 	if s != nil {
 		s.shapes = sh
+		s.dropRemovalRecords()
 	}
 }
 
@@ -31,6 +32,7 @@ func (s *Service) SetRayTables(lt *content.LOSTables) {
 	}
 	s.rayTables = lt
 	s.spokeCache = nil
+	s.dropRemovalRecords()
 }
 
 // rayTableCount is the clamp bound for the terrain-ray group index.

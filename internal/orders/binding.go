@@ -312,6 +312,22 @@ type WorldQueryAdapter struct {
 	// package nor this one holds a handle to. Nil when the composition has no
 	// visibility service, in which case the caller runs its full test.
 	mappingWord func(tileX, tileZ int32) (uint16, bool)
+
+	// featureRegion is the restriction a ForEachFeatureNear call in progress
+	// offers the feature traversal (FeatureRegion); zero outside such a call.
+	// verifyFeatureScan makes every restricted scan also run unrestricted and
+	// panic on a different answer (SetVerifyFeatureScan). Neither is a
+	// callback, gameplay or wire state.
+	featureRegion     featureRegion
+	verifyFeatureScan bool
+}
+
+// featureRegion is a ForEachFeatureNear restriction: the square of half-side
+// radius world units around (x, z).
+type featureRegion struct {
+	x, z   numeric.Fixed
+	radius int32
+	active bool
 }
 
 // WorkAdapter is the construction/repair/ownership port. The result is kept
@@ -462,6 +478,47 @@ func (b *QueueBinding) ForEachFeature(visit func(FeatureView) bool) {
 		return
 	}
 	b.World.ForEachFeatureHook()(visit)
+}
+
+// ForEachFeatureNear is ForEachFeature for a caller that only wants features
+// within radius world units of (x, z): the traversal may then skip every
+// feature whose position lies outside that square, and visits the rest in
+// the same order. It may also visit features outside the square — a
+// traversal that cannot restrict itself visits them all — so the caller
+// applies its own test to every feature it is given. The visitor must not
+// start another feature traversal.
+func (b *QueueBinding) ForEachFeatureNear(x, z numeric.Fixed, radius int32, visit func(FeatureView) bool) {
+	if b == nil || b.World == nil || b.World.ForEachFeatureHook() == nil || visit == nil {
+		return
+	}
+	w := b.World
+	w.featureRegion = featureRegion{x: x, z: z, radius: radius, active: true}
+	defer func() { w.featureRegion = featureRegion{} }()
+	w.ForEachFeatureHook()(visit)
+}
+
+// FeatureRegion reports the restriction of a ForEachFeatureNear call in
+// progress: a feature traversal may skip every feature whose position — the
+// low 32 bits of each 16.16 coordinate, sign-extended — differs from (x, z)
+// by more than radius world units on either axis. ok is false outside such a
+// call, when every feature must be visited.
+func (b *WorldQueryAdapter) FeatureRegion() (x, z numeric.Fixed, radius int32, ok bool) {
+	if b == nil || !b.featureRegion.active {
+		return 0, 0, 0, false
+	}
+	r := b.featureRegion
+	return r.x, r.z, r.radius, true
+}
+
+// SetVerifyFeatureScan turns on the restricted-scan check: each scan made
+// through ForEachFeatureNear by the Modern patrol also runs over every
+// feature and panics when the two answers differ. The session sets it with
+// its feature check (verifyFeatureRevisions); it is for tests and
+// verification builds.
+func (b *WorldQueryAdapter) SetVerifyFeatureScan(on bool) {
+	if b != nil {
+		b.verifyFeatureScan = on
+	}
 }
 
 // LookupFeature resolves an anchored live feature through the same world

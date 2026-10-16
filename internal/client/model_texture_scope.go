@@ -180,7 +180,7 @@ func (a *PreviewModelTextureAssets) featureBank(key string) previewFeatureBank {
 	defer a.mu.Unlock()
 	bank, ok := a.features[key]
 	if !ok {
-		bank.gaf, bank.err = formats.LoadGAFFile(a.fs, "anims/"+key+".gaf")
+		bank.gaf, bank.err = formats.LoadGAFDecodedFile(a.fs, "anims/"+key+".gaf")
 		a.features[key] = bank
 	}
 	return bank

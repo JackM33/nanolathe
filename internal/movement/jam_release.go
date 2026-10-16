@@ -92,15 +92,26 @@ func (s *System) friendlyMover(self *units.Unit, occ int) (*CollisionState, bool
 
 // hostileMover returns the released search's wall test: unit id belongs to
 // neither owner nor an owner mutually allied with it, through this tick's
-// alliance query.
+// alliance query. The test reads that query and the unit world when it is
+// called, so it is a pure function of the System and the owner and is built
+// once per owner (System.hostileMovers) rather than once per opened search.
 func (s *System) hostileMover(owner uint8) func(id int) bool {
-	return func(id int) bool {
+	if owner < 10 {
+		if fn := s.hostileMovers[owner]; fn != nil {
+			return fn
+		}
+	}
+	fn := func(id int) bool {
 		ou := s.world.Unit(pool.Handle(id))
 		if ou == nil || ou.Owner == owner {
 			return false
 		}
 		return s.passAlliance == nil || !s.passAlliance(owner, ou.Owner) || !s.passAlliance(ou.Owner, owner)
 	}
+	if owner < 10 {
+		s.hostileMovers[owner] = fn
+	}
+	return fn
 }
 
 // jamReleaseIgnores reports whether the commit's occupant test may treat

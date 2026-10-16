@@ -102,12 +102,12 @@ func (s *System) LabRouteViews(u *units.Unit) (out [LabViews]LabRouteView, ok bo
 	views := [LabViews]func(c path.Cell) uint8{
 		LabViewSearch: func(c path.Cell) uint8 {
 			if learned != nil {
-				return layer.passableLearned(c.X, c.Z, footX, footZ, owner, learned)
+				return layer.passableLearned(c.X, c.Z, footX, footZ, owner, learned, nil)
 			}
 			return layer.Passable(c.X, c.Z, footX, footZ, owner)
 		},
 		LabViewFriends: func(c path.Cell) uint8 {
-			return layer.staticPassableKeeping(c.X, c.Z, footX, footZ, owner, learned, hostile)
+			return layer.staticPassableKeeping(c.X, c.Z, footX, footZ, owner, learned, hostile, nil)
 		},
 		LabViewStatic: func(c path.Cell) uint8 {
 			return layer.staticPassable(c.X, c.Z, footX, footZ, owner, learned)
@@ -181,7 +181,7 @@ func (s *System) LabGround(u *units.Unit, x0, z0, x1, z1 int32) (search, static 
 		for x := x0; x <= x1; x++ {
 			v := layer.Passable(x, z, footX, footZ, u.Owner)
 			if learned != nil {
-				v = layer.passableLearned(x, z, footX, footZ, u.Owner, learned)
+				v = layer.passableLearned(x, z, footX, footZ, u.Owner, learned, nil)
 			}
 			search = append(search, v)
 			static = append(static, layer.staticPassable(x, z, footX, footZ, u.Owner, learned))

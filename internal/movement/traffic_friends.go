@@ -46,31 +46,44 @@ func (s *System) onItsWay(o *units.Unit) bool {
 // keepsItsGround is the wall test of a reading that takes friendly movers
 // for absent: unit id is another player's, or a friendly unit with nowhere
 // to go — a parked one, or one at work. A friendly mover is on its way
-// somewhere and will not be standing there when the route reaches it.
+// somewhere and will not be standing there when the route reaches it. Like
+// hostileMover's, the test reads live state when it is called and is built
+// once per owner (System.groundKeepers).
 func (s *System) keepsItsGround(owner uint8) func(id int) bool {
+	if owner < 10 {
+		if fn := s.groundKeepers[owner]; fn != nil {
+			return fn
+		}
+	}
 	hostile := s.hostileMover(owner)
-	return func(id int) bool {
+	fn := func(id int) bool {
 		if hostile(id) {
 			return true
 		}
 		o := s.world.Unit(pool.Handle(id))
 		return o != nil && !s.onItsWay(o)
 	}
+	if owner < 10 {
+		s.groundKeepers[owner] = fn
+	}
+	return fn
 }
 
 // passableThrough is the passability read that takes friendly units for
 // absent: the static view with the units keep names still walls, and an
 // anchor only friendly movers hold read at its ground's own tier, so that a
-// route through a column of friends costs what the ground costs.
-func (l *ClassLayer) passableThrough(x, z int32, footX, footZ int16, player uint8, learned *LearnedTerrain, keep func(id int) bool) uint8 {
-	v := l.Passable(x, z, footX, footZ, player)
+// route through a column of friends costs what the ground costs. own is the
+// search's own reading of its requester's footprint, nil for the shared
+// layer's (own_footprint.go).
+func (l *ClassLayer) passableThrough(x, z int32, footX, footZ int16, player uint8, learned *LearnedTerrain, keep func(id int) bool, own *ownFootprint) uint8 {
+	v := l.passableOwn(x, z, footX, footZ, player, own)
 	if v != LayerBlocked {
 		if v == LayerUnmapped && learned != nil {
-			return l.staticPassableKeeping(x, z, footX, footZ, player, learned, keep)
+			return l.staticPassableKeeping(x, z, footX, footZ, player, learned, keep, own)
 		}
 		return v
 	}
-	if l.staticPassableKeeping(x, z, footX, footZ, player, learned, keep) == LayerBlocked {
+	if l.staticPassableKeeping(x, z, footX, footZ, player, learned, keep, own) == LayerBlocked {
 		return LayerBlocked
 	}
 	fx, fz := l.footprintSize()

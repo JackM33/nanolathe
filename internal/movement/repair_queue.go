@@ -51,8 +51,11 @@ func (s *System) pruneRepairLandings() {
 		e := s.repairLandings[i]
 		retained := false
 		if q := orders.QueueOfUnit(e.unit); q != nil {
-			for _, n := range q.Primary() {
-				retained = retained || n == e.node
+			for i, n := 0, q.PrimaryLen(); i < n; i++ {
+				if q.PrimaryAt(i) == e.node {
+					retained = true
+					break
+				}
 			}
 		}
 		if s.unitFor(e.unit.Handle) != e.unit || !e.unit.Alive || e.unit.Dying ||

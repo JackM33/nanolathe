@@ -241,7 +241,7 @@ benchmark's field scene: Town & Country with three Classic computer armies of
 `--benchmark-army-size` units each (250–1000, default 500), their ordinary
 fixture production and 1,200 lead-in ticks
 ([SIM_BENCHMARK](SIM_BENCHMARK.md)). It takes no capture, Survival or coastal
-scaling. `--benchmark-renderer=classic|modern|metal` names the executor and
+scaling. `--benchmark-renderer=classic|modern` names the executor and
 overrides `--renderer`; omitted, the run follows `--renderer`.
 
 The run fails, rather than reporting a short window, if the lead-in or the
@@ -253,29 +253,6 @@ have drawn the same battle. Two diagnostics change what is measured and are reco
 metadata: `NANOLATHE_BENCH_FREEZE=1` repeats the final lead-in pair for every
 measured draw (render cost alone), and `NANOLATHE_BENCH_PHYSICAL_WINDOW=1`
 sizes the window in physical pixels on a high-DPI display.
-
-### The Metal renderer (macOS)
-
-```
-tools/battle-bench --battle-benchmark=/tmp/battle-metal --benchmark-renderer=metal --benchmark-tps=120
-```
-
-`--benchmark-renderer=metal` runs the same fixture, viewer step and census
-through the experimental Metal renderer
-([DESIGN_METAL_RENDERER](DESIGN_METAL_RENDERER.md) §8.2). It needs no other
-compiler. Its version-2 metadata reports `gpu_timing_available=true` and
-`present_timing_available=true`. Next to `frames.json` it writes the native
-rows: `frames.csv` (encode, waits, GPU span and presented time),
-`live-frames.csv` (per-frame preparation counts) and `report.json`. Its
-`battle.png` is the native capture taken after measurement. Compare Metal GPU
-milliseconds with Metal, never with Modern's CPU submission milliseconds.
-
-`--metal-quads 1|2|5` subdivides every authored face and `--metal-textures
-1|2` doubles the model atlas: stress multipliers that leave the picture
-unchanged and are recorded as `geometry_multiplier` and `texture_multiplier`.
-`NANOLATHE_METAL_OFFSCREEN=1` runs without a window, for capture comparisons
-only; its timings are not comparable. `NANOLATHE_METAL_PASS_TIMING=<file.csv>`
-adds per-pass GPU timestamps.
 
 ## Go 1.27.1 upgrade comparison (2026-09-29)
 

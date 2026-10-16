@@ -38,6 +38,7 @@ func (s *Service) RebuildEntry(eligible [10]bool, observers []ModeRefreshObserve
 	}
 	s.fillWordGrid()
 	s.fillEligibleByteGrids(eligible)
+	s.dropRemovalRecords()
 	if s.mode.CurrentEnabled() {
 		previous := s.footprints
 		s.footprints = make(map[ObserverID]footprint, len(observers))
@@ -76,11 +77,13 @@ func (s *Service) RefreshMode(m Mode, resetHistory bool, eligible [10]bool, obse
 	}
 	const semantic = ModeHistoryEnabled | ModeCurrentEnabled | ModeTerrainRay
 	s.mode = s.mode&ModeFogCacheValid | (m & semantic)
+	s.fogTracked = false
 
 	if resetHistory {
 		s.fillWordGrid()
 	}
 	s.fillEligibleByteGrids(eligible)
+	s.dropRemovalRecords()
 
 	// Retail skips the whole saved-observer clear/publication block while
 	// current coverage is disabled. In particular, it does not retire or
@@ -105,6 +108,7 @@ func (s *Service) RefreshMode(m Mode, resetHistory bool, eligible [10]bool, obse
 }
 
 func (s *Service) fillWordGrid() {
+	s.fogTracked = false
 	fill := uint16(0)
 	if !s.mode.HistoryEnabled() {
 		fill = 0x03FF
@@ -115,6 +119,7 @@ func (s *Service) fillWordGrid() {
 }
 
 func (s *Service) fillEligibleByteGrids(eligible [10]bool) {
+	s.fogTracked = false
 	fill := uint8(0)
 	if !s.mode.CurrentEnabled() {
 		fill = 1

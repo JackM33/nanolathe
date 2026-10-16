@@ -19,10 +19,5 @@ internal/client.RendererUnavailableLaterWorld  # iota member; removal renumbers 
 internal/client.RendererUnavailableSelection  # iota member; removal renumbers RendererUnavailableTraceOverflow
 internal/cob.WeaponSecondary  # iota member; removal moves WeaponTertiary, which bridge.go compares against
 internal/frame.EventKindInvalid  # iota anchor of the event kind enum
-internal/meshscene.ModelPhaseAir  # iota member; the Metal encoder selects paint phases by number
-internal/meshscene.ModelPhaseGround  # iota member; removal renumbers ModelPhaseEffects and ModelPhaseAir
-internal/meshscene.ModelPhaseShortFeatures  # iota anchor of the model paint phases the Metal encoder selects by number
-internal/meshscene.PhaseGround  # iota anchor of Phase; removal renumbers PhaseEffects and PhaseAir
-internal/meshscene.SpriteSourceUnknown  # iota anchor of SpriteSourceKind; zero means no recorded source
 internal/render.FogKindNone  # iota anchor of FogKind
 internal/session.PostBattleControlNone  # iota anchor of PostBattleControl

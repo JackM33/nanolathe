@@ -1672,8 +1672,8 @@ owns the recording seams (`SetReplayRecorder`, `PrepareRecordedBattle`,
   header.
 - **Not recorded.** Campaign missions, battles continued from a saved game,
   watched or computer-only battles, measured or staged windows, content from
-  an extra `--root` or `--mod-config`, a mod without an archive digest, the
-  loopback play test (§16.4) and `--metal` windows.
+  an extra `--root` or `--mod-config`, a mod without an archive digest and the
+  loopback play test (§16.4).
 
 **Header.** Format version, a kind byte (single-player or online,
 skirmish or Survival), the encoded battle configuration (§8.6; for
@@ -2899,9 +2899,9 @@ function pointer alone does not establish the admitted binding.
 | Collision/flight | All collision scalars, yard values, half-bias state, filing, saved/proposal/stamp/blocker/lean/turn fields; all flight scalars including mode mirror, targets, gravity/bank/pitch, and unit/command edges. Filing retains `Filed`, `OffMap`, `SX`, `SZ`, `Seq`, cargo included. The selected air sector is nil/record index/sentinel, never recomputed from position; tags are nil 0, record 1 then zero-based u32 index, sentinel 2. | Flight-command `Flags` is stream/publication bookkeeping; the command otherwise retains payload/owner/unit, position, velocity and heading. Immutable air-sector records bind terrain. Retained collision residuals are not reconstructed from current transforms. |
 | Occupancy/layers | Row-major ground/air cells, plane dimensions, link sequence, off-map and sector heads, all link next/prev/cell/linked/off-map values; pending filing rows and duplicate-suppression rows. Layer names in allocation order, membership, each copied profile/dimensions/packed cells/watermark and per-handle commit tick/set. | Logical occupants are presence plus signed i64 identity, not identity-plus-one storage. Ground/air counts derive from occupied entries. Grid revision is diagnostic. Plot and mover occupancy may differ legitimately. Class stamp buffers are overwritten scratch. |
 | Movement goals/state | Active order/token, arrival order/goal/threshold/payload/border, move order/coordinates/goal, record goals in installation order; working-set search/goal/activation/through. Learned-grid dimensions/words. Clearance route order/cells; unreachable order/activation/since/goal; jam run/replan/until/limit/cooldown/pocket; traffic side/deadline/round/steering/ahead/through/routeless/start/goal presence/coordinates; pocket order/since/grants/token. | Goal pointer sharing affects working-set reuse, so aliases are preserved. Repair landings retain admission order, exact unit/node/pad, piece/reserved/holding/anchor. Movement owns the stale combat air-base lists once. |
-| Claim/arrival pilots | Claim dimensions/have/serial/own rows; nullable owner grids, all/slow directional counters and written lists. Arrival move-ground/standby, per-handle rows (all seen/node/place/footprint/coordinate/check/exchange/member/best/stood fields), claim/generation/reservation grids. A composite pilot has four ordered nullable child states. | Claim trail and arrival live/fresh/member walks reset before use. Counter wrap does not discard marks: captured claim serials and arrival membership tags remain readable. |
-| Path provider/scheduler | Requests by player/handle with raw unit, player, start, goal and activation; provider cursors/started/tick/players/limit. Scheduler base/set/scales/call count/have-last, optional active request/player/scale, player cursor/service counts/accumulators/allowance/unit limit/player count. | Staged indexes derive from keys; sweep polls reset per call. Inactive request residuals, traces and diagnostics are excluded. |
-| Goals/searches | Point centre/radius/**radiusSq**; annulus centre/inner/outer/**innerSq/outerSq**; rectangle; saved forms reconstruct the same three variants. Search config descriptor and scale; logical entries sorted `(Z,X)` with status/direction/node; nearest/distance/presence, tolerance/presence, notified/seeded/done/result points/status, popped/setup/expanded counts; nodes in allocation order with cell/G/H/F/terrain/run/parent/direction/open/closed/hSet; heap **array order** `(id,f)` and spent state. | Thresholds are stored, not recomputed. Heap positions and node back-references are validated derivations. Workspace generation/capacity/lending/dense-versus-sparse storage is excluded after every logically visible entry is extracted, including rays and terminal entries without nodes. The search fan is scratch. |
+| Claim/arrival pilots | Claim dimensions/have/serial/own rows, and the own row of each Modern path batch place once used; nullable owner grids, all/slow directional counters and written lists. Arrival move-ground/standby, per-handle rows (all seen/node/place/footprint/coordinate/check/exchange/member/best/stood fields), claim/generation/reservation grids. A composite pilot has four ordered nullable child states. | Claim trail and arrival live/fresh/member walks reset before use. Counter wrap does not discard marks: captured claim serials and arrival membership tags remain readable. |
+| Path provider/scheduler | Requests by player/handle with raw unit, player, start, goal and activation; provider cursors/started/tick/players/limit. Scheduler base/set/scales/call count/have-last, optional active request/player/scale, the latched Modern batch searches in admission order (player, request, scale, slot), player cursor/service counts/accumulators/allowance/unit limit/player count. | Staged indexes derive from keys; sweep polls, latched searches' per-call pop counts and parked sweep work reset per call; spare workspaces, the batch size and round scratch are storage. Inactive request residuals, traces and diagnostics are excluded. |
+| Goals/searches | Point centre/radius/**radiusSq**; annulus centre/inner/outer/**innerSq/outerSq**; rectangle; saved forms reconstruct the same three variants. Search config descriptor, scale and open-list kind; logical entries sorted `(Z,X)` with status/direction/node; nearest/distance/presence, tolerance/presence, notified/seeded/done/result points/status, popped/setup/expanded counts; nodes in allocation order with cell/G/H/F/terrain/run/parent/direction/open/closed/hSet; heap **array order** `(id,f)` and spent state; for a Modern bucket open list, its queued entries `(id,f)` in **pop order**, stale ones included. | Thresholds are stored, not recomputed. Heap positions, bucket stacks and node back-references are validated derivations; a heap search may hold no bucket entry and a bucket search no heap entry. Workspace generation/capacity/lending/dense-versus-sparse storage is excluded after every logically visible entry is extracted, including rays and terminal entries without nodes. The search fan is scratch. |
 | Search wrappers/payloads | Straighten/smooth variant, wrapped search, config, probes, done/status/out. Air marker flags/radius/altitude/heading/attach piece/unit/raw target/goal/radial; velocity marker saved flags/aux/trailing, unit/position/velocity/commanded/steer. | Wrapper finishing buffers are synchronous scratch. Payloads preserve sharing with record goals and flight commands. Unknown goal/search/kernel/pilot/payload variants fail capture. |
 
 Suspended path closures carry value metadata recorded at their creation
@@ -3185,10 +3185,15 @@ slope.
 | 5 hostile/keeps-ground | One base-view input; Owner; Wall 1 hostile-only, 2 keeps-ground |
 | 6 wedge override | One base-view input and one override-view input; Start, Bounds, footprint |
 | 7 claims cost | No inputs; ClaimCounts, ClaimOwn, Owner, Serial, Width/Height, footprint, Per/Against; Row 2 all, 3 slow |
-| 8 class revision | No inputs; Layer, Profile, Requester, Tick |
+| 8 class revision | No inputs; Layer, Profile, Requester (zero for a search a Modern path batch opened), Tick |
+| 9 own class view | No inputs; kind 1's operands and Bounds, the inclusive anchor rectangle in which a Modern path batch search reads its requester's own occupancy as fresh |
 
 Descriptor object operands are plain u32 values with schema-fixed tables
 (Layer table 5, ClaimCounts/ClaimOwn table 7), so they carry no table tag.
+Kinds 1–6 and 9 are passability views: a view input and the Passable and Leg
+roots take any of them. A search the Modern batch scheduler opened revises
+the shared layer with no requester and reads its own footprint through kind 9
+(DESIGN_MOVEMENT_PATH "Modern parallel path batches").
 Kind 6 Bounds holds the captured strict overlap boundary operands, computed
 with the existing int32 start±clamped-footprint arithmetic, not the search
 bounds or a new inclusive rectangle; its footprint is the raw profile
@@ -3398,7 +3403,7 @@ pool counts have their own row fields.
 | world | Feature count, reproduction cursor, arena held; row-major plots' occupancy words/metal/feature index/anchor-damage/gameplay flags |
 | visibility | Mode semantic bits/local/team/viewer-defeated; word mask then player byte grids row-major; temporary-sight list length and owner/coordinates/expiry/published |
 | movement | Per-handle route count/active/dirty/status/request tick and all point coordinates; steer X/Z/heading/speed/dirty; collision stamp/plane/blocker/blocked; flight mode/XYZ/velocity; work tick/budget |
-| paths | Scheduler base/set/scales/call count/player cursor/allowance, service counts/accumulators; active request presence/player/unit/start/activation; per-handle working-search presence, popped/setup/expanded counts, node count and heap count |
+| paths | Scheduler base/set/scales/call count/player cursor/allowance, service counts/accumulators; active request presence/player/unit/start/activation; latched batch search count and each one's player/unit/start/activation/slot; per-handle working-search presence, popped/setup/expanded counts, node count and open-list count (heap entries, or a bucket open list's entries including stale ones) |
 | economy | Ten players in slot order: Stock, Capacity, Mirror (each Production, Requested, Accepted, Carry), AIProduction, AIConsumption, UpdateTime, GameEnded, EndGameCountdown, Allies; resource pairs Metal then Energy. Then unit-bucket count and each physical row's Buckets, Metal then Energy, each Production, Requested, Accepted, Carry |
 | construction | Per-handle repair-bank target/remainders and kick XYZ/valid; placement count and builder-link count |
 | combat | Pool count/capacity; all projectile records' dead/weapon/XYZ/target/shooter/velocity/expiry/burst remaining; target rebuild gates/cursors, Modern next-projectile tick, area generation counter |
@@ -3613,7 +3618,10 @@ scalar bits and next-change. LastChange and BriefingCountdown are excluded.
 #### 16.3.14 U3 movement composition and metadata
 
 Movement keeps each working set's construction-time accessor operands (and
-claim-row holders); replacing a set drops them, resuming keeps them. The
+claim-row holders); replacing a set drops them, resuming keeps them. A
+session without checkpoint admission can never capture, so its movement
+system builds none (`System.SetSearchCaptureEnabled`); no search input
+depends on them. The
 pilot call borrows a temporary descriptor-root record, so composite pilots
 keep the last cost callback's operands. Capture never rebuilds operands,
 calls a rule or evaluates a callback.
@@ -3633,7 +3641,7 @@ stamp as HasStamp, StampedAnchor.X/Z, LastStampTick, StampedPlane, BlockerID,
 Blocked), then workTick and workSmooth. Cheap path: scheduler words, then the
 working-set length and rows in handle order with search presence; a search
 adds charged popped count (retail popped plus wrapper probes), setupSteps,
-expanded, allocated nodes excluding zero, and heap entries.
+expanded, allocated nodes excluding zero, and open-list entries (the heap's, or under a Modern bucket open list the queue's, stale ones included).
 `path.AppendSearchCheckpointSummary(Search, *checkpoint.Summary) error`
 invokes no Search method and fails atomically on unknown or cyclic wrappers.
 

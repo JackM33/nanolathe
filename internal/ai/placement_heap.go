@@ -1,6 +1,7 @@
 package ai
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 
@@ -22,6 +23,16 @@ const (
 	placementGrowthWorld = int32(160) // world units [08 R-AI-03 §2]
 	placementTrialCount  = 30         // strict t < 30 [08 R-AI-03 §4]
 	metalFeatureLimit    = uint16(0xfffb)
+)
+
+// The per-candidate validator's refusals. Both trial searches keep only the
+// reason code and discard the error, so these are fixed values rather than a
+// fresh, coordinate-bearing error per rejected anchor: a placement pass tries
+// thousands of anchors.
+var (
+	errAICandidateBounds  = errors.New("ai: candidate outside strict AI bounds")
+	errAICandidateRow     = errors.New("ai: negative exhaustive row has no retail verdict; Nanolathe rejects deterministically")
+	errAICandidateRefused = errors.New("ai: placement candidate refused by the world placement validator")
 )
 
 func appendMetalSpots(spots []MetalSpot, terrain *world.Terrain) []MetalSpot {
@@ -168,7 +179,7 @@ func validateRetailAICandidate(terrain *world.Terrain, pd retailPlacementDef, x,
 	// which holds exactly when the row's sixteen-bit pattern is non-zero. Row 0
 	// is therefore rejected the same way column 0 is [08 R-AI-03 §7.1].
 	if x+pd.footX >= terrain.CellW || z+pd.footZ >= terrain.CellH || (!exhaustive && (x < 0 || z < 0)) || (exhaustive && (x <= 0 || z == 0)) {
-		return world.FootprintRect{}, 0, ReasonOutOfBounds, fmt.Errorf("ai: candidate %d,%d outside strict AI bounds", x, z)
+		return world.FootprintRect{}, 0, ReasonOutOfBounds, errAICandidateBounds
 	}
 	if exhaustive && z < 0 {
 		// A negative row passes retail's row test and the signed height test,
@@ -179,7 +190,7 @@ func validateRetailAICandidate(terrain *world.Terrain, pd retailPlacementDef, x,
 		// and is Unknown; nothing in the executable decides it [08 R-AI-03
 		// §7.1]. Rejecting is Nanolathe's deterministic choice, recorded as
 		// that choice and not as retail's behavior.
-		return world.FootprintRect{}, 0, ReasonOutOfBounds, fmt.Errorf("ai: negative exhaustive row %d has no retail verdict; Nanolathe rejects deterministically", z)
+		return world.FootprintRect{}, 0, ReasonOutOfBounds, errAICandidateRow
 	}
 	rect, err := world.NewFootprintRect(world.NewFootprintAnchor(x, z), pd.extent)
 	if err != nil {
@@ -194,9 +205,10 @@ func validateRetailAICandidate(terrain *world.Terrain, pd retailPlacementDef, x,
 	// the four readers that agree. Mobile=true selects the plain branch of the
 	// repository's one canonical world validator.
 	yard, plainFootprint := pd.yard, pd.def.BMCode != 0
-	_, err = terrain.CheckPlacement(world.PlacementQuery{Rect: rect, Yard: yard, Rules: pd.rules, Self: 0, Mobile: plainFootprint})
-	if err != nil {
-		return rect, 0, ReasonBlocked, err
+	// PlacementLegal runs CheckPlacement's gates in the same order and only
+	// skips wording the refusal, which nothing here reads.
+	if !terrain.PlacementLegal(world.PlacementQuery{Rect: rect, Yard: yard, Rules: pd.rules, Self: 0, Mobile: plainFootprint}) {
+		return rect, 0, ReasonBlocked, errAICandidateRefused
 	}
 	score, err := retailPlacementScore(terrain, rect)
 	if err != nil {

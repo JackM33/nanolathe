@@ -948,7 +948,11 @@ func (s *Session) newOrderBinding() *orders.QueueBinding {
 		return nil
 	}
 	authority := s.checkpointBindingAuthority()
-	worldQueries := orders.NewWorldQueryAdapterWithCheckpointBinding(orders.WorldQueryAdapterConfig{
+	// The feature traversal below reads its region (if any) from the adapter
+	// it is installed on, so the adapter is named before it is built.
+	var worldQueries *orders.WorldQueryAdapter
+	var nearFeatures []*features.Instance
+	worldQueries = orders.NewWorldQueryAdapterWithCheckpointBinding(orders.WorldQueryAdapterConfig{
 		LookupUnit: func(h pool.Handle) *units.Unit {
 			if s.Units == nil {
 				return nil
@@ -1055,7 +1059,17 @@ func (s *Session) newOrderBinding() *orders.QueueBinding {
 			if s.Features == nil || visit == nil {
 				return
 			}
-			for _, inst := range s.Features.Instances() {
+			instances := nearFeatures[:0]
+			if x, z, radius, ok := worldQueries.FeatureRegion(); ok {
+				// A restricted traversal (orders.ForEachFeatureNear) reads
+				// only the instances inside its square, in the same order as
+				// the full list; its caller tests every feature it is given.
+				instances = s.Features.AppendInstancesNear(instances, x, z, radius)
+				nearFeatures = instances
+			} else {
+				instances = s.Features.Instances()
+			}
+			for _, inst := range instances {
 				if inst == nil {
 					continue
 				}
@@ -2051,6 +2065,11 @@ func createAndBindServices(s *Session) error {
 	// movement-owned post-move correction [04 R-MOV-01 §5]. Bound here, like
 	// the extraction sampler above, before any battle-entry allocation.
 	s.Units.SetCreationPoseWithCheckpointBinding(s.Movement, s.checkpointBindingAuthority())
+	// The per-search checkpoint accessor records are built only for a session
+	// that can ever be captured. A session with no checkpoint admission can
+	// never request a capture, so at battle scale those records would be
+	// allocated and never read; no search input depends on them.
+	s.Movement.SetSearchCaptureEnabled(s.checkpointBindingAuthority() != nil)
 	s.Movement.BindWorldWithCheckpointBinding(s.Units, s.checkpointBindingAuthority())
 	// Bind movement classes explicitly [02 "Movement class record"]
 	s.Movement.SetClasses(s.Catalog.Movement)

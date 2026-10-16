@@ -233,3 +233,18 @@ func TestHullReachBoundsEveryOrientation(t *testing.T) {
 		}
 	}
 }
+
+// The hover pick resolves a hull for every unit near the pointer on every
+// update, so its name lookup must answer exactly what the ckey-keyed table
+// answers and build no key to do it.
+func TestLookupCKeyMatchesCKeyWithoutAllocating(t *testing.T) {
+	m := map[string]int{"armcom": 1, "corak": 2, "ünit": 3}
+	for _, name := range []string{"armcom", "ARMCOM", " ArmCom\t", "corak", "CORAK ", "missing", "", "ÜNIT", "ünit"} {
+		if got, want := lookupCKey(m, name), m[ckey(name)]; got != want {
+			t.Errorf("lookupCKey(%q) = %d, want %d", name, got, want)
+		}
+	}
+	if allocs := testing.AllocsPerRun(100, func() { _ = lookupCKey(m, "ArmCom") }); allocs != 0 {
+		t.Errorf("lookupCKey allocated %v times a lookup, want 0", allocs)
+	}
+}

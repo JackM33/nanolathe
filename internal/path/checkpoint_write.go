@@ -129,11 +129,13 @@ func writeCheckpointPoints(e *checkpoint.Encoder, points []Point, p string) {
 }
 
 // Expanded scheduler fields: accumulator, active, activePlayer, activeScale,
-// base, baseSet, callCount, haveLast, playerCount, playerCursor, provider,
-// publish, scales, search, serviceCount, stepAllowance, unitLimit. activePlayer
-// and activeScale are conditional on active. Request: Activation, Goal,
-// Player, Start, Unit. Inactive activeReq storage, workspace capacity/lending,
-// sweepPolls and trace fields are excluded (DESIGN_MULTIPLAYER §16.3.5).
+// base, baseSet, callCount, haveLast, latched, playerCount, playerCursor,
+// provider, publish, scales, search, serviceCount, stepAllowance, unitLimit.
+// activePlayer and activeScale are conditional on active. Request: Activation,
+// Goal, Player, Start, Unit. Inactive activeReq storage, workspace
+// capacity/lending, spare workspaces, the batch size and round scratch,
+// latched searches' per-call pop counts and round budgets, sweepPolls and
+// trace fields are excluded (DESIGN_MULTIPLAYER §16.3.5).
 func writeSchedulerCheckpoint(e *checkpoint.Encoder, c *CheckpointContext, s *Scheduler) {
 	e.Field("paths.accumulator")
 	for _, v := range s.accumulator {
@@ -163,6 +165,29 @@ func writeSchedulerCheckpoint(e *checkpoint.Encoder, c *CheckpointContext, s *Sc
 	e.U32(s.callCount)
 	e.Field("paths.haveLast")
 	e.Bool(s.haveLast)
+	// Nanolathe Modern parallel path batches: the latched searches in
+	// admission order, each its player, request, scale and slot. The per-call
+	// pop count, reset every call, and the round budget, zero between calls,
+	// are excluded.
+	e.Field("paths.latched")
+	e.Count(len(s.latched))
+	for i, m := range s.latched {
+		p := fmt.Sprintf("paths.latched[%d]", i)
+		e.Field(p + ".player")
+		e.I64(int64(m.player))
+		e.Field(p + ".req.Activation")
+		e.U64(m.req.Activation)
+		writeGoalCheckpointReference(e, c, m.req.Goal, p+".req.Goal")
+		e.Field(p + ".req.Player")
+		e.U8(m.req.Player)
+		writeCheckpointCell(e, m.req.Start, p+".req.Start")
+		e.Field(p + ".req.Unit")
+		e.U32(uint32(m.req.Unit))
+		e.Field(p + ".scale")
+		e.I32(m.scale)
+		e.Field(p + ".slot")
+		e.I64(int64(m.slot))
+	}
 	e.Field("paths.playerCount")
 	e.I64(int64(s.playerCount))
 	e.Field("paths.playerCursor")
@@ -239,6 +264,8 @@ func writeConfigCheckpoint(e *checkpoint.Encoder, c *CheckpointContext, cfg Sear
 	e.Bool(cfg.HasBounds)
 	e.Field(p + ".LegValue")
 	e.U32(a.Leg)
+	e.Field(p + ".OpenList")
+	e.U8(uint8(cfg.OpenList))
 	e.Field(p + ".PassableValue")
 	e.U32(a.Passable)
 	e.Field(p + ".Revise")
@@ -424,13 +451,32 @@ func validateCheckpointSearchStorage(s *Session, entries []checkpointCellEntry) 
 	if s.heap.spent < 0 || s.heap.spent != 0 && (int(s.heap.spent) >= len(positions) || positions[s.heap.spent] == absentPosition) {
 		return errors.New("spent node is absent from heap")
 	}
+	if s.cfg.OpenList == OpenListBuckets {
+		if len(s.heap.entries) != 0 || s.heap.spent != 0 {
+			return errors.New("bucket search has heap entries")
+		}
+	} else if s.open.Len() != 0 {
+		return errors.New("heap search has bucket entries")
+	}
+	order, err := s.open.order()
+	if err != nil {
+		return err
+	}
+	for _, v := range order {
+		if v.id <= 0 || int(v.id) >= len(nodes) {
+			return errors.New("open-list node is outside allocation order")
+		}
+	}
 	return nil
 }
 
 // Expanded Session: cfg, done, entries, expanded, hasTolerance, haveNearest,
-// heap, nearest, nearestDist, notified, ns, popped, resultPoints, resultStatus,
-// scale, seeded, setupSteps, tolerance. Entries are (Z,X)-sorted logical keys
-// then dir/node/status; heap is entries (id,f) in actual array order then spent.
+// heap, nearest, nearestDist, notified, ns, open, popped, resultPoints,
+// resultStatus, scale, seeded, setupSteps, tolerance. Entries are (Z,X)-sorted
+// logical keys then dir/node/status; heap is entries (id,f) in actual array
+// order then spent; open, present only when cfg.OpenList is the bucket queue,
+// is its entries (id,f) in pop order, stale ones included (Nanolathe Modern
+// bucket open list).
 // NodeStore has presence, nodes (including reserved index zero), scale.
 // Node: Cell, Closed, Dir, F, G, H, Open, Parent, Run, TerrainTerm, hSet.
 // Fan, storage generations/capacity and derived index/positions are excluded.
@@ -513,6 +559,18 @@ func writeSessionCheckpoint(e *checkpoint.Encoder, c *CheckpointContext, s *Sess
 		}
 		e.Field(p + ".ns.scale")
 		e.I32(s.ns.scale)
+	}
+	if s.cfg.OpenList == OpenListBuckets {
+		order, _ := s.open.order()
+		e.Field(p + ".open")
+		e.Count(len(order))
+		for i, v := range order {
+			q := fmt.Sprintf("%s.open[%d]", p, i)
+			e.Field(q + ".id")
+			e.I32(v.id)
+			e.Field(q + ".f")
+			e.I32(v.f)
+		}
 	}
 	e.Field(p + ".popped")
 	e.I64(int64(s.popped))

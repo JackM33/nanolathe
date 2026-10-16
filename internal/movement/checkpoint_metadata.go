@@ -38,6 +38,7 @@ type checkpointClaimRow struct {
 // against layer. They are checked bindings, not additional serialized objects.
 // Scalar disposition by kind (all other value fields remain zero):
 //   - class: Requester, Owner, copied Profile, Tick, raw FootprintX/Z;
+//   - own class: the class operands plus the inclusive own Bounds;
 //   - learned: raw FootprintX/Z, plus learned/learnedOwner above;
 //   - through: Owner, raw FootprintX/Z and the selected Through;
 //   - static: raw FootprintX/Z, plus layer above;
@@ -45,7 +46,8 @@ type checkpointClaimRow struct {
 //   - wedge: Start, strict Bounds and raw FootprintX/Z;
 //   - claims: Owner, Serial, Width/Height, clamped FootprintX/Z, resolved
 //     Per/Against and Row (all 2, slow 3), plus counts/own above;
-//   - revision: copied Profile, Requester and Tick, plus layer/registry/class.
+//   - revision: copied Profile, Requester and Tick, plus layer/registry/class;
+//     Requester is zero for a search a Modern path batch opened.
 //
 // The profile's eight operands are widened exactly to the published int32
 // descriptor fields. None of these pointer identities is serialized as an
@@ -90,6 +92,17 @@ func checkpointClassCapture(layer *ClassLayer, p Profile, requester pool.Handle,
 			Profile: checkpointProfile(p), Tick: tick, FootprintX: int32(p.FootPrintX), FootprintZ: int32(p.FootPrintZ)},
 		layer: layer,
 	}
+}
+
+// checkpointOwnClassCapture is the class view of a search a Modern path batch
+// opened: the class view's operands, plus the inclusive anchor rectangle
+// within which the requester's own occupancy is read as fresh
+// (own_footprint.go).
+func checkpointOwnClassCapture(class *checkpointAccessorCapture, own *ownFootprint) *checkpointAccessorCapture {
+	c := *class
+	c.value.Kind = 9
+	c.value.Bounds = path.Rect{Min: path.Cell{X: own.minX, Z: own.minZ}, Max: path.Cell{X: own.maxX, Z: own.maxZ}}
+	return &c
 }
 
 func checkpointLearnedCapture(base *checkpointAccessorCapture, learned *LearnedTerrain, owner uint8, fx, fz int16) *checkpointAccessorCapture {

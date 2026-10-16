@@ -319,7 +319,10 @@ following a friend going its way however slow, looking no farther than
 the point its route turns at and keeping the way round it chose while its
 steps are refused; route smoothing with legs
 through movers; a heuristic weight of 1.5, and 3 while route searching is
-busy; a re-request throttle of fifteen ticks; arrival places and exchange;
+busy; a re-request throttle of fifteen ticks (measured so; Modern has since
+let a held follower wait for the unit in its way, see
+[prompt re-routing](DESIGN_MOVEMENT_PATH.md#modern-prompt-re-routing), and
+`next-v4` answers that too); arrival places and exchange;
 settling, near a place and short of a sealed goal; route claims with rank,
 four along and twenty-four against; and Through after five seconds.
 

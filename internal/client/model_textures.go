@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/nanolathe-gg/nanolathe/formats"
 	"github.com/nanolathe-gg/nanolathe/internal/content"
@@ -477,6 +478,32 @@ func (r *ModelTextureRegistry) projectileModel(id int32, name string) *unitModel
 }
 
 func ckey(s string) string { return strings.ToLower(strings.TrimSpace(s)) }
+
+// lookupCKey is m[ckey(name)] without building the key: an ASCII name is
+// folded into a stack buffer and the map is indexed by its bytes, which
+// copies nothing. The hover pick looks up the hull of every unit near the
+// pointer on every update, and strings.ToLower allocated a lowered copy of
+// each mixed-case name. A name that is not ASCII, or is longer than the
+// buffer, takes ckey.
+func lookupCKey[V any](m map[string]V, name string) V {
+	name = strings.TrimSpace(name)
+	var buf [64]byte
+	if len(name) > len(buf) {
+		return m[ckey(name)]
+	}
+	b := buf[:len(name)]
+	for i := 0; i < len(name); i++ {
+		c := name[i]
+		if c >= utf8.RuneSelf {
+			return m[ckey(name)]
+		}
+		if 'A' <= c && c <= 'Z' {
+			c += 'a' - 'A'
+		}
+		b[i] = c
+	}
+	return m[string(b)]
+}
 
 func (r *ModelTextureRegistry) modelFor(kind modelTextureLoadKind, id, name string) *unitModel {
 	if r == nil {

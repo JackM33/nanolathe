@@ -1,9 +1,6 @@
 package client
 
-import (
-	"github.com/nanolathe-gg/nanolathe/formats"
-	"github.com/nanolathe-gg/nanolathe/internal/drawlist"
-)
+import "github.com/nanolathe-gg/nanolathe/internal/drawlist"
 
 // SetBattlePresentationPreparer installs the device owner's loading hook. It is
 // called only by the window host and cleared when that host exits. No GPU work
@@ -36,16 +33,4 @@ func (c *Client) BattleTerrainSources() drawlist.Terrain {
 		sources.Detail = c.detailArt.Tiles
 	}
 	return sources
-}
-
-// BattleFeatureDetail returns the installed 2x feature banks under the same
-// admission as BattleTerrainSources, independently of the live zoom: a host
-// drawing at device resolution chooses the variant itself. Keys are lowercase
-// bank filenames; frames match the loaded banks by entry name and frame index
-// (DESIGN_GPU_RENDERER §14.3). The map is borrowed, never modified.
-func (c *Client) BattleFeatureDetail() map[string]*formats.GAF {
-	if c == nil || !c.enhanced || c.detailArt == nil {
-		return nil
-	}
-	return c.detailArt.Banks
 }

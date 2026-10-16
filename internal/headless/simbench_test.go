@@ -88,6 +88,11 @@ func TestSimBenchPhaseTimerAttributesBoundaries(t *testing.T) {
 		for _, name := range names {
 			timer.observe(name, uint32(tick))
 		}
+		// A coarse monotonic clock (about 1ms on Windows) would measure the
+		// whole synthetic tick as zero, leaving no shares to report.
+		for time.Since(start) == 0 {
+			time.Sleep(time.Millisecond)
+		}
 		timer.endTick(start, time.Since(start))
 	}
 	summary := timer.summary(3)

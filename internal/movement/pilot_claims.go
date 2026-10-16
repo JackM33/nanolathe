@@ -78,9 +78,15 @@ type claimState struct {
 	// claim's sector.
 	own           []uint32
 	checkpointOwn *checkpointClaimRow
-	serial        uint32
-	have          bool
-	trail         []int32 // scratch: one route's claims, block and sector
+	// slots are the own marks of the searches in Modern path batch places
+	// one and up, place zero's being own: searches of one batch are open at
+	// once, and each must recognise its own claims however the others'
+	// overlap them (docs/DESIGN_MOVEMENT_PATH.md "Modern parallel path
+	// batches"). Each row is made when its place is first used.
+	slots  []*checkpointClaimRow
+	serial uint32
+	have   bool
+	trail  []int32 // scratch: one route's claims, block and sector
 }
 
 func claimStateOf(s *System) *claimState {
@@ -191,6 +197,7 @@ func (p ClaimsPilot) BeginTick(s *System, tick uint32) {
 		st.grids = st.grids[:0]
 		st.own = make([]uint32, int(w)*int(h))
 		st.checkpointOwn = &checkpointClaimRow{kind: 1, own: st.own}
+		st.slots = nil
 	}
 	for _, g := range st.grids {
 		if g == nil {
@@ -232,6 +239,22 @@ func (p ClaimsPilot) BeginTick(s *System, tick uint32) {
 	}
 }
 
+// ownRow is the own-mark row of the search in batch place slot.
+func (st *claimState) ownRow(slot int) ([]uint32, *checkpointClaimRow) {
+	if slot <= 0 {
+		return st.own, st.checkpointOwn
+	}
+	for len(st.slots) < slot {
+		st.slots = append(st.slots, nil)
+	}
+	h := st.slots[slot-1]
+	if h == nil {
+		h = &checkpointClaimRow{kind: 1, own: make([]uint32, len(st.own))}
+		st.slots[slot-1] = h
+	}
+	return h.own, h
+}
+
 // Search charges the request for the claims of the requester's owner, its own
 // left out.
 func (p ClaimsPilot) Search(s *System, r path.Request, cfg *path.SearchConfig) {
@@ -258,10 +281,17 @@ func (p ClaimsPilot) Search(s *System, r path.Request, cfg *path.SearchConfig) {
 	st.serial++
 	if st.serial >= 1<<29 {
 		clear(st.own)
+		for _, h := range st.slots {
+			if h != nil {
+				clear(h.own)
+			}
+		}
 		st.serial = 1
 	}
 	serial := st.serial
-	own := st.own
+	// A search of a Modern path batch marks its own claims in its place's
+	// row, which no other open search writes.
+	own, ownHolder := st.ownRow(s.searchSlot)
 	if route := handleRow(s.Routes, r.Unit); claimSearched(route, fx, fz) {
 		for _, claim := range st.trace(int32(u.X>>16), int32(u.Z>>16), route, claimReach) {
 			own[claim>>3] = serial<<3 | uint32(claim&7)
@@ -273,9 +303,9 @@ func (p ClaimsPilot) Search(s *System, r path.Request, cfg *path.SearchConfig) {
 		roots.cost = &checkpointAccessorCapture{
 			value: path.CheckpointAccessor{Kind: 7, Owner: u.Owner, Serial: serial,
 				Width: w, Height: h, FootprintX: fx, FootprintZ: fz, Per: per, Against: against, Row: row},
-			counts: countsHolder, own: st.checkpointOwn,
+			counts: countsHolder, own: ownHolder,
 		}
-		if countsHolder == nil || st.checkpointOwn == nil {
+		if countsHolder == nil || ownHolder == nil {
 			// Authored rows without construction metadata cannot prove aliases.
 			roots.unsupported = "TODO(M3-U6): claim rows lack checkpoint holders"
 		}

@@ -230,9 +230,17 @@ func (r *Renderer) Surface(sf drawlist.Surface) {
 	if qx0 >= qx1 || qy0 >= qy1 {
 		return
 	}
-	r.drawIndexScaledQuad(e, qx0, qy0, qx1, qy1, x, y,
+	r.drawIndexScaledQuad(e, sceneSurfaceSlot, qx0, qy0, qx1, qy1, x, y,
 		srcW, w, srcH, h, 0, 0, srcW, srcH)
 }
+
+// sceneSurfaceSlot is the source slot a surface blit binds its page in. A
+// surface has a page of its own (uploadSurface), and the HUD draws the
+// minimap between interface sprites on the scene atlas's pages: bound in
+// slot 0, as those are, every minimap blit split the HUD's run in two and
+// cost two device draws a frame. Slot 2 is free there, so the blit shares
+// the run (sceneOpScaled reads it when Custom2 is set).
+const sceneSurfaceSlot = 2
 
 // Cursor replays the software cursor blit: a full-framebuffer plain keyed copy of
 // the cursor frame at the resolved blit origin, exactly as the classic sink calls
@@ -335,7 +343,7 @@ func (r *Renderer) drawScaled(f *formats.GAFFrame, srcX, srcY, srcW, srcH, x, y,
 	}
 	// Span-over-span mapping: sx = dx*(srcW-1)/(w-1); the source origin is the
 	// sub-rect corner, the frame size bounds the At coordinate.
-	r.drawIndexScaledQuad(e, qx0, qy0, qx1, qy1, x, y,
+	r.drawIndexScaledQuad(e, 0, qx0, qy0, qx1, qy1, x, y,
 		srcW-1, w-1, srcH-1, h-1, srcX, srcY, int(f.Width), int(f.Height))
 }
 
@@ -345,8 +353,9 @@ func (r *Renderer) drawScaled(f *formats.GAFFrame, srcX, srcY, srcW, srcH, x, y,
 // frameW/frameH bound the source coordinate, exactly as the byte writers do
 // (C-G4). The destination rectangle is first narrowed to the offsets whose mapped
 // source is inside those bounds, so no fragment can sample a neighbouring atlas
-// entry.
-func (r *Renderer) drawIndexScaledQuad(e sceneEntry, qx0, qy0, qx1, qy1, dstOX, dstOY,
+// entry. slot is the source slot the entry's page is bound in: 0, or
+// sceneSurfaceSlot for a surface.
+func (r *Renderer) drawIndexScaledQuad(e sceneEntry, slot int, qx0, qy0, qx1, qy1, dstOX, dstOY,
 	numX, denX, numY, denY, srcOX, srcOY, frameW, frameH int) {
 	loX, hiX, ok := scaledValidRange(numX, denX, srcOX, frameW, qx0-dstOX, qx1-1-dstOX)
 	if !ok {
@@ -361,8 +370,14 @@ func (r *Renderer) drawIndexScaledQuad(e sceneEntry, qx0, qy0, qx1, qy1, dstOX, 
 	if x0 >= x1 || y0 >= y1 {
 		return
 	}
-	if !r.sched.begin(schedOpaque, x0, y0, x1, y1, r.sceneImages(e)) {
+	var imgs [4]*ebiten.Image
+	imgs[slot] = r.scene.pageImage(e)
+	if !r.sched.begin(schedOpaque, x0, y0, x1, y1, imgs) {
 		return
+	}
+	pageLane := float32(0)
+	if slot == sceneSurfaceSlot {
+		pageLane = 1
 	}
 	// SrcX/SrcY carry the destination-relative offset, so the fragment recovers
 	// the byte writer's dx and dy by flooring the interpolated position.
@@ -370,7 +385,7 @@ func (r *Renderer) drawIndexScaledQuad(e sceneEntry, qx0, qy0, qx1, qy1, dstOX, 
 		float32(x0), float32(y0), float32(x1), float32(y1),
 		float32(x0-dstOX), float32(y0-dstOY), float32(x1-dstOX), float32(y1-dstOY),
 		[4]float32{float32(numX), float32(denX), float32(numY), float32(denY)},
-		[4]float32{float32(int(e.x) + srcOX), float32(int(e.y) + srcOY), 0, sceneOpScaled})
+		[4]float32{float32(int(e.x) + srcOX), float32(int(e.y) + srcOY), pageLane, sceneOpScaled})
 }
 
 // scaledValidRange narrows a destination offset span [dLo, dHi] to the offsets

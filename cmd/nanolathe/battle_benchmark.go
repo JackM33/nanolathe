@@ -252,12 +252,7 @@ func runBattleBenchmark(opts Options, cs *contentSet, b *battleSession, c *clien
 	benchmark := ebitenapp.BenchmarkOptions{Directory: opts.BattleBenchmark, Renderer: opts.Renderer, Frames: opts.BenchmarkFrames, TPS: opts.BenchmarkTPS, Width: int(b.cam.ViewW), Height: int(b.cam.ViewH), BeforeMeasure: beforeMeasure, AfterMeasure: afterMeasure, Metadata: metadata,
 		Frozen: func() bool { return frozen }}
 	metadata["simulation_frozen_during_measurement"] = freeze
-	if opts.BenchmarkRenderer == "metal" {
-		err = runMetalBattleBenchmark(opts, cs, b, c, step, census, benchmark)
-	} else {
-		err = ebitenapp.BattleBenchmark(c, step, census, benchmark)
-	}
-	if err != nil {
+	if err := ebitenapp.BattleBenchmark(c, step, census, benchmark); err != nil {
 		return err
 	}
 	var blocked []map[string]any

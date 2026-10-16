@@ -117,7 +117,7 @@ func LoadGAFWithLimits(data []byte, limits GAFLimits) (*GAF, error) {
 	if err != nil {
 		return nil, err
 	}
-	return materializeGAF(data, meta)
+	return materializeGAF(data, meta, true)
 }
 
 // LoadGAFFile reads and decodes an animation bank from the VFS.
@@ -127,6 +127,23 @@ func LoadGAFFile(fs vfs.FSOps, name string) (*GAF, error) {
 		return nil, err
 	}
 	return LoadGAF(data)
+}
+
+// LoadGAFDecodedFile loads the same validated bank and decoded images as
+// LoadGAFFile, without retaining encoded RLE rasters for DirectRaster readers.
+// Feature sprites use only the decoded planes; their extra encoded copies
+// otherwise remain live for the whole battle [fmt gaf]. Direct-storage
+// consumers must use LoadGAFFile instead.
+func LoadGAFDecodedFile(fs vfs.FSOps, name string) (*GAF, error) {
+	data, err := readVFS(fs, name)
+	if err != nil {
+		return nil, err
+	}
+	meta, err := LoadGAFMetadata(data)
+	if err != nil {
+		return nil, err
+	}
+	return materializeGAF(data, meta, false)
 }
 
 // Find returns the first matching entry in authored table order. ASCII letter

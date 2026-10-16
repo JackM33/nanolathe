@@ -32,6 +32,10 @@ func (s *Session) noteWreckBirth(inst *features.Instance) {
 	}
 	p.births[inst] = tick
 	p.instances = append(p.instances, inst)
+	// The heat table is an input of the record's committed view kept outside
+	// the record; a publication keeps an unchanged record's view without
+	// consulting it, so a change renews the record's revision.
+	s.Features.MarkPublicationChanged(inst)
 }
 
 // Prune before publication even when snapshots are disabled, releasing dead,
@@ -42,6 +46,9 @@ func (p *wreckPresentation) prune(service *features.Service, tick uint32) {
 	for _, inst := range p.instances {
 		if service == nil || service.InstanceAt(inst.CX, inst.CZ) != inst || tick-p.births[inst] >= wreckPresentationLifetimeTicks {
 			delete(p.births, inst)
+			// A record that outlives its heat keeps its place in the frame:
+			// renew its revision so every slot rebuilds it without heat.
+			service.MarkPublicationChanged(inst)
 			continue
 		}
 		p.instances[n] = inst

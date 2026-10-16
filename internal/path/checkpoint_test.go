@@ -63,7 +63,7 @@ func TestCheckpointSchedulerAndGoalVector(t *testing.T) {
 	}
 	want := pathCheckpointVector(t,
 		[10]int32{-30}, uint8(1), uint64(25), uint16(9), uint32(1), uint8(4), int32(-26), int32(27), uint32(28), int64(4), int32(29),
-		int32(-21), uint8(1), uint32(22), uint8(1), int64(3), int64(2), uint8(0), uint8(0), [10]int32{0, 31}, uint8(0), [10]int32{0, 0, 0, 0, 0, 0, 0, 0, 0, -32}, int32(-23), int32(24),
+		int32(-21), uint8(1), uint32(22), uint8(1), uint32(0), int64(3), int64(2), uint8(0), uint8(0), [10]int32{0, 31}, uint8(0), [10]int32{0, 0, 0, 0, 0, 0, 0, 0, 0, -32}, int32(-23), int32(24),
 		uint16(9), uint32(3),
 		uint8(1), int32(-1), int32(2), int32(3), int32(-4),
 		uint8(2), int32(5), int32(-6), int32(7), int32(-8), int32(9), int32(10),
@@ -93,7 +93,7 @@ func TestCheckpointSessionVector(t *testing.T) {
 	s.heap = Heap{entries: []heapEntry{{id: 1, f: -32}}, positions: []int32{-1, 0}, spent: 1}
 	want := pathCheckpointVector(t,
 		uint32(0), // descriptor node sequence
-		int32(3), int32(-4), int32(-1), int32(2), uint32(0), int32(5), int32(6), uint16(9), uint32(1), uint8(1), uint32(0), uint32(0), uint32(0), int32(7), int32(-8), int32(9), uint8(10),
+		int32(3), int32(-4), int32(-1), int32(2), uint32(0), int32(5), int32(6), uint16(9), uint32(1), uint8(1), uint32(0), uint8(0), uint32(0), uint32(0), int32(7), int32(-8), int32(9), uint8(10),
 		uint8(1), uint32(2), int32(11), int32(-12), uint8(3), int32(1), uint8(5), int32(-24), int32(25), uint8(6), int32(0), uint8(8),
 		uint8(1), uint8(1), uint8(1), uint32(1), int32(1), int32(-32), int64(1), int32(-13), int32(14), int64(-15), uint32(16),
 		uint8(1), uint32(2),
@@ -112,6 +112,54 @@ func TestCheckpointSessionVector(t *testing.T) {
 	}
 }
 
+// A bucket open list is written after the node store, in pop order: the
+// lowest key first and the most recent push first among equal keys, keys the
+// buckets do not address included and stale entries kept (Nanolathe Modern
+// bucket open list).
+func TestCheckpointBucketSessionVector(t *testing.T) {
+	c := NewCheckpointContext()
+	g := PointGoal(Cell{}, 0)
+	if _, err := c.Goals.Add(g); err != nil {
+		t.Fatal(err)
+	}
+	s := &Session{cfg: SearchConfig{Goal: g, OpenList: OpenListBuckets}, entries: newMapIndex(), seeded: true}
+	s.entries.set(Cell{1, 0}, entry{node: 1, status: 1})
+	s.entries.set(Cell{2, 0}, entry{node: 2, status: 1})
+	s.ns = &NodeStore{index: &s.entries, nodes: []Node{{}, {Cell: Cell{1, 0}, F: -1, Open: true}, {Cell: Cell{2, 0}, F: 7, Open: true}}}
+	s.open.clear()
+	s.open.push(2, 7)
+	s.open.push(1, 7)
+	s.open.push(1, -1)
+	want := pathCheckpointVector(t,
+		uint32(0),
+		int32(0), int32(0), int32(0), int32(0), uint32(0), int32(0), int32(0), uint16(9), uint32(1), uint8(0), uint32(0), uint8(1), uint32(0), uint32(0), int32(0), int32(0), int32(0), uint8(0),
+		uint8(0), uint32(2), int32(1), int32(0), uint8(0), int32(1), uint8(1), int32(2), int32(0), uint8(0), int32(2), uint8(1),
+		uint8(0), uint8(0), uint8(0), uint32(0), int64(0), int32(0), int32(0), int64(0), uint32(0),
+		uint8(1), uint32(3),
+		int32(0), int32(0), uint8(0), uint8(0), int32(0), int32(0), int32(0), uint8(0), int64(0), uint16(0), uint16(0), uint8(0),
+		int32(1), int32(0), uint8(0), uint8(0), int32(-1), int32(0), int32(0), uint8(1), int64(0), uint16(0), uint16(0), uint8(0),
+		int32(2), int32(0), uint8(0), uint8(0), int32(7), int32(0), int32(0), uint8(1), int64(0), uint16(0), uint16(0), uint8(0), int32(0),
+		uint32(3), int32(1), int32(-1), int32(1), int32(7), int32(2), int32(7),
+		int64(0), uint32(0), uint32(0), int32(0), uint8(1), int64(0), int32(0))
+	var out bytes.Buffer
+	e := checkpoint.NewEncoder(&out)
+	writeSessionCheckpoint(e, c, s, CheckpointAccessors{}, "search")
+	if err := e.Err(); err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(out.Bytes(), want) {
+		t.Fatalf("bucket session vector\ngot  %x\nwant %x", out.Bytes(), want)
+	}
+	// A heap search may not carry bucket entries, nor a bucket search heap
+	// entries.
+	s.heap = Heap{entries: []heapEntry{{id: 1, f: -1}}, positions: []int32{-1, 0}}
+	e = checkpoint.NewEncoder(io.Discard)
+	writeSessionCheckpoint(e, c, s, CheckpointAccessors{}, "search")
+	if e.Err() == nil {
+		t.Fatal("a bucket search with heap entries was written")
+	}
+}
+
 func TestCheckpointAccessorVector(t *testing.T) {
 	a := CheckpointAccessor{Kind: 7, ClaimCounts: 11, ClaimOwn: 12, Owner: 2, Serial: 13, Width: 14, Height: 15, FootprintX: 16, FootprintZ: 17, Per: -18, Against: 19, Row: 3}
 	want := pathCheckpointVector(t,
@@ -124,6 +172,27 @@ func TestCheckpointAccessorVector(t *testing.T) {
 	}
 	if !bytes.Equal(out.Bytes(), want) {
 		t.Fatalf("accessor vector\ngot  %x\nwant %x", out.Bytes(), want)
+	}
+}
+
+// The own class view of a Modern path batch search writes the class view's
+// operands and its inclusive Bounds in the fixed slots, Max before Min.
+func TestCheckpointOwnClassAccessorVector(t *testing.T) {
+	a := CheckpointAccessor{Kind: 9, Layer: 5, Requester: 6, Owner: 2, Profile: [8]int32{1, 2, 3, 4, 5, 6, 7, 8}, Tick: 7, FootprintX: 2, FootprintZ: 3,
+		Bounds: Rect{Min: Cell{-1, 4}, Max: Cell{3, 9}}}
+	want := pathCheckpointVector(t,
+		int32(0), [4]int32{3, 9, -1, 4}, uint32(0), uint32(0), int32(2), int32(3), int32(0), uint32(0), uint8(9), uint32(5), uint32(0), uint8(2), int32(0), [8]int32{1, 2, 3, 4, 5, 6, 7, 8}, uint32(6), uint8(0), uint32(0), [2]int32{}, uint8(0), uint32(7), uint8(0), int32(0))
+	var out bytes.Buffer
+	e := checkpoint.NewEncoder(&out)
+	writeAccessorCheckpoint(e, a, "accessor")
+	if err := e.Err(); err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(out.Bytes(), want) {
+		t.Fatalf("own class accessor vector\ngot  %x\nwant %x", out.Bytes(), want)
+	}
+	if err := validateCheckpointAccessors(SearchConfig{PassableValue: func(Cell) uint8 { panic("passability called") }}, CheckpointAccessors{Nodes: []CheckpointAccessor{a}, Passable: 1}); err != nil {
+		t.Fatalf("own class view refused as a passability root: %v", err)
 	}
 }
 
@@ -428,7 +497,8 @@ func TestCheckpointSchedulerSummaryVectorAndBlindSpot(t *testing.T) {
 		t.Fatal(err)
 	}
 	words, sum := out.Result()
-	// 41 words. Independently indexed nonzero terms, with signed extension.
+	// 42 words, the last the empty Modern batch's count. Independently
+	// indexed nonzero terms, with signed extension.
 	want := uint64(0)
 	for _, v := range []struct {
 		index uint64
@@ -436,8 +506,8 @@ func TestCheckpointSchedulerSummaryVectorAndBlindSpot(t *testing.T) {
 	}{{1, -1}, {2, 1}, {3, 10}, {13, 2}, {14, 3}, {15, 4}, {16, -11}, {26, 12}, {36, 1}, {37, 5}, {38, 6}, {39, -7}, {40, 8}, {41, 9}} {
 		want += v.index * uint64(v.value)
 	}
-	if words != 41 || sum != want {
-		t.Fatalf("summary = (%d,%d), want (41,%d)", words, sum, want)
+	if words != 42 || sum != want {
+		t.Fatalf("summary = (%d,%d), want (42,%d)", words, sum, want)
 	}
 	q.active.Goal = PointGoal(Cell{99, 99}, 99)
 	q.activeScale++ // deliberately unlisted in the cheap summary
@@ -514,6 +584,25 @@ func TestCheckpointSearchSummaryVectorsAndBlindSpots(t *testing.T) {
 		} else if words != 6 || sum != 1 {
 			t.Fatalf("empty search summary = (%d,%d)", words, sum)
 		}
+	}
+	// A bucket open list's entry count, stale entries included, stands where
+	// the heap's does (Nanolathe Modern bucket open list).
+	buckets := &Session{cfg: checkpointAllCallbacks(), popped: 7, setupSteps: -8, expanded: true, ns: &NodeStore{nodes: []Node{{}, {}, {}, {}}}}
+	buckets.cfg.OpenList = OpenListBuckets
+	buckets.open.clear()
+	buckets.open.push(1, 5)
+	buckets.open.push(1, 3)
+	var heapSummary, bucketSummary checkpoint.Summary
+	if err := AppendSearchCheckpointSummary(base, &heapSummary); err != nil {
+		t.Fatal(err)
+	}
+	if err := AppendSearchCheckpointSummary(buckets, &bucketSummary); err != nil {
+		t.Fatal(err)
+	}
+	hw, hs := heapSummary.Result()
+	bw2, bs2 := bucketSummary.Result()
+	if hw != bw2 || hs != bs2 {
+		t.Fatalf("bucket summary = (%d,%d), want the two-entry heap's (%d,%d)", bw2, bs2, hw, hs)
 	}
 }
 

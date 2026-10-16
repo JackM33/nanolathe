@@ -110,6 +110,16 @@ type Instance struct {
 	// reclaim-animation bit (selector 2) that [05 R-FEAT-01 §5] step 6 reads.
 	AnimationSelector uint8
 
+	// publication is the record's publication revision, a number from its
+	// service's counter renewed whenever the record joins or leaves the active
+	// list, takes or releases its runtime record, or is marked by the owner of
+	// a presentation input kept outside it (MarkPublicationChanged). Off the
+	// active list nothing else changes what the record's committed view is
+	// built from, so a publication holding a view built at the same revision
+	// keeps it (PublicationState). It is presentation bookkeeping: nothing in
+	// the simulation reads it and no save or checkpoint carries it.
+	publication uint64
+
 	// DamageAccumulator is the record's damage word, the one value all three
 	// saved families keep at the same place [08 R-SAVE-FEATURE-01]. It is the
 	// live 3D damage state and the only such state: DamageFeature adds each
@@ -179,6 +189,12 @@ type Service struct {
 
 	cursor int // global cursor descending from W*H-1 with wrap-skip [06 §13.1]
 
+	// publicationRevision numbers the records' publication revisions
+	// (Instance.publication); publicationEpoch changes whenever the whole
+	// instance set is replaced. Neither is simulation state.
+	publicationRevision uint64
+	publicationEpoch    uint64
+
 	// instances is the cell-index LOOKUP: key = cz*W+cx. It holds a record for
 	// every stamped anchor — resting sprites included, as the publication and
 	// query record — and is never the source of simulation order; that is the
@@ -191,6 +207,19 @@ type Service struct {
 	// which is what keeps the flag honest — see sortedInstanceKeys.
 	instanceKeys      []int
 	instanceKeysStale bool
+	// gridRevision counts the writes that can give the grid reconciliation
+	// work; syncedGrid is what the last reconciliation read, and gridSynced
+	// says one has run (grid_sync.go). verifyGridSync makes every motion
+	// phase reconcile and panic if a skipped one would have changed anything;
+	// tests and verification builds set it. None of it is simulation state.
+	gridRevision   uint64
+	syncedGrid     gridInputs
+	gridSynced     bool
+	verifyGridSync bool
+	// near is the position index behind AppendInstancesNear (near.go),
+	// rebuilt after the instance set changes. Not simulation state.
+	near nearIndex
+
 	// instanceValues is the key list's parallel value row: instanceValues[i]
 	// is what the map holds for instanceKeys[i]. The two per-tick walks over
 	// the whole table — the publication's AppendInstances and the grid resync
@@ -368,7 +397,7 @@ func (s *Service) crt() *rng.CRT {
 // the active walk [01 §4.4][05 R-FEAT-01 §10].
 func (s *Service) TickMotion(tick uint32) {
 	_ = tick
-	s.syncInstancesToGrid()
+	s.reconcileGrid()
 }
 
 // TickLifecycle runs reproduction, then pass 3 of feature phase 6
@@ -861,6 +890,7 @@ func (s *Service) clearFootprintNoRevision(cx, cz int, def *content.FeatureDef) 
 	if s.Terrain == nil {
 		return
 	}
+	s.noteGridChange() // the plot words below (grid_sync.go)
 	w := int(s.Terrain.CellW)
 	h := int(s.Terrain.CellH)
 	fx, fz := 1, 1
@@ -1028,6 +1058,7 @@ func (s *Service) stampFeature(cx, cz int, def *content.FeatureDef, pos *[3]nume
 	// same geometry with the overlap one cell off the anchor replaced the tree
 	// normally.
 	torn := s.coveredAnchors(cx, cz, footX, footZ)
+	s.noteGridChange() // the stamp and its dense-pack teardown (grid_sync.go)
 	stampErr := s.Terrain.StampFeatureRect(int32(cx), int32(cz), featIdx, footX, footZ)
 	tornAway := s.releaseTornInstances(torn, stampErr == nil)
 	// The stamping service ENDS by restamping every named movement class over
@@ -1289,6 +1320,7 @@ func (s *Service) setInstance(idx int, inst *Instance) {
 	if s.instances == nil {
 		s.instances = make(map[int]*Instance)
 	}
+	s.noteGridChange()
 	old, existed := s.instances[idx]
 	if !existed {
 		s.instanceKeysStale = true
@@ -1309,6 +1341,7 @@ func (s *Service) setInstance(idx int, inst *Instance) {
 func (s *Service) deleteInstance(idx int) {
 	inst, existed := s.instances[idx]
 	if existed {
+		s.noteGridChange()
 		s.instanceKeysStale = true
 		s.unlinkActive(inst)
 		s.releaseArena(inst)
@@ -1351,6 +1384,8 @@ func (s *Service) arenaOccupants() int {
 // resetInstances empties the map, the active list and the arena — the
 // zero-fill of the whole instance pool at battle entry [08 R-SAVE-FEATURE-01].
 func (s *Service) resetInstances() {
+	s.noteGridChange()
+	s.publicationEpoch++
 	s.instances = make(map[int]*Instance)
 	s.instanceKeys, s.instanceValues, s.instanceKeysStale = nil, nil, true
 	s.activeHead = nil

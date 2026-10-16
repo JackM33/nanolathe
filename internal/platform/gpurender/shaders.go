@@ -63,7 +63,8 @@ const (
 	// sceneOpScaled reproduces the byte writers' integer source mapping for the
 	// scaled GAF blit and the indexed surface blit [07 R-HUD-03 §11]. ColorR/G
 	// are the x numerator and denominator, ColorB/A the y pair, Custom0/1 the
-	// atlas position the mapped source offset is added to.
+	// atlas position the mapped source offset is added to. The page is source
+	// 0, or source 2 with Custom2 set (a surface, sceneSurfaceSlot).
 	sceneOpScaled = 6
 	// sceneOpLit folds each opaque source texel through one PALETTE.LHT row
 	// before writing it — the source-through-light blit, which reads no
@@ -110,8 +111,9 @@ const (
 	// (underwater.go, §26.5): the page in source 2, the water mask in source 3.
 	sceneOpUnderwaterCommit = 12
 	// sceneOpModelDirectShadow commits one model lane shadow from the lane's
-	// 2× colour pages, the shadow's bound in source 3 and the body's in
-	// source 2: the four silhouette texels under the pixel are resolved by
+	// 2× colour pages, the body's bound in source 2 and the shadow's in
+	// source 3, or in source 2 as well when the two share a page (Custom2's
+	// second bit): the four silhouette texels under the pixel are resolved by
 	// coverage and composited as the ALP half-colour fragment, skipping a
 	// pixel whose body block (Custom0/1 texels away, inside the body bounds
 	// in Color) is wholly covered — the slot stage's punch on the lane's
@@ -124,16 +126,22 @@ const (
 	// scheduler").
 	sceneOpModelDirectShadow = 13
 	// sceneOpModelSilhouetteShadow commits a Digger or mobile shadow from the
-	// body's own pages, the colour in source 3 and, when Custom2 carries a
-	// clip key, the key page in source 2: the four body texels under the pixel
+	// body's own pages, the colour in source 2 and, when Custom2 carries a
+	// clip key, the key page in source 3: the four body texels under the pixel
 	// are the silhouette, a texel at or below the clip key in Custom2 is
 	// erased, and the fragment is the ALP half-colour of index 0 at that
 	// coverage [03 R-REN-03D §1, §4] (§22).
 	sceneOpModelSilhouetteShadow = 14
-	// sceneOpModelSprite draws a model sprite (model_sprite.go, §16.13) from
-	// its page in source 2: the four texels around the sample point, already
-	// premultiplied colour and coverage, interpolated bilinearly, or with
-	// Custom1 set the texel under it alone.
+	// sceneOpModelSprite draws a model sprite (model_sprite.go, §16.13) or a
+	// strategic feature layer (feature_layer.go, §16.14) from its page in
+	// source 3: the four texels around the sample point, already premultiplied
+	// colour and coverage, interpolated bilinearly, or with Custom1 set the
+	// texel under it alone.
+	//
+	// The sprite family samples source 3 and the model lane's commits source
+	// 2 (sceneModelPageSlots), so a wreck drawn from its sprite and a unit
+	// committed from the lane's page bind different slots and share one run
+	// where painter order interleaves them.
 	sceneOpModelSprite = 15
 	// sceneOpTerrainLevel draws the strategic terrain from its level
 	// (terrain_level.go, §16.15): the tile map in source 2, the level's
@@ -145,11 +153,29 @@ const (
 	// (model_sprite.go, §16.13), sceneOpModelDirectShadow on level-zero
 	// sprites: the shadow sprite's texel under the pixel in source 3, the
 	// silhouette already resolved by coverage, skipped where the body sprite's
-	// texel for the same pixel (source 2, Custom0/1 texels away, inside the
-	// body sprite's rectangle in Color) is wholly covered, and composited as
-	// the ALP half-colour fragment.
+	// texel for the same pixel (source 2, or source 3 when Custom2 says the
+	// two sprites share a page; Custom0/1 texels away, inside the body
+	// sprite's rectangle in Color) is wholly covered, and composited as the
+	// ALP half-colour fragment.
 	sceneOpModelSpriteShadow = 17
 )
+
+// sceneModelPageSlots is how the model lane's commits and the sprite family
+// split the scene shader's two page slots. A commit or a lane shadow binds
+// the lane's colour page in source 2, and a model sprite, a sprite shadow or a
+// strategic feature layer binds its page in source 3. A command needs the
+// other slot only when its two rasters lie on different pages, or for a
+// clipped silhouette's key page. Painter order interleaves the units the lane
+// commits with the wrecks drawn from their sprites, and when both families
+// bound the same slot every switch between them ended a run, so a zoomed-out
+// battle frame submitted dozens of extra device draws — each of which costs
+// the backend a fixed amount of CPU and allocation whatever its size. A run
+// binds both pages at once instead, and the device rasterizes its quads in
+// record order as it did across the runs (C-G3).
+//
+// sceneShadowOnePage is the bit a lane shadow's Custom2 adds when its shadow
+// raster shares the body's page, which is then bound in source 2 alone.
+const sceneShadowOnePage = 2
 
 // The destination shader's op selector, carried in Custom3.
 const (
@@ -261,10 +287,10 @@ func rowScaleLanes(k float32) (low, high float32) {
 
 // scene2DShaderSource is the one opaque pass. Source 0 is the scene atlas page
 // (index in red, opacity flag in green), source 1 the table atlas, source 2 the
-// model slot page, source 3 the terrain tile atlas, or for a model shadow
-// commit the shadow's or the body's model page. An op samples only the slots
-// its family needs; unused slots are bound to the table atlas so no sampler is
-// ever unbound.
+// model lane's page, source 3 the terrain tile atlas or a model sprite or
+// feature layer page, or for a lane shadow or silhouette the second page it
+// needs (sceneModelPageSlots). An op samples only the slots its family needs;
+// unused slots are bound to the table atlas so no sampler is ever unbound.
 //
 // Source coordinates are the sampled image's own pixel coordinates: SrcX/SrcY
 // reach the fragment as source 0's texture position, so subtracting
@@ -408,7 +434,13 @@ func Fragment(dstPos vec4, srcPos vec2, color vec4, custom vec4) vec4 {
 		if int(color.a+0.5) > 0 {
 			sy = int(d.y) * int(color.b+0.5) / int(color.a+0.5)
 		}
-		tex := imageSrc0At(imageSrc0Origin() + custom.xy + vec2(float(sx)+0.5, float(sy)+0.5))
+		at := imageSrc0Origin() + custom.xy + vec2(float(sx)+0.5, float(sy)+0.5)
+		tex := vec4(0.0)
+		if custom.z > 0.5 {
+			tex = imageSrc2AtFromSrc0Pos(at)
+		} else {
+			tex = imageSrc0At(at)
+		}
 		if tex.g < 0.5 {
 			return vec4(0.0)
 		}
@@ -495,16 +527,16 @@ func Fragment(dstPos vec4, srcPos vec2, color vec4, custom vec4) vec4 {
 		return vec4(mix(mix(c00, c10, f.x), mix(c01, c11, f.x), f.y), 1.0)
 	} else if op == ` + fmt.Sprint(sceneOpModelSprite) + ` {
 		if custom.y > 0.5 {
-			return imageSrc2AtFromSrc0Pos(imageSrc0Origin() + floor(srcPos-imageSrc0Origin()) + vec2(0.5))
+			return imageSrc3AtFromSrc0Pos(imageSrc0Origin() + floor(srcPos-imageSrc0Origin()) + vec2(0.5))
 		}
 		q := srcPos - imageSrc0Origin() - vec2(0.5)
 		b := floor(q)
 		f := q - b
 		o := imageSrc0Origin() + b + vec2(0.5)
-		c00 := imageSrc2AtFromSrc0Pos(o)
-		c10 := imageSrc2AtFromSrc0Pos(o+vec2(1.0, 0.0))
-		c01 := imageSrc2AtFromSrc0Pos(o+vec2(0.0, 1.0))
-		c11 := imageSrc2AtFromSrc0Pos(o+vec2(1.0, 1.0))
+		c00 := imageSrc3AtFromSrc0Pos(o)
+		c10 := imageSrc3AtFromSrc0Pos(o+vec2(1.0, 0.0))
+		c01 := imageSrc3AtFromSrc0Pos(o+vec2(0.0, 1.0))
+		c11 := imageSrc3AtFromSrc0Pos(o+vec2(1.0, 1.0))
 		return mix(mix(c00, c10, f.x), mix(c01, c11, f.x), f.y)
 	} else if op == ` + fmt.Sprint(sceneOpModelSpriteShadow) + ` {
 		t := floor(srcPos - imageSrc0Origin())
@@ -513,17 +545,32 @@ func Fragment(dstPos vec4, srcPos vec2, color vec4, custom vec4) vec4 {
 			return vec4(0.0)
 		}
 		bt := t + custom.xy
-		if bt.x >= color.r && bt.y >= color.g && bt.x < color.b && bt.y < color.a &&
-			imageSrc2AtFromSrc0Pos(imageSrc0Origin()+bt+vec2(0.5)).a > 0.998 {
-			return vec4(0.0)
+		if bt.x >= color.r && bt.y >= color.g && bt.x < color.b && bt.y < color.a {
+			// Custom2 set: the body sprite shares the shadow's page in source 3.
+			body := 0.0
+			if custom.z > 0.5 {
+				body = imageSrc3AtFromSrc0Pos(imageSrc0Origin()+bt+vec2(0.5)).a
+			} else {
+				body = imageSrc2AtFromSrc0Pos(imageSrc0Origin()+bt+vec2(0.5)).a
+			}
+			if body > 0.998 {
+				return vec4(0.0)
+			}
 		}
 		return c * 0.5
 	} else if op == ` + fmt.Sprint(sceneOpModelDirectShadow) + ` {
 		rel := srcPos - imageSrc0Origin()
 		b := floor(rel/2.0) * 2.0
-		// Custom2 selects the single-sample resolve (§17.5): the silhouette
-		// and the body's punch both read the block's top-left texel alone.
-		point := custom.z > 0.5
+		// Custom2's low bit selects the single-sample resolve (§17.5): the
+		// silhouette and the body's punch both read the block's top-left
+		// texel alone. Its second bit says the shadow's raster shares the
+		// body's page in source 2 (sceneShadowOnePage).
+		onePage := custom.z > 1.5
+		pz := custom.z
+		if onePage {
+			pz -= 2.0
+		}
+		point := pz > 0.5
 		sum := vec3(0.0)
 		cover := 0.0
 		body := 0.0
@@ -535,7 +582,12 @@ func Fragment(dstPos vec4, srcPos vec2, color vec4, custom vec4) vec4 {
 					continue
 				}
 				o := vec2(float(i)+0.5, float(j)+0.5)
-				c := imageSrc3AtFromSrc0Pos(imageSrc0Origin() + b + o)
+				c := vec4(0.0)
+				if onePage {
+					c = imageSrc2AtFromSrc0Pos(imageSrc0Origin() + b + o)
+				} else {
+					c = imageSrc3AtFromSrc0Pos(imageSrc0Origin() + b + o)
+				}
 				if c.a > 0.5 {
 					sum += c.rgb
 					cover += 1.0
@@ -566,11 +618,11 @@ func Fragment(dstPos vec4, srcPos vec2, color vec4, custom vec4) vec4 {
 					continue
 				}
 				o := vec2(float(i)+0.5, float(j)+0.5)
-				if imageSrc3AtFromSrc0Pos(imageSrc0Origin()+b+o).a <= 0.5 {
+				if imageSrc2AtFromSrc0Pos(imageSrc0Origin()+b+o).a <= 0.5 {
 					continue
 				}
 				if custom.z > 0.5 {
-					key := floor(imageSrc2AtFromSrc0Pos(imageSrc0Origin()+b+o).r*255.0 + 0.5)
+					key := floor(imageSrc3AtFromSrc0Pos(imageSrc0Origin()+b+o).r*255.0 + 0.5)
 					if key <= custom.z {
 						continue
 					}

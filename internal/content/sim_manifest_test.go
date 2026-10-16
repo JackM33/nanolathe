@@ -154,6 +154,9 @@ func TestSimulationDigestClassifiesEveryDefinitionField(t *testing.T) {
 			"NotToAir", "ToAirOnly", "NotToUnderwater", "SurfaceFire", "NoOverWater", "NoOverLand", "NoMapWeaponAlert", "ReloadBar",
 			"Model", "ExplosionGaf", "ExplosionArt", "WaterExplosionGaf", "WaterExplosionArt", "LavaExplosionGaf", "LavaExplosionArt", "SoundStart", "SoundHit", "SoundWater", "damageOrder", "Unknown"},
 		"explicit": {"ID", "ReloadTime", "AreaOfEffect", "DamageDefault", "Damage", "activeByte", "activeByteRestored"},
+		// Derived only from damageOrder, which already reaches the hash; a
+		// lower-cased projection of the same keys carries no further identity.
+		"derived": {"damageFold"},
 	})
 	check(t, FeatureDef{}, map[string][]string{
 		"hash": {"DefinitionHeader", "Description", "FootprintX", "FootprintZ", "Height", "Object", "Filename", "SeqName", "SeqNameShad", "SeqNameBurn", "SeqNameBurnShad", "SeqNameDie", "SeqNameDieShad", "SeqNameReclamate", "SeqNameReclamateShad",

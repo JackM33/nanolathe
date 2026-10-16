@@ -42,8 +42,15 @@ func TestEntryPrimeRetainsPhysicalPathVisits(t *testing.T) {
 	}
 	s.Movement.BindWorld(s.Units)
 	s.Movement.Scheduler.SetStepAllowance(101)
+	s.Movement.Scheduler.EnableTrace()
 	s.Movement.Scheduler.Tick(60)
-	if len(admitted) != 1 || admitted[0] != pool.Handle(start+2) {
-		t.Fatalf("first post-prime admission=%v, want third physical slot %d", admitted, start+2)
+	// The allowance buys one admission. A Modern path batch opens its
+	// searches through the provider rather than the search hook
+	// (docs/DESIGN_MOVEMENT_PATH.md "Modern parallel path batches"); the
+	// scheduler's trace records an admission under either scheduler.
+	_, third := s.Movement.Scheduler.TraceFor(pool.Handle(start + 2))
+	_, second := s.Movement.Scheduler.TraceFor(pool.Handle(start + 1))
+	if third == nil || second != nil || len(admitted) > 1 || len(admitted) == 1 && admitted[0] != pool.Handle(start+2) {
+		t.Fatalf("first post-prime admission=%v (third traced %v, second traced %v), want third physical slot %d", admitted, third != nil, second != nil, start+2)
 	}
 }

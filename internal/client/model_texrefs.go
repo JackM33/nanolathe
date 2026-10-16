@@ -17,8 +17,6 @@ type modelTexRefs struct {
 	gen  uint64
 	refs [][]texRef
 	ok   [][]bool
-	// animated reports a texAnimated entry, whose selection follows a cursor.
-	animated bool
 }
 
 // modelTexRefs returns m's table for the current index generation, building
@@ -39,7 +37,6 @@ func (c *Client) modelTexRefs(m *compiledmodel.Model) *modelTexRefs {
 		t.ok[i] = make([]bool, len(prims))
 		for j := range prims {
 			t.refs[i][j], t.ok[i][j] = c.resolveModelTexture(prims[j].TextureName)
-			t.animated = t.animated || t.refs[i][j].kind == texAnimated
 		}
 	}
 	c.texRefs.Store(m, t)

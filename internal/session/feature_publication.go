@@ -1,6 +1,8 @@
 package session
 
 import (
+	"fmt"
+
 	"github.com/nanolathe-gg/nanolathe/internal/content"
 	"github.com/nanolathe-gg/nanolathe/internal/features"
 	"github.com/nanolathe-gg/nanolathe/internal/frame"
@@ -53,6 +55,11 @@ type featureViewInputs struct {
 type featurePublicationCache struct {
 	frame  *frame.Frame
 	inputs []featureViewInputs
+	// revisions holds, parallel to inputs, the record's publication revision
+	// when its view was built or confirmed, and epoch the feature service's
+	// instance-set epoch then (features.Instance.PublicationState).
+	revisions []uint64
+	epoch     uint64
 }
 
 // featureCacheFor returns the cache bound to published, binding a free entry
@@ -179,33 +186,71 @@ func writeFeatureView(fv *frame.FeatureView, in *featureViewInputs) {
 // publishFeatures writes the committed feature views for this publication into
 // published, in the feature service's deterministic row/anchor order, and
 // returns how many elements were rebuilt (the rest were retained unchanged).
+//
+// A record the slot already holds a view of, built at the record's current
+// publication revision while it was off the active list, is kept without
+// reading its inputs at all: off the list, every change to them renews the
+// revision (features/publication.go). Every other record — on the active
+// list, new at this index, or renewed — has its inputs read and compared, and
+// its view is rebuilt only when they differ.
 func (s *Session) publishFeatures(published *frame.Frame, publication *publicationState) int {
 	published.Features = published.Features[:0]
 	if s.Features == nil {
 		return 0
 	}
+	// The same check covers the service's grid reconciliation skip: with it
+	// on, every motion phase reconciles and a skip that would have missed a
+	// change panics (features.Service.SetVerifyGridSync).
+	s.Features.SetVerifyGridSync(s.verifyFeatureRevisions)
+	// And the Modern patrol's restricted feature scan, which with it on also
+	// scans every feature and panics on a different pick.
+	if s.Build != nil && s.Build.OrderBinding != nil {
+		s.Build.OrderBinding.World.SetVerifyFeatureScan(s.verifyFeatureRevisions)
+	}
 	cache := s.featureCacheFor(published)
 	known := cache.inputs // the inputs of the views the slot still holds
+	revisions := cache.revisions
 	inputs := known[:0]
+	epoch := s.Features.PublicationEpoch()
+	if cache.epoch != epoch {
+		known = nil
+	}
 	rebuilt := 0
 	s.featurePublicationScratch = s.Features.AppendInstances(s.featurePublicationScratch[:0])
 	for _, inst := range s.featurePublicationScratch {
 		if inst == nil || inst.Def == nil {
 			continue
 		}
-		var in featureViewInputs
-		fillFeatureInputs(&in, inst, publication)
 		idx := len(published.Features)
 		published.Features = reserveFeatureView(published.Features)
+		revision, active := inst.PublicationState()
+		if !active && idx < len(known) && known[idx].inst == inst && revisions[idx] == revision && !s.verifyFeatureRevisions {
+			// The element, its inputs and its revision stay exactly as the
+			// slot holds them; inputs shares known's storage.
+			inputs = inputs[:idx+1]
+			continue
+		}
+		var in featureViewInputs
+		fillFeatureInputs(&in, inst, publication)
 		fv := &published.Features[idx]
 		// Compare before the append below overwrites the same index.
 		if idx >= len(known) || known[idx] != in {
+			if s.verifyFeatureRevisions && !active && idx < len(known) && known[idx].inst == inst && revisions[idx] == revision {
+				panic(fmt.Sprintf("session: feature at (%d,%d) changed its published inputs without renewing its publication revision", inst.CX, inst.CZ))
+			}
 			writeFeatureView(fv, &in)
 			rebuilt++
 		}
 		inputs = append(inputs, in)
+		if idx < len(revisions) {
+			revisions[idx] = revision
+		} else {
+			revisions = append(revisions, revision)
+		}
 	}
 	cache.inputs = inputs
+	cache.revisions = revisions[:len(inputs)]
+	cache.epoch = epoch
 	// The committed frame owns values; release the borrowed live pointers
 	// while retaining only the scratch capacity for the next publication [I6].
 	clear(s.featurePublicationScratch)

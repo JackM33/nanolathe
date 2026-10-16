@@ -119,6 +119,17 @@ func collectMovementPilot(c *CheckpointContext, p any) (added int, err error) {
 		if err := addRow(v.checkpointOwn); err != nil {
 			return added, err
 		}
+		for _, h := range v.slots {
+			if h == nil {
+				continue
+			}
+			if err := validateCheckpointOwnAlias(h.own, h); err != nil {
+				return added, err
+			}
+			if err := addRow(h); err != nil {
+				return added, err
+			}
+		}
 	case *arriveState:
 		for _, r := range v.rows {
 			n, err := movementCheckpointAdd(&c.Orders.Nodes, r.node)
@@ -147,7 +158,7 @@ func collectMovementPilot(c *CheckpointContext, p any) (added int, err error) {
 	return added, nil
 }
 
-// Table6 variants retain claim grids/h/have/own/serial/w, arrival
+// Table6 variants retain claim grids/h/have/own/serial/slots/w, arrival
 // claim/gen/moveGround/resv/rows/standby, or four ordered child references.
 // Claim trail and arrival live/fresh/member walks are overwritten scratch.
 func writeMovementPilot(e *checkpoint.Encoder, c *CheckpointContext, s *System, pilot any, p string) {
@@ -191,6 +202,21 @@ func writeMovementPilot(e *checkpoint.Encoder, c *CheckpointContext, s *System, 
 		}
 		m.row("own", v.checkpointOwn)
 		m.u32("serial", v.serial)
+		// Modern parallel path batches: the own-mark rows of places one and
+		// up, each present only once its place has been used.
+		m.count("slots", len(v.slots))
+		for i, h := range v.slots {
+			q := fmt.Sprintf("slots[%d]", i)
+			m.boolean(q, h != nil)
+			if h == nil {
+				continue
+			}
+			if err := validateCheckpointOwnAlias(h.own, h); err != nil {
+				m.fail(q, err)
+				return
+			}
+			m.row(q, h)
+		}
 		m.i32("w", v.w)
 	case *arriveState:
 		e.U8(3)

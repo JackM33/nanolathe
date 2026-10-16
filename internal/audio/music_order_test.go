@@ -144,6 +144,8 @@ func TestMusicPlayAllContinuesPastLastTrack(t *testing.T) {
 	SetGlobalOutput(out)
 	t.Cleanup(func() { SetGlobalOutput(old) })
 	s := NewService(musicFS(t, "1.wav", "2.wav", "3.wav"))
+	// Release the playing track, so its file can be removed on Windows.
+	t.Cleanup(s.Close)
 	s.ConfigureMusic(false)
 	s.Music.Configure(ModeSequential, 0)
 	s.Music.SetVolume(32)

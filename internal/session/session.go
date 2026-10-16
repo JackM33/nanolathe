@@ -222,15 +222,12 @@ type Session struct {
 
 	publication *publicationState // staged events and admitted effects at the committed-frame boundary [01 §4.4][03 §1]
 	debris      *effects.DebrisPool
-	// orderSnapshotScratch and routePointScratch are the publication
-	// boundary's reusable staging for one unit's order queue. Every value in
-	// them is overwritten or truncated before it is read, and the snapshot is
-	// copied into the committed frame's own storage in the same iteration, so
-	// no tick can observe the tick before it. They exist because the queue
-	// snapshot ran for every unit every tick and was a third of everything the
-	// simulation allocated.
-	orderSnapshotScratch orders.SnapshotQueue
-	routePointScratch    []orders.SnapshotRoutePoint
+	// unitChannel is the publication boundary's unit channel and its reused
+	// storage (publish_parallel.go). publishWorkerLimit narrows its worker
+	// count for tests: zero keeps the fixed count, a negative value builds
+	// the channel on the calling goroutine alone. The output is the same.
+	unitChannel        unitChannel
+	publishWorkerLimit int
 
 	// featurePublicationScratch is reused only while copying feature values.
 	// Entries are cleared before publication returns, so retired records are not retained.
@@ -239,6 +236,11 @@ type Session struct {
 	// (feature_publication.go); a view whose inputs did not change since the
 	// slot was last written is retained in place.
 	featurePubCaches [frame.MaxBufferSlots]featurePublicationCache
+	// verifyFeatureRevisions makes publication read and compare every
+	// feature, and panic when a record's view changed while its publication
+	// revision did not. Tests set it to hold the change tracking to the full
+	// comparison; the frame it publishes is the same.
+	verifyFeatureRevisions bool
 
 	postLoop *postLoopState // once-per-pump executor tail; owned by the session goroutine [01 §4.4]
 	phase7   Phase7Service  // presentation-owned model-texture cadence [R-CRD-005 §1][I6]
@@ -420,11 +422,6 @@ type Session struct {
 	// each due pass. The units themselves own the resulting runtime status.
 	sensorUnitScratch  []visibility.SensorUnit
 	primaryMaskScratch []uint16 // indexed by unit handle
-	// The publication boundary's two live-unit walks, in pool order (I1). The
-	// unit-view walk and the radar-contact walk run one after the other inside
-	// a single publishSnapshot call, so they cannot share one buffer.
-	publishUnitScratch []*units.Unit
-	radarUnitScratch   []*units.Unit
 	// The sensor phase's sliced live-unit walk, players then slots ascending.
 	sensorSlicedScratch []*units.Unit
 

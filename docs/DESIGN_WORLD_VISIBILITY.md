@@ -261,6 +261,23 @@ mode, the quantized shape index changed. Removal is branch-specific, because the
 stored coverage byte means the emitter height in one branch and the shape index
 in the other `[03 R-VIS-01 §2]`.
 
+A `Refresh` publication also keeps a *removal record*: the cells its walk
+visited, in visit order, with the raster and the walk inputs (tile, emitter
+byte, radius) that produced them. Both rasters are pure functions of those
+inputs and of data fixed for the battle — the shape table, the ray tables and
+the load-time LOS words — so when the footprint being removed carries the same
+inputs under the current raster, the removal replays the record: the same
+decrements, in the same order, under whichever arithmetic (wrapping byte or
+saturating count) the bound rule answers at removal. Anything else walks as
+before: a mode-refresh or rebuild publication (both drop every record), a
+raster switch, a new shape or ray table. The record is derived storage — no
+checkpoint, save or simulation read carries it — and it halves the stamping
+cost of a moved observer, which used to walk its shape twice per refresh.
+`removal_replay_test.go` drives a replaying and a walking service through the
+same thousands of refreshes and retirements, both rasters, Strict and Modern
+arithmetic, with a vision team and stacks deep enough to wrap a byte, and
+compares every grid after every operation.
+
 A live `LOSType`, `LOS`, `Mapping`, or `NowISee` command uses `RefreshMode`,
 not `SetMode`: it always refills eligible current grids, refills history only
 for Mapping and NowISee (including a repeated NowISee), and skips every observer
@@ -419,6 +436,20 @@ each value a four-bit corner accumulation, with a variant index derived from cel
 parity plus the camera phase `[03 §3.3]` `[03 R-RR16-A §1]`. `RebuildFogWindow`
 sizes the cache to the camera viewport plus a one-cell border; `RebuildFog`
 builds it map-aligned. The cache never writes the word mask.
+
+A rebuild over the window the cache was last derived for re-derives only the
+cells whose input changed. The cache records each cell's two input bits; the
+per-cell writers mark a cell when the local player's byte crosses zero (an
+increment from 0 or wrapping from 255, a decrement from 1 or wrapping from 0, a
+saturating store) or its history bit is set, and while the marks are complete
+the rebuild visits only marked cells, in ascending index order — the full
+walk's row-major order restricted to the cells it would not skip — so both
+derive the same bytes and advance `FogVersion` together. Every other write to
+the inputs (the fills, the explored-map merge, a mode or local-player change)
+leaves the marks incomplete and the next rebuild compares every cell; the
+retail restore installs its saved word grid directly after `RebuildAll` and
+relies on that. The marks are presentation bookkeeping and no simulation read
+consults them.
 
 The four conditional border fixups that close the map's own edge are anchored to
 the **map** border, not to the cache window: cell row −1 and column −1 are the

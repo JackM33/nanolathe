@@ -16,6 +16,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -121,15 +122,23 @@ func (k pbKernel) NewSession(c path.SearchConfig) path.Search {
 	k.out.SearchSetup += s.SetupSteps()
 	return &pbSearch{Search: s, out: k.out}
 }
+
+// pbCounts guards the shared search counters: under Modern parallel path
+// batches the searches of one round resume on worker goroutines.
+var pbCounts sync.Mutex
+
 func (s *pbSearch) Resume(budget int) ([]path.Point, path.Status, bool) {
 	points, status, done := s.Search.Resume(budget)
 	n := s.Search.Popped()
+	finished := done && !s.done
+	pbCounts.Lock()
 	s.out.SearchPopped += n - s.popped
-	s.popped = n
-	if done && !s.done {
-		s.done = true
+	if finished {
 		s.out.SearchDone++
 	}
+	pbCounts.Unlock()
+	s.popped = n
+	s.done = s.done || done
 	return points, status, done
 }
 func pbJSON(t *testing.T, p string, v any) {

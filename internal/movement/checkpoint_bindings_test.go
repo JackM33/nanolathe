@@ -69,7 +69,7 @@ func TestMovementPathBindingVectorsAndCapturePurity(t *testing.T) {
 	// The scheduler gets the new topology through its existing provider getter
 	// calls, after the provider's players/limit assignments [04 R-PATH-01 §6].
 	wantScheduler := movementCheckpointVector(t,
-		[10]int32{}, uint8(0), int32(0x18000), uint8(1), uint32(0), uint8(0),
+		[10]int32{}, uint8(0), int32(0x18000), uint8(1), uint32(0), uint8(0), uint32(0),
 		int64(3), int64(0), uint8(1), uint8(1), [10]int32{}, uint8(1),
 		[10]int32{}, int32(1333), int32(41), uint16(9), uint32(0), uint16(10), uint32(0))
 	if got := movementCheckpointWrite(t, func(e *checkpoint.Encoder) { _ = s.Scheduler.WriteCheckpoint(e, c.Paths) }); !bytes.Equal(got, wantScheduler) {

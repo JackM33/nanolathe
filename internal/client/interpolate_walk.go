@@ -16,6 +16,12 @@ type walkState struct {
 	walkForUnit []*walkHistory
 	walkTick    uint32
 	walkValid   bool
+	// walkFree holds the histories of units that stopped walking, their pose
+	// storage kept, for the next unit that starts: units start and stop all
+	// battle long, and a fresh history allocated its per-piece endpoint
+	// storage each time. It never holds more than the most histories ever
+	// live at once.
+	walkFree []*walkHistory
 }
 
 type walkHistory struct {
@@ -45,6 +51,9 @@ func walkEligible(u *frame.UnitView) bool {
 }
 
 func (in *interpolator) resetWalk() {
+	for _, h := range in.walk {
+		in.releaseWalk(h)
+	}
 	clear(in.walk)
 	clear(in.walkForUnit)
 	in.walkValid = false
@@ -79,7 +88,13 @@ func (in *interpolator) prepareWalk(prev, cur *frame.Frame) {
 		}
 		h := in.walk[u.Slot]
 		if h == nil {
-			h = &walkHistory{}
+			if n := len(in.walkFree); n > 0 {
+				h = in.walkFree[n-1]
+				in.walkFree[n-1] = nil
+				in.walkFree = in.walkFree[:n-1]
+			} else {
+				h = &walkHistory{}
+			}
 			in.walk[u.Slot] = h
 		}
 		last, valid := h.pose.LastTick()
@@ -125,6 +140,15 @@ func (in *interpolator) prepareWalk(prev, cur *frame.Frame) {
 	for slot, h := range in.walk {
 		if !h.seen {
 			delete(in.walk, slot)
+			in.releaseWalk(h)
 		}
 	}
+}
+
+// releaseWalk resets a history to the zero history's state, keeping its pose
+// storage, and puts it on the free list.
+func (in *interpolator) releaseWalk(h *walkHistory) {
+	h.pose.Reset()
+	h.last, h.seen = walkSample{}, false
+	in.walkFree = append(in.walkFree, h)
 }

@@ -192,17 +192,4 @@ else
 	echo "==> GPU device fixtures: SKIPPED (no window server on this session; run tools/check-retail on a machine with a display before merging renderer work)"
 fi
 
-# The macOS Metal renderer compiles its shader library when the game starts,
-# so only a real device finds a shader or pipeline error. Its device test
-# builds the whole offscreen renderer from TestMain on the main thread
-# (docs/DESIGN_METAL_RENDERER.md §9).
-echo "==> Metal renderer device test (macOS)"
-if [ "$(uname -s)" = Darwin ] && device_display_available; then
-	NANOLATHE_METAL_DEVICE_TEST=1 go test ./internal/platform/metalrender \
-		-run '^TestDevicePipelines$' -count=1
-	echo "==> Metal renderer device test: PASSED"
-else
-	echo "==> Metal renderer device test: SKIPPED (needs macOS with a window server)"
-fi
-
 echo "OK"
