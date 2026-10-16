@@ -1461,9 +1461,16 @@ its expiry; travel time and an earlier point's arrival cannot consume it
 finds no pad (`AirStrike` phase 6, `AirToGround`'s break, a covered gunship,
 and `VTOL_Patrol` phase 2 through the order runner), it looks for a friendly
 or mutually allied mobile ground constructor whose current order is a patrol,
-within 0xF00 world units, preferring the nearest and least covered. It
-head-inserts an ordinary `VTOL_GetRepaired` naming the constructor. The
-Modern leg flies to a landable point on the near side of it, inside half its
+within 0xF00 world units, preferring the nearest and least covered. It admits
+a constructor only when the same eight-point, footprint-snapped search
+used by the landing leg finds somewhere the aircraft can land. A constructor
+with no usable point is skipped, so one at sea cannot hide a usable repairer
+on land. If none qualify, the existing order continues with its ordinary wait;
+no repair record is inserted and no RNG or resources are consumed. This keeps
+a failed landing from completing straight back into a patrol that requests
+the same impossible repair forever in one tick (issue 131).
+On success it head-inserts an ordinary `VTOL_GetRepaired` naming the
+constructor. The Modern leg flies to a landable point on the near side of it, inside half its
 sight distance (at most 96 world units), lands as `VTOL_LandIfCan` does
 [04 R-AIR-01 §6], and waits; a patrolling constructor repairs grounded units
 in its sight [04 R-ORD-02 §4]. The record completes when the aircraft is
@@ -1569,6 +1576,12 @@ tests lock the prediction against combat's dropped-motion kernel, the Strict
 bypass, the anti-air preference, shared attacks, the attacker preference,
 the slot hand-off, the strafe break, flying out of cover and the missile
 pricing.
+`movement.TestAirFieldRepairNeedsLandingPoint` locks landable admission and
+the Strict/Community bypass without RNG, resource charges or healing;
+`TestAirPatrolUnlandableFieldRepairDoesNotRestart` pumps a damaged patrol
+beside a constructor at sea and requires its ordinary wait;
+`TestAirFieldRepairSkipsUnlandableConstructor` checks that a usable repairer
+remains eligible beyond an unusable nearer one.
 
 **Open.** The missile weights were measured against Pulverizer and Crasher
 missiles; other launchers inherit them through the half-speed rule. Field

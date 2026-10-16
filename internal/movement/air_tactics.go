@@ -1624,6 +1624,12 @@ func (s *System) airSeekFieldRepair(u *units.Unit, n *orders.Node, tick uint32) 
 		}
 		cost := d + airPointExposure(int64(c.X>>16), int64(c.Z>>16), pic.list)*64
 		if best == nil || cost < bestCost {
+			// Admit only a repair the landing leg can start. An immediate
+			// failure would expose the suspended patrol, which retries in
+			// this same pump [04 R-ORD-01 §10] (issue 131).
+			if _, _, ok := s.airFieldRepairPoint(u, c); !ok {
+				continue
+			}
 			best, bestCost = c, cost
 		}
 	}
@@ -1660,6 +1666,26 @@ func (s *System) airFieldRepairer(u, c *units.Unit, b *orders.QueueBinding) bool
 	return false
 }
 
+// airFieldRepairPoint shares the landing search between admission and flight,
+// so both use the same footprint, sight radius and landing predicate.
+func (s *System) airFieldRepairPoint(u, c *units.Unit) (numeric.Fixed, numeric.Fixed, bool) {
+	near := int64(96)
+	if c.Def != nil && c.Def.SightDistance > 0 {
+		near = min(near, int64(c.Def.SightDistance)/2)
+	}
+	cx, cz := int64(c.X>>16), int64(c.Z>>16)
+	h := airBearingWU(cx, cz, int64(u.X>>16), int64(u.Z>>16))
+	fx, fz := s.pathFootprint(u)
+	for k := 0; k < 8; k++ {
+		sx, sz := airAlong(cx, cz, h+uint16(k*8192), near)
+		x, z := snapToOwnFootprint(numeric.Fixed(sx<<16), numeric.Fixed(sz<<16), fx, fz)
+		if s.landable(u, x, z) {
+			return x, z, true
+		}
+	}
+	return 0, 0, false
+}
+
 // legFieldRepairModern is `VTOL_GetRepaired` named at a constructor rather
 // than a pad: fly beside the constructor, land, and wait for its patrol to
 // repair the grounded aircraft. It ends repaired, when the constructor is
@@ -1685,20 +1711,8 @@ func (s *System) legFieldRepairModern(u *units.Unit, n *orders.Node, satisfied u
 			p.standTick, p.healHP = tick, u.Health
 			return airHold(n, tick, 0)
 		}
-		near := int64(96)
-		if c.Def != nil && c.Def.SightDistance > 0 {
-			near = min(near, int64(c.Def.SightDistance)/2)
-		}
-		cx, cz := int64(c.X>>16), int64(c.Z>>16)
-		h := airBearingWU(cx, cz, int64(u.X>>16), int64(u.Z>>16))
-		fx, fz := s.pathFootprint(u)
-		for k := 0; k < 8; k++ {
-			sx, sz := airAlong(cx, cz, h+uint16(k*8192), near)
-			x, z := snapToOwnFootprint(numeric.Fixed(sx<<16), numeric.Fixed(sz<<16), fx, fz)
-			if s.landable(u, x, z) {
-				p.standX, p.standZ, p.standSet = int64(x>>16), int64(z>>16), true
-				break
-			}
+		if x, z, ok := s.airFieldRepairPoint(u, c); ok {
+			p.standX, p.standZ, p.standSet = int64(x>>16), int64(z>>16), true
 		}
 		if !p.standSet {
 			return 5
