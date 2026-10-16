@@ -117,6 +117,9 @@ go build -o nanolathe ./cmd/nanolathe
 ./nanolathe
 ```
 
+On Windows, `tools\build.cmd` builds every command into `build\`; start the
+game with `build\nanolathe.exe`.
+
 With no `--root`, the engine looks in registered and common installation
 locations, including GOG, Steam libraries and Wine installations, then nearby
 game folders and finally `~/TotalAnnihilation`. It mounts the first installation
