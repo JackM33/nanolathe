@@ -50,6 +50,16 @@ import (
 // bake again into the room, so the pages come to hold what is in view rather
 // than what was baked while the view moved. A view needing more than the pages
 // draws the rest through the lane.
+//
+// The pages are regions of one texture, a sheet, where the device's largest
+// texture side allows. Every sprite and sprite shadow binds its page's texture
+// in the same scene slot, and a device draw binds one texture there, so when
+// each page was a texture of its own, a sprite whose page differed from the
+// sprite before it in painter order ended the run. The pages come to hold
+// sprites baked at different times, so a view's wrecks lie on every page in no
+// order: after a long battle's panning a zoomed-out frame split into a device
+// draw per wreck, two thousand and more, and the backend's fixed cost per draw
+// took the frame rate into the sixties. On one sheet they are one run.
 const (
 	modelSpritePageSize = 2048
 	// modelSpriteMaxPages bounds the sprite pages at 128 MiB. Level zero is a
@@ -60,7 +70,21 @@ const (
 	// modelSpritePad is the transparent border each sprite is baked with, so
 	// the bilinear draw fades its edge rather than reading a neighbour.
 	modelSpritePad = 1
+	// modelSpriteSheetColumns bounds a sheet's width at four pages, 8192
+	// texels: two rows of four hold all eight pages.
+	modelSpriteSheetColumns = 4
 )
+
+// modelSpriteSheetLayout is the columns and rows of pages one sheet holds on a
+// device whose largest texture side is maxSide: all eight pages from 8192 up,
+// four from 4096, and below that, or before the device has answered (0), one
+// page to a texture.
+func modelSpriteSheetLayout(maxSide int) (cols, rows int32) {
+	n := max(int32(maxSide/modelSpritePageSize), 1)
+	cols = min(n, modelSpriteSheetColumns)
+	rows = min(n, (modelSpriteMaxPages+cols-1)/cols)
+	return cols, rows
+}
 
 type modelSpriteKey struct {
 	body, revision uint64
@@ -69,8 +93,8 @@ type modelSpriteKey struct {
 	level          uint8
 }
 
-// modelSprite is one baked sprite: its padded rectangle on its page, the record
-// box it covers, and the frame it was last drawn or baked on.
+// modelSprite is one baked sprite: its page, its padded rectangle in the
+// texels of the page's texture, and the record box it covers.
 type modelSprite struct {
 	page       int32
 	x, y, w, h int32
@@ -81,7 +105,11 @@ type modelSprite struct {
 }
 
 type modelSpritePage struct {
+	// img is the page's texture and ox, oy the page's origin on it: a model
+	// sprite page's sheet, which it shares with other pages, or a texture of
+	// its own at the origin. The shelves are in the page's own texels.
 	img                    *ebiten.Image
+	ox, oy                 int32
 	shelfX, shelfY, shelfH int32
 	// used is the last frame a sprite on this page was drawn or baked.
 	used uint64
@@ -105,8 +133,12 @@ type modelSpriteBake struct {
 }
 
 type modelSpriteStore struct {
-	pages   []modelSpritePage
-	entries map[modelSpriteKey]modelSprite
+	pages []modelSpritePage
+	// sheets are the textures the pages lie on, cols×rows pages to each; the
+	// layout is fixed when the first sprite is placed (modelSpriteSheetLayout).
+	sheets     []*ebiten.Image
+	cols, rows int32
+	entries    map[modelSpriteKey]modelSprite
 	// draws are this frame's packets drawn from a sprite, and pending the
 	// offered packets placed through the lane that bake once placed.
 	draws   map[*drawlist.ModelGeometry]modelSpriteDraw
@@ -320,7 +352,7 @@ func (r *Renderer) planSpriteBake(g *drawlist.ModelGeometry, level uint8) {
 	}
 	// The page's texture exists before the page goroutine starts: the
 	// executing goroutine reads it while the bakes run (bindsSpritePage).
-	s.pages[sp.page].ensureImage()
+	s.ensureSheet(sp.page)
 	if s.entries == nil {
 		s.entries = make(map[modelSpriteKey]modelSprite)
 	}
@@ -345,8 +377,38 @@ func (s *modelSpriteStore) alloc(bounds image.Rectangle, level uint8) (modelSpri
 	if evicted >= 0 {
 		s.forgetPage(int32(evicted))
 	}
-	sp.page, sp.x, sp.y = page, x, y
+	ox, oy := s.pageOrigin(page)
+	sp.page, sp.x, sp.y = page, ox+x, oy+y
 	return sp, true
+}
+
+// pageOrigin is page's origin on its sheet. The first call fixes the sheets'
+// layout from the device's largest texture side.
+func (s *modelSpriteStore) pageOrigin(page int32) (ox, oy int32) {
+	if s.cols == 0 {
+		s.cols, s.rows = modelSpriteSheetLayout(ebiten.MaxImageSize())
+	}
+	at := page % (s.cols * s.rows)
+	return at % s.cols * modelSpritePageSize, at / s.cols * modelSpritePageSize
+}
+
+// ensureSheet allocates the sheet page lies on at its first use, on the
+// executing goroutine during placement (planSpriteBakes), and binds the page
+// to its region of it.
+func (s *modelSpriteStore) ensureSheet(page int32) {
+	p := &s.pages[page]
+	if p.img != nil {
+		return
+	}
+	sheet := int(page / (s.cols * s.rows))
+	for len(s.sheets) <= sheet {
+		s.sheets = append(s.sheets, nil)
+	}
+	if s.sheets[sheet] == nil {
+		s.sheets[sheet] = ebiten.NewImageWithOptions(image.Rect(0, 0, int(s.cols*modelSpritePageSize), int(s.rows*modelSpritePageSize)), &ebiten.NewImageOptions{Unmanaged: true})
+	}
+	p.img = s.sheets[sheet]
+	p.ox, p.oy = s.pageOrigin(page)
 }
 
 // allocSpritePage places a w×h rectangle on a set of retained pages, shelf
@@ -390,16 +452,23 @@ func allocSpritePage(pages *[]modelSpritePage, w, h int32, frame uint64, maxPage
 	return int32(victim), x, y, evicted, true
 }
 
-// reset empties a page for reuse. Its texture is cleared as well as its
-// shelves: a bake writes only its own rectangle, and the bilinear draw's edge
-// tap reaches the texel beside it, which must be transparent rather than an
-// evicted sprite's.
+// reset empties a page for reuse. Its region of its texture is cleared as well
+// as its shelves: a bake writes only its own rectangle, and the bilinear draw's
+// edge tap reaches the texel beside it, which must be transparent rather than an
+// evicted sprite's. A page on a sheet clears its own region alone, so the
+// pages beside it keep their sprites.
 func (p *modelSpritePage) reset() {
 	p.shelfX, p.shelfY, p.shelfH = 0, 0, 0
 	p.live, p.liveFrame = 0, 0
-	if p.img != nil {
-		p.img.Clear()
+	if p.img == nil {
+		return
 	}
+	region := image.Rect(int(p.ox), int(p.oy), int(p.ox)+modelSpritePageSize, int(p.oy)+modelSpritePageSize)
+	if p.img.Bounds() == region {
+		p.img.Clear()
+		return
+	}
+	p.img.SubImage(region).(*ebiten.Image).Clear()
 }
 
 // place puts a w×h rectangle on the page's shelves, at (x, y). A rectangle
@@ -418,8 +487,8 @@ func (p *modelSpritePage) place(w, h int32, x, y *int32) bool {
 	return true
 }
 
-// ensureImage allocates a page's texture on first use, on the executing
-// goroutine during placement (planSpriteBakes).
+// ensureImage allocates a page's own texture on first use: a feature layer
+// page's (bakeFeatureLayer).
 func (p *modelSpritePage) ensureImage() *ebiten.Image {
 	if p.img == nil {
 		p.img = ebiten.NewImageWithOptions(image.Rect(0, 0, modelSpritePageSize, modelSpritePageSize), &ebiten.NewImageOptions{Unmanaged: true})
@@ -427,10 +496,10 @@ func (p *modelSpritePage) ensureImage() *ebiten.Image {
 	return p.img
 }
 
-// bindsSpritePage reports whether img is a sprite page.
+// bindsSpritePage reports whether img is a sprite sheet.
 func (s *modelSpriteStore) bindsSpritePage(img *ebiten.Image) bool {
-	for i := range s.pages {
-		if s.pages[i].img != nil && s.pages[i].img == img {
+	for _, sheet := range s.sheets {
+		if sheet != nil && sheet == img {
 			return true
 		}
 	}
@@ -440,7 +509,7 @@ func (s *modelSpriteStore) bindsSpritePage(img *ebiten.Image) bool {
 // bakeModelSprites averages each queued bake's region of the lane's colour page
 // into its sprite, after the page passes have finished the region. It runs on
 // the page goroutine with the passes, and the commits that bind a sprite page
-// join it first (bindsModelPage). One draw per source page and sprite page.
+// join it first (bindsModelPage). One draw per source page and sprite sheet.
 func (r *Renderer) bakeModelSprites(a *deviceAcct) {
 	d := &r.modelDirect
 	s := &d.sprites
@@ -455,11 +524,11 @@ func (r *Renderer) bakeModelSprites(a *deviceAcct) {
 		single = 1
 	}
 	for src := range d.pages {
-		for dst := range s.pages {
+		for _, img := range s.sheets {
 			s.verts, s.idx = s.verts[:0], s.idx[:0]
 			for i := range s.bakes {
 				b := &s.bakes[i]
-				if int(b.region.page) != src || int(b.sprite.page) != dst {
+				if int(b.region.page) != src || s.pages[b.sprite.page].img != img {
 					continue
 				}
 				// Sprite texel (i, j) of the padded rectangle averages the
@@ -488,7 +557,6 @@ func (r *Renderer) bakeModelSprites(a *deviceAcct) {
 			if len(s.idx) == 0 {
 				continue
 			}
-			img := s.pages[dst].img
 			s.opts.Images = [4]*ebiten.Image{d.pages[src].colour}
 			a.beginPass(img)
 			a.submitted(len(s.verts), len(s.idx))
@@ -538,9 +606,10 @@ func (r *Renderer) commitModelSprite(g *drawlist.ModelGeometry, sp modelSprite) 
 // its sprites: one quad over the shadow's clipped world rectangle whose
 // fragment takes the shadow sprite's texel under the pixel (source 3),
 // punches it where the body sprite's texel at the same pixel (source 2, or
-// source 3 when both sprites share a page; Custom0/1 texels away, inside the
-// body sprite's rectangle in Color) is wholly covered, and composites the ALP
-// half-colour (sceneOpModelSpriteShadow, sceneModelPageSlots). Both sprites
+// source 3 when both sprites share a texture, as every page of a sheet does;
+// Custom0/1 texels away, inside the body sprite's rectangle in Color) is
+// wholly covered, and composites the ALP half-colour
+// (sceneOpModelSpriteShadow, sceneModelPageSlots). Both sprites
 // are level zero, a texel to a record pixel, so this is the lane's shadow
 // commit on resolved texels.
 func (r *Renderer) commitModelSpriteShadow(g *drawlist.ModelGeometry, sd modelSpriteDraw) {

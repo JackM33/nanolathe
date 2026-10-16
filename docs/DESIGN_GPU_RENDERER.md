@@ -4161,6 +4161,21 @@ through the lane rather than turning its sprites over every frame.
 `ModelStats.DirectSpriteShort` counts the sprites a frame had no room for and
 `DirectSpritePages` the pages held.
 
+The pages are regions of shared textures, **sheets**, as many to a sheet as the
+device's largest texture side (`ebiten.MaxImageSize`) allows: all eight on one
+8192 × 4096 sheet from 8192 up, which every Mac the Metal driver runs on and
+desktop browsers report, four to a 4096² sheet at 4096, and a texture to each
+page below that (`modelSpriteSheetLayout`). A sheet is created when the first
+of its pages is, and a page given up clears its own region alone. Every sprite
+and sprite shadow binds its page's texture in slot 3 (`sceneModelPageSlots`),
+and a device draw binds one texture there, so with a texture to each page a
+sprite whose page differed from the one before it in painter order ended the
+run. The pages hold sprites baked at different times, so after a long session's
+panning a view's wrecks lie on every page in no order and a zoomed-out frame
+split into about a device draw per wreck. On one sheet the sprites, their
+shadows and the lane commits between them share runs, and a shadow whose body
+lies on another page of the sheet still binds slot 3 alone.
+
 **Effect.** On a 1,900-wreck battle at 0.12×: 120 frames a second at the cap
 against 64 (the executor 8.8 → 4.0 ms, placement 2.2 → 0.2 ms, 1.3 M → 0.24 M
 submitted vertices, about 1,150 → 10 device draws). Compared with the lane, a
@@ -4180,9 +4195,12 @@ evicted; a level-zero offer bakes its shadow with it and draws neither on the
 lane, a lost shadow sprite brings both back to the lane, a shadow projected per
 frame keeps its body there, and the resolve switch bakes again; a frame short
 of room on pages all in view retires the page least in view and keeps pages
-mostly in view, and a rectangle a page cannot hold leaves its open shelf. The
-device
-fixtures check a strategic sprite's flat interior is the lane's colour exactly
+mostly in view, and a rectangle a page cannot hold leaves its open shelf; the
+sheet layout follows the largest texture side, a page's sprites lie in its own
+region of its sheet and a page given up starts over there, and sprites
+alternating between two pages of one sheet compile one run where a texture to
+each page compiles one per sprite. The device fixtures, which run on a sheet,
+check a strategic sprite's flat interior is the lane's colour exactly
 and its edge spends the same ink, and that shadowed level-zero sprites with
 partly covered edges give the lane's picture within one level at the native
 step, exactly under the single-sample resolve, and all but a sliver of pixels
