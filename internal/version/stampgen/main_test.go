@@ -283,9 +283,13 @@ func TestStampGeneration(t *testing.T) {
 	if len(m.Modules) != 2 || m.Modules[0].Path != "example.com/a" || m.Modules[1].Sum != "h1:sys48=" {
 		t.Fatalf("stamped modules %+v", m.Modules)
 	}
-	entries, _ := readInventory(root, "")
-	if m.SourceTree != inventoryDigest(entries) {
-		t.Fatal("the stamp's source tree is not the inventory's, stamp excluded")
+	// A Windows directory keeps no executable bits, so its inventory cannot
+	// match the archive's there; the rest of the contract still holds.
+	if runtime.GOOS != "windows" {
+		entries, _ := readInventory(root, "")
+		if m.SourceTree != inventoryDigest(entries) {
+			t.Fatal("the stamp's source tree is not the inventory's, stamp excluded")
+		}
 	}
 	// The same inputs stamp the same bytes; the stamp now present under
 	// -write changes nothing.
