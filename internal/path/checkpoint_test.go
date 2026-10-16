@@ -63,7 +63,7 @@ func TestCheckpointSchedulerAndGoalVector(t *testing.T) {
 	}
 	want := pathCheckpointVector(t,
 		[10]int32{-30}, uint8(1), uint64(25), uint16(9), uint32(1), uint8(4), int32(-26), int32(27), uint32(28), int64(4), int32(29),
-		int32(-21), uint8(1), uint32(22), uint8(1), int64(3), int64(2), uint8(0), uint8(0), [10]int32{0, 31}, uint8(0), [10]int32{0, 0, 0, 0, 0, 0, 0, 0, 0, -32}, int32(-23), int32(24),
+		int32(-21), uint8(1), uint32(22), uint8(1), uint32(0), int64(3), int64(2), uint8(0), uint8(0), [10]int32{0, 31}, uint8(0), [10]int32{0, 0, 0, 0, 0, 0, 0, 0, 0, -32}, int32(-23), int32(24),
 		uint16(9), uint32(3),
 		uint8(1), int32(-1), int32(2), int32(3), int32(-4),
 		uint8(2), int32(5), int32(-6), int32(7), int32(-8), int32(9), int32(10),
@@ -428,7 +428,8 @@ func TestCheckpointSchedulerSummaryVectorAndBlindSpot(t *testing.T) {
 		t.Fatal(err)
 	}
 	words, sum := out.Result()
-	// 41 words. Independently indexed nonzero terms, with signed extension.
+	// 42 words, the last the empty Modern batch's count. Independently
+	// indexed nonzero terms, with signed extension.
 	want := uint64(0)
 	for _, v := range []struct {
 		index uint64
@@ -436,8 +437,8 @@ func TestCheckpointSchedulerSummaryVectorAndBlindSpot(t *testing.T) {
 	}{{1, -1}, {2, 1}, {3, 10}, {13, 2}, {14, 3}, {15, 4}, {16, -11}, {26, 12}, {36, 1}, {37, 5}, {38, 6}, {39, -7}, {40, 8}, {41, 9}} {
 		want += v.index * uint64(v.value)
 	}
-	if words != 41 || sum != want {
-		t.Fatalf("summary = (%d,%d), want (41,%d)", words, sum, want)
+	if words != 42 || sum != want {
+		t.Fatalf("summary = (%d,%d), want (42,%d)", words, sum, want)
 	}
 	q.active.Goal = PointGoal(Cell{99, 99}, 99)
 	q.activeScale++ // deliberately unlisted in the cheap summary

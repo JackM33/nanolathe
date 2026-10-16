@@ -178,6 +178,7 @@ Current policies: [terrain admission](docs/DESIGN_WEAPONS_PROJECTILES.md#231-mod
 [learned terrain](docs/DESIGN_MOVEMENT_PATH.md#modern-learned-terrain), and
 [group-order spreading](docs/DESIGN_MOVEMENT_PATH.md#modern-group-order-spreading), and
 [bounded path work](docs/DESIGN_MOVEMENT_PATH.md#modern-bounded-path-work), and
+[parallel path batches](docs/DESIGN_MOVEMENT_PATH.md#modern-parallel-path-batches), and
 [group destination slots](docs/DESIGN_INTERFACE_HUD_INPUT.md#modern-group-destination-slots), and
 [unreachable moves](docs/DESIGN_MOVEMENT_PATH.md#modern-unreachable-moves), and
 [route straightening](docs/DESIGN_MOVEMENT_PATH.md#modern-route-straightening), and

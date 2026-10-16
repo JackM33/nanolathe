@@ -97,6 +97,17 @@ type Rules interface {
 	// pure answer: no writes, no RNG.
 	PathWorkBound(s *System) (carryShares int32, sweepStop bool)
 
+	// PathBatch is the scheduler's parallel path batches: searches > 0 lets
+	// the path scheduler latch up to that many admitted searches at once and
+	// expand them concurrently, each at most pops heap pops per scheduler
+	// call, charging and publishing in admission order
+	// (docs/DESIGN_MOVEMENT_PATH.md "Modern parallel path batches"). (0, 0)
+	// is retail's single-request scheduler [04 R-PATH-01 §6]. It is asked
+	// once per scheduler call and must be a pure answer: no writes, no RNG,
+	// and nothing of the host — the answer may not depend on how many
+	// processors run the batch.
+	PathBatch(s *System) (searches int, pops int32)
+
 	// GroupDestinationSlots reports whether an ordinary group move gives each
 	// ground actor its own destination footprint: outliers keep their bearing
 	// clamped to the formation cutoff instead of sharing the clicked point,
@@ -233,6 +244,11 @@ func (StrictRules) FirstRequestSpread(*System) (int, int) { return 0, 0 }
 // [04 R-PATH-01 §6].
 func (StrictRules) PathWorkBound(*System) (int32, bool) { return 0, false }
 
+// PathBatch is retail's scheduler under Strict 3.1: one search at a time,
+// run until it publishes before the next request is polled
+// [04 R-PATH-01 §6]. Community inherits it.
+func (StrictRules) PathBatch(*System) (int, int32) { return 0, 0 }
+
 // GroupDestinationSlots is off under Strict 3.1: actors keep retail's
 // centroid offsets and outliers share the clicked point [04 R-STANCE-01 §5].
 func (StrictRules) GroupDestinationSlots(*System) bool { return false }
@@ -287,6 +303,20 @@ const modernCarryShares = 4
 // PathWorkBound bounds carried search work and stops futile polling
 // (docs/DESIGN_MOVEMENT_PATH.md "Modern bounded path work").
 func (*ModernRules) PathWorkBound(*System) (int32, bool) { return modernCarryShares, true }
+
+// modernPathBatch is the most searches a Modern path batch latches at once,
+// and modernPathBatchPops the most heap pops one search expands in one
+// scheduler call. They are Nanolathe Modern policy tuning, constants rather
+// than anything of the host, so every machine computes the same batches
+// (docs/DESIGN_MOVEMENT_PATH.md "Modern parallel path batches").
+const (
+	modernPathBatch     = 8
+	modernPathBatchPops = 4096
+)
+
+// PathBatch runs Modern's route searches in parallel batches
+// (docs/DESIGN_MOVEMENT_PATH.md "Modern parallel path batches").
+func (*ModernRules) PathBatch(*System) (int, int32) { return modernPathBatch, modernPathBatchPops }
 
 // GroupDestinationSlots gives each actor of an ordinary group move its own
 // destination (DESIGN_INTERFACE_HUD_INPUT "Modern group destination slots").

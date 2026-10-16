@@ -176,7 +176,28 @@ type Scheduler struct {
 	// the current call. It is read only under Modern bounded path work and
 	// is reset at the start of every call, so it carries no state between
 	// ticks and is not saved.
-	sweepPolls   [10]int64
+	sweepPolls [10]int64
+	// latched is the Modern batch's admitted searches in admission order
+	// (docs/DESIGN_MOVEMENT_PATH.md "Modern parallel path batches"). It is
+	// empty whenever the bound rules keep the retail single-request
+	// scheduler, which holds its one search in active instead.
+	latched []latchedSearch
+	// batchSearches is the batch size the provider answered for the
+	// current call, zero under the retail scheduler. It decides only how
+	// many per-cell tables Workspace may lend at once.
+	batchSearches int
+	// spareWorkspaces are the tables a batch's searches use beside
+	// workspace, one per latched search at most. Each is lent to one search
+	// at a time, like workspace itself; they are storage and never
+	// behaviour.
+	spareWorkspaces []*Workspace
+	// parked holds, per player, the work Modern bounded path work's sweep
+	// stop took out of a batch call's total, which that player's latched
+	// searches may still spend this call. It is credited as polls when the
+	// call ends, so it is zero between calls and is not saved.
+	parked [10]int32
+	// round is the batch's reusable round scratch.
+	round        batchRound
 	traceEnabled bool
 	traces       []Trace
 	traceLimit   int
@@ -187,11 +208,28 @@ type Scheduler struct {
 // to offer to the session it opens. It is storage and never behaviour: a
 // session that is refused it produces the same visit order and the same route
 // [04 §7.2].
+//
+// Under Modern parallel path batches several searches are open at once and
+// each needs a table of its own: one whose first table is lent is offered the
+// first free spare, up to one per latched search.
 func (s *Scheduler) Workspace() *Workspace {
 	if s == nil {
 		return nil
 	}
-	return &s.workspace
+	if s.batchSearches == 0 || !s.workspace.lent {
+		return &s.workspace
+	}
+	for _, w := range s.spareWorkspaces {
+		if !w.lent {
+			return w
+		}
+	}
+	if len(s.spareWorkspaces) >= s.batchSearches {
+		return nil
+	}
+	w := &Workspace{}
+	s.spareWorkspaces = append(s.spareWorkspaces, w)
+	return w
 }
 
 // Trace is an opt-in copy of a request's scheduler boundary. Points are
@@ -252,6 +290,11 @@ func (s *Scheduler) TraceState() SchedulerTraceState {
 	if s.active != nil {
 		out.Pending[s.activePlayer]++
 		request := *s.active
+		out.Requests = append(out.Requests, RequestTrace{Unit: request.Unit, Player: request.Player, Start: request.Start, Goal: DescribeGoal(request.Goal), Activation: request.Activation})
+	}
+	for _, m := range s.latched {
+		out.Pending[m.player]++
+		request := m.req
 		out.Requests = append(out.Requests, RequestTrace{Unit: request.Unit, Player: request.Player, Start: request.Start, Goal: DescribeGoal(request.Goal), Activation: request.Activation})
 	}
 	return out
@@ -353,7 +396,7 @@ func (s *Scheduler) HasRequest(unit pool.Handle) bool {
 	if s == nil {
 		return false
 	}
-	if s.active != nil && s.active.Unit == unit {
+	if s.active != nil && s.active.Unit == unit || s.latchedIndex(unit) >= 0 {
 		return true
 	}
 	p, ok := s.provider.(mutableCandidateProvider)
@@ -363,7 +406,14 @@ func (s *Scheduler) HasRequest(unit pool.Handle) bool {
 // CurrentRequest returns the admitted search, independently of optional
 // history tracing. A staged provider request has not reached this boundary.
 func (s *Scheduler) CurrentRequest(unit pool.Handle) *Request {
-	if s == nil || s.active == nil || s.active.Unit != unit {
+	if s == nil {
+		return nil
+	}
+	if i := s.latchedIndex(unit); i >= 0 {
+		copy := s.latched[i].req
+		return &copy
+	}
+	if s.active == nil || s.active.Unit != unit {
 		return nil
 	}
 	copy := *s.active
@@ -378,6 +428,10 @@ func (s *Scheduler) Cancel(unit pool.Handle) bool {
 	}
 	if s.active != nil && s.active.Unit == unit {
 		s.active = nil
+		return true
+	}
+	if i := s.latchedIndex(unit); i >= 0 {
+		s.removeLatched(i)
 		return true
 	}
 	p, ok := s.provider.(mutableCandidateProvider)
@@ -546,13 +600,25 @@ func (s *Scheduler) Tick(tick uint32) {
 	if !sweepStop {
 		bound = nil
 	}
+	// Nanolathe Modern parallel path batches: asked once per call, like the
+	// bounded-work question. Zero keeps the retail scheduler below.
+	batch, popCap := 0, int32(0)
+	bp, batched := s.provider.(batchProvider)
+	if batched {
+		batch, popCap = bp.PathBatch()
+		if batch <= 0 || popCap <= 0 {
+			batch = 0
+		}
+	}
+	s.batchSearches = batch
 	total := int32(0)
 	for p := 0; p < 10; p++ {
 		// An admitted request is removed from the provider while the global
 		// working set owns it. Its player's accumulator must still receive this
 		// tick's equal share or a search that outlives the previously accumulated
-		// work can never resume [04 R-PATH-01 §6].
-		activePlayer := s.active != nil && s.activePlayer == p
+		// work can never resume [04 R-PATH-01 §6]. A Modern batch's latched
+		// searches are admitted requests too.
+		activePlayer := s.active != nil && s.activePlayer == p || len(s.latched) != 0 && s.latchedPlayer(p)
 		if activePlayer || s.provider != nil && s.provider.Eligible(p) {
 			s.accumulator[p] += share
 			// Nanolathe Modern bounded path work: carry at most carryShares
@@ -567,7 +633,20 @@ func (s *Scheduler) Tick(tick uint32) {
 		s.sweepPolls[p] = 0
 		total += s.accumulator[p]
 	}
+	if batch > 0 {
+		s.tickBatch(tick, bp, batch, popCap, total, bound, sweepStop)
+		return
+	}
 	for total > 0 {
+		if s.active == nil && len(s.latched) != 0 {
+			// Searches a Modern batch latched before a switch to the retail
+			// scheduler are served first, one at a time in their admission
+			// order, before any new request is polled.
+			m := s.latched[0]
+			s.removeLatched(0)
+			s.activeReq = m.req
+			s.active, s.activePlayer, s.activeScale = &s.activeReq, m.player, m.scale
+		}
 		if s.active != nil {
 			req := *s.active
 			work := s.search(req, s.activeScale, popsPerRequest)
@@ -790,6 +869,10 @@ func (s *Scheduler) TraceFor(unit pool.Handle) (pending *Request, result *Trace)
 	}
 	if pending == nil && s.active != nil && s.active.Unit == unit {
 		copy := *s.active
+		pending = &copy
+	}
+	if i := s.latchedIndex(unit); pending == nil && i >= 0 {
+		copy := s.latched[i].req
 		pending = &copy
 	}
 	for i := range s.traces {

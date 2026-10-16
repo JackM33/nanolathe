@@ -21,7 +21,7 @@ func TestMovementCheckpointClaimPilotVector(t *testing.T) {
 			writeMovementClaimRow(e, r, "row")
 		}
 	})
-	want := movementCheckpointVector(t, uint8(2), uint32(2), uint8(0), uint8(1), uint16(7), uint32(1), uint16(7), uint32(0), uint32(2), int32(-1), int32(2), int32(3), uint8(1), uint16(7), uint32(2), uint32(4), int32(5),
+	want := movementCheckpointVector(t, uint8(2), uint32(2), uint8(0), uint8(1), uint16(7), uint32(1), uint16(7), uint32(0), uint32(2), int32(-1), int32(2), int32(3), uint8(1), uint16(7), uint32(2), uint32(4), uint32(0), int32(5),
 		uint8(2), uint32(1), [8]uint8{1, 2, 3, 4, 5, 6, 7, 8}, uint8(1), uint32(2), uint32(8), uint32(9))
 	if !bytes.Equal(got, want) {
 		t.Fatalf("claim pilot\ngot  %x\nwant %x", got, want)

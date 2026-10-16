@@ -26,7 +26,9 @@ These packages answer three questions, and nothing else:
 * **How does it get there?** One weighted A\* over the attribute-cell lattice,
   one goal per request drawn from a small family of shapes, one global
   scheduler that admits a single request at a time and charges it per-player
-  work, and one publication that is full or empty and never a prefix.
+  work — under Modern a batch of them, expanded side by side
+  ([Modern parallel path batches](#modern-parallel-path-batches)) — and one
+  publication that is full or empty and never a prefix.
 * **How does it move once a route exists?** One ground follower and integrator
   with a synchronous occupancy commit; one flight command block, filled once a
   tick from whatever goal payload the active air order installed, that the
@@ -43,7 +45,8 @@ Modern construction-clearance contract below,
 [Modern learned terrain](#modern-learned-terrain),
 [Modern group-order spreading](#modern-group-order-spreading),
 [Modern unreachable moves](#modern-unreachable-moves),
-[Modern wedge escape](#modern-wedge-escape) and
+[Modern wedge escape](#modern-wedge-escape),
+[Modern parallel path batches](#modern-parallel-path-batches) and
 [Modern traffic](#modern-traffic), which does steer, smooth and re-plan, are
 user-authorized exceptions and must not be removed as parity defects.
 
@@ -224,6 +227,11 @@ refuses it to every other. A session that is refused one keeps its own map and
 produces the same visit order and the same route; every path that drops a
 session hands the table back, and one that did not would cost the next search
 the table and nothing else.
+Under Modern the scheduler holds a batch of latched requests instead and
+expands them in rounds on helper goroutines (`batch.go`, `batch_workers.go`;
+the optional `batchProvider` question and its `OpenBatch` and `SettleBatch`
+steps, see [Modern parallel path batches](#modern-parallel-path-batches)), and
+it lends each latched search a spare table of its own.
 `CandidateProvider` is the admission surface the movement system implements:
 player count, unit limit, per-player eligibility and a stable per-player cursor
 poll. The provider advances that cursor through the bound player's fixed unit
@@ -309,6 +317,7 @@ answers as Strict 3.1. It carries
 [Modern learned terrain](#modern-learned-terrain),
 [Modern group-order spreading](#modern-group-order-spreading),
 [Modern bounded path work](#modern-bounded-path-work),
+[Modern parallel path batches](#modern-parallel-path-batches),
 [Modern unreachable moves](#modern-unreachable-moves),
 [Modern wedge escape](#modern-wedge-escape) and
 [Modern traffic](#modern-traffic), and `LearnedTerrain`
@@ -2662,7 +2671,11 @@ optional `workBoundProvider` question, asked once per call.
 
 Active-search continuation, admission charges, the 100-pop slice, the
 full-or-empty publication, the poll cursor and its per-slot walk are retail's.
-Integer arithmetic only, no RNG, no map iteration, no allocation.
+Integer arithmetic only, no RNG, no map iteration, no allocation. Under
+[parallel path batches](#modern-parallel-path-batches) the futile-sweep stop
+parks the player's remainder for the call instead of crediting it at once —
+the player's latched searches may still spend it — and credits what is left
+as polls when the call ends.
 
 **Cost to the player.** Work that would have been spent in one burst is spread
 over the following ticks, so in a burst some requests are admitted later: in
@@ -2717,10 +2730,248 @@ the sweep), `TestSchedulerIdleBatchingMatchesSinglePolls` (bounded and
 unbounded polling preserve searches, publications, cursors and accounting
 through replenishment),
 `movement.TestPathProviderBoundedIdleBatchingMatchesSinglePolls` (an idle call
-leaves the same physical-slot cursors and next-call admission order),
+leaves the same physical-slot cursors and next-call admission order, under
+Modern rules with the retail scheduler so its search hook sees every
+admission),
 `movement.TestPathWorkBoundAnswers` (Strict, Community, unbound,
 Modern; the answer does not allocate); the Strict, Community and Modern
 `headless` fingerprint locks cover RNG and resource effects over whole battles.
+
+### Modern parallel path batches
+
+**Nanolathe Modern policy** (user-authorized 2026-10-15; [INVARIANTS](INVARIANTS.md)
+I1 "Parallel simulation exception"). The path scheduler latches up to eight
+admitted route searches at once and expands them in rounds on worker
+goroutines, each search at most 4,096 heap pops in one scheduler call; the
+simulation goroutine then charges every search's work and publishes the
+finished ones in admission order. It is a frame-time policy: a search's own
+inputs, arithmetic and route are those of the bound kernel, and what changes
+is when a request is admitted relative to the searches before it and how a
+long search's work is spread over ticks.
+
+**Strict 3.1 behavior.** One search at a time for the whole session
+[04 R-PATH-01 §1]: an admitted request runs in 100-pop slices while the
+call's combined total is positive and no other request is polled until it
+publishes, exhausts or is cancelled [04 R-PATH-01 §6].
+`StrictRules.PathBatch` answers `(0, 0)`; Community inherits it, an unbound
+`System` answers the same, and a provider that does not implement the
+question — every standalone scheduler — keeps the retail scheduler. `Tick`
+asks the question once per call and, on zero, runs the retail loop
+unchanged.
+
+**Why.** In the user's 770-unit battle (`HugeBattle.SAV`) route search is
+about 43% of the authoritative tick: about five searches a step averaging
+3,300 heap pops, with a heavy tail (searches of 5,000 pops or more do about
+65% of the work). A* is serial within one search, and the retail scheduler
+runs one search at a time, so the whole phase runs on one core of a
+twelve-core host. Better heuristics, coarse guides, exact goal fields and
+route reuse were measured and rejected; independent searches running side by
+side are what is left.
+
+**Modern behavior.** `ModernRules.PathBatch` answers `(8, 4096)`; the
+movement system's path provider relays it to `path.Scheduler` through the
+optional `batchProvider` question, asked once per call. The shares, the
+[bounded-work](#modern-bounded-path-work) carry cap and the 150-call
+replenish are unchanged.
+
+1. *Latched searches first.* A call first expands the searches it holds, as
+   the retail loop continues its active search before it polls.
+2. *Admission.* Free places — up to eight latched searches — are filled by
+   the retail admission loop: the same player walk and poll cursors, one
+   charge per poll, 100 plus the setup steps per admission, positive credit
+   to admit, idle-run batching and the futile-sweep stop. Each admitted
+   request is opened on the simulation goroutine, in admission order: the
+   class-layer revision pass, the passability view, the pilots and the setup
+   ray all run there, before any round expands it. A request that finishes
+   during setup publishes at once, as a retail admission does. A request
+   admitted for a unit whose earlier request is still latched replaces it.
+3. *Budgets.* Before a round starts, each latched search is given, in
+   admission order, the lesser of what it has left of the call's 4,096 pops
+   and the work the round has not yet handed out — of the call's combined
+   total and of its own player's parked work — counted in whole 100-pop
+   retail slices, since the retail loop runs a slice while any work
+   remains. Every latched search continues on the combined total whatever its
+   player's balance, as the retail active search does, and is charged to its
+   own player. When the futile-sweep stop ends a player's polling, the rest
+   of its balance leaves the total as before but is parked rather than
+   credited at once: that player's latched searches may still spend it this
+   call, and what is left is credited as polls when the call ends.
+4. *The round.* The searches of the round resume concurrently, each on its
+   own storage, and the simulation goroutine waits for all of them.
+5. *Settlement.* On the simulation goroutine, in admission order, each
+   search's work is counted (lab statistics and the
+   [busy weight](#modern-search-weight)'s tick work), a finished search's
+   storage is dropped, a search under
+   [routes through friends](#modern-routes-through-friends) that found
+   nothing opens the next reading (set up now, expanded in the next round),
+   the work is charged, and a finished search is published through the
+   existing publisher — activation checks, the cannot-get-there notification
+   and the release re-wall included.
+6. Rounds and admissions alternate until no latched search has budget left
+   and nothing new is admitted. A search that reaches its 4,096 pops stays
+   latched and continues in the next call; several may be latched between
+   ticks.
+
+With one latched search and no per-search cap the batch scheduler is the
+retail scheduler: the same admissions, publications, charges and poll
+accounting.
+
+**Determinism.** What a round computes is fixed before it starts and depends
+on simulation state alone:
+
+* Its members, their order and their budgets are a function of the scheduler's
+  accumulators, latched list and per-call counts and of the provider's
+  constant answer — never of the processor count, the host, wall time or
+  which search finished first.
+* While a round runs nothing else in the simulation does. Each search writes
+  only its own storage: its session, node store and open set, the per-cell
+  table the scheduler lent it (a spare table per latched search) and its
+  kernel's finishing copies. Everything else it reads is written only on the
+  simulation goroutine outside rounds: class-layer values (the revision pass
+  runs at opening and the re-wall at publication, both serially; feature and
+  occupancy restamps run in other phases), the visibility mapping words
+  behind the mapping gate (the phase-5 stamp sweep runs after the scheduler),
+  the [learned-terrain](#modern-learned-terrain) grid (rejected commits),
+  the occupancy grid and unit records the readings through friends consult
+  (movement commits), the [route claims](#modern-route-claims) counts (the
+  four-tick recount at the start of the tick) and own-claim marks (opening),
+  the goal objects (immutable) and what the straightening and smoothing
+  passes read (the same callbacks). Between two rounds the simulation
+  goroutine opens and publishes searches, so a search that spans rounds or
+  calls reads later layer values for cells it has not yet probed, as a retail
+  search spanning ticks does [04 R-PATH-01 §1].
+* Route claims mark the requester's own claims by its search's serial. Each
+  batch place keeps its marks in a row of its own, so a search still leaves
+  out exactly its own claims however the others in the batch overlap them.
+* The goroutines take searches from the round's list by an atomic counter and
+  write each result to its search's own slot; settlement reads the slots in
+  list order after every goroutine has finished.
+
+So the outcome does not depend on which goroutine resumed which search or how
+many took part. On a host with one processor — the browser's, or a process
+held to one by `GOMAXPROCS` — every round runs on the simulation goroutine in
+list order with the same results.
+
+**Workers.** `internal/path/batch_workers.go` starts up to fifteen helper
+goroutines (at most one fewer than `GOMAXPROCS`) at the first round that has
+more than one search on a host with more than one processor. They are shared
+by every session in the process and wait on a channel between rounds; a round
+hands itself only to helpers that are idle, and the simulation goroutine takes
+part in every round. A panic in a helper is raised again on the simulation
+goroutine after the join.
+
+**Cost to the player.** A search longer than 4,096 pops publishes a tick
+later for every further 4,096 (a 20,000-pop search spans five ticks instead
+of finishing in the tick it was admitted). Admission no longer waits for the
+searches before it, so searches admitted in the same call do not see each
+other's publications — their route claims and release re-walls — and each
+sees the class layer with the others' revision-pass transparency. In return
+more searches are in flight at once and none holds the rest back.
+
+On the opt-in path benchmark's Modern matrix (the build before and the build
+after, three repeats each, `GOMAXPROCS=8`; the scripted waves left out, since
+their later goals follow positions) units within their reporting radius rose
+from 3,051 to 3,082 of 5,862 goals, objectives still pending fell from 2,163
+to 2,142 and blocked unit-ticks from 670,673 to 635,645. Twenty-one cases
+gained arrivals and twenty-one lost them, most of them dense crowds, which are
+sensitive to admission order in both directions: `avoid/choke_wide_friendly`
+at 64 went from 10 to 56 arrivals and `avoid/open_big_b` at 128 from 45 to
+73, while `traffic/choke_two_opposing` at 64 fell from 11 to 5,
+`avoid/open_big_c` at 256 from 131 to 93 and `traffic/dense` at 64 from 55
+to 45. The eight ships of `naval-islands` all arrive, but their median
+arrival is 180 ticks later (809 → 989) with 153 searches instead of 83:
+ships admitted together read one another through the revision pass's
+transparency and plan through each other. On the same build
+`modern-no-batch`, and a batch of one search with the 4,096-pop cap,
+reproduce the previous build's outcomes in every case checked, so these
+changes come from batching rather than from the cap. A single unit through
+`terrain-winding`'s switchbacks arrives 7 ticks later, while its worst tick
+falls from 2.1 ms to 0.55 ms. In the 1,500-unit scripted waves arrivals rose
+from 485 to 524, the 95th-percentile tick fell from 4.6 to 3.0 ms and the
+99th from 6.4 to 3.8 ms.
+
+**Measured effect.** `HugeBattle.SAV` (about 770 units, four players,
+Modern), loaded in the window build and stepped without a window: 300 warm-up
+steps, then 600 measured steps (900 ticks), seeds 7, 11 and 23, the build
+before and the build after in alternation on the shared twelve-core
+darwin/arm64 host, means of the three seeds (2026-10-15):
+
+| per tick | before | after |
+|---|---:|---:|
+| back to back: wall / simulation-thread CPU / process CPU (ms) | 3.40 / 3.36 / 3.41 | 2.58 / 2.37 / 3.21 |
+| back to back: path phase (ms) | 1.63 | 0.87 |
+| back to back: step p50 / p99 / max (ms) | 4.30 / 14.5 / 18.4 | 3.55 / 7.6 / 10.8 |
+| paced at 30 Hz: wall / thread CPU / process CPU (ms) | 6.21 / 6.14 / 6.34 | 5.66 / 5.25 / 6.89 |
+| paced at 30 Hz: path phase (ms) | 2.55 | 1.63 |
+| paced at 30 Hz: step p99 (ms) | 25.8 | 17.4 |
+| heap pops / finished searches | 16,700 / 6.0 | 14,400 / 6.3 |
+| searches latched between ticks | 0.06 | 1.2 |
+
+A step is one or two ticks (the save plays at 1.5× speed). Paced ticks cost
+more than back-to-back ones (colder caches); the paced process CPU rises
+because idle helpers are woken and parked every round. Each seed's battle
+diverges from the build before, so per-tick work differs between them; the
+path phase's cost per thousand heap pops fell from about 97 µs to about
+61 µs. Before choosing the constants, batches of 4, 8 and 16 searches and
+caps of 4,096 and 8,192 pops were measured the same way over five seeds
+(7, 11, 23, 42, 99): 8 and 4,096 had the lowest path phase and wall time
+(0.87 and 2.53 ms a tick, against 1.03 and 2.78 for 4 searches, 0.95 and
+2.63 for 16, and 1.07 and 2.82 for a cap of 8,192), and earlier trials of 32
+searches and of a 16,384-pop cap were no better on this host. Pinning the
+process to one
+processor costs the parallelism and nothing else: seed 7 runs at 2.83, 2.47
+and 2.38 ms wall a tick with `GOMAXPROCS` 1, 2 and 12, all with the same
+final fingerprint.
+
+**Boundaries.**
+
+* *Saves.* The retail save carries no route [08 R-SAVE-02 §8]; a load
+  cancels every request as it restores each unit, so a loaded battle starts
+  with nothing latched. The canonical checkpoint (DESIGN_MULTIPLAYER §16.3)
+  carries the latched list in admission order — player, request, scale and
+  batch place — in the scheduler record and its summary, and the claims
+  pilot's per-place own-mark rows. The per-call pop counts, parked work and
+  round scratch are zero between calls and are not saved.
+* *Switches.* After a switch to Strict or Community the retail scheduler
+  serves the latched searches one at a time in admission order before it
+  polls a new request; after a switch to Modern the retail active search
+  becomes the first latched search. Nothing is set up twice.
+* *Other sets.* The pathfinding laboratory's sets inherit Modern's answer;
+  the path benchmark's `modern-no-batch` keeps the retail scheduler and
+  `modern-no-pathfinding` includes it.
+* *Search storage.* The scheduler lends one per-cell table per latched search
+  (the first, as before, and up to one spare per batch place); a table is
+  storage and never behaviour.
+
+**Determinism and fingerprints.** Every Strict 3.1 and Community 3.9 lock
+holds. Of Modern's, the ashap 6000-tick lock and the benchmark initial lock
+hold; the ashap 54000-tick lock moves to `partial-v1:2fcaa9113b5f5820` (the
+battle still reaches its bound), the benchmark warm and final locks to
+`partial-v1:dc8a5f7fa0746571` and `partial-v1:a418a4c8e2d3245f`, and the
+online Modern AI run digest to `7d75389d…6cc6` (its rehearsal digest holds).
+The values are the same on darwin/arm64, on darwin/amd64 and on js/wasm,
+which runs with one processor; `HugeBattle.SAV` with seed 7 reaches the same
+final fingerprint with `GOMAXPROCS` 1, 2 and 12.
+
+**Verification.** `path.TestPathBatchZeroAnswerKeepsRetailScheduler` (a
+provider answering zero enters nothing of the batch and equals one without
+the question), `TestPathBatchOfOneUncappedMatchesRetail` (one search and no
+cap reproduce the retail scheduler's publications, accumulators, poll counts
+and cursor), `TestPathBatchSameResultsOnOneAndManyProcessors` (the same
+publications and scheduler state with `GOMAXPROCS` 1 and many),
+`TestPathBatchAdmissionSettleAndPublicationOrder` (poll-order admission,
+admission-order settlement and publication, a search cut at its per-call pops
+stays latched, is charged exactly what it expanded and finishes later),
+`TestPathBatchCancelAndSwitches` (cancellation, and switches in both
+directions without a second setup), `movement.TestPathBatchAnswers` (Strict,
+Community, unbound, Modern; the answer does not allocate),
+`movement.TestModernPathBatchSameRoutesOnOneAndManyProcessors` (a Modern
+system with route claims publishes the same routes and lab statistics on one
+processor and many), the checkpoint vectors of both packages, and
+`architecture.TestAuthoritativePackagesStartNoGoroutines`, which names the
+helpers' file with this argument. The Strict, Community and Modern `headless`
+fingerprint locks and the online Modern AI lock run on arm64, amd64 and
+js/wasm (one processor) and must agree.
 
 ### Modern allied pass-through
 

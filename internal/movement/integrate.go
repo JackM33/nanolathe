@@ -244,6 +244,11 @@ type System struct {
 	// countRefusals makes the laboratory count refused steps by kind
 	// (LabStats.Refused).
 	countRefusals bool
+	// searchSlot is the Modern path batch place of the search being opened
+	// or settled, zero outside a batch; route claims key the requester's own
+	// marks by it (docs/DESIGN_MOVEMENT_PATH.md "Modern parallel path
+	// batches"). Per-call scratch.
+	searchSlot int
 	// workTick is the route search work charged so far this tick and
 	// workSmooth its average over the last eight ticks (Traffic.BusyScale).
 	// Neither is saved.
@@ -3289,6 +3294,15 @@ func (s *System) searchUnder(r path.Request, scale int32, budget int, through ui
 		setup = sess.SetupSteps()
 	}
 	pops := sess.Popped() - before
+	return s.settleSearch(r, scale, idx, through, setup, pops, points, status, done, budget-pops)
+}
+
+// settleSearch is what follows one resume of the search at idx, under reading
+// through: its work is counted, a finished search's storage is dropped, and a
+// search that found nothing may open the next reading of Modern routes through
+// friends, which resumes with rest of the slice's budget. It runs on the
+// simulation goroutine.
+func (s *System) settleSearch(r path.Request, scale int32, idx int, through uint8, setup, pops int, points []path.Point, status path.Status, done bool, rest int) path.WorkResult {
 	s.labStats.Pops += uint64(pops + setup)
 	s.workTick += int64(pops + setup)
 	if done {
@@ -3298,7 +3312,7 @@ func (s *System) searchUnder(r path.Request, scale int32, budget int, through ui
 			if len(points) == 0 && status == path.StatusRejected && through < top && s.throughFor(r) && s.throughDue(r.Unit, through) {
 				// Nothing nearer under this reading: open the next. What
 				// this one cost is charged with it.
-				res := s.searchUnder(r, scale, budget-pops, through+1)
+				res := s.searchUnder(r, scale, rest, through+1)
 				res.SetupSteps += setup
 				res.Pops += pops
 				return res
@@ -3307,6 +3321,62 @@ func (s *System) searchUnder(r path.Request, scale int32, budget int, through ui
 		}
 	}
 	return path.WorkResult{Points: points, Status: status, Done: done, SetupSteps: setup, Pops: pops}
+}
+
+// PathBatch answers the scheduler's batch question from the bound movement
+// rules (docs/DESIGN_MOVEMENT_PATH.md "Modern parallel path batches").
+func (p *pathProvider) PathBatch() (int, int32) {
+	if p == nil || p.system == nil {
+		return 0, 0
+	}
+	return p.system.rules().PathBatch(p.system)
+}
+
+// OpenBatch readies a latched request's search for a Modern batch round, on
+// the simulation goroutine. A request without an open search is set up
+// exactly as searchFunc's admission slice sets it up — the revision pass, the
+// passability view, the pilots and the setup ray — and resumes nothing; one
+// whose search is open is left as it is. Everything a search reads while a
+// round expands it is therefore fixed before the round starts.
+func (p *pathProvider) OpenBatch(r path.Request, scale int32, slot int) (path.Search, path.WorkResult) {
+	s := p.system
+	if s == nil {
+		return nil, path.WorkResult{Status: path.StatusRejected, Done: true}
+	}
+	s.searchSlot = slot
+	work := s.searchUnder(r, scale, 0, 0)
+	s.searchSlot = 0
+	if work.Done {
+		return nil, work
+	}
+	ws := handleRow(s.sessions, int(r.Unit))
+	if ws == nil || ws.session == nil {
+		// searchUnder leaves an unfinished search open; nothing else can
+		// answer here.
+		work.Done, work.Status = true, path.StatusRejected
+		return nil, work
+	}
+	return ws.session, work
+}
+
+// SettleBatch takes one round's resume of a latched request's search, on the
+// simulation goroutine in admission order, and settles it as searchFunc
+// settles a slice. A Modern route through friends opened here only sets up:
+// it resumes in the next round.
+func (p *pathProvider) SettleBatch(r path.Request, scale int32, slot int, slice path.BatchSlice) path.WorkResult {
+	s := p.system
+	if s == nil {
+		return path.WorkResult{Points: slice.Points, Status: slice.Status, Done: slice.Done, Pops: slice.Pops}
+	}
+	idx := int(r.Unit)
+	through := uint8(0)
+	if ws := handleRow(s.sessions, idx); ws != nil {
+		through = ws.through
+	}
+	s.searchSlot = slot
+	work := s.settleSearch(r, scale, idx, through, 0, slice.Pops, slice.Points, slice.Status, slice.Done, 0)
+	s.searchSlot = 0
+	return work
 }
 
 // groundGoalPoint applies the three established goal-point queries. Point and

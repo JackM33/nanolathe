@@ -315,6 +315,11 @@ func (s *Scheduler) CollectCheckpointReferences(c *CheckpointContext) (added int
 			return added, err
 		}
 	}
+	for i, m := range s.latched {
+		if err := addGoal(m.req.Goal, fmt.Sprintf("paths.latched[%d].req.Goal", i)); err != nil {
+			return added, err
+		}
+	}
 	for i, g := range c.Goals.Values() {
 		if err := checkpointGoal(g); err != nil {
 			return added, pathCheckpointError(fmt.Sprintf("paths.goals[%d]", i), err)
@@ -373,6 +378,18 @@ func (s *Scheduler) AppendCheckpointSummary(out *checkpoint.Summary) error {
 		out.Word(uint64(int64(r.Start.X)))
 		out.Word(uint64(int64(r.Start.Z)))
 		out.Word(r.Activation)
+	}
+	// Nanolathe Modern parallel path batches: each latched search's request
+	// words, as the active request's, then its slot.
+	out.Word(uint64(len(s.latched)))
+	for _, m := range s.latched {
+		r := m.req
+		out.Word(uint64(r.Player))
+		out.Word(uint64(r.Unit))
+		out.Word(uint64(int64(r.Start.X)))
+		out.Word(uint64(int64(r.Start.Z)))
+		out.Word(r.Activation)
+		out.Word(uint64(int64(m.slot)))
 	}
 	return nil
 }

@@ -74,7 +74,7 @@ func TestCheckpointBindingVectorAndReadOnlyCapture(t *testing.T) {
 	// Independently authored scheduler fields, then the two empty object tables.
 	// Binding presence occupies provider, publish and search in lexical order.
 	want := pathCheckpointVector(t,
-		[10]int32{}, uint8(0), int32(0), uint8(0), uint32(0), uint8(0),
+		[10]int32{}, uint8(0), int32(0), uint8(0), uint32(0), uint8(0), uint32(0),
 		int64(3), int64(0), uint8(1), uint8(1), [10]int32{}, uint8(1),
 		[10]int32{}, int32(1333), int32(42),
 		uint16(9), uint32(0), uint16(10), uint32(0))
@@ -170,7 +170,7 @@ func TestCheckpointNilBindingsRemainAbsent(t *testing.T) {
 		t.Fatal("nil binding retained authority")
 	}
 	want := pathCheckpointVector(t,
-		[10]int32{}, uint8(0), int32(0), uint8(0), uint32(0), uint8(0),
+		[10]int32{}, uint8(0), int32(0), uint8(0), uint32(0), uint8(0), uint32(0),
 		int64(3), int64(0), uint8(0), uint8(0), [10]int32{}, uint8(0),
 		[10]int32{}, int32(1333), int32(42),
 		uint16(9), uint32(0), uint16(10), uint32(0))

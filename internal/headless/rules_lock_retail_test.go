@@ -230,6 +230,18 @@ import (
 // anti-air target choices move them too. Initial compositions, both Modern
 // Ashap locks and every Strict/Community lock remain unchanged.
 // Modern's approved sight-circle, saved-return and recovery policies remain selected.
+//
+// Modern parallel path batches (DESIGN_MOVEMENT_PATH "Modern parallel path
+// batches") move the Modern ashap 54000-tick lock and the benchmark warm/final
+// locks: up to eight route searches are latched at once, admission no longer
+// waits for the searches before it, and no search expands more than 4,096 heap
+// pops a call, so requests are admitted in a different order and long routes
+// publish over more ticks. The Modern ashap battle still reaches its 54000-tick
+// bound. The 6000-tick lock holds, as does the benchmark initial composition.
+// Every Strict and Community lock is unchanged: their rule sets answer the
+// batch question with zero and keep the retail scheduler. A batch of one
+// search with no per-search cap reproduces the retail scheduler, and every
+// Modern value is the same with GOMAXPROCS 1, 2 and 12.
 const (
 	lockAshapMap                   = "ashap plateau"
 	lockAshapSeed           uint32 = 7
@@ -240,7 +252,7 @@ const (
 	lockAshapModern6000            = "partial-v1:b574c1e0b3361b82"
 	lockAshapStrict54000           = "partial-v1:90887a3fc87a6486"
 	lockAshapCommunity54000        = "partial-v1:01080593bac20f0c"
-	lockAshapModern54000           = "partial-v1:954703145cb88cf6"
+	lockAshapModern54000           = "partial-v1:2fcaa9113b5f5820"
 	lockAshapStrictEnd      uint32 = 54000
 	lockAshapCommunityEnd   uint32 = 54000
 	lockAshapModernEnd      uint32 = 54000
@@ -253,10 +265,10 @@ const (
 	lockBenchModernInitial           = "partial-v1:55165c066f8b6eaa"
 	lockBenchStrictWarm              = "partial-v1:92288be0462952a2"
 	lockBenchCommunityWarm           = "partial-v1:9ca4bb1bae72a0e7"
-	lockBenchModernWarm              = "partial-v1:a636ffbde1e6e2c0"
+	lockBenchModernWarm              = "partial-v1:dc8a5f7fa0746571"
 	lockBenchStrictFinal             = "partial-v1:4a9bfa48817da57c"
 	lockBenchCommunityFinal          = "partial-v1:a97cef8ec7ca358d"
-	lockBenchModernFinal             = "partial-v1:45f7b3a50adfd6c6"
+	lockBenchModernFinal             = "partial-v1:a418a4c8e2d3245f"
 )
 
 // The expanded retail audit corrects active-search budget continuation

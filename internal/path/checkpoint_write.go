@@ -129,11 +129,13 @@ func writeCheckpointPoints(e *checkpoint.Encoder, points []Point, p string) {
 }
 
 // Expanded scheduler fields: accumulator, active, activePlayer, activeScale,
-// base, baseSet, callCount, haveLast, playerCount, playerCursor, provider,
-// publish, scales, search, serviceCount, stepAllowance, unitLimit. activePlayer
-// and activeScale are conditional on active. Request: Activation, Goal,
-// Player, Start, Unit. Inactive activeReq storage, workspace capacity/lending,
-// sweepPolls and trace fields are excluded (DESIGN_MULTIPLAYER §16.3.5).
+// base, baseSet, callCount, haveLast, latched, playerCount, playerCursor,
+// provider, publish, scales, search, serviceCount, stepAllowance, unitLimit.
+// activePlayer and activeScale are conditional on active. Request: Activation,
+// Goal, Player, Start, Unit. Inactive activeReq storage, workspace
+// capacity/lending, spare workspaces, the batch size and round scratch,
+// latched searches' per-call pop counts, sweepPolls and trace fields are
+// excluded (DESIGN_MULTIPLAYER §16.3.5).
 func writeSchedulerCheckpoint(e *checkpoint.Encoder, c *CheckpointContext, s *Scheduler) {
 	e.Field("paths.accumulator")
 	for _, v := range s.accumulator {
@@ -163,6 +165,28 @@ func writeSchedulerCheckpoint(e *checkpoint.Encoder, c *CheckpointContext, s *Sc
 	e.U32(s.callCount)
 	e.Field("paths.haveLast")
 	e.Bool(s.haveLast)
+	// Nanolathe Modern parallel path batches: the latched searches in
+	// admission order, each its player, request, scale and slot. The per-call
+	// pop count is reset every call and excluded.
+	e.Field("paths.latched")
+	e.Count(len(s.latched))
+	for i, m := range s.latched {
+		p := fmt.Sprintf("paths.latched[%d]", i)
+		e.Field(p + ".player")
+		e.I64(int64(m.player))
+		e.Field(p + ".req.Activation")
+		e.U64(m.req.Activation)
+		writeGoalCheckpointReference(e, c, m.req.Goal, p+".req.Goal")
+		e.Field(p + ".req.Player")
+		e.U8(m.req.Player)
+		writeCheckpointCell(e, m.req.Start, p+".req.Start")
+		e.Field(p + ".req.Unit")
+		e.U32(uint32(m.req.Unit))
+		e.Field(p + ".scale")
+		e.I32(m.scale)
+		e.Field(p + ".slot")
+		e.I64(int64(m.slot))
+	}
 	e.Field("paths.playerCount")
 	e.I64(int64(s.playerCount))
 	e.Field("paths.playerCursor")

@@ -198,6 +198,8 @@ func TestAuthoritativePackagesDoNotImportHostOrNondeterministicRuntime(t *testin
 // shrink-only; an entry whose file no longer starts a goroutine is stale.
 var authoritativeGoroutines = map[string]string{
 	"internal/aikit/host.go": "the asynchronous host's worker runs one brain think on a copy the simulation thread built; the thread hands it the observation, joins it at the fixed reaction deadline and applies its commands there, so the tick the commands land on and their content are the synchronous host's (DESIGN_GAMEPLAY_RULES §5)",
+
+	"internal/path/batch_workers.go": "a Modern path batch's helpers resume searches whose membership, order and pop caps the simulation thread fixed before the round, each on its own storage against inputs nothing writes until the round joins; the thread waits for every helper and then charges and publishes in admission order, so no result depends on which goroutine ran a search or how many took part (DESIGN_MOVEMENT_PATH \"Modern parallel path batches\")",
 }
 
 // TestAuthoritativePackagesStartNoGoroutines keeps goroutine scheduling out of
