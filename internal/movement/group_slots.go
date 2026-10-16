@@ -171,7 +171,7 @@ func (s *System) slotMappingWord(u *units.Unit) MappingWordSource {
 func (s *System) slotPassable(layer *ClassLayer, mapping MappingWordSource, learned *LearnedTerrain, p Profile, owner uint8, ax, az, fx, fz int32) bool {
 	if layer != nil && (layer.mapping != nil || mapping == nil) {
 		if learned != nil {
-			return layer.passableLearned(ax, az, int16(fx), int16(fz), owner, learned) != LayerBlocked
+			return layer.passableLearned(ax, az, int16(fx), int16(fz), owner, learned, nil) != LayerBlocked
 		}
 		return layer.Passable(ax, az, int16(fx), int16(fz), owner) != LayerBlocked
 	}

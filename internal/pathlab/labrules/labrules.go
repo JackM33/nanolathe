@@ -56,7 +56,14 @@ type rules struct {
 	// repath, when positive, is the re-request throttle in ticks; zero keeps
 	// the baseline's staggered sixty.
 	repath uint32
+	// modernRepath answers Modern's own throttle instead, held followers
+	// included (docs/DESIGN_MOVEMENT_PATH.md "Modern prompt re-routing"), so
+	// that the adopted set keeps answering as Modern does.
+	modernRepath bool
 }
+
+// modern answers the adopted set's re-request throttle.
+var modern movement.ModernRules
 
 func (r *rules) AlliedPassThrough(s *movement.System) bool {
 	return r.overlap && r.OverlapRules.AlliedPassThrough(s)
@@ -82,6 +89,9 @@ func (r *rules) PocketRelease(s *movement.System) (int32, uint32) {
 func (r *rules) Traffic(*movement.System) movement.Traffic { return r.traffic }
 
 func (r *rules) RepathDelay(s *movement.System, slot int, last uint32) uint32 {
+	if r.modernRepath {
+		return modern.RepathDelay(s, slot, last)
+	}
 	if r.repath > 0 {
 		return r.repath
 	}
@@ -213,7 +223,9 @@ func All() []Set {
 	next("next-v3-eager", third(150, 2, 0))
 	next("next-v3-eager-to", to(third(150, 2, 150)))
 	next("next-v3-to", to(calm(third(150, 2, 150))))
-	next(Adopted, adopted)
+	// Measured with the flat fifteen; it now answers Modern's throttle, which
+	// added held followers after the adoption.
+	add(Adopted, rules{traffic: adopted, repath: 15, modernRepath: true}, smooth)
 
 	// A jam release as the last resort, which was measured and left out.
 	add("next-all-last150", rules{traffic: all, repath: 15, last: 150}, smooth)

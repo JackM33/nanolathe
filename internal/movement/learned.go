@@ -85,12 +85,14 @@ func (s *System) learnRejectedFootprint(u *units.Unit, anchor Cell, footX, footZ
 
 // passableLearned is the Modern search read: the retail four-step read, with a
 // block the requester's owner has learned answered from the stamped layer
-// instead of as unexplored [04 R-PATH-01 §2].
-func (l *ClassLayer) passableLearned(x, z int32, footX, footZ int16, player uint8, learned *LearnedTerrain) uint8 {
-	v := l.Passable(x, z, footX, footZ, player)
+// instead of as unexplored [04 R-PATH-01 §2]. own is the search's own
+// reading of its requester's footprint, nil for the shared layer's
+// (own_footprint.go).
+func (l *ClassLayer) passableLearned(x, z int32, footX, footZ int16, player uint8, learned *LearnedTerrain, own *ownFootprint) uint8 {
+	v := l.passableOwn(x, z, footX, footZ, player, own)
 	if v == LayerUnmapped {
 		if bx, bz := mappingTile(x, z, footX, footZ); learned.Known(bx, bz, player) {
-			return l.Value(x, z)
+			return l.valueOwn(x, z, own)
 		}
 	}
 	return v

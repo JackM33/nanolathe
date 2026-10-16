@@ -3185,10 +3185,15 @@ slope.
 | 5 hostile/keeps-ground | One base-view input; Owner; Wall 1 hostile-only, 2 keeps-ground |
 | 6 wedge override | One base-view input and one override-view input; Start, Bounds, footprint |
 | 7 claims cost | No inputs; ClaimCounts, ClaimOwn, Owner, Serial, Width/Height, footprint, Per/Against; Row 2 all, 3 slow |
-| 8 class revision | No inputs; Layer, Profile, Requester, Tick |
+| 8 class revision | No inputs; Layer, Profile, Requester (zero for a search a Modern path batch opened), Tick |
+| 9 own class view | No inputs; kind 1's operands and Bounds, the inclusive anchor rectangle in which a Modern path batch search reads its requester's own occupancy as fresh |
 
 Descriptor object operands are plain u32 values with schema-fixed tables
 (Layer table 5, ClaimCounts/ClaimOwn table 7), so they carry no table tag.
+Kinds 1–6 and 9 are passability views: a view input and the Passable and Leg
+roots take any of them. A search the Modern batch scheduler opened revises
+the shared layer with no requester and reads its own footprint through kind 9
+(DESIGN_MOVEMENT_PATH "Modern parallel path batches").
 Kind 6 Bounds holds the captured strict overlap boundary operands, computed
 with the existing int32 start±clamped-footprint arithmetic, not the search
 bounds or a new inclusive rectangle; its footprint is the raw profile
@@ -3613,7 +3618,10 @@ scalar bits and next-change. LastChange and BriefingCountdown are excluded.
 #### 16.3.14 U3 movement composition and metadata
 
 Movement keeps each working set's construction-time accessor operands (and
-claim-row holders); replacing a set drops them, resuming keeps them. The
+claim-row holders); replacing a set drops them, resuming keeps them. A
+session without checkpoint admission can never capture, so its movement
+system builds none (`System.SetSearchCaptureEnabled`); no search input
+depends on them. The
 pilot call borrows a temporary descriptor-root record, so composite pilots
 keep the last cost callback's operands. Capture never rebuilds operands,
 calls a rule or evaluates a callback.

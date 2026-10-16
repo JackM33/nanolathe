@@ -206,17 +206,19 @@ func (s *System) clearUnreachable(h pool.Handle) {
 // occupancy (an occupant with no mover) over its footprint
 // [04 R-PATH-01 §2][04 R-PATH-01 §14][04 R-SLOPE-01 §3].
 func (l *ClassLayer) staticPassable(x, z int32, footX, footZ int16, player uint8, learned *LearnedTerrain) uint8 {
-	return l.staticPassableKeeping(x, z, footX, footZ, player, learned, nil)
+	return l.staticPassableKeeping(x, z, footX, footZ, player, learned, nil, nil)
 }
 
 // staticPassableKeeping is staticPassable with the mobile occupants for which
 // keep reports true still blocking; a nil keep makes every mobile occupant
-// transparent. Modern jam release keeps hostile movers.
-func (l *ClassLayer) staticPassableKeeping(x, z int32, footX, footZ int16, player uint8, learned *LearnedTerrain, keep func(id int) bool) uint8 {
-	v := l.Passable(x, z, footX, footZ, player)
+// transparent. Modern jam release keeps hostile movers. own is the search's
+// own reading of its requester's footprint, nil for the shared layer's
+// (own_footprint.go).
+func (l *ClassLayer) staticPassableKeeping(x, z int32, footX, footZ int16, player uint8, learned *LearnedTerrain, keep func(id int) bool, own *ownFootprint) uint8 {
+	v := l.passableOwn(x, z, footX, footZ, player, own)
 	if v == LayerUnmapped && learned != nil {
 		if bx, bz := mappingTile(x, z, footX, footZ); learned.Known(bx, bz, player) {
-			v = l.Value(x, z)
+			v = l.valueOwn(x, z, own)
 		}
 	}
 	if v != LayerBlocked {

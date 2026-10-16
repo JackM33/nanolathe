@@ -162,7 +162,8 @@ lists, group destination slots, unreachable moves, wedge escape, prompt
 re-routing, the traffic policy, and route straightening with route
 smoothing), and each of these switches off one: `modern-no-bound`,
 `-no-batch`, `-no-buckets`, `-no-slots`, `-no-unreach`, `-no-wedge`,
-`-no-prompt`, `-no-smooth` (straightening alone), `-no-straighten` (the retail
+`-no-prompt`, `-no-adaptive-repath` (fifteen ticks for every follower, held
+or not), `-no-smooth` (straightening alone), `-no-straighten` (the retail
 kernel), and for the parts of the traffic policy `-no-steering`,
 `-no-weight`, `-no-through`, `-no-claims` and `-no-places`. A new Modern
 pathfinding policy adds its own `-no-` set and joins `modern-no-pathfinding`.

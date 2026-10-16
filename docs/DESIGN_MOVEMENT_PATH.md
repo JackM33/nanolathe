@@ -2834,6 +2834,27 @@ replenish are unchanged. A call runs at most two rounds, each in these steps:
    existing publisher — activation checks, the cannot-get-there notification
    and the release re-wall included.
 
+*Own footprint.* The retail revision pass makes the requester's own
+footprint passable in the class layer that every request of its class
+shares, and the request's release walls it again [04 R-PATH-01 §14]; no
+other search runs in between. Searches the batch opens before any of them
+publishes would read one another's footprints as open. So a search the
+batch opens — at its
+admission, when its dropped storage is set up again, or when a reading
+through friends is opened at its settlement — runs the revision pass with no
+requester: the watermark advances and every unit whose commit tick it
+passes, the requester among them, is walled in the shared layer. The search
+reads its own footprint through a view of its own (`own_footprint.go`):
+within the anchors whose footprint or classifier ring can read a cell of the
+requester's committed footprint at opening — the rectangle the revision pass
+restamps for a requester `[04 R-MOV-03 §3]` — an anchor the shared layer
+does not read clear is classified again as the restamp classifies it, with
+the requester's own occupancy passing the occupant-age gate. Every other
+anchor, and every other unit's occupancy, reads as the shared layer reads
+it. The views through friends, the learned-terrain overlay and the leg view
+read the layer's value through it. The release re-wall at publication is
+unchanged and finds the requester walled.
+
 The second round fills the places the first freed and expands what it
 admits; a search that has spent its 4,096 pops takes no part in it. A call
 ends after the second round, or earlier when a round has no search with a
@@ -2861,7 +2882,10 @@ on simulation state alone:
   (movement commits), the [route claims](#modern-route-claims) counts (the
   four-tick recount at the start of the tick) and own-claim marks (opening),
   the goal objects (immutable) and what the straightening and smoothing
-  passes read (the same callbacks). Between two rounds the simulation
+  passes read (the same callbacks). A search's own-footprint view is fixed
+  when it opens and reads only the terrain, the occupancy grid, the layer's
+  commit row and watermark and the mover records, so a worker may evaluate
+  it. Between two rounds the simulation
   goroutine opens and publishes searches, so a search that spans rounds or
   calls reads later layer values for cells it has not yet probed, as a retail
   search spanning ticks does [04 R-PATH-01 §1].
@@ -2889,8 +2913,9 @@ goroutine after the join.
 later for every further 4,096 (a 20,000-pop search spans five ticks instead
 of finishing in the tick it was admitted). Admission does not wait for the
 searches before it, so searches admitted in the same call do not see each
-other's publications — their route claims and release re-walls — and each
-sees the class layer with the others' revision-pass transparency. A call
+other's publications — their route claims and release re-walls; each reads
+the others' idle requesters as walls, as it reads every idle unit (*own
+footprint* above). A call
 admits at most two rounds of requests, sixteen places less those long
 searches hold, so when more requests come due together than that, the rest
 wait for the next call, and a search under
@@ -2909,13 +2934,30 @@ most of them dense crowds, which are sensitive to admission order in both
 directions: `avoid/open_big_a` at 128 went from 40 to 71 arrivals and
 `avoid/choke_wide_friendly` at 64 from 10 to 38, while `avoid/open_big_c` at
 192 fell from 107 to 83 and `avoid/choke_wide_friendly` at 16 from 16 to 4.
-The eight ships of `naval-islands` all arrive, but their median arrival is 280
-ticks later (809 → 1,089): ships admitted together read one another through
-the revision pass's transparency and plan through each other. A single unit
+The eight ships of `naval-islands` all arrive, but their median arrival was
+280 ticks later (809 → 1,089) when the batch landed. That is the per-call cap
+of 4,096 pops, not the revision pass: with the cap lifted (a diagnostic
+build) the batch arrives as the retail scheduler does, seven of eight with a
+median of 785 against 781, one ship never arriving under either, and the
+own-footprint view changes no outcome of the naval cases (2026-10-15, with
+the bucket open list: all eight arrive, median 1,055). A single unit
 through `terrain-winding`'s switchbacks arrives 7 ticks later, while its worst
 tick falls from 2.2 ms to 0.55 ms. In the 1,500-unit scripted waves arrivals
 rose from 485 to 509, the 95th-percentile tick fell from 4.3 to 3.1 ms and the
 99th from 5.8 to 3.8 ms.
+
+The own-footprint view, against the batch without it (the same Modern matrix,
+2026-10-15, `GOMAXPROCS=8`): units within their reporting radius 3,057 →
+3,061 of 5,862 goals, objectives still pending 2,190 → 2,139, blocked
+unit-ticks 666,838 → 655,111 and the summed mean pending age 3,002 → 2,975;
+nine cases gained arrivals and fifteen lost them, the same dense crowds in
+both directions (`avoid/choke_wide_friendly` at 64 from 7 to 32,
+`avoid/headon_enemy` at 64 from 58 to 45). The 1,500-unit scripted waves rose
+from 411 to 482 arrivals and the 256-unit waves from 344 to 374. On
+`HugeBattle.SAV` (seeds 7, 11 and 23 twice each, in alternation) the battle
+takes another course at no measurable cost: 5.94 → 5.87 searches and
+14,620 → 14,250 pops a tick (means), path phase 0.83 → 0.81 ms (medians);
+seed 7 reaches the same final fingerprint with `GOMAXPROCS` 1, 2 and 12.
 
 **Measured effect.** `HugeBattle.SAV` (about 770 units, four players,
 Modern), loaded in the window build and stepped without a window: 300 warm-up
@@ -2961,13 +3003,19 @@ rounds bought no path phase over 4,096.
   cancels every request as it restores each unit, so a loaded battle starts
   with nothing latched. The canonical checkpoint (DESIGN_MULTIPLAYER §16.3)
   carries the latched list in admission order — player, request, scale and
-  batch place — in the scheduler record and its summary, and the claims
-  pilot's per-place own-mark rows. The per-call pop counts, parked work and
+  batch place — in the scheduler record and its summary, the claims
+  pilot's per-place own-mark rows, and for each search the batch opened its
+  own-footprint rectangle (accessor kind 9) and its revision pass's absent
+  requester. The per-call pop counts, parked work and
   round scratch are zero between calls and are not saved.
 * *Switches.* After a switch to Strict or Community the retail scheduler
   serves the latched searches one at a time in admission order before it
   polls a new request; after a switch to Modern the retail active search
-  becomes the first latched search. Nothing is set up twice.
+  becomes the first latched search. Nothing is set up twice, and a search
+  keeps the reading it was opened with: a batch search continued by the
+  retail scheduler keeps its own-footprint view, and a retail search
+  continued by the batch keeps its requester open in the shared layer until
+  its release.
 * *Other sets.* The pathfinding laboratory's sets inherit Modern's answer;
   the path benchmark's `modern-no-batch` keeps the retail scheduler and
   `modern-no-pathfinding` includes it.
@@ -2984,7 +3032,13 @@ initial lock `partial-v1:55165c066f8b6eaa`, the warm and final locks
 online Modern AI run digest `7d75389d…6cc6`. The values are the same on
 darwin/arm64 with `GOMAXPROCS` 1, 2 and 12, on darwin/amd64 and on js/wasm,
 which runs with one processor; `HugeBattle.SAV` with seed 7 reaches the same
-final fingerprint with `GOMAXPROCS` 1, 2 and 12.
+final fingerprint with `GOMAXPROCS` 1, 2 and 12. The own-footprint view moves
+Modern's ashap 54000-tick lock to `partial-v1:e94ffa08b5555898` (the battle
+now ends at tick 48,690), the benchmark warm and final locks to
+`partial-v1:c1d257419d115a7c` and `partial-v1:292e8087823848e3` and the
+online Modern AI run digest to `59c7ecbb…8e95`; the ashap 6000-tick lock,
+the benchmark initial lock and the online rehearsal digest hold, and the
+values are the same with `GOMAXPROCS` 1, 2 and 12.
 
 **Verification.** `path.TestPathBatchZeroAnswerKeepsRetailScheduler` (a
 provider answering zero enters nothing of the batch and equals one without
@@ -3004,7 +3058,15 @@ directions without a second setup), `movement.TestPathBatchAnswers` (Strict,
 Community, unbound, Modern; the answer does not allocate),
 `movement.TestModernPathBatchSameRoutesOnOneAndManyProcessors` (a Modern
 system with route claims publishes the same routes and lab statistics on one
-processor and many), the checkpoint vectors of both packages, and
+processor and many), `movement.TestBatchSearchReadsOnlyItsOwnFootprintAsOpen`
+(two idle units opened by the batch each read their own footprint as open and
+the other's as walled, and the shared layer walls both; the retail
+scheduler's revision still opens its requester in the shared layer),
+`TestOwnReadingMatchesTheRevisionRestamp` (anchor for anchor, the own reading
+equals the revision pass's restamp under a current commit tick, steep and
+blocked ground, other idle units and a two-cell footprint about it),
+`path.TestCheckpointOwnClassAccessorVector`, the checkpoint vectors of both
+packages, and
 `architecture.TestAuthoritativePackagesStartNoGoroutines`, which names the
 helpers' file with this argument. The Strict, Community and Modern `headless`
 fingerprint locks and the online Modern AI lock run on arm64, amd64 and
@@ -4542,22 +4604,101 @@ hosts.
 #### Modern prompt re-routing
 
 **Nanolathe Modern policy.** A follower may ask for a route again fifteen
-ticks after its last admission. It replaces
+ticks after its last admission. A *held* follower — one a unit refused,
+standing where its last search started it — asks again when the unit in its
+way would be walled, within retail's sixty ticks. It replaces
 [re-route staggering](#modern-re-route-staggering).
 
 **Strict 3.1 behavior.** The follower's poll admits an armed follower when
 `lastRequestTick + 60 <= currentTick`, inclusively `[04 R-MOV-01 §7]`.
 `StrictRules.RepathDelay` answers sixty; Community inherits it.
 
-**Modern behavior.** `ModernRules.RepathDelay` answers fifteen for every unit
-and tick. The stamp, the inclusive comparison, the flag's writers, the
-ten-tick goal-install reset `[04 R-PATH-01 §8]`, the scheduler's single
-active request, its charges and its budgets are retail's, and staging and
+**Modern behavior.** `ModernRules.RepathDelay` answers fifteen, except for a
+held follower (`repath_held.go`). A follower is held when all of these hold:
+
+1. its last step was refused by a unit — the blocked bit is set and the
+   refusing occupant is a unit, not ground or a feature `[04 R-COLL-01 §1]` —
+   and that unit is not a building;
+2. it has not changed cells since its last admission: its commit tick, which
+   only a step onto another cell writes, is no later than the admission
+   tick; and
+3. the route it holds begins at the cell it stands on, in the form a
+   search publishes its first point `[04 R-PATH-01 §7]`: the route a search
+   gave it, before it has passed the first waypoint. The goal installer's
+   straight line begins at the unit's own position `[04 R-PATH-01 §8]`, so
+   a follower given a new goal is not held.
+
+A search from such a follower would start from the same cell for the same
+goal, and would read the unit in its way as passable, as the last one did:
+the revision pass walls a mobile occupant only once its commit tick is more
+than thirty ticks old `[04 R-PATH-01 §14]`. So a held follower is due
+thirty-one ticks after that unit's last commit — when it would first be
+walled — but no earlier than fifteen ticks and no later than sixty after its
+own last admission. If the unit moves on meanwhile, its commit tick moves and
+the follower waits on, up to sixty; if it stops, the next search reads it as a
+wall and plans round it. The stamp, the inclusive comparison, the flag's
+writers, the ten-tick goal-install reset `[04 R-PATH-01 §8]`, the
+scheduler's admission, charges and budgets are retail's, and staging and
 admission share `System.repathDue` as before.
 
-**Measured.** On the tuning moments −53 ± 8 ticks with it against −27 ± 10
-without, the other parts as they were then. Eight and four ticks were no
-better than fifteen. It about doubles the number of searches.
+**Measured.** On the tuning moments −53 ± 8 ticks with fifteen against
+−27 ± 10 without, the other parts as they were then. Eight and four ticks were
+no better than fifteen. It about doubles the number of searches.
+
+*Held followers* (2026-10-15). In `HugeBattle.SAV` about two fifths of route
+searches came from followers that had not moved since their last search and
+stood at the start of the route it gave them, nearly all of them with the
+blocked bit set; three in four of those searches published a different
+route, and a throttle on every such repeat cost arrivals. Variants were compared on the path
+benchmark's Modern matrix (one outcome pass each, the scripted waves apart)
+against fifteen for every follower:
+
+| Variant | Arrivals of 5,862 | Summed mean pending age | `HugeBattle.SAV` searches / pops a tick |
+|---|---:|---:|---:|
+| fifteen for every follower | 3,061 | 2,975 | 5.85 / 14,950 |
+| thirty when standing at the route's start | 2,904 | 3,017 | 4.52 / 13,360 |
+| sixty when standing at the route's start | 3,002 | 2,869 | 3.79 / 11,970 |
+| thirty when not moved since the last admission | 2,919 | 3,035 | 4.29 / 11,800 |
+| until the unit in its way is walled, at most thirty | 3,101 | 2,998 | 5.32 / 14,430 |
+| until the unit in its way is walled, at most sixty | 3,085 | 3,037 | 5.15 / 12,210 |
+| the same, standing at the route's start (adopted) | 3,080 | 3,035 | 5.17 / 12,870 |
+
+`HugeBattle.SAV` figures are means over seeds 7, 11, 23, 42 and 99 (seeds 7,
+11 and 23 for the first rows), 300 warm-up and 600 measured steps; each run's
+battle diverges, so pops vary by a fifth between seeds and the searches are
+the steadier figure. The route-start condition raised the 1,500-unit waves'
+arrivals from 323 to 393 (482 at fifteen): their goals reverse every 150
+ticks, and a follower re-ordered within ten ticks of its last admission keeps
+that admission's stamp `[04 R-PATH-01 §8]`, so without the condition it
+could wait for the unit in its way before it searched for its new goal.
+
+Against the build before it (the Modern matrix, three repeats,
+`GOMAXPROCS=8`): units within their reporting radius 3,061 → 3,080 of 5,862
+goals, objectives still pending 2,139 → 2,144, blocked unit-ticks 655,111 →
+649,316, searches 77,582 → 73,459 and the summed mean pending age 2,975 →
+3,035 (+2%); twenty-three cases gained arrivals and eleven lost them. Against
+main before both this and the [own-footprint view](#modern-parallel-path-batches):
+3,057 → 3,080 arrivals, 2,190 → 2,144 pending, 666,838 → 649,316 blocked
+unit-ticks and 3,002 → 3,035 summed mean pending age (+1.1%). The scripted
+waves reached 892 goals against 990 before and 904 on main: 393 against 482
+and 411 at 1,500 units, 372 against 374 and 344 at 256. The eight ships of
+`naval-islands` search 145 times against 165, their median arrival 1,057
+ticks against 1,055. On `HugeBattle.SAV` — seeds 7, 11 and 23 twice each back
+to back, seed 7 three times at 30 Hz and twice with `GOMAXPROCS=1`, in
+alternation with the build before on a shared host whose other load moved
+single runs by half — medians: searches 5.91 → 5.15 and pops 14,990 → 12,550
+a tick, path phase 0.81 → 0.75 ms, simulation-thread CPU 2.58 → 2.37 ms;
+paced, 2.15 → 1.41 ms of path phase; with `GOMAXPROCS=1`, 1.41 → 1.11 ms.
+Seed 7 reaches the same final fingerprint with `GOMAXPROCS` 1, 2 and 12.
+
+**Determinism and fingerprints.** The answer is integer arithmetic on
+committed state, read on the simulation goroutine; it draws from neither
+stream. Every Strict 3.1 and Community 3.9 lock holds. Held followers move
+Modern's ashap 54000-tick lock to `partial-v1:bf5ea55514907978` (the battle
+now ends at tick 49,200) and the benchmark warm and final locks to
+`partial-v1:b29e92b1f56dda76` and `partial-v1:936542a67f5d100f`; the ashap
+6000-tick lock, the benchmark initial lock and both online Modern AI digests
+hold, and the values are the same with `GOMAXPROCS` 1, 2 and 12.
 
 **What became of the stagger.** Staggering spread a cohort's re-requests over
 eight ticks so that the searches of units admitted together did not fall on
@@ -4567,14 +4708,28 @@ one tick. Under this policy a cohort comes due every fifteen ticks instead,
 tick admits, and the search weight doubles while searching is busy. The tick
 cost above was measured so.
 
-**Boundaries.** It keeps no state, so saves, restores and switches need
-nothing: a follower stamped under either mode is judged by the mode bound
-when it is polled.
+**Boundaries.** The answer reads committed state the movement system already
+keeps — the follower's collision record and route, and the refusing unit's
+commit tick and class — and writes none, so nothing is added to a save, the
+canonical checkpoint or a switch: a follower stamped under either mode is
+judged by the mode bound when it is polled. A load starts every follower
+with no refusing unit, so none is held until a step is refused again. The
+staging test reads that state before the unit's own step and the poll after
+it, so a request staged one tick may wait for its poll, or be staged on the
+next visit; neither admits a request the other refuses on the same state.
+The path benchmark's `modern-no-adaptive-repath` answers fifteen for every
+follower, and `modern-no-pathfinding` sixty.
 
 **Verification.** `movement.TestModernRepathDelayIsHalfASecond` (fifteen for
-every unit and stamp; refused at `last+14` and admitted at `last+15`; Strict
-after a switch refuses at `last+59`), `TestStrictRepathDelayIsRetailsSixty`,
-`TestModernPollHonoursTheRepathDelay`, `TestRepathDueDoesNotAllocate`.
+every follower that is not held; refused at `last+14` and admitted at
+`last+15`; Strict after a switch refuses at `last+59`),
+`TestModernHeldFollowerWaitsForTheUnitInItsWay` (fifteen when the unit in the
+way would be walled within it, then its commit tick plus thirty-one, then
+sixty; fifteen once the follower has moved, when ground or a building refused
+it, past its first waypoint or not refused; Strict and Community sixty
+throughout; the due test does not allocate; switches in both directions),
+`TestStrictRepathDelayIsRetailsSixty`, `TestModernPollHonoursTheRepathDelay`,
+`TestRepathDueDoesNotAllocate`, and the Modern `headless` fingerprint locks.
 
 #### Modern route claims
 

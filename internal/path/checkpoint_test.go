@@ -175,6 +175,27 @@ func TestCheckpointAccessorVector(t *testing.T) {
 	}
 }
 
+// The own class view of a Modern path batch search writes the class view's
+// operands and its inclusive Bounds in the fixed slots, Max before Min.
+func TestCheckpointOwnClassAccessorVector(t *testing.T) {
+	a := CheckpointAccessor{Kind: 9, Layer: 5, Requester: 6, Owner: 2, Profile: [8]int32{1, 2, 3, 4, 5, 6, 7, 8}, Tick: 7, FootprintX: 2, FootprintZ: 3,
+		Bounds: Rect{Min: Cell{-1, 4}, Max: Cell{3, 9}}}
+	want := pathCheckpointVector(t,
+		int32(0), [4]int32{3, 9, -1, 4}, uint32(0), uint32(0), int32(2), int32(3), int32(0), uint32(0), uint8(9), uint32(5), uint32(0), uint8(2), int32(0), [8]int32{1, 2, 3, 4, 5, 6, 7, 8}, uint32(6), uint8(0), uint32(0), [2]int32{}, uint8(0), uint32(7), uint8(0), int32(0))
+	var out bytes.Buffer
+	e := checkpoint.NewEncoder(&out)
+	writeAccessorCheckpoint(e, a, "accessor")
+	if err := e.Err(); err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(out.Bytes(), want) {
+		t.Fatalf("own class accessor vector\ngot  %x\nwant %x", out.Bytes(), want)
+	}
+	if err := validateCheckpointAccessors(SearchConfig{PassableValue: func(Cell) uint8 { panic("passability called") }}, CheckpointAccessors{Nodes: []CheckpointAccessor{a}, Passable: 1}); err != nil {
+		t.Fatalf("own class view refused as a passability root: %v", err)
+	}
+}
+
 func checkpointFixture(t *testing.T, ws *Workspace) (*Scheduler, *CheckpointContext, *Session) {
 	t.Helper()
 	cfg := SearchConfig{Goal: PointGoal(Cell{10, 10}, 0), PassableValue: func(Cell) uint8 { return 3 }, HasBounds: true, Bounds: Rect{Max: Cell{12, 12}}, Workspace: ws}

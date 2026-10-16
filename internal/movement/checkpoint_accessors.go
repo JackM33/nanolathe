@@ -74,15 +74,15 @@ func validateCheckpointAccessorCapture(s *System, n *checkpointAccessorCapture) 
 	if v.Inputs != nil || v.Layer != 0 || v.Learned != 0 || v.ClaimCounts != 0 || v.ClaimOwn != 0 {
 		return errors.New("capture contains prematurely resolved IDs")
 	}
-	if n.layer != nil && v.Kind != 1 && v.Kind != 4 && v.Kind != 8 || n.learned != nil && v.Kind != 2 || n.learnedOwner != 0 && v.Kind != 2 || (n.counts != nil || n.own != nil) && v.Kind != 7 || n.system != nil && v.Kind != 5 || (n.registry != nil || n.class != "") && v.Kind != 8 {
+	if n.layer != nil && v.Kind != 1 && v.Kind != 4 && v.Kind != 8 && v.Kind != 9 || n.learned != nil && v.Kind != 2 || n.learnedOwner != 0 && v.Kind != 2 || (n.counts != nil || n.own != nil) && v.Kind != 7 || n.system != nil && v.Kind != 5 || (n.registry != nil || n.class != "") && v.Kind != 8 {
 		return errors.New("accessor has irrelevant pointer operands")
 	}
 	switch v.Kind {
-	case 1, 4, 8:
+	case 1, 4, 8, 9:
 		if n.layer == nil {
 			return errors.New("missing captured class layer")
 		}
-		if v.Kind == 1 || v.Kind == 8 {
+		if v.Kind == 1 || v.Kind == 8 || v.Kind == 9 {
 			if _, err := checkpointCapturedProfile(v.Profile); err != nil {
 				return err
 			}

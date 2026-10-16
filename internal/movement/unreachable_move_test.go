@@ -97,10 +97,10 @@ func TestStaticPassableSeesThroughMobilesOnly(t *testing.T) {
 	// Jam release's view keeps the movers it is told to: a hostile parked
 	// mover still walls its anchor, a friendly one does not.
 	hostile := func(id int) bool { return id == int(mobile) }
-	if l.staticPassableKeeping(6, 6, 2, 2, 0, nil, hostile) != LayerBlocked {
+	if l.staticPassableKeeping(6, 6, 2, 2, 0, nil, hostile, nil) != LayerBlocked {
 		t.Fatal("a kept (hostile) mover did not wall its anchor")
 	}
-	if l.staticPassableKeeping(6, 6, 2, 2, 0, nil, func(int) bool { return false }) == LayerBlocked {
+	if l.staticPassableKeeping(6, 6, 2, 2, 0, nil, func(int) bool { return false }, nil) == LayerBlocked {
 		t.Fatal("a friendly mover walled its anchor")
 	}
 	// Unexplored for player 0: the static view answers the search's own 2,

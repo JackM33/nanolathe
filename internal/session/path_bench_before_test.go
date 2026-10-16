@@ -56,6 +56,13 @@ type modernNoPrompt struct{ movement.ModernRules }
 
 func (*modernNoPrompt) RepathDelay(*movement.System, int, uint32) uint32 { return 60 }
 
+// modernNoAdaptiveRepath asks every follower again fifteen ticks after its
+// last admission, held or not: Modern's prompt re-routing without its held
+// followers (docs/DESIGN_MOVEMENT_PATH.md "Modern prompt re-routing").
+type modernNoAdaptiveRepath struct{ movement.ModernRules }
+
+func (*modernNoAdaptiveRepath) RepathDelay(*movement.System, int, uint32) uint32 { return 15 }
+
 // modernTrafficWithout is Modern with one part of its traffic policy switched
 // off.
 type modernTrafficWithout struct {
@@ -91,6 +98,7 @@ func init() {
 	RegisterRuleSet("modern-no-unreach", func() RuleSet { return RuleSet{Movement: &modernNoUnreach{}} })
 	RegisterRuleSet("modern-no-wedge", func() RuleSet { return RuleSet{Movement: &modernNoWedge{}} })
 	RegisterRuleSet("modern-no-prompt", func() RuleSet { return RuleSet{Movement: &modernNoPrompt{}} })
+	RegisterRuleSet("modern-no-adaptive-repath", func() RuleSet { return RuleSet{Movement: &modernNoAdaptiveRepath{}} })
 	RegisterRuleSet("modern-no-straighten", func() RuleSet { return RuleSet{Path: path.RetailKernel{}} })
 	RegisterRuleSet("modern-no-smooth", func() RuleSet { return RuleSet{Path: path.StraightenKernel{}} })
 	for _, set := range []struct {

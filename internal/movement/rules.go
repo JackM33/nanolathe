@@ -76,8 +76,13 @@ type Rules interface {
 	// last admitted poll was at tick last may be admitted again once
 	// last+delay <= the current tick [04 R-MOV-01 §7]. slot is the unit's
 	// stable pool index. It is asked only for an armed follower, by the
-	// follower's staging test and by the scheduler's poll, which must agree.
-	// It must be a pure function of its arguments: no writes, no RNG.
+	// follower's staging test and by the scheduler's poll, through the same
+	// due test. It may read the committed movement state s keeps — Modern
+	// reads the follower's collision record and route and the record of the
+	// unit that refused its last step — and must write nothing and draw no
+	// RNG. Staging reads that state before the unit's own step and the poll
+	// after it, so a request one stages may wait for its poll, or be staged
+	// on the next visit.
 	RepathDelay(s *System, slot int, last uint32) uint32
 
 	// FirstRequestSpread is the group-order admission spread: when at least
@@ -291,15 +296,19 @@ func (StrictRules) WedgeEscape(*System) bool { return false }
 // retailRepathDelay is the follower poll's throttle period [04 R-MOV-01 §7].
 const retailRepathDelay = 60
 
-// modernRepathDelay is Modern's throttle period: a mover that is held, or
+// modernRepathDelay is Modern's throttle period: a mover that is blocked, or
 // has come to the end of what its route told it, asks again after half a
 // second. It is Nanolathe Modern policy tuning
 // (docs/DESIGN_MOVEMENT_PATH.md "Modern prompt re-routing").
 const modernRepathDelay = 15
 
 // RepathDelay lets a follower ask for a route again half a second after its
-// last admission (docs/DESIGN_MOVEMENT_PATH.md "Modern prompt re-routing").
-func (*ModernRules) RepathDelay(*System, int, uint32) uint32 { return modernRepathDelay }
+// last admission, and a held follower when the unit in its way would be
+// walled, within retail's sixty (repath_held.go;
+// docs/DESIGN_MOVEMENT_PATH.md "Modern prompt re-routing").
+func (*ModernRules) RepathDelay(s *System, slot int, last uint32) uint32 {
+	return s.modernRepathDelayFor(slot, last)
+}
 
 // modernSpreadMinGroup and modernSpreadTicks are the Modern group-order
 // spread's threshold and width. They are Nanolathe Modern policy tuning

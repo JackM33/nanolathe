@@ -234,6 +234,16 @@ type System struct {
 	// docs/DESIGN_MOVEMENT_PATH.md "Modern traffic").
 	traffic  []trafficState
 	labStats LabStats
+	// hostileMovers and groundKeepers cache the per-owner wall tests of the
+	// readings that take friendly movers for absent (jam_release.go,
+	// traffic_friends.go), built at their first use on the simulation
+	// goroutine. A test reads live state when it is called and is a pure
+	// function of the System and the owner, so caching it is storage only and
+	// it is never saved. A search of a Modern path batch only calls the test
+	// its opening captured: the cache is written while searches are opened,
+	// never while a round expands them.
+	hostileMovers [10]func(id int) bool
+	groundKeepers [10]func(id int) bool
 	// visit is the scratch record handed to the bound rules' Pilot.
 	visit Visit
 	// searchCfg is the scratch configuration handed to the Pilot's Search.
@@ -241,6 +251,12 @@ type System struct {
 	// checkpointSearch is lent alongside searchCfg only for the pilot call.
 	// The opened working set owns its roots afterwards; see checkpoint_metadata.go.
 	checkpointSearch *checkpointAccessorRoots
+	// searchCaptureDisabled suppresses the per-search checkpoint accessor
+	// records. It is false for every system a test or diagnostic builds; the
+	// session sets it when the session can never be captured (it carries no
+	// checkpoint admission), since the records exist only to describe an
+	// opened search to the checkpoint collector.
+	searchCaptureDisabled bool
 	// countRefusals makes the laboratory count refused steps by kind
 	// (LabStats.Refused).
 	countRefusals bool
@@ -249,6 +265,11 @@ type System struct {
 	// marks by it (docs/DESIGN_MOVEMENT_PATH.md "Modern parallel path
 	// batches"). Per-call scratch.
 	searchSlot int
+	// batchOpening marks a search opened by the Modern batch scheduler
+	// (OpenBatch, or a reading through friends opened at its settlement),
+	// which reads only its own footprint as open (own_footprint.go). Scratch,
+	// set only around those calls.
+	batchOpening bool
 	// workTick is the route search work charged so far this tick and
 	// workSmooth its average over the last eight ticks (Traffic.BusyScale).
 	// Neither is saved.
@@ -327,6 +348,29 @@ type pathProvider struct {
 	// scheduler asks it on every admission-loop iteration for every player.
 	eligibleNow   [10]bool
 	eligibleValid bool
+}
+
+// SetSearchCaptureEnabled declares whether a search opened by this system can
+// ever be captured. The default is enabled, so a system a test or a diagnostic
+// builds keeps building the accessor records. A session with no checkpoint
+// admission disables it: those records exist only to describe an opened search
+// to the checkpoint collector, which such a session can never invoke, and at
+// battle scale they are among the larger per-search allocations. No search
+// input, route or charge depends on them.
+func (s *System) SetSearchCaptureEnabled(enabled bool) {
+	if s == nil {
+		return
+	}
+	s.searchCaptureDisabled = !enabled
+}
+
+// newSearchCaptureRoots opens the accessor record an opened search carries to
+// the checkpoint collector, or nil when this system can never be captured.
+func (s *System) newSearchCaptureRoots() *checkpointAccessorRoots {
+	if s == nil || s.searchCaptureDisabled {
+		return nil
+	}
+	return &checkpointAccessorRoots{}
 }
 
 // dropPathSession clears the working set at a handle and hands the scheduler's
@@ -2403,11 +2447,9 @@ func isPrimaryHead(u *units.Unit, head *orders.Node) bool {
 	if q == nil {
 		return true
 	}
-	prim := q.Primary()
-	if len(prim) == 0 {
-		return true
-	}
-	return prim[0] == head
+	// Read through PrimaryLen/PrimaryAt: Primary would copy the segment on
+	// every visit only to read its head.
+	return q.PrimaryLen() == 0 || q.PrimaryAt(0) == head
 }
 
 // ActivateMove stages a bound goal's request once without repeating the
@@ -3076,10 +3118,12 @@ func (s *System) searchUnder(r path.Request, scale int32, budget int, through ui
 			bounds = path.Rect{Min: path.Cell{X: 0, Z: 0}, Max: path.Cell{X: s.Terrain.CellW - 1, Z: s.Terrain.CellH - 1}}
 		}
 		var cfg path.SearchConfig
-		roots := &checkpointAccessorRoots{}
-		if _, err := path.CheckpointKernelKind(s.Kernel); err != nil {
-			// TODO(M3-U6): custom kernels need their own reviewed capture contract.
-			roots.unsupported = "TODO(M3-U6): unsupported path kernel"
+		roots := s.newSearchCaptureRoots()
+		if roots != nil {
+			if _, err := path.CheckpointKernelKind(s.Kernel); err != nil {
+				// TODO(M3-U6): custom kernels need their own reviewed capture contract.
+				roots.unsupported = "TODO(M3-U6): unsupported path kernel"
+			}
 		}
 		if s.Terrain != nil {
 			// The requesting unit's class layer is the search passability
@@ -3122,11 +3166,30 @@ func (s *System) searchUnder(r path.Request, scale int32, budget int, through ui
 					owner = u.Owner
 				}
 			}
-			classCapture := checkpointClassCapture(layer, profile, requester, owner, revTick)
-			roots.passable = classCapture
-			roots.revise = &checkpointAccessorCapture{
-				value: path.CheckpointAccessor{Kind: 8, Profile: checkpointProfile(profile), Requester: uint32(requester), Tick: revTick},
-				layer: layer, registry: reg, class: cls,
+			// Nanolathe Modern parallel path batches: a search the batch
+			// opens runs the revision pass with no requester, so the shared
+			// layer walls its requester as it walls every other stale unit,
+			// and reads its own footprint through its own view; the retail
+			// scheduler's revision makes the requester transparent in the
+			// shared layer until its release [04 R-PATH-01 §14]
+			// (docs/DESIGN_MOVEMENT_PATH.md "Modern parallel path batches").
+			revRequester := requester
+			var own *ownFootprint
+			if s.batchOpening {
+				revRequester = 0
+				own = s.ownFootprintFor(requester, layer)
+			}
+			classCapture := (*checkpointAccessorCapture)(nil)
+			if roots != nil {
+				classCapture = checkpointClassCapture(layer, profile, requester, owner, revTick)
+				if own != nil {
+					classCapture = checkpointOwnClassCapture(classCapture, own)
+				}
+				roots.passable = classCapture
+				roots.revise = &checkpointAccessorCapture{
+					value: path.CheckpointAccessor{Kind: 8, Profile: checkpointProfile(profile), Requester: uint32(revRequester), Tick: revTick},
+					layer: layer, registry: reg, class: cls,
+				}
 			}
 			cfg = path.SearchConfig{
 				Start:      r.Start,
@@ -3138,10 +3201,10 @@ func (s *System) searchUnder(r path.Request, scale int32, budget int, through ui
 				HasBounds:  hasBounds,
 				Bounds:     bounds,
 				PassableValue: func(c path.Cell) uint8 {
-					return layer.Passable(c.X, c.Z, footX, footZ, owner)
+					return layer.passableOwn(c.X, c.Z, footX, footZ, owner, own)
 				},
 				Revise: func() {
-					reg.ReviseFor(cls, profile, requester, revTick)
+					reg.ReviseFor(cls, profile, revRequester, revTick)
 				},
 			}
 			// Nanolathe Modern policy: a block the requester's owner learned
@@ -3150,9 +3213,11 @@ func (s *System) searchUnder(r path.Request, scale int32, budget int, through ui
 			// learned nothing keep the retail read above
 			// (docs/DESIGN_MOVEMENT_PATH.md "Modern learned terrain").
 			if learned := s.rules().LearnedTerrain(s); learned != nil {
-				roots.passable = checkpointLearnedCapture(classCapture, learned, owner, footX, footZ)
+				if roots != nil {
+					roots.passable = checkpointLearnedCapture(classCapture, learned, owner, footX, footZ)
+				}
 				cfg.PassableValue = func(c path.Cell) uint8 {
-					return layer.passableLearned(c.X, c.Z, footX, footZ, owner, learned)
+					return layer.passableLearned(c.X, c.Z, footX, footZ, owner, learned, own)
 				}
 			}
 			if s.trafficNow.LegsThroughMovers {
@@ -3162,11 +3227,13 @@ func (s *System) searchUnder(r path.Request, scale int32, budget int, through ui
 				// smoothing").
 				learned := s.rules().LearnedTerrain(s)
 				keeps := s.keepsItsGround(owner)
-				view := checkpointLearnedCapture(classCapture, learned, owner, footX, footZ)
-				view = checkpointThroughCapture(view, owner, 1, footX, footZ)
-				roots.leg = checkpointWallCapture(view, s, owner, 2)
+				if roots != nil {
+					view := checkpointLearnedCapture(classCapture, learned, owner, footX, footZ)
+					view = checkpointThroughCapture(view, owner, 1, footX, footZ)
+					roots.leg = checkpointWallCapture(view, s, owner, 2)
+				}
 				cfg.LegValue = func(c path.Cell) uint8 {
-					return layer.passableThrough(c.X, c.Z, footX, footZ, owner, learned, keeps)
+					return layer.passableThrough(c.X, c.Z, footX, footZ, owner, learned, keeps, own)
 				}
 			}
 			// staticView marks a search that reads friendly mobile units as
@@ -3186,11 +3253,13 @@ func (s *System) searchUnder(r path.Request, scale int32, budget int, through ui
 				if through >= 2 {
 					wall = 1
 				}
-				view := checkpointLearnedCapture(classCapture, learned, owner, footX, footZ)
-				view = checkpointThroughCapture(view, owner, through, footX, footZ)
-				roots.passable = checkpointWallCapture(view, s, owner, wall)
+				if roots != nil {
+					view := checkpointLearnedCapture(classCapture, learned, owner, footX, footZ)
+					view = checkpointThroughCapture(view, owner, through, footX, footZ)
+					roots.passable = checkpointWallCapture(view, s, owner, wall)
+				}
 				cfg.PassableValue = func(c path.Cell) uint8 {
-					return layer.passableThrough(c.X, c.Z, footX, footZ, owner, learned, walls)
+					return layer.passableThrough(c.X, c.Z, footX, footZ, owner, learned, walls, own)
 				}
 			}
 			// Jam release, the pathfinding laboratory's baseline: a released
@@ -3203,11 +3272,13 @@ func (s *System) searchUnder(r path.Request, scale int32, budget int, through ui
 				learned := s.rules().LearnedTerrain(s)
 				staticView, hostile = true, s.hostileMover(owner)
 				wall = 1
-				view := checkpointLearnedCapture(classCapture, learned, owner, footX, footZ)
-				view = checkpointStaticCapture(view, layer, footX, footZ)
-				roots.passable = checkpointWallCapture(view, s, owner, wall)
+				if roots != nil {
+					view := checkpointLearnedCapture(classCapture, learned, owner, footX, footZ)
+					view = checkpointStaticCapture(view, layer, footX, footZ)
+					roots.passable = checkpointWallCapture(view, s, owner, wall)
+				}
 				cfg.PassableValue = func(c path.Cell) uint8 {
-					return layer.staticPassableKeeping(c.X, c.Z, footX, footZ, owner, learned, hostile)
+					return layer.staticPassableKeeping(c.X, c.Z, footX, footZ, owner, learned, hostile, own)
 				}
 			}
 			// Nanolathe Modern wedge escape: a requester whose committed
@@ -3222,12 +3293,14 @@ func (s *System) searchUnder(r path.Request, scale int32, budget int, through ui
 				if start, wedged := s.wedgedStart(requester, profile); wedged {
 					base := cfg.PassableValue
 					fx, fz := profile.footprintSize()
-					override := classCapture
-					if staticView {
-						override = checkpointStaticCapture(override, layer, footX, footZ)
-						override = checkpointWallCapture(override, s, owner, wall)
+					if roots != nil {
+						override := classCapture
+						if staticView {
+							override = checkpointStaticCapture(override, layer, footX, footZ)
+							override = checkpointWallCapture(override, s, owner, wall)
+						}
+						roots.passable = checkpointWedgeCapture(roots.passable, override, start, fx, fz, footX, footZ)
 					}
-					roots.passable = checkpointWedgeCapture(roots.passable, override, start, fx, fz, footX, footZ)
 					cfg.PassableValue = func(c path.Cell) uint8 {
 						v := base(c)
 						if v != LayerBlocked || c.X <= start.X-fx || c.X >= start.X+fx || c.Z <= start.Z-fz || c.Z >= start.Z+fz {
@@ -3238,8 +3311,10 @@ func (s *System) searchUnder(r path.Request, scale int32, budget int, through ui
 				}
 			}
 		} else {
-			// TODO(M3-U6): the constant-blocked callback has no reviewed descriptor.
-			roots.unsupported = "TODO(M3-U6): path search has no terrain"
+			if roots != nil {
+				// TODO(M3-U6): the constant-blocked callback has no reviewed descriptor.
+				roots.unsupported = "TODO(M3-U6): path search has no terrain"
+			}
 			// No authored terrain layer is available; keep this request inert
 			// rather than inventing permissive passability.
 			cfg = path.SearchConfig{
@@ -3258,7 +3333,7 @@ func (s *System) searchUnder(r path.Request, scale int32, budget int, through ui
 			// Through the system's scratch copy: a configuration whose
 			// address is taken here would be moved to the heap for every
 			// search, pilot or none.
-			if !checkpointPilotSupported(p) {
+			if roots != nil && !checkpointPilotSupported(p) {
 				// TODO(M3-U6): custom pilots may replace callbacks or other cfg fields.
 				roots.unsupported = "TODO(M3-U6): unsupported path pilot"
 			}
@@ -3347,9 +3422,9 @@ func (p *pathProvider) OpenBatch(r path.Request, scale int32, slot int) (path.Se
 	if s == nil {
 		return nil, path.WorkResult{Status: path.StatusRejected, Done: true}
 	}
-	s.searchSlot = slot
+	s.searchSlot, s.batchOpening = slot, true
 	work := s.searchUnder(r, scale, 0, 0)
-	s.searchSlot = 0
+	s.searchSlot, s.batchOpening = 0, false
 	if work.Done {
 		return nil, work
 	}
@@ -3377,9 +3452,9 @@ func (p *pathProvider) SettleBatch(r path.Request, scale int32, slot int, slice 
 	if ws := handleRow(s.sessions, idx); ws != nil {
 		through = ws.through
 	}
-	s.searchSlot = slot
+	s.searchSlot, s.batchOpening = slot, true
 	work := s.settleSearch(r, scale, idx, through, 0, slice.Pops, slice.Points, slice.Status, slice.Done, 0)
-	s.searchSlot = 0
+	s.searchSlot, s.batchOpening = 0, false
 	return work
 }
 

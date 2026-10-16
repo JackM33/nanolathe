@@ -2065,6 +2065,11 @@ func createAndBindServices(s *Session) error {
 	// movement-owned post-move correction [04 R-MOV-01 §5]. Bound here, like
 	// the extraction sampler above, before any battle-entry allocation.
 	s.Units.SetCreationPoseWithCheckpointBinding(s.Movement, s.checkpointBindingAuthority())
+	// The per-search checkpoint accessor records are built only for a session
+	// that can ever be captured. A session with no checkpoint admission can
+	// never request a capture, so at battle scale those records would be
+	// allocated and never read; no search input depends on them.
+	s.Movement.SetSearchCaptureEnabled(s.checkpointBindingAuthority() != nil)
 	s.Movement.BindWorldWithCheckpointBinding(s.Units, s.checkpointBindingAuthority())
 	// Bind movement classes explicitly [02 "Movement class record"]
 	s.Movement.SetClasses(s.Catalog.Movement)

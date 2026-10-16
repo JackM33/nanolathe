@@ -261,6 +261,26 @@ import (
 // the online rehearsal digest and every Strict and Community lock hold: those
 // sets answer the open-list question with the retail heap. Every Modern value
 // is the same with GOMAXPROCS 1, 2 and 12.
+//
+// A Modern batch search's own footprint (DESIGN_MOVEMENT_PATH "Modern parallel
+// path batches") moves the Modern ashap 54000-tick lock, the benchmark
+// warm/final locks and the online Modern AI run digest: a search the batch
+// opens no longer makes its requester's footprint passable in the shared class
+// layer, so searches opened together read one another's idle units as walls.
+// The ashap battle now ends at tick 48690. The 6000-tick lock, the benchmark
+// initial composition, the online rehearsal digest and every Strict and
+// Community lock hold: those sets keep the retail scheduler and its revision
+// pass. Every Modern value is the same with GOMAXPROCS 1, 2 and 12.
+//
+// Held followers (DESIGN_MOVEMENT_PATH "Modern prompt re-routing") move the
+// Modern ashap 54000-tick lock and the benchmark warm/final locks: a Modern
+// follower that a mobile unit refused, that has not changed cells since its
+// last admission and that stands at the start of its searched route is
+// admitted again when that unit would be walled, up to sixty ticks, instead
+// of after fifteen. The ashap battle now ends at tick 49200. The 6000-tick
+// lock, the benchmark initial composition, both online Modern AI digests and
+// every Strict and Community lock hold: Strict and Community keep retail's
+// sixty. Every Modern value is the same with GOMAXPROCS 1, 2 and 12.
 const (
 	lockAshapMap                   = "ashap plateau"
 	lockAshapSeed           uint32 = 7
@@ -271,10 +291,10 @@ const (
 	lockAshapModern6000            = "partial-v1:b574c1e0b3361b82"
 	lockAshapStrict54000           = "partial-v1:90887a3fc87a6486"
 	lockAshapCommunity54000        = "partial-v1:01080593bac20f0c"
-	lockAshapModern54000           = "partial-v1:b1a527786296f36d"
+	lockAshapModern54000           = "partial-v1:bf5ea55514907978"
 	lockAshapStrictEnd      uint32 = 54000
 	lockAshapCommunityEnd   uint32 = 54000
-	lockAshapModernEnd      uint32 = 54000
+	lockAshapModernEnd      uint32 = 49200
 
 	lockBenchSeed             uint32 = 7
 	lockBenchWarmupTicks             = 600
@@ -284,10 +304,10 @@ const (
 	lockBenchModernInitial           = "partial-v1:55165c066f8b6eaa"
 	lockBenchStrictWarm              = "partial-v1:92288be0462952a2"
 	lockBenchCommunityWarm           = "partial-v1:9ca4bb1bae72a0e7"
-	lockBenchModernWarm              = "partial-v1:9ed8196d8f1fe857"
+	lockBenchModernWarm              = "partial-v1:b29e92b1f56dda76"
 	lockBenchStrictFinal             = "partial-v1:4a9bfa48817da57c"
 	lockBenchCommunityFinal          = "partial-v1:a97cef8ec7ca358d"
-	lockBenchModernFinal             = "partial-v1:b6e59aad15471e42"
+	lockBenchModernFinal             = "partial-v1:936542a67f5d100f"
 )
 
 // The expanded retail audit corrects active-search budget continuation

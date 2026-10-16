@@ -145,6 +145,13 @@ func validateCheckpointAccessors(cfg SearchConfig, a CheckpointAccessors) error 
 			}
 		case 8:
 			allowed.Layer, allowed.Profile, allowed.Requester, allowed.Tick = n.Layer, n.Profile, n.Requester, n.Tick
+		case 9:
+			// The class view of a search a Modern path batch opened, with the
+			// inclusive anchor rectangle its requester's own occupancy is read
+			// fresh in (docs/DESIGN_MOVEMENT_PATH.md "Modern parallel path
+			// batches").
+			allowed.Layer, allowed.Requester, allowed.Owner, allowed.Profile, allowed.Tick = n.Layer, n.Requester, n.Owner, n.Profile, n.Tick
+			allowed.FootprintX, allowed.FootprintZ, allowed.Bounds = n.FootprintX, n.FootprintZ, n.Bounds
 		default:
 			return fmt.Errorf("Nodes[%d].Kind: unsupported accessor kind %d", i, n.Kind)
 		}
@@ -158,7 +165,7 @@ func validateCheckpointAccessors(cfg SearchConfig, a CheckpointAccessors) error 
 			if input == 0 || uint64(input) > uint64(i) {
 				return fmt.Errorf("Nodes[%d].Inputs: operand must precede node", i)
 			}
-			if k := a.Nodes[input-1].Kind; k < 1 || k > 6 {
+			if !checkpointViewKind(a.Nodes[input-1].Kind) {
 				return fmt.Errorf("Nodes[%d].Inputs: operand is not a view", i)
 			}
 		}
@@ -171,12 +178,12 @@ func validateCheckpointAccessors(cfg SearchConfig, a CheckpointAccessors) error 
 		name    string
 		id      uint32
 		present bool
-		lo, hi  uint8
+		kind    func(uint8) bool
 	}{
-		{"Passable", a.Passable, cfg.PassableValue != nil, 1, 6},
-		{"Leg", a.Leg, cfg.LegValue != nil, 1, 6},
-		{"Cost", a.Cost, cfg.CostDir != nil, 7, 7},
-		{"Revise", a.Revise, cfg.Revise != nil, 8, 8},
+		{"Passable", a.Passable, cfg.PassableValue != nil, checkpointViewKind},
+		{"Leg", a.Leg, cfg.LegValue != nil, checkpointViewKind},
+		{"Cost", a.Cost, cfg.CostDir != nil, func(k uint8) bool { return k == 7 }},
+		{"Revise", a.Revise, cfg.Revise != nil, func(k uint8) bool { return k == 8 }},
 	} {
 		if root.present != (root.id != 0) {
 			return fmt.Errorf("%s: callback presence differs from descriptor", root.name)
@@ -184,15 +191,17 @@ func validateCheckpointAccessors(cfg SearchConfig, a CheckpointAccessors) error 
 		if uint64(root.id) > uint64(len(a.Nodes)) {
 			return fmt.Errorf("%s: missing accessor node", root.name)
 		}
-		if root.id != 0 {
-			k := a.Nodes[root.id-1].Kind
-			if k < root.lo || k > root.hi {
-				return fmt.Errorf("%s: incompatible accessor kind", root.name)
-			}
+		if root.id != 0 && !root.kind(a.Nodes[root.id-1].Kind) {
+			return fmt.Errorf("%s: incompatible accessor kind", root.name)
 		}
 	}
 	return nil
 }
+
+// checkpointViewKind reports whether an accessor kind is a passability view:
+// the class view and the views built on it (1–6), and the own class view of a
+// Modern path batch search (9).
+func checkpointViewKind(k uint8) bool { return k >= 1 && k <= 6 || k == 9 }
 
 func pathCheckpointError(path string, err error) error {
 	return fmt.Errorf("nanolathe: checkpoint owner paths: logical path %s, providers searched [], expected canonical checkpoint: %w", path, err)

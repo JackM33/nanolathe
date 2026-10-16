@@ -31,9 +31,11 @@ func TestStrictRepathDelayIsRetailsSixty(t *testing.T) {
 	}
 }
 
-// Modern asks again after half a second, whatever the unit and the tick
-// (DESIGN_MOVEMENT_PATH "Modern prompt re-routing"): the answer reads no
-// state, so a save, a load and a switch of rule set need none.
+// Modern asks again after half a second, whatever the unit and the tick, for
+// a follower that is not held (DESIGN_MOVEMENT_PATH "Modern prompt
+// re-routing"); repath_held_test.go covers a held one. The answer is read
+// from committed state, so a save, a load and a switch of rule set need
+// nothing.
 func TestModernRepathDelayIsHalfASecond(t *testing.T) {
 	m := &ModernRules{}
 	for slot := 0; slot < 600; slot += 7 {
