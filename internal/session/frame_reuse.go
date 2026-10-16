@@ -34,22 +34,6 @@ func reserveFeatureView(dst []frame.FeatureView) []frame.FeatureView {
 	return append(dst, frame.FeatureView{})
 }
 
-func appendOrderQueueView(dst []frame.OrderQueueView, src orders.SnapshotQueue, cat *content.Catalog) []frame.OrderQueueView {
-	i := len(dst)
-	if i < cap(dst) {
-		dst = dst[:i+1]
-	} else {
-		dst = append(dst, frame.OrderQueueView{})
-	}
-	primary, secondary := dst[i].Primary, dst[i].Secondary
-	dst[i] = frame.OrderQueueView{
-		Unit: src.Unit, PrimaryTruncated: src.PrimaryTruncated, SecondaryTruncated: src.SecondaryTruncated,
-		Primary:   snapshotOrderViewsInto(primary, src.Primary, cat),
-		Secondary: snapshotOrderViewsInto(secondary, src.Secondary, cat),
-	}
-	return dst
-}
-
 func snapshotOrderViewsInto(dst []frame.OrderView, src []orders.SnapshotNode, cat *content.Catalog) []frame.OrderView {
 	if cap(dst) < len(src) {
 		dst = make([]frame.OrderView, 0, len(src))

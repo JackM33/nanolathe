@@ -76,6 +76,7 @@ func (s *Service) RefreshMode(m Mode, resetHistory bool, eligible [10]bool, obse
 	}
 	const semantic = ModeHistoryEnabled | ModeCurrentEnabled | ModeTerrainRay
 	s.mode = s.mode&ModeFogCacheValid | (m & semantic)
+	s.fogTracked = false
 
 	if resetHistory {
 		s.fillWordGrid()
@@ -105,6 +106,7 @@ func (s *Service) RefreshMode(m Mode, resetHistory bool, eligible [10]bool, obse
 }
 
 func (s *Service) fillWordGrid() {
+	s.fogTracked = false
 	fill := uint16(0)
 	if !s.mode.HistoryEnabled() {
 		fill = 0x03FF
@@ -115,6 +117,7 @@ func (s *Service) fillWordGrid() {
 }
 
 func (s *Service) fillEligibleByteGrids(eligible [10]bool) {
+	s.fogTracked = false
 	fill := uint8(0)
 	if !s.mode.CurrentEnabled() {
 		fill = 1

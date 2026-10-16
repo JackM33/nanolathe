@@ -334,10 +334,15 @@ func TestCommandDragAltMoveOverFeature(t *testing.T) {
 				// it (publication retains views by definition identity), so
 				// the reclaimable variant is a new definition swapped in for
 				// the placed instance, not an edit of the old one in place.
+				// The swap is a fixture's direct write to a resting record,
+				// so it renews the record's publication revision as every
+				// production mutation point does (features/publication.go).
 				reclaimable := *b.cat.Features["deposit"]
 				reclaimable.Reclaimable = true
 				b.cat.Features["deposit"] = &reclaimable
-				b.sess.Features.InstanceAt(20, 20).Def = &reclaimable
+				inst := b.sess.Features.InstanceAt(20, 20)
+				inst.Def = &reclaimable
+				b.sess.Features.MarkPublicationChanged(inst)
 				b.sess.Step(b.sess.Clock.ScaledAnchor + 1)
 				x, y := o5ScreenWorld(b.cam, 320<<16, 0, 320<<16)
 				_, _, pos := b.pickTarget(x, y)

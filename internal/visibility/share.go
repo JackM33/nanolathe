@@ -33,6 +33,8 @@ func (s *Service) CopyExplored(src, dst PlayerID) {
 	// Bits are one per slot within the sixteen-bit word, slots 0..9 as bits
 	// 0..9 [05 R-SHARE-01 §6] [03 §3.1].
 	from, to := cellBit(src), cellBit(dst)
+	// The merge is a bulk write: the fog's next rebuild compares every cell.
+	s.fogTracked = false
 	for i, word := range s.wordMask {
 		if word&from != 0 {
 			s.wordMask[i] = word | to

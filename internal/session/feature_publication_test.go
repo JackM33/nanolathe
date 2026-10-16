@@ -50,10 +50,14 @@ func TestPublishFeaturesRetainsUnchangedViewsPerSlot(t *testing.T) {
 	}
 
 	// Mutating one instance rebuilds that element on both slots, once each,
-	// and the rebuilt view matches a fresh build from the live inputs.
+	// and the rebuilt view matches a fresh build from the live inputs. The
+	// fixture writes the fields directly, so it renews the record's
+	// publication revision itself, as every production mutation point of a
+	// record off the active list does (features/publication.go).
 	inst := svc.InstanceAt(2, 2)
 	inst.IsBurning = true
 	inst.Status |= 1
+	svc.MarkPublicationChanged(inst)
 	for tick := uint32(4); tick <= 5; tick++ {
 		n, f := rebuilt(tick)
 		if n != 1 {
@@ -90,6 +94,49 @@ func TestPublishFeaturesRetainsUnchangedViewsPerSlot(t *testing.T) {
 		writeFeatureView(&want, &in)
 		if f.Features[i] != want {
 			t.Fatalf("view %d after removal = %#v, want %#v", i, f.Features[i], want)
+		}
+	}
+}
+
+// A record on the active list is compared on every publication: its view can
+// change on any visit (a sinking wreck's height) without a revision, so the
+// unchanged-record shortcut never applies to it. Every publication here also
+// runs the revision check, which reads every record and fails if one changed
+// without renewing its revision.
+func TestPublishFeaturesComparesActiveRecords(t *testing.T) {
+	terrain := strictMinimalTerrain()
+	wreck := &content.FeatureDef{
+		DefinitionHeader: content.DefinitionHeader{CanonicalKey: "wreck"},
+		Object:           "wreck",
+		FootprintX:       1,
+		FootprintZ:       1,
+	}
+	svc := features.NewService(terrain, nil, nil, nil)
+	inst := svc.PlaceAt(2, 2, wreck)
+	if inst == nil {
+		t.Fatal("place wreck")
+	}
+	if _, active := inst.PublicationState(); !active {
+		t.Fatal("a 3D record is not on the active list after its stamp")
+	}
+	s := &Session{Snapshot: frame.NewBuffer(), Features: svc, verifyFeatureRevisions: true}
+	publication := s.ensurePublicationState()
+	publish := func(tick uint32) *frame.Frame {
+		f := s.Snapshot.BeginWrite()
+		s.publishFeatures(f, publication)
+		if err := s.Snapshot.Publish(tick); err != nil {
+			t.Fatal(err)
+		}
+		return f
+	}
+	publish(1)
+	publish(2)
+	// An active record moves without renewing its revision; both slots must
+	// still publish the new height.
+	inst.Y += 1 << 16
+	for tick := uint32(3); tick <= 4; tick++ {
+		if f := publish(tick); len(f.Features) != 1 || f.Features[0].Y != inst.Y {
+			t.Fatalf("tick %d published %#v, want the active record at Y %d", tick, f.Features, inst.Y)
 		}
 	}
 }

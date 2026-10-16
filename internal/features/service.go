@@ -110,6 +110,16 @@ type Instance struct {
 	// reclaim-animation bit (selector 2) that [05 R-FEAT-01 §5] step 6 reads.
 	AnimationSelector uint8
 
+	// publication is the record's publication revision, a number from its
+	// service's counter renewed whenever the record joins or leaves the active
+	// list, takes or releases its runtime record, or is marked by the owner of
+	// a presentation input kept outside it (MarkPublicationChanged). Off the
+	// active list nothing else changes what the record's committed view is
+	// built from, so a publication holding a view built at the same revision
+	// keeps it (PublicationState). It is presentation bookkeeping: nothing in
+	// the simulation reads it and no save or checkpoint carries it.
+	publication uint64
+
 	// DamageAccumulator is the record's damage word, the one value all three
 	// saved families keep at the same place [08 R-SAVE-FEATURE-01]. It is the
 	// live 3D damage state and the only such state: DamageFeature adds each
@@ -178,6 +188,12 @@ type Service struct {
 	definitionRestoreStarted    bool
 
 	cursor int // global cursor descending from W*H-1 with wrap-skip [06 §13.1]
+
+	// publicationRevision numbers the records' publication revisions
+	// (Instance.publication); publicationEpoch changes whenever the whole
+	// instance set is replaced. Neither is simulation state.
+	publicationRevision uint64
+	publicationEpoch    uint64
 
 	// instances is the cell-index LOOKUP: key = cz*W+cx. It holds a record for
 	// every stamped anchor — resting sprites included, as the publication and
@@ -1351,6 +1367,7 @@ func (s *Service) arenaOccupants() int {
 // resetInstances empties the map, the active list and the arena — the
 // zero-fill of the whole instance pool at battle entry [08 R-SAVE-FEATURE-01].
 func (s *Service) resetInstances() {
+	s.publicationEpoch++
 	s.instances = make(map[int]*Instance)
 	s.instanceKeys, s.instanceValues, s.instanceKeysStale = nil, nil, true
 	s.activeHead = nil

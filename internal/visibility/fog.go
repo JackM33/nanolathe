@@ -2,7 +2,11 @@
 
 package visibility
 
-import "github.com/nanolathe-gg/nanolathe/internal/sim/numeric"
+import (
+	"math/bits"
+
+	"github.com/nanolathe-gg/nanolathe/internal/sim/numeric"
+)
 
 // FogCache is presentation-only fog [03 §3.3] C13. Its validity is solely
 // Service.mode bit 3; the cache itself never carries a second validity flag.
@@ -22,6 +26,11 @@ type FogCache struct {
 	in      []uint8
 	inKey   fogWindowKey
 	inValid bool
+	// inLocal and inCurrent are the local player and the current-coverage
+	// mode bit the recorded input was read for. The cell marks of
+	// Service.fogDirty describe changes against these alone.
+	inLocal   PlayerID
+	inCurrent bool
 }
 
 // fogWindowKey is everything besides the per-cell input that the derived
@@ -211,7 +220,17 @@ func (s *Service) RebuildFogWindow(cameraX, cameraZ, viewW, viewH int32) {
 	key := fogWindowKey{startX: startX, startZ: startZ, endX: endX, endZ: endZ, mapW: s.W, mapH: s.H}
 	if s.fog.inValid && s.fog.inKey == key && s.fog.w == w && s.fog.h == h && len(s.fog.ch0) == n &&
 		s.fog.originX == startX && s.fog.originZ == startZ && len(s.fog.in) == int(s.W*s.H) {
-		changed := s.updateFogCells(key)
+		// With a complete set of marks only the marked cells can differ from
+		// the recorded input; otherwise every cell is compared. Both visit the
+		// changed cells in the same row-major order, so both derive the same
+		// bytes and report the same change.
+		var changed bool
+		if s.fogTracked && s.fog.inLocal == s.local && s.fog.inCurrent == s.mode.CurrentEnabled() {
+			changed = s.updateMarkedFogCells(key)
+		} else {
+			changed = s.updateFogCells(key)
+		}
+		s.trackFogInputs()
 		s.mode |= ModeFogCacheValid
 		// Unchanged bytes keep their revision, so publication and
 		// presentation can keep the copy they already hold.
@@ -314,6 +333,7 @@ func (s *Service) RebuildFogWindow(cameraX, cameraZ, viewW, viewH int32) {
 		}
 	}
 	s.fog.inKey, s.fog.inValid = key, true
+	s.trackFogInputs()
 	s.mode |= ModeFogCacheValid
 	// The revision moves only after the derived bytes and their address window
 	// are complete, so publication can retain a previous immutable copy.
@@ -381,6 +401,53 @@ func (s *Service) updateFogCells(key fogWindowKey) bool {
 		}
 	}
 	return changed
+}
+
+// updateMarkedFogCells is updateFogCells over the marked cells alone. Every
+// cell whose input changed since the recorded input was brought up to date is
+// marked (Service.fogDirty), so the cells it skips are cells the full walk
+// would skip too; it visits the rest in ascending index — row-major — order,
+// exactly as the full walk does, and clears the marks as it goes.
+func (s *Service) updateMarkedFogCells(key fogWindowKey) bool {
+	src := s.fogSource()
+	in := s.fog.in
+	w := int(s.W)
+	changed := false
+	for wi, word := range s.fogDirty {
+		if word == 0 {
+			continue
+		}
+		s.fogDirty[wi] = 0
+		for word != 0 {
+			i := wi<<6 + bits.TrailingZeros64(word)
+			word &= word - 1
+			v := src.at(i)
+			if v == in[i] {
+				continue
+			}
+			in[i] = v
+			gx, gz := int32(i%w), int32(i/w)
+			for _, d := range [4][2]int32{{0, 0}, {-1, 0}, {0, -1}, {-1, -1}} {
+				if s.deriveFogCell(key, gx+d[0], gz+d[1]) {
+					changed = true
+				}
+			}
+		}
+	}
+	return changed
+}
+
+// trackFogInputs starts a complete set of marks against the input the cache
+// just recorded: no cell is marked, and the per-cell writers mark from here.
+func (s *Service) trackFogInputs() {
+	words := (int(s.W)*int(s.H) + 63) / 64
+	if len(s.fogDirty) != words {
+		s.fogDirty = make([]uint64, words)
+	} else {
+		clear(s.fogDirty)
+	}
+	s.fog.inLocal, s.fog.inCurrent = s.local, s.mode.CurrentEnabled()
+	s.fogTracked = true
 }
 
 // deriveFogCell recomputes the channel byte at map cell (ox, oz) from the

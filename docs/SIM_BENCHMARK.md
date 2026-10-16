@@ -443,3 +443,73 @@ the whole-tree retail gate (stopped during js/wasm fingerprint locks), repeated
 sustained comparisons and browser performance measurements are deferred.
 After integrating main, focused short tests passed for path, movement, combat,
 orders and documentation; the deferred whole-tree gates were not restarted.
+
+## Publication comparison (2026-10-15)
+
+Branch `publish-par` against `sim-par-base` (`7b6d080f3`): the unit channel built
+on four joined workers, the fog rebuild re-deriving only marked cells, and
+resting features kept by publication revision
+([DESIGN_RUNTIME_DETERMINISM §2.5](DESIGN_RUNTIME_DETERMINISM.md#25-internalsession--composition-the-tick-publication),
+[DESIGN_WORLD_VISIBILITY §2.2](DESIGN_WORLD_VISIBILITY.md#22-internalvisibility)).
+Go 1.27.1 on Darwin/arm64 (Apple M3 Pro, twelve logical CPUs) with other
+agents' work on the host (load average 3–7); binaries alternated. Outputs are
+outside the repository.
+
+**This scene,** default 250-unit armies, seed 7, 1,200 warm-up and 300 measured
+ticks, `GOMAXPROCS=2`, profiles off; medians of three runs per binary. The
+`tail-sharing-result-publication` row is mostly publication.
+
+| Mode | Publication tail (ms/tick) | Wall p50 | Wall p95 | Process CPU/tick |
+|---|---:|---:|---:|---:|
+| Strict 3.1 | 0.450 → 0.248 | 1.314 → 1.151 | 1.745 → 1.540 | 1.386 → 1.376 |
+| Community 3.9 | 0.448 → 0.252 | 1.488 → 1.301 | 2.598 → 2.404 | 1.712 → 1.720 |
+| Modern | 0.474 → 0.272 | 2.030 → 1.994 | 2.891 → 2.778 | 2.168 → 2.249 |
+
+All three partial fingerprints matched in every mode. A populated retail
+skirmish in each mode (about 165 live units, over the 128-unit threshold for
+workers) hashed every exported field of 900 consecutive committed frames to the
+same value on both builds.
+
+**HugeBattle,** the user's save (754 live units, 5,122 features, 620 order
+queues, 6,901 piece lanes at the window's end), loaded in the window binary and
+stepped synchronously with no window: seed 7, 600 measured steps (900 ticks;
+the save runs at 1.5× speed) after 300, medians of six alternating runs. The
+publication proxy is the probe's tail after the last phase plus its phase-1
+row, which carries the other tick of each two-tick step's publication.
+
+| Metric | Base | Branch |
+|---|---:|---:|
+| Wall ms/tick | 3.427 | 2.911 |
+| Publication proxy ms/tick | 0.695 | 0.225 |
+| Process CPU ms/tick | 3.441 | 3.386 |
+| Step p50 / p99 ms | 4.40 / 14.00 | 3.46 / 12.93 |
+| Allocated objects/tick | 496 | 500 |
+
+The partial fingerprint matched, and all 1,350 committed frames of the run
+hashed identically over every exported field. In the window at the battle
+spot (`--live-trace`, 15 s, zoom 0.6, 120 fps, three alternating pairs) the
+simulation batch mean fell from 7.76, 7.80, 7.75 ms to 6.85, 6.81, 6.85 ms.
+Modern renderer `--shot` frames of Greenhaven at zoom 1 and 0.5 were byte
+identical.
+
+Each change on its own, HugeBattle publication proxy (ms/tick, medians of four
+to six alternating runs): the parallel unit channel 0.89 → 0.41 with three
+workers; the marked fog rebuild 0.38 → 0.29; resting features kept 0.30 → 0.26,
+with process CPU 3.68 → 3.58.
+
+Worker count, same scene and window, six alternating rounds: inline 0.52, two
+workers 0.31, three 0.27, four 0.24, six 0.25 ms/tick of publication proxy; six
+spent the most process CPU (3.73 ms/tick against 3.47–3.57) and four gave the
+lowest step p99. 16- and 64-unit chunks measured the same as 32. Under
+`GOMAXPROCS=1` the worker build cost about 0.02 ms/tick of publication over the
+inline one, with the same wall time.
+
+Measured and not adopted, as upper bounds on HugeBattle with the branch as the
+baseline (ms/tick of publication proxy):
+
+| Candidate | Upper bound | Why not |
+|---|---:|---|
+| No piece lanes at all (the case of a strategic view; an interest region would publish some) | 0.259 → 0.202 | needs a host-to-publication interest channel and first-frame lanes for the Enhanced blend; the lanes are built on the workers |
+| Order queues only for the viewer's and the local seat's units | 0.259 → 0.223 | the F11 developer overlay and the developer probe read any unit's queue; the snapshots run on the workers |
+| `Frame.Reset` leaving unit, queue and contact bodies uncleared | 0.274 → 0.259 | inside the run-to-run noise; a weaker reset contract for no measurable gain |
+| Visibility stamp table as a dense slice | profile share 0.2% of the tick | the stamp sweep's 3.9% is the observer ray walk (`visibility.Refresh` 3.3%), not the map write |

@@ -420,6 +420,20 @@ parity plus the camera phase `[03 §3.3]` `[03 R-RR16-A §1]`. `RebuildFogWindow
 sizes the cache to the camera viewport plus a one-cell border; `RebuildFog`
 builds it map-aligned. The cache never writes the word mask.
 
+A rebuild over the window the cache was last derived for re-derives only the
+cells whose input changed. The cache records each cell's two input bits; the
+per-cell writers mark a cell when the local player's byte crosses zero (an
+increment from 0 or wrapping from 255, a decrement from 1 or wrapping from 0, a
+saturating store) or its history bit is set, and while the marks are complete
+the rebuild visits only marked cells, in ascending index order — the full
+walk's row-major order restricted to the cells it would not skip — so both
+derive the same bytes and advance `FogVersion` together. Every other write to
+the inputs (the fills, the explored-map merge, a mode or local-player change)
+leaves the marks incomplete and the next rebuild compares every cell; the
+retail restore installs its saved word grid directly after `RebuildAll` and
+relies on that. The marks are presentation bookkeeping and no simulation read
+consults them.
+
 The four conditional border fixups that close the map's own edge are anchored to
 the **map** border, not to the cache window: cell row −1 and column −1 are the
 void lines the seeding reaches, and row `H−1` and column `W−1` are the last

@@ -52,6 +52,15 @@ type Service struct {
 	fogVersion             uint64
 	presentationIdentity   uint64
 	rebuildingPresentation bool
+	// fogDirty marks, one bit per visibility cell, each cell whose fog input
+	// may have changed since the fog cache last brought its recorded input up
+	// to date, and fogTracked says the marks are complete. The per-cell
+	// writers mark (markFogInput); every other write to the inputs — a fill,
+	// a merge, a mode or local-player change — clears fogTracked, and the
+	// next fog rebuild then compares every cell (RebuildFogWindow). This is
+	// presentation bookkeeping: it never feeds a simulation read [03 §3.3].
+	fogDirty   []uint64
+	fogTracked bool
 
 	// Authored raster inputs [03 §3.2]. Both nil means neither raster can
 	// publish, which is the correct answer for a fixture with no content.
@@ -184,6 +193,10 @@ func (s *Service) rebuildFills() {
 }
 
 // WordMask returns the word grid for diagnostics; callers must not mutate.
+// The one exception is the retail restore, which installs the saved explored
+// grid through it directly after RebuildAll; that rebuild leaves the fog
+// cache comparing every cell at its next rebuild, so the installed words
+// reach the fog without per-cell marks.
 func (s *Service) WordMask() []uint16 { return s.wordMask }
 
 // ByteGrid returns the per-player byte grid for diagnostics.
@@ -199,6 +212,7 @@ func (s *Service) ByteGrid(p PlayerID) []uint8 {
 func (s *Service) SetLocal(p PlayerID) {
 	if s != nil && validPlayer(p) && s.local != p {
 		s.local = p
+		s.fogTracked = false
 		s.invalidatePresentation()
 	}
 }
@@ -208,6 +222,9 @@ func (s *Service) SetLocal(p PlayerID) {
 // writes retain their existing invalidation rules [07 R-CAM-01 §6].
 func (s *Service) SetViewingPlayer(p PlayerID) {
 	if s != nil && validPlayer(p) {
+		if s.local != p {
+			s.fogTracked = false
+		}
 		s.local = p
 	}
 }
@@ -232,6 +249,7 @@ func (s *Service) SetMode(m Mode) {
 	next := m & semantic
 	if next != s.mode&semantic {
 		s.mode = s.mode&ModeFogCacheValid | next
+		s.fogTracked = false
 		s.invalidatePresentation()
 	}
 }
@@ -356,8 +374,21 @@ func (s *Service) setWordBit(idx int, owner PlayerID) bool {
 	if s.wordMask[idx]&bit == bit {
 		return false
 	}
+	if bit&^s.wordMask[idx]&cellBit(s.local) != 0 {
+		s.markFogInput(idx)
+	}
 	s.wordMask[idx] |= bit
 	return true
+}
+
+// markFogInput records that cell idx's fog input may have changed: the local
+// player's byte crossed zero or its history bit was set. Only the local
+// player's grids feed the fog (fogSource), so other owners' writes mark
+// nothing. Marks are kept only while the set is complete.
+func (s *Service) markFogInput(idx int) {
+	if s.fogTracked {
+		s.fogDirty[idx>>6] |= 1 << (uint(idx) & 63)
+	}
 }
 
 // coverageSaturates reports whether the bound rule carries the true overlap
@@ -399,6 +430,9 @@ func (s *Service) storeSaturatedByte(idx int, owner PlayerID, count uint64) {
 	if count > 255 {
 		count = 255
 	}
+	if owner == s.local && (s.byteGrids[owner][idx] == 0) != (count == 0) {
+		s.markFogInput(idx)
+	}
 	s.byteGrids[owner][idx] = uint8(count)
 }
 
@@ -437,7 +471,12 @@ func (s *Service) incOwnByteGrid(idx int, owner PlayerID, saturates bool) bool {
 	if s.wide[owner] != nil {
 		s.wide[owner] = nil
 	}
-	s.byteGrids[owner][idx]++
+	b := s.byteGrids[owner][idx]
+	s.byteGrids[owner][idx] = b + 1
+	// 0 becomes 1 and 255 wraps to 0: both cross zero.
+	if owner == s.local && (b == 0 || b == 0xff) {
+		s.markFogInput(idx)
+	}
 	return true
 }
 
@@ -477,7 +516,12 @@ func (s *Service) decOwnByteGrid(idx int, owner PlayerID, saturates bool) bool {
 	if s.wide[owner] != nil {
 		s.wide[owner] = nil
 	}
-	s.byteGrids[owner][idx]--
+	b := s.byteGrids[owner][idx]
+	s.byteGrids[owner][idx] = b - 1
+	// 1 becomes 0 and 0 wraps to 255: both cross zero.
+	if owner == s.local && b <= 1 {
+		s.markFogInput(idx)
+	}
 	return true
 }
 

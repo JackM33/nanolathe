@@ -32,6 +32,7 @@ func (s *Service) linkActive(inst *Instance) {
 	if inst == nil || inst.onActive {
 		return
 	}
+	s.touchPublication(inst)
 	inst.onActive = true
 	inst.prevActive = nil
 	inst.nextActive = s.activeHead
@@ -57,6 +58,7 @@ func (s *Service) unlinkActive(inst *Instance) {
 	if inst == nil || !inst.onActive {
 		return
 	}
+	s.touchPublication(inst)
 	inst.onActive = false
 	if inst.prevActive != nil {
 		inst.prevActive.nextActive = inst.nextActive
@@ -77,6 +79,7 @@ func (s *Service) unlinkActive(inst *Instance) {
 func (s *Service) attachEventRecord(inst *Instance) {
 	s.billArena(inst)
 	if inst != nil {
+		s.touchPublication(inst)
 		inst.runtimeLive = true
 		shadow := eventShadowName(inst.Def, inst.AnimationSelector)
 		inst.runtimeShadowEnabled = isSpriteDef(inst.Def) && shadow != "" &&
@@ -101,6 +104,7 @@ func (s *Service) releaseArena(inst *Instance) {
 	if inst == nil || !inst.arenaBilled {
 		return
 	}
+	s.touchPublication(inst)
 	inst.arenaBilled = false
 	inst.runtimeLive = false
 	inst.runtimeShadowEnabled = false

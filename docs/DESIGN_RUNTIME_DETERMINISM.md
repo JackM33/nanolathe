@@ -347,6 +347,69 @@ Removing the unused feature contact projection reduces this internal diagnostic
 channel without changing gameplay or rendered output: the minimap, strategic
 icons and megamap already ignore that record kind.
 
+**Parallel publication.** The unit channel — every live unit's view (with its
+piece lanes, cargo and Community HUD operands), its order-queue view and its
+radar contact — is built on joined worker goroutines while the calling
+goroutine builds the frame's other channels; this is the publication case of
+INVARIANTS I1 "Parallel simulation exception". `publish_units.go` holds the
+one per-unit body every executor runs; `publish_parallel.go` holds the
+channel. The frame is the inline build's, byte for byte:
+
+* Everything order-dependent is decided on the calling goroutine before a
+  worker starts: the live list in pool-slot order, each unit's presentation
+  identity in that order, which units publish an order queue (a queue with a
+  record in either segment), and therefore every element's index. The Community
+  reload-name table, built on first use, is built there too.
+* The list is cut into 32-unit chunks, a function of the unit count alone.
+  Executors claim chunks from one counter; a chunk writes only its own units'
+  view, contact and queue elements, at their final indices, reusing the
+  storage those elements already hold. The calling goroutine claims whatever
+  is left once its own part of the frame is built, then joins.
+* Workers read only committed state, and the calling goroutine's overlapped
+  work writes only the frame's other channels and its own caches. The one
+  publication step that writes a word a worker reads — the fog rebuild, which
+  sets the fog-valid bit of the mode word every visibility sample reads —
+  runs before the channel starts.
+* The channel joins before the radar channel's projectile contacts are
+  appended after the unit contacts, before the developer observation reads
+  the unit views, and before the commit. A worker's panic is raised again on
+  the calling goroutine after the join; an earlier panic still joins the
+  workers before the slot can be written again.
+
+At most four workers start, a fixed count; fewer than 128 live units build
+inline through the same chunk loop. On a host with one processor the workers
+interleave on it and produce the same frame. A fast-tier fixture and a retail
+busy battle publish one committed tick inline and with workers and compare
+every exported field (`publish_parallel_test.go`,
+`publish_parallel_retail_test.go`); both run under the race detector. On
+HugeBattle (754 live units) the publication's serial stretch fell from about
+0.70 to 0.23 ms per tick (docs/SIM_BENCHMARK.md "Publication, 2026-10-15").
+
+Every unit's queue and piece lanes are published, not only the viewer's or
+those near the camera: the F11 developer overlay's footer caption reads any
+hovered unit's queue, the developer probe lists any unit's, and the Enhanced
+blend needs a unit's lanes in both committed ticks it pairs. Both are built on
+the workers.
+
+**Feature publication.** Each frame slot keeps, per feature element, the inputs
+its view was built from and the record's publication revision
+(`feature_publication.go`). A record off the feature active list whose slot
+element was built at its current revision is kept without reading anything
+else: off the list, every change to a view input renews the revision — joining
+or leaving the list (ignition, a die or reclaim transition, a stamp, the
+dormant move, a submerged start), taking or releasing the runtime record, and
+the session's wreck-heat table gaining or losing the record
+(`features/publication.go`). A record on the list can change on any visit and
+is compared in full every publication, as are new and renewed records; a view
+is rebuilt only when its inputs differ. A reset of the whole instance set
+changes an epoch every slot compares. The revision is presentation
+bookkeeping: no simulation read, save or checkpoint carries it. A fixture that
+writes a resting record directly renews its revision itself
+(`MarkPublicationChanged`). `Session.verifyFeatureRevisions` reads and compares
+every record and panics on a view that changed without its revision; the
+retail busy-battle test runs with it on, and the session, headless, command
+and client retail suites pass with it forced on.
+
 **The paused boundary.** A pump with the pause bit set runs no sub-tick, and the
 input queue's only consumer is phase 1. The boundary that drains that queue and
 republishes the committed tick — without advancing the global tick, the

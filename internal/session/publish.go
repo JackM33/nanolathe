@@ -11,7 +11,6 @@ import (
 	"github.com/nanolathe-gg/nanolathe/internal/economy"
 	"github.com/nanolathe-gg/nanolathe/internal/features"
 	"github.com/nanolathe-gg/nanolathe/internal/frame"
-	"github.com/nanolathe-gg/nanolathe/internal/orders"
 	"github.com/nanolathe-gg/nanolathe/internal/pool"
 	"github.com/nanolathe-gg/nanolathe/internal/sim/numeric"
 	"github.com/nanolathe-gg/nanolathe/internal/units"
@@ -238,6 +237,33 @@ func (s *Session) publishFrame(tick uint32, paused bool) {
 		published.Strip.ActiveSpeed = s.Clock.Active
 		published.Strip.RequestedSpeed = s.Clock.Requested
 	}
+	// The fog cache is rebuilt before the unit channel starts. The rebuild
+	// writes the fog-valid bit of the visibility mode word, which every
+	// unit's visibility sample reads, so it may not overlap the workers; the
+	// cache is copied into the frame below (publish_parallel.go).
+	if s.Vis != nil {
+		s.Vis.RebuildFog(0, 0)
+	}
+	// The unit channel — views, order queues and unit radar contacts — is
+	// started here and joined before the radar channel below; the frame's
+	// other channels are built while it runs (publish_parallel.go).
+	var channel *unitChannel
+	if s.Units != nil {
+		channel = s.startUnitChannel(published, viewer, reveal)
+		// A panic that unwinds the publication early still joins the workers
+		// before the frame slot can be written again; after the ordinary
+		// join below this is a no-op.
+		defer s.abandonUnitChannel(channel)
+		// The local seat. The selection, the build page and the command page are
+		// the client's local interface state (DESIGN_MULTIPLAYER §7.3): the host
+		// composes them onto the frames it presents (frame.SelectionView,
+		// hud.ComposeCommandPage), so this publication leaves them at their zero
+		// value and copies each status word as the simulation holds it. Only a
+		// retail save's restore writes a selected bit there; the host seeds its
+		// selection from those words once (hud.LocalInterface.AdoptStatusWords)
+		// and composes its own bit over them.
+		published.Selection.LocalPlayer = s.LocalOwner
+	}
 	if s.publication != nil && s.publication.effects != nil {
 		published.Effects = s.publication.effects.SnapshotInto(published.Effects)
 	} else {
@@ -250,209 +276,6 @@ func (s *Session) publishFrame(tick uint32, paused bool) {
 	// is the one writer of the committed strip channel, and it runs once per
 	// tick inside the publication boundary [I6].
 	published.Strips = s.appendStripViews(tick, published.Strips[:0])
-	if s.Units != nil {
-		views := published.Units[:0]
-		orderQueues := published.OrderQueues[:0]
-		s.publishUnitScratch = s.Units.AppendLive(s.publishUnitScratch[:0]) // pool slot ascending (I1)
-		for _, u := range s.publishUnitScratch {
-			if u == nil || !u.Alive {
-				continue
-			}
-			// The view is built THROUGH the destination element rather than
-			// as a value the append then copies: UnitView is 256 bytes and
-			// this loop runs for every live unit every tick, which made the
-			// copy alone a measurable share of the publication [I6].
-			views = reserveUnitView(views)
-			vp := &views[len(views)-1]
-			pieces, cargo := vp.Pieces, vp.Cargo
-			*vp = frame.UnitView{
-				InstanceID:        publication.unitIdentity(u),
-				Slot:              u.Handle,
-				AllocationSerial:  u.AllocationSerial,
-				Owner:             u.Owner,
-				X:                 u.X,
-				Y:                 u.Y,
-				Z:                 u.Z,
-				Health:            u.Health,
-				PriorHealthSample: u.PriorSample,
-				MaxHealth:         u.MaxHealth,
-				BuildRemaining:    u.Remaining,
-				Flags:             s.sensorStatus(viewer, u),
-				Heading:           u.Move.Heading,
-				Pitch:             u.Move.Pitch,
-				Bank:              u.Move.Bank,
-				Activated:         u.Activated,
-				CloakRequested:    u.IsCloaked,
-				Kills:             u.Kills,
-				// The unit painter's pass selector is the committed low two
-				// bits of the mover mode word, never a screen coordinate
-				// [03 R-RAST-01 §7][04 R-MOV-01 §8].
-				MoverMode: publishedMoverMode(u),
-				// Step 2 of the visibility gate [03 §3.2], published as its two
-				// inputs so presentation never has to guess at cloak state.
-				// The published bit is the INSTANCE cloaked bit, not the
-				// request: a unit whose owner could not pay this pass is drawn
-				// [05 R-ECO-01 §9] (WU-19-92).
-				Cloaked:    u.Hidden,
-				Decloaking: s.sensorStatus(viewer, u)&visibility.DecloakBit != 0,
-				// The carrier link the unit painter's per-unit present needs:
-				// a carried child is drawn with its carrier, not only as its
-				// own bucket entry [03 R-RAST-01 §7][04 R-UNIT-06 §3].
-				Carrier:      u.Attachment.Carrier,
-				CarriedPiece: publishedCarriedPiece(u.Attachment.AttachPiece),
-				// The health-bar pass draws '0'+Group beside the bar of a unit
-				// whose group number is nonzero [03 R-FX-01 §6][07 §9].
-				Group: u.Group,
-			}
-			vp.CommunityHUD = s.publishCommunityHUD(u)
-			vp.PatrolWork = s.publishedPatrolWork(u)
-			vp.Pieces = pieces[:0]
-			vp.Cargo = cargo[:0]
-			// The footer's four rate fields read the archived production and
-			// requested totals of the most recent settlement pass, not the
-			// definition constants [07 R-HUD-03 §2][05 R-ECO-01 §5].
-			if s.Econ != nil {
-				archived := s.Econ.UnitArchived(u.Handle)
-				vp.ArchivedMetalMake = archived[economy.Metal].Production
-				vp.ArchivedEnergyMake = archived[economy.Energy].Production
-				vp.ArchivedMetalUse = archived[economy.Metal].Requested
-				vp.ArchivedEnergyUse = archived[economy.Energy].Requested
-			}
-			// The owner logo the footer blits at LOGO2 is the logos frame at the
-			// owner's lobby colour index [07 R-HUD-03 §2]; it is the same
-			// selector the minimap contacts already carry.
-			vp.OwnerColor, vp.OwnerColorKnown = radarOwnerPalette(s, u.Owner, true)
-			// The heading published is the unit record's own word and nothing
-			// else. There is exactly one heading word — "the unit's current
-			// heading word", the one the steering step just turned
-			// [04 §8.1][R-MOV-01 §4] — and every mover surface beside it is a
-			// copy that surface's own step maintains (I13).
-			//
-			// This used to prefer the ground steer record's copy, falling back
-			// to the flight record and then to the collision record. Every unit
-			// gets a steer record at EnsureUnit, including an aircraft, and the
-			// air mover writes the unit record and the collision record but
-			// never the steer — so an aircraft published the heading its steer
-			// was seeded with at creation and never turned into the direction it
-			// was flying. Reading the record itself is both correct and
-			// unambiguous: the ground commit writes the record and both mirrors
-			// together, so no reachable state has them disagreeing.
-			if u.Def != nil {
-				vp.DefName = u.Def.CanonicalKey
-				vp.Model = u.Def.ObjectName
-				vp.FootX = int8(u.Def.FootprintX)
-				vp.FootZ = int8(u.Def.FootprintZ)
-				if u.StructureFacing&1 != 0 {
-					vp.FootX, vp.FootZ = vp.FootZ, vp.FootX
-				}
-				// Structure-builder classification follows the factory arm, never
-				// authored CanMove (stock factories author CanMove) [04 R-FAC-02 §1].
-				vp.IsFactory = u.Def.Builder && u.Def.BMCode == 0
-				vp.BMCode = u.Def.BMCode != 0 // model-shading class gate [R-RND-02A]
-				vp.ZBuffer = u.Def.ZBuffer    // composition height plane [R-REN-03A §2]
-				// Model shadow gate and digger clip [R-REN-03D §1][R-REN-03A §8].
-				vp.NoShadow = u.Def.NoShadow
-				vp.CanHover = u.Def.CanHover
-				vp.Floater = u.Def.Floater
-				vp.Waterline = u.Def.Waterline
-				vp.Digger = u.Def.Digger
-				if id := s.Units.DefIDForHandle(u.Handle); id != 0 {
-					vp.DefID = id
-				}
-				// Fixed vs mobile image-cache selector: retail uses runtime flag
-				// (the unit's build-state bit and construction fraction) [rr-10],
-				// but definition-level MaxVelocity==0 reliably identifies buildings
-				// (all 21 factories and labs have 0, mobile have >0) and matches
-				// the 2x building supersample expectation without needing runtime flags.
-				if u.Def.MaxVelocity == 0 {
-					vp.IsBuilding = true
-				}
-			}
-			// The queued-order range overlay reads the live enabled bit for each
-			// weapon slot, including retail's slot-three/slot-one gate asymmetry.
-			// Publish the three value bits rather than exposing a slot or definition
-			// pointer across the presentation boundary [06 R-WPN-05 §3]
-			// [07 R-P0-11 §3][I6].
-			for slot := range vp.EnabledWeaponSlots {
-				vp.EnabledWeaponSlots[slot] = u.SlotAt(slot).IsEnabled()
-			}
-			// The held-round byte a MAKENUKE/MAKEANTI toy prints: the order
-			// alias's build type is always zero and every shipped stockpile
-			// weapon sits in slot 0, so slot 0's completed-round remainder is
-			// the byte [07 R-P0-11 §2][06 §11.1][06 R-WPN-05 §2]. The host's
-			// command page reads it for its page unit (CommandPageView).
-			if slot := u.SlotAt(0); slot != nil {
-				vp.StockpileRounds = slot.Ammo
-			}
-			// Copy the linkage owner's traversal order; it can change without
-			// allocation when a child is detached and reattached [04 R-UNIT-06 §3].
-			vp.Cargo = append(vp.Cargo, u.Attachment.Cargo...)
-			// The hull extents and the underwater-exemption bit of the
-			// four-point visibility gate [03 §3.2] steps 3 and 5.
-			publishHullGateInputs(vp, u)
-			vp.UnderwaterExempt = s.sensorStatus(viewer, u)&visibility.SonarBit != 0
-			if s.Vis != nil {
-				vp.DirectVisibilityKnown = true
-				vp.DirectlyVisible = reveal || s.Vis.IsVisible(visibility.PlayerID(viewer), unitVisibilityTarget(u, s.sensorStatus(viewer, u)))
-			}
-			if vm := u.GetScript(); vm != nil {
-				// CacheRevision is copied at the publication boundary; consuming or
-				// clearing it here would make presentation cadence authoritative.
-				vp.CacheRevision = vm.CacheRevision()
-				vp.CacheValidityRevision = vm.CacheValidityRevision()
-				var link []int
-				if b := u.COBBinding(); b != nil && b.VM == vm {
-					link = b.PieceMap
-				}
-				vp.Pieces = appendPieceViews(vp.Pieces[:0], vm, link)
-			}
-			if q := orders.QueueOfUnit(u); q != nil && (q.LenPrimary() > 0 || q.LenSecondary() > 0) {
-				activeHead := q.Head()
-				// One staging value serves every unit and every tick: the
-				// snapshot is copied straight into the committed frame's own
-				// reused storage below, so nothing outlives the next call.
-				queue := orders.SnapshotQueueInto(s.orderSnapshotScratch, q, u.Handle, func(n *orders.Node) []orders.SnapshotRoutePoint {
-					// A route is authoritative only for the node that activated it;
-					// movement.Route is keyed by unit for that active binding. Do not
-					// attach a stale route to a queued node [04 §7.3].
-					if n == nil || n != activeHead || s.Movement == nil {
-						return nil
-					}
-					r := s.Movement.Routes[u.Handle]
-					if r == nil || !r.Active || r.Count == 0 {
-						return nil
-					}
-					points := s.routePointScratch
-					if cap(points) < int(r.Count) {
-						points = make([]orders.SnapshotRoutePoint, int(r.Count))
-					}
-					points = points[:int(r.Count)]
-					for i := range points {
-						p := r.Points[i]
-						// Route points are already integer world coordinates; only
-						// add the fixed fraction here [04 R-MOV-01 §3]. Treating
-						// them as cells stretches the Shift trail sixteenfold.
-						points[i] = orders.SnapshotRoutePoint{X: numeric.Fixed(p.X) << 16, Z: numeric.Fixed(p.Z) << 16}
-					}
-					s.routePointScratch = points
-					return points
-				})
-				orderQueues = appendOrderQueueView(orderQueues, queue, s.Catalog)
-				s.orderSnapshotScratch = queue
-			}
-		}
-		published.Units = views
-		published.OrderQueues = orderQueues
-		// The local seat. The selection, the build page and the command page are
-		// the client's local interface state (DESIGN_MULTIPLAYER §7.3): the host
-		// composes them onto the frames it presents (frame.SelectionView,
-		// hud.ComposeCommandPage), so this publication leaves them at their zero
-		// value and copies each status word as the simulation holds it. Only a
-		// retail save's restore writes a selected bit there; the host seeds its
-		// selection from those words once (hud.LocalInterface.AdoptStatusWords)
-		// and composes its own bit over them.
-		published.Selection.LocalPlayer = s.LocalOwner
-	}
 	// Visibility masks are copied for the viewing player; their
 	// mode-dependent/raw representation remains owned by visibility [03 §3.1–§3.2].
 	// Radar is a separate presentation surface, not a mask
@@ -464,7 +287,6 @@ func (s *Session) publishFrame(tick uint32, paused bool) {
 		// Step 3 of the gate compares against the scaled sea-level byte, never
 		// against zero [03 §3.2][03 §2.2].
 		published.Visibility.SeaLevel = publishedSeaLevel(s.World)
-		s.Vis.RebuildFog(0, 0)
 		if fc := s.Vis.Fog(); fc != nil {
 			version := s.Vis.FogVersion()
 			source := s.Vis.PresentationIdentity()
@@ -615,137 +437,6 @@ func (s *Session) publishFrame(tick uint32, paused bool) {
 			published.Projectiles = append(published.Projectiles, pv)
 		}
 	}
-	// Radar contacts and callback circles are copied only after all
-	// authoritative pools have been traversed. Presentation therefore receives
-	// one coherent tick-end view and never needs to bind callbacks or inspect
-	// mutable session services [03 §3.4][03 §3.9].
-	published.Radar.BlinkPhase = s.RadarBlinkPhase() // completed phase 12 [01 R-CORE-03]
-	published.Radar.Contacts = published.Radar.Contacts[:0]
-	// The destination slot's previous contents are still live in the backing
-	// array beneath the truncated length above (Reset kept every capacity,
-	// including each contact's nested Rings backing array, truncated to
-	// length zero). Re-slicing to the full capacity recovers them so the loop
-	// below can hand a unit's contact its old ring storage back instead of
-	// growing a fresh slice every armed unit, every tick [03 §3.9] (R05).
-	existingContacts := published.Radar.Contacts[:cap(published.Radar.Contacts)]
-	// The debug display mode is session state written only by the film-mode key
-	// set [03 §3.12][07 R-CAM-01 §9]. Preserve its exact value; presentation
-	// must not manufacture a mode at the frame boundary [I6]. The frame field's
-	// "MarkerMode" name predates the trace that identified the byte.
-	published.Radar.MarkerMode = s.DebugDisplayMode
-	published.Radar.MappingLOS = uint8(s.Vis.Mode()) & 3
-	if s.Units != nil {
-		s.radarUnitScratch = s.Units.AppendLive(s.radarUnitScratch[:0]) // pool slot ascending (I1)
-		for _, u := range s.radarUnitScratch {
-			if u == nil || !u.Alive {
-				continue
-			}
-			status := s.sensorStatus(viewer, u)
-			active := u.Activated
-			onOffable := false
-			// The contact's cloak input is the INSTANCE cloaked bit and
-			// nothing else. `init_cloaked` is consumed once, by the
-			// constructor, and no longer feeds this predicate
-			// [03 R-VIS-01 §6][05 R-ECO-01 §9] (RWU-19-26); the definition's
-			// `stealth` flag no longer feeds it either, because stealth
-			// suppresses radar and sonar detection and never line of sight
-			// [03 R-VIS-01 §5]. Stealth still travels beside it, as its own
-			// field, for the minimap blink gate of [03 §3.9] — the two are
-			// distinct inputs and must not be folded.
-			// The INSTANCE cloaked bit, never the request (WU-19-92).
-			hidden := u.Hidden
-			stealth := false
-			if u.Def != nil {
-				stealth = u.Def.Stealth
-				onOffable = u.Def.OnOffable
-			}
-			// Sensor status remains latched between due passes, but activation,
-			// cloak and definition inputs are current unit state at publication
-			// [03 R-VIS-01 §4][03 §3.9]. A detached sensor snapshot may still
-			// describe a prior occupant of this pool slot.
-			ownerKnown := u.Owner < 10
-			palette, paletteKnown := radarOwnerPalette(s, u.Owner, ownerKnown)
-			// The contact status word's selected/range-status bit, which the
-			// later circle branch reads, is the local selection: the host
-			// composes it (frame.RadarContactView). The status word the
-			// simulation holds carries no selected bit at a tick boundary.
-			status &^= units.SelectedStatus
-			contactIdx := len(published.Radar.Contacts)
-			contact := frame.RadarContactView{
-				Kind: frame.RadarContactUnit, Handle: u.Handle, Owner: u.Owner, OwnerKnown: ownerKnown,
-				X: u.X, Y: u.Y, Z: u.Z, Status: status,
-				Hidden: hidden, Stealth: stealth, Active: active,
-				OnOffable: onOffable,
-				// The damage-flash byte of [06 R-WPN-04 §2], the blink gate's
-				// per-unit term [03 §3.9]. The sim record holds it signed (the
-				// sweep decrements -16 up to zero); the frame carries retail's
-				// unsigned byte, so the wrap back to 240 is the conversion, not
-				// a reinterpretation — presentation tests the byte against zero
-				// and never for a magnitude.
-				BlinkSuppress: uint8(u.BlinkSuppress),
-				Seen:          status&visibility.SeenBit != 0,
-				Friendly:      status&visibility.FriendlyMask != 0,
-				Visible:       reveal || u.Owner == viewer || status&visibility.SeenBit != 0,
-				Palette:       palette, PaletteKnown: paletteKnown,
-			}
-			if contactIdx < len(existingContacts) {
-				// Reuse the slot's previous ring backing array (already
-				// truncated to zero length by Reset, capacity intact) instead
-				// of appending into a fresh nil slice [03 §3.9] (R05).
-				contact.Rings = existingContacts[contactIdx].Rings[:0]
-			}
-			if u.Def != nil {
-				contact.Graphic = u.Def.ObjectName
-				// The selected-unit circle gate of [03 §3.9] "Selected-unit
-				// circle gate correction" (Established): the selected/range-status
-				// bit must be set, and the circles are then drawn when the
-				// instance is active OR the definition's on/off bit is clear. An
-				// inactive on/off-capable unit therefore publishes no range
-				// distances, while a unit without that capability stays eligible.
-				// The selected half is the host's local selection, so this
-				// publishes the activation half and the distances it admits, and
-				// the host composes RangeStatus from the two.
-				// This is the ONLY producer of minimap circles — the sensor phase
-				// rasterizes nothing [03 §3.10] correction of 2026-08-29.
-				contact.RangeEligible = active || !onOffable
-				if contact.RangeEligible {
-					contact.RadarDistance = u.Def.RadarDistance
-					contact.SonarDistance = u.Def.SonarDistance
-					contact.RadarJam = u.Def.RadarDistanceJam
-					contact.SonarJam = u.Def.SonarDistanceJam
-				}
-				// The blink-suppress input is now published above, from the
-				// unit's damage-flash byte [06 R-WPN-04 §2]. There is no authored
-				// `noradar` key to go with it: the unit parser loads none, and the
-				// selected-unit circle gate reads `onoffable` instead
-				// ([03 §3.9] "Selected-unit circle gate correction").
-				for slot := 0; slot < units.NumSlots; slot++ {
-					ws := u.SlotAt(slot)
-					if ws == nil || ws.Weapon == nil {
-						continue
-					}
-					contact.Rings = append(contact.Rings, frame.RadarRingView{
-						// antiweapons enables the unit loop; interceptor admits
-						// each weapon ring [02 R-KEYS-01 §1][03 §3.9].
-						Enabled:   u.Def.AntiWeapons && ws.Weapon.Interceptor,
-						Dashed:    ws.Weapon.Interceptor,
-						Range:     s.Combat.InterceptorRingRadius(ws.Weapon),
-						Intercept: ws.Weapon.Interceptor,
-					})
-				}
-			}
-			published.Radar.Contacts = append(published.Radar.Contacts, contact)
-		}
-	}
-	for _, p := range published.Projectiles {
-		owner := p.Owner
-		palette, paletteKnown := radarOwnerPalette(s, owner, p.OwnerKnown)
-		published.Radar.Contacts = append(published.Radar.Contacts, frame.RadarContactView{
-			Kind: frame.RadarContactProjectile, Handle: p.Handle, Owner: owner, OwnerKnown: p.OwnerKnown, Palette: palette, PaletteKnown: paletteKnown, X: p.X, Y: p.Y, Z: p.Z,
-			Graphic: p.Graphic, AssetID: p.AssetID, Status: p.Flags, RadarArt: p.RadarArt,
-			Visible: reveal || radarPointVisible(s, owner, p.OwnerKnown, p.X, p.Y, p.Z),
-		})
-	}
 	if s.Build != nil && s.Units != nil {
 		// BuilderLinks is the construction service's authoritative product→builder
 		// relation [05 C18]. SnapshotLinks provides deterministic product order;
@@ -865,6 +556,34 @@ func (s *Session) publishFrame(tick uint32, paused bool) {
 		published.Events = s.publication.events.SnapshotEventsInto(published.Events)
 	} else {
 		published.Events = published.Events[:0]
+	}
+	// Radar contacts and callback circles are copied only after all
+	// authoritative pools have been traversed. Presentation therefore receives
+	// one coherent tick-end view and never needs to bind callbacks or inspect
+	// mutable session services [03 §3.4][03 §3.9].
+	published.Radar.BlinkPhase = s.RadarBlinkPhase() // completed phase 12 [01 R-CORE-03]
+	// The debug display mode is session state written only by the film-mode key
+	// set [03 §3.12][07 R-CAM-01 §9]. Preserve its exact value; presentation
+	// must not manufacture a mode at the frame boundary [I6]. The frame field's
+	// "MarkerMode" name predates the trace that identified the byte.
+	published.Radar.MarkerMode = s.DebugDisplayMode
+	published.Radar.MappingLOS = uint8(s.Vis.Mode()) & 3
+	// The unit channel joins here: its views, order queues and one contact per
+	// live unit, in pool order, are installed before the projectile contacts
+	// follow them (publish_units.go).
+	if channel != nil {
+		s.finishUnitChannel(published, channel)
+	} else {
+		published.Radar.Contacts = published.Radar.Contacts[:0]
+	}
+	for _, p := range published.Projectiles {
+		owner := p.Owner
+		palette, paletteKnown := radarOwnerPalette(s, owner, p.OwnerKnown)
+		published.Radar.Contacts = append(published.Radar.Contacts, frame.RadarContactView{
+			Kind: frame.RadarContactProjectile, Handle: p.Handle, Owner: owner, OwnerKnown: p.OwnerKnown, Palette: palette, PaletteKnown: paletteKnown, X: p.X, Y: p.Y, Z: p.Z,
+			Graphic: p.Graphic, AssetID: p.AssetID, Status: p.Flags, RadarArt: p.RadarArt,
+			Visible: reveal || radarPointVisible(s, owner, p.OwnerKnown, p.X, p.Y, p.Z),
+		})
 	}
 	s.publishDeveloper(published)
 	if err := s.commitFrame(tick, paused); err != nil {
