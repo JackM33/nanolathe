@@ -104,7 +104,7 @@ func (s *GAFSource) Frame(name string, index int, maxPixels uint64) (*GAFFrame, 
 		return nil, err
 	}
 	frames := make(map[*GAFMetadataFrame]*GAFFrame, len(seen))
-	frame, err := materializeGAFFrame(s.data, root, frames)
+	frame, err := materializeGAFFrame(s.data, root, frames, true)
 	if err != nil {
 		return nil, err
 	}

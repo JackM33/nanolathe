@@ -69,7 +69,13 @@ That gives the boundary its shape, and the shape is a one-way valve.
   named by reachable rest/shadow art are also loaded before drawing: an
   unrelated event may previously have loaded one incidentally, and narrowing
   must not move that decode into Draw. A requested bank still materializes all
-  its entries. Any new runtime producer that can introduce an
+  its entries. Feature banks use `formats.LoadGAFDecodedFile`: decoded raw/RLE
+  images, ordinary composite rasters and ordered children remain identical,
+  but no separate encoded RLE raster is retained for `DirectRaster`. Neither
+  feature bodies nor their shadows read that representation. The independently
+  loaded model textures, visibility masks and on-demand effects keep their
+  direct-storage views. This also applies to shared settings-preview feature
+  banks. Any new runtime producer that can introduce an
   unrelated feature definition must extend the setup roots before using this
   warm policy.
 

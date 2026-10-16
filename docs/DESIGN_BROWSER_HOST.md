@@ -223,6 +223,14 @@ nothing, and each predicted miss recorded that frame a second time: 22% of
 frames in the 750-unit stress fixture. The asynchronous simulation (§13.13 there)
 is unchanged; switching it off measured no difference on one thread.
 
+Feature-sprite banks prepare the same complete decoded images without keeping
+the additional encoded RLE rasters that only direct-storage readers need
+(DESIGN_PRESENTATION_CLIENT §1; [fmt gaf]). The Town & Country stress fixture's
+feature banks contained about 98 MiB of those unused byte planes. Both ordinary
+battles and settings-preview feature banks use the smaller product; model
+textures, visibility masks and on-demand effects keep their direct views.
+The dated browser comparison is in [web/README](../web/README.md).
+
 Go's collector shares the thread too. Its idle mark worker is not interrupted by
 browser events, so the rest of a cycle's marking finishes inside one browser
 task. In the 750-unit stress fixture that task took 109–117 ms (176–224 ms

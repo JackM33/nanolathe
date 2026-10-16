@@ -401,7 +401,7 @@ func walkGAFRLE(data []byte, meta *GAFMetadataFrame, out *GAFFrame, budget *gafM
 	return nil
 }
 
-func materializeGAF(data []byte, meta *GAFMetadata) (*GAF, error) {
+func materializeGAF(data []byte, meta *GAFMetadata, keepDirectRaster bool) (*GAF, error) {
 	gaf := &GAF{Version: meta.Version, EntryCount: meta.EntryCount, Unknown: meta.Unknown, Entries: make([]GAFEntry, 0, len(meta.Entries))}
 	entries := make(map[uint32]GAFEntry)
 	frames := make(map[*GAFMetadataFrame]*GAFFrame)
@@ -414,7 +414,7 @@ func materializeGAF(data []byte, meta *GAFMetadata) (*GAF, error) {
 		entry := GAFEntry{Name: source.Name, FrameCount: source.FrameCount, Unknown1: source.Unknown1, Unknown2: source.Unknown2, Frames: make([]GAFFrameRef, len(source.Frames))}
 		for j := range source.Frames {
 			ref := source.Frames[j]
-			frame, err := materializeGAFFrame(data, ref.Frame, frames)
+			frame, err := materializeGAFFrame(data, ref.Frame, frames, keepDirectRaster)
 			if err != nil {
 				return nil, err
 			}
@@ -426,7 +426,7 @@ func materializeGAF(data []byte, meta *GAFMetadata) (*GAF, error) {
 	return gaf, nil
 }
 
-func materializeGAFFrame(data []byte, meta *GAFMetadataFrame, cache map[*GAFMetadataFrame]*GAFFrame) (*GAFFrame, error) {
+func materializeGAFFrame(data []byte, meta *GAFMetadataFrame, cache map[*GAFMetadataFrame]*GAFFrame, keepDirectRaster bool) (*GAFFrame, error) {
 	if frame, ok := cache[meta]; ok {
 		return frame, nil
 	}
@@ -450,7 +450,7 @@ func materializeGAFFrame(data []byte, meta *GAFMetadataFrame, cache map[*GAFMeta
 		}
 		frame.Subframes = make([]*GAFFrame, len(meta.Subframes))
 		for i, childMeta := range meta.Subframes {
-			child, err := materializeGAFFrame(data, childMeta, cache)
+			child, err := materializeGAFFrame(data, childMeta, cache, keepDirectRaster)
 			if err != nil {
 				return nil, err
 			}
@@ -474,7 +474,7 @@ func materializeGAFFrame(data []byte, meta *GAFMetadataFrame, cache map[*GAFMeta
 	// A direct consumer sees the encoded bytes, even on an RLE frame. Preserve
 	// at most one raster under the existing per-frame geometry budget. A short
 	// file span is rejected by DirectRaster, without rejecting ordinary decode.
-	if end := uint64(meta.DataOffset) + uint64(pixelCount); end <= uint64(len(data)) {
+	if end := uint64(meta.DataOffset) + uint64(pixelCount); keepDirectRaster && end <= uint64(len(data)) {
 		view := *frame
 		view.Compressed = 0
 		view.Pixels = append([]byte(nil), data[meta.DataOffset:end]...)

@@ -1395,7 +1395,7 @@ func (c *Client) featureGAFFor(filename string) (*formats.GAF, error) {
 		return nil, err
 	}
 	path := "anims/" + key + ".gaf"
-	gaf, err := formats.LoadGAFFile(c.modelFS, path)
+	gaf, err := formats.LoadGAFDecodedFile(c.modelFS, path)
 	if err != nil {
 		c.featureGACErr[key] = err
 		return nil, err

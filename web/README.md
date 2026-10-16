@@ -324,6 +324,55 @@ its own partner. The audio reader's benchmark fell from 202 to 90 µs per second
 of panned PCM natively and from 918 to 429 µs under Node's Wasm. Profiles,
 traces and captures remain outside the repository.
 
+## Feature-animation storage — 2026-10-15
+
+Feature sprites now load the same validated, fully decoded banks without the
+extra encoded RLE views used by direct-storage consumers. A setup-only inventory
+of the Town & Country fixture found 98.2 MiB of these unused byte planes, plus
+their frame headers. All feature entries and event pixels remain prepared
+before drawing. Model/projectile textures, visibility masks and on-demand
+effect loading retain their existing direct views.
+
+Two alternating captures per build used headless desktop Chromium 155 on the
+macOS arm64 host, Go 1.27.1, Modern rendering/gameplay, sparse terrain and
+GOGC=50, 800×600 logical pixels and a 1400×900 browser viewport. The Town &
+Country fixture had three 250-unit armies and seed 7. The minimap camera was
+moved to the fight before each window; capture images were inspected. Each
+focused window lasted 35 seconds, beginning around tick 750 (the exported
+one-second samples span ticks 781–1840 across the four runs).
+
+| Browser measurement | Before | Decoded-only feature banks |
+| --- | ---: | ---: |
+| Mean composed FPS | 59.73–59.81 | 59.41–59.60 |
+| Mean simulation ticks/s | 30.00 | 30.00–30.01 |
+| Go heap after a post-window forced collection | 730–789 MiB | 621–623 MiB |
+| Peak sampled Wasm capacity | 990–1,043 MiB | 835–845 MiB |
+| Mean host Draw work | 7.80–8.31 ms | 7.54–7.74 ms |
+
+GC tracing in the second pair measured 123 ms of marking in the post-window
+forced collection before, and 89 ms after. This is one diagnostic pair, outside
+the measured frame window. The short browser runs establish the memory
+reduction and near-cap throughput; they do not establish a sustained FPS gain
+or eliminate long collection tasks. Collection timing also changes which
+temporary buffers survive, so total heap differences exceed the omitted byte
+planes in some runs. Go heap and Wasm capacity exclude browser/GPU memory.
+
+Native acceptance used the version-2, scene-5 Expanded Confluence benchmark,
+seed 7, 1920×1080, two runtime workers, 300 pre-window ticks, 60 warmup draws
+and 180 measured draws at 30 Hz, with remaster synthesis disabled. Every
+per-frame census and all start/end simulation snapshots match between builds;
+both renderers' final PNGs are byte-identical and were visually inspected.
+
+| Native renderer | Mean host Draw work, before → after | p95, before → after |
+| --- | ---: | ---: |
+| Classic | 23.42 → 24.02 ms | 29.42 → 30.15 ms |
+| Modern | 13.09 → 13.47 ms | 16.53 → 16.81 ms |
+
+These single native pairs show similar steady work rather than a measured
+native speedup. The change removes loading allocation and retained storage;
+it adds no work to frame composition. Raw profiles, JSON and captures remain
+outside the repository.
+
 ## Camera gestures
 
 In Enhanced rendering, two-finger trackpad scrolling pans the camera and
