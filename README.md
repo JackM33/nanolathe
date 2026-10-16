@@ -3,36 +3,112 @@
 # Nanolathe
 
 Nanolathe is an independent, open-source **2.5D real-time strategy engine in Go**.
-Its current focus is a clean-room reimplementation of Total Annihilation for
-skirmish, campaign and online play, with documented game formats and an
-experimental GPU renderer. It is under active development, with incomplete
-behavior and compatibility gaps.
+Its current focus is a clean-room reimplementation of Total Annihilation. You can
+play campaigns, skirmish, Survival and online games on Windows, Mac and Linux
+using your own installed game files, or try three campaign missions in your
+browser without installing anything.
 
-[Official website](https://nanolathe.gg/) · [Get started](https://nanolathe.gg/get-started/) · [Documentation](https://nanolathe.gg/docs/) · [Contributors and AI agents](#contributors-and-ai-agents)
+Single-player and multiplayer are broadly complete. Nanolathe is still in beta,
+so bugs and compatibility gaps remain. The engine, research and file-format
+documentation are public so you can investigate how TA works, make mods or
+experiment with engine changes yourself.
+
+[Play the demo](https://nanolathe.gg/play/) · [Install the beta](https://nanolathe.gg/get-started/) · [Renderer comparisons](https://nanolathe.gg/features/) · [Documentation](https://nanolathe.gg/docs/) · [Contributing](#contributing)
 
 [![Watch the Nanolathe announcement reel: 43 seconds of engine footage](https://nanolathe.gg/images/reel/poster.jpg)](https://www.youtube.com/watch?v=bMWSCOY0dTc)
 
-*Engine footage captured offline with [`--film`](docs/FILM_CAPTURE.md) from [`films/announce.json`](films/announce.json). Opens on YouTube.*
+*Engine footage captured offline with [`--film`](docs/FILM_CAPTURE.md) from
+[`films/announce.json`](films/announce.json).*
 
-The engine reads content from your own local Total Annihilation installation.
-Nanolathe's original code is [MIT licensed](LICENSE); the license does not grant
-rights to the original game or retail-derived artwork. Retail-derived remaster
-exports are excluded from this curated copy. See the
-[publication review](docs/PUBLICATION.md) for the history policy and remaining
-provenance questions.
+## Play
 
-## Run
+The [browser demo](https://nanolathe.gg/play/) plays three missions from the
+original TA demo. You don't need game files to try it. You can also select your
+own installed TA folder in the browser to use the full game menus and play
+online; those files stay on your computer. The browser build is experimental.
+See [browser controls and saves](https://nanolathe.gg/docs/browser-demo/) for
+requirements and limitations.
 
-The [one-command installer](https://nanolathe.gg/get-started/) downloads a
-private Go toolchain, builds the current tested source release, and creates a
-shortcut. It remembers one selected Total Annihilation installation and stores
-new saves separately. See the [installer guide](tools/installer/README.md) for
-updates, paths, and platform limitations.
+For the native beta, follow [Get started](https://nanolathe.gg/get-started/).
+The installer downloads its own Go toolchain, builds the latest code from `main`
+and creates a shortcut. You don't need to install Go separately. The shortcut
+remembers your game folder and offers an update when newer code is available;
+you can keep playing your installed version offline.
 
-To build manually, install Go 1.27.1 or newer and provide a local retail
-installation. Ebitengine 2.10 builds on desktop platforms with Go alone;
-macOS requires version 13 or newer. Linux still needs a graphical desktop and
-graphics/audio runtime libraries.
+You'll need an installed Total Annihilation folder containing the original HPI
+archives. Keep the base game and installed expansion data together. The reference
+installation includes Core Contingency, Battle Tactics and the 3.1 patch; other
+combinations are still being tested. On Mac or Linux, you can bring over an
+installed Windows game folder. Nanolathe itself runs natively.
+
+The [installer guide](tools/installer/README.md) covers platform requirements,
+game-folder selection, unsigned-app warnings, updates, saves and removal.
+
+To play online, choose **MULTI**, create a room and share its six-character code.
+See the [online guide](https://nanolathe.gg/docs/multiplayer/) for joining friends
+and setting up a game.
+
+## Gameplay and graphics
+
+Gameplay rules and rendering are separate choices. You can use the modern
+renderer with Strict 3.1 rules, for example.
+
+| Gameplay | What it selects |
+| --- | --- |
+| **Modern** (default) | Community behavior plus Nanolathe's documented changes, including movement and construction improvements. |
+| **Strict 3.1** | The retail 3.1 behavior the engine aims to reproduce, including documented faults. |
+| **Community 3.9** | Researched community-patch behavior, configured by the selected content and gameplay feature table. |
+
+The [gameplay rules design](docs/DESIGN_GAMEPLAY_RULES.md) explains these
+boundaries. Choose the rules on **Nanolathe → Game** from the welcome screen.
+Modern AI, Survival, mutators and unit restrictions are available in every
+gameplay mode. Some mods require Community 3.9 or Modern.
+
+The **Modern GPU renderer** is the default. It adds camera zoom, tactical icons,
+lighting, water effects and locally synthesized terrain and feature sprites.
+On the home screen, open **Nanolathe → Graphics** and choose **Enhanced** to use
+it, or **Classic** for the CPU-rendered look and its 30 FPS presentation cadence.
+Enhanced supports 30, 60, 120 and 144 FPS settings, or **Display** to follow your
+monitor's refresh rate. Your choices are saved. During a match, **F10** switches
+renderers. The
+[renderer comparisons](https://nanolathe.gg/features/) show the effects with
+matched scenes; the [renderer design](docs/DESIGN_GPU_RENDERER.md) describes
+its experimental status and remaining gaps.
+
+**Alt+Enter** toggles fullscreen and saves the preference. On Mac, use the green
+window control to exit fullscreen if you entered it that way. For music, keep
+the GOG installation's `music` folder in the game root; its MP3 soundtrack plays
+directly. **Options → Music** controls playback and volume. See the
+[keyboard and camera reference](https://nanolathe.gg/docs/keyboard-shortcuts/)
+for more controls.
+
+## Mods
+
+Open **Nanolathe** at the top of the welcome screen, then the **Content** card
+on the **Game** page. Choose **Get more mods**, download a package and select it
+in that card. Keep your original TA installation as the base content.
+
+Prepared packages include Nanolathe's engine configuration as well as the mod's
+content. For mods whose upstream installers change `TotalA.exe` or DLLs, use
+**Get more mods**: copying their upstream files over a retail installation
+doesn't supply that configuration, and automatic recognition isn't implemented
+yet. Support notes cover [ProTA 4.8](docs/PROTA_SUPPORT.md),
+[Escalation Gold 10.2.0](docs/ESCALATION_SUPPORT.md) and
+[TA Zero Alpha 5](docs/TA_ZERO_SUPPORT.md), including their known gaps.
+
+Downloaded mods live in `$XDG_DATA_HOME/nanolathe/mods` (default
+`~/.local/share/nanolathe/mods`). Synthesized map tiles and feature sprites are
+cached in `$XDG_CACHE_HOME/nanolathe/upscale/1` (default
+`~/.cache/nanolathe/upscale/1`). See the
+[mods and mutators design](docs/DESIGN_MODS_MUTATORS.md) for package configuration
+and battle options.
+
+## Build from source
+
+Install **Go 1.27.1 or newer**. Ebitengine 2.10 builds the desktop engine without
+a separate C or C++ compiler. Mac requires macOS 13 or newer; Linux needs a
+graphical desktop and the graphics/audio runtime libraries described in the
+[installer guide](tools/installer/README.md).
 
 ```sh
 git clone https://github.com/nanolathe-gg/nanolathe.git
@@ -41,222 +117,106 @@ go build -o nanolathe ./cmd/nanolathe
 ./nanolathe
 ```
 
-With no `--root`, Nanolathe searches registered and standard installation
-locations first, including GOG, Steam libraries, and Wine installations. It also
-checks nearby game folders and finally `~/TotalAnnihilation` (a convenient
-location for manually placed data on macOS and Linux).
-It mounts only the first installation found in that order; detected
-installations are never overlaid. A build installed by the source installer
-and started directly uses the game folder its launcher remembered instead.
-A custom installation can be selected explicitly:
+With no `--root`, the engine looks in registered and common installation
+locations, including GOG, Steam libraries and Wine installations, then nearby
+game folders and finally `~/TotalAnnihilation`. It mounts the first installation
+found. Detected installations aren't combined. A directly launched
+installer-built executable uses its remembered game folder instead.
+`NANOLATHE_TA_ROOT` selects one root in place of discovery. To choose explicitly:
 
 ```sh
 ./nanolathe --root "/path/to/Total Annihilation"
 ```
 
-The installed launcher selects one root explicitly and supplies its own
-`--save-dir`. Manual launches preserve the root policy above and save beside
-the game installation unless `--save-dir "/path/to/saves"` is supplied.
+Manual launches save under the first game root unless you supply
+`--save-dir "/path/to/saves"`. The installed shortcut supplies its own save
+directory, separate from the game data.
 
-Skirmishes default to **1000 units per player** under Strict 3.1 and to the
-gameplay feature table's limit otherwise (**1500** in Modern and Community 3.9,
-or whatever a mod's table names). Override with
-`./nanolathe --unit-limit 2000`, or set the top-level `"unitLimit": 2000`
-value in `~/.config/nanolathe/settings.json` (or
-`$XDG_CONFIG_HOME/nanolathe/settings.json`; `NANOLATHE_SETTINGS` overrides the
-full path). Accepted limits are 20..3276. Either override beats the feature
-table, and CLI takes precedence over the saved value. The CLI value is not
-saved, and the settings file only records a `unitLimit` you wrote yourself.
-Earlier builds wrote a `unitLimit` into the settings file on their own
-(usually `1000`, sometimes a one-off `--unit-limit` or a loaded save's limit),
-and it now counts as your choice: remove that line to get the table's limit
-back. This also
-works with direct `--map`, `--headless`, and `nanolathe-headless`. Campaign
-missions retain their authored unit limits.
-
-To install a supported mod, open **Nanolathe** at the top of the welcome
-screen, open the **Content** card on the **Game** page, choose **Get more mods**,
-download the package, then select it in that card. This
-includes the engine configuration needed by full mods such as Escalation;
-copying their upstream files over a retail installation does not supply that
-configuration. Mods whose upstream installers modify `TotalA.exe` or DLL files
-must currently be installed through **Get more mods**; automatic recognition
-of manual installations is deferred. Keep the original TA installation as the
-base content.
-
-Downloaded mods live in `$XDG_DATA_HOME/nanolathe/mods` (default
-`~/.local/share/nanolathe/mods`). Automatically remastered map tiles and feature
-sprites live in `$XDG_CACHE_HOME/nanolathe/upscale/1` (default
-`~/.cache/nanolathe/upscale/1`).
-
-Content-only overrides can live in separate directories. Repeat `--root` in
-load order:
+For content-only overrides, repeat `--root` in load order. Later roots override
+earlier ones, even across different archive types:
 
 ```sh
 ./nanolathe --root "$HOME/TotalAnnihilation" --root "$HOME/TA-Mods/MyMod"
 ```
 
-For ProTA 4.8, see the [ProTA setup and support notes](docs/PROTA_SUPPORT.md).
-For Escalation Gold 10.2.0, see the [Escalation support notes](docs/ESCALATION_SUPPORT.md).
-For TA Zero Alpha 5, see the [TA Zero setup and support notes](docs/TA_ZERO_SUPPORT.md).
+Explicit roots replace discovery and `NANOLATHE_TA_ROOT`. A mod root only needs
+its overrides; definitions still need to follow TA's archive-loading rules.
+Full mods may also need a Nanolathe configuration as described above.
+`--remaster` replaces the entire root list. See the
+[startup root policy](docs/DESIGN_CONTENT_VFS.md#5-divergences) for details.
 
-Every later root overrides earlier roots, even when a later `totala1.hpi`
-provides a file already supplied by an earlier `.ccx`, `.gp3`, or loose file.
-Within each root, the existing loose-file and archive precedence is unchanged.
-This extra precedence layer is a deliberate departure from retail **only when
-multiple roots are used**. A mod root may contain only its overrides; it does
-not need its own base archives. Retail's content rules still apply, including
-packing unit and weapon definitions into archives.
+Skirmish defaults to **1000 units per player** under Strict 3.1 and the gameplay
+feature table's limit otherwise (**1500** for unmodified Modern and Community
+3.9). `--unit-limit 2000` overrides it for one run; accepted values are
+20–3276. A saved top-level `unitLimit` also overrides that default, with
+`--unit-limit` taking precedence. Older builds sometimes saved that value
+automatically. You can choose a limit or return to **Auto** on
+**Nanolathe → Game**. Campaign missions keep their authored limits. The
+[content design](docs/DESIGN_CONTENT_VFS.md#5-divergences) covers precedence.
 
-Explicit roots replace automatic discovery. With no `--root`,
-`NANOLATHE_TA_ROOT` selects one root instead of discovery. Saves use the first
-root; `--remaster` overrides the entire root list. Both desktop and headless
-commands support these rules. See [startup root policy](docs/DESIGN_CONTENT_VFS.md#5-divergences)
-for discovery details and limits.
+Manual builds store settings in `~/.config/nanolathe/settings.json`, or under
+`$XDG_CONFIG_HOME` when set. `NANOLATHE_SETTINGS` overrides the full path; the
+installed shortcut uses its own settings file beside its saves.
 
-The default launches the front end with the modern GPU renderer and a 60 FPS
-cap. Options → Nanolathe selects Classic / Modern and 30 / 60 / 120 FPS; OK saves
-the choices for future runs. F10 switches renderers during a match and saves
-that choice. Classic retains its 30 FPS presentation cadence. Use `./nanolathe --help` for map,
-rendering, and diagnostic options. The separate `cmd/nanolathe-headless`
-command supports displayless simulation runs; see
-[architecture and verification](docs/ARCHITECTURE.md).
+Run `./nanolathe --help` for map, gameplay, rendering and diagnostic options.
+The separate `cmd/nanolathe-headless` command runs displayless simulations.
+See [web/README.md](web/README.md) to build and preview the browser host.
 
-Desktop fullscreen is available with `--fullscreen`; Alt+Enter toggles it
-from menus or battle and saves the preference. Use `--fullscreen=false` to
-start windowed regardless of the saved preference. The selected display size
-applies to the window throughout menus, loading, battle and results; menu art
-scales proportionally from its authored 640×480 canvas. The resolution slider
-also offers 1280×720, 1600×900, and 1920×1080. Resolution changes apply when
-you confirm Options with OK; dragging the slider leaves the window stable. Fullscreen scales to
-the desktop without changing the monitor resolution. On macOS, fullscreen
-entered through the green window button must be exited through that native
-control.
+## Contributing
 
-For music, copy the GOG installation's `music` folder into the same retail
-root. Nanolathe plays its MP3 soundtrack on Windows, Linux and macOS; no
-conversion is needed. Music starts when a battle begins. Options → Music
-controls volume, playback mode and track selection. The main menu retains its
-retail ambient loop.
+Nanolathe is a community project. Bug reports, research corrections and code
+contributions are welcome on
+[GitHub](https://github.com/nanolathe-gg/nanolathe/issues). For a bug, include
+the build, map or mission, selected mod and gameplay mode, what you did and
+what happened. Installer builds keep diagnostic logs in their installation's
+`logs` directory; manual launches write them to standard error.
 
-Online multiplayer starts from the main menu's MULTI button: one player
-creates a game and shares its six-character room code, and the others join
-with it. A room plays skirmish for 2–10 players, as many as the map's start
-positions allow, or Survival for 2–3 survivors. In the lobby each player
-picks a team, side and colour, and the host chooses the map and options and
-may add computer players. Every player needs their own game files and the
-host's mod, if it uses one.
+Read [AGENTS.md](AGENTS.md) before changing the tree. It's the contribution
+guide for people and coding agents: work in an isolated worktree, preserve
+concurrent work, and follow the verification and landing rules.
 
-Every skirmish and Survival battle, online or not, is recorded to a replay
-file on your computer, and the main menu's Replays screen plays them back.
-`--verify-replay FILE` checks that a replay still plays the same.
-[docs/DESIGN_MULTIPLAYER.md](docs/DESIGN_MULTIPLAYER.md) describes what is
-built and what comes next. For implemented contracts and known gaps, read the
-design document for the relevant engine area.
+- [Architecture](docs/ARCHITECTURE.md) maps the packages, authoritative tick,
+  design documents and verification gates. Start there, then read the design
+  for the area you're changing.
+- [Invariants](docs/INVARIANTS.md) records the rules every change must preserve.
+  [Spec conflicts](docs/SPEC_CONFLICTS.md) records corrections from the reference
+  installation.
+- [Retail research](research/retail-executable-spec/README.md) describes behavior;
+  [format references](research/formats/README.md) describe how to read the files.
+  [Extension research](research/extensions/README.md) covers sourced non-retail
+  behavior. The design documents describe Nanolathe's implementation and its
+  approved departures from retail.
 
-## Contributors and AI agents
+Research distinguishes established behavior, supported inferences and unknowns.
+Unanswered questions stay explicit as `TODO(T23)`, `TODO(T25)` or `TODO(question)`
+at the code site and in the owning research document. Verify inferences before
+depending on them. Committed descriptions must use independently worded
+algorithms; executable addresses, decompiler output and raw analysis stay
+outside the repository. [AGENTS.md](AGENTS.md) has the clean-room rules.
 
-Read [AGENTS.md](AGENTS.md) before making changes; it is the authoritative
-contribution guide for people and coding agents. Work in an isolated worktree,
-preserve concurrent work, and follow its verification and landing rules.
-
-Start with the architecture, invariants, and the design document for the area
-you are changing. Follow their research citations before implementing behavior;
-record unanswered questions explicitly instead of guessing.
-
-The repository keeps each kind of guidance in one place:
-
-* [`AGENTS.md`](AGENTS.md) — contribution rules, clean-room discipline,
-  worktrees, dispatch, review, and landing.
-* [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — package map, dependency
-  graph, the authoritative tick, what runs today, verification, and the
-  citation routing every token in the tree resolves through.
-* The eleven design documents, one per engine area — how it is built in Go, its
-  contracts, and which research owns each behavior:
-  [`DESIGN_RUNTIME_DETERMINISM`](docs/DESIGN_RUNTIME_DETERMINISM.md),
-  [`DESIGN_CONTENT_VFS`](docs/DESIGN_CONTENT_VFS.md),
-  [`DESIGN_WORLD_VISIBILITY`](docs/DESIGN_WORLD_VISIBILITY.md),
-  [`DESIGN_UNITS_ORDERS_COB`](docs/DESIGN_UNITS_ORDERS_COB.md),
-  [`DESIGN_MOVEMENT_PATH`](docs/DESIGN_MOVEMENT_PATH.md),
-  [`DESIGN_ECONOMY_CONSTRUCTION`](docs/DESIGN_ECONOMY_CONSTRUCTION.md),
-  [`DESIGN_WEAPONS_PROJECTILES`](docs/DESIGN_WEAPONS_PROJECTILES.md),
-  [`DESIGN_INTERFACE_HUD_INPUT`](docs/DESIGN_INTERFACE_HUD_INPUT.md),
-  [`DESIGN_SESSIONS_AI_SAVE`](docs/DESIGN_SESSIONS_AI_SAVE.md),
-  [`DESIGN_PRESENTATION_CLIENT`](docs/DESIGN_PRESENTATION_CLIENT.md),
-  [`DESIGN_GPU_RENDERER`](docs/DESIGN_GPU_RENDERER.md).
-* [`docs/INVARIANTS.md`](docs/INVARIANTS.md) — cross-cutting implementation
-  rules every change must preserve.
-* [`docs/SPEC_CONFLICTS.md`](docs/SPEC_CONFLICTS.md) — audited cases where a
-  retail install corrected an older written contract.
-* [`research/retail-executable-spec/README.md`](research/retail-executable-spec/README.md)
-  — research reading order, category index, evidence language, deciders,
-  writing rules, citation convention, and gap disposition.
-* [`research/formats/README.md`](research/formats/README.md) — file-format
-  reference. Format documents own byte layout; the executable specification
-  owns runtime behavior.
-
-A design document is a description of the build, not a checklist: it states
-the contracts the packages implement and, in its last section, what is not
-implemented and what is still open. Research states what retail does; the
-design documents state how this tree does it.
-
-## Current boundary
-
-The runtime has one Ebitengine window path. `internal/session` owns the
-authoritative tick and publishes bounded unit/order, projectile, effect,
-economy, construction, HUD, and fog state directly into the committed
-`internal/frame.Buffer`; `internal/client` reads that current committed frame
-and never writes simulation state. Classic presentation samples the committed
-tick as published, with no interpolation [03 §2.4] [I6]. The experimental modern
-renderer has its own [presentation policy](docs/DESIGN_GPU_RENDERER.md), including
-interpolation that leaves authoritative simulation unchanged.
-
-Save/load uses the retail HAPIBANK account format, including in-battle
-restoration. This is still a compatibility work in progress; the
-[session design](docs/DESIGN_SESSIONS_AI_SAVE.md) describes the implemented
-accounts and remaining gaps.
-
-Exact-retail gaps remain explicit as `TODO(T23)`, `TODO(T25)`, or
-`TODO(question)` at their implementation site and under the relevant research
-document's Unknown section. Do not replace them with plausible defaults.
-
-## Build and check
-
-With neither `NANOLATHE_RETAIL_ASSETS` nor `NANOLATHE_TA_ROOT` set, these
-checks use authored fixtures and skip tests that require retail assets. Desktop
-packages require the native build prerequisites above.
+Use the repository scripts for checks:
 
 ```sh
-go build ./...
-go vet ./...
-go test ./...
-```
-
-`./tools/check` runs the same checks plus formatting and explicitly disables
-retail tests, even if your shell has asset variables set.
-
-For the separate asset-backed integration gate, including retail-tagged tests:
-
-```sh
+./tools/check
 NANOLATHE_RETAIL_ASSETS="$HOME/TotalAnnihilation" ./tools/check-retail
 ```
 
-Use an isolated writable `GOCACHE` when the host environment requires it.
-Report whether an asset-backed run actually executed when sharing test results.
+`tools/check` checks formatting, builds, vets and runs the short synthetic test
+tier with retail assets disabled. `tools/check-retail` requires a retail install
+and adds static analysis, retail-tagged tests, cross-platform fingerprint checks
+and GPU device fixtures where available. Use package arguments during iteration;
+run the whole-tree gates before and after landing as
+[AGENTS.md](AGENTS.md) requires. Report whether asset-backed checks actually ran.
 
-## Clean-room contribution rule
+## License and history
 
-Committed prose describes what retail does in plain technical language with a
-confidence level and a document/section citation. Executable addresses,
-decompiler output, generated names, register narration, and raw analysis stay
-outside the repository in `$HOME/ta-decompile`. See `AGENTS.md` before changing
-research or authoritative behavior.
+Nanolathe's original code is [MIT licensed](LICENSE). Total Annihilation and its
+assets belong to their respective owners; the engine's license doesn't grant
+rights to those assets or retail-derived artwork. Nanolathe is independent and
+isn't affiliated with or endorsed by the game's owners.
 
-## About this history
-
-This repository presents curated integration snapshots of the original
-private development history. Adjacent changes have been combined in ancestry
-order; development-only artifacts and raw-analysis material were removed.
-Intermediate snapshots represent work in progress, not individually verified
-releases. The final source was checked separately. See the
-[publication review](docs/PUBLICATION.md) for scope and limitations.
+The early history contains curated integration snapshots of private development;
+those snapshots aren't individually verified releases. Retail-derived remaster
+exports and raw-analysis material were excluded from that publication. The
+[publication review](docs/PUBLICATION.md) records the history boundary and
+remaining provenance questions.
