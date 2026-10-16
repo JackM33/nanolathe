@@ -109,3 +109,42 @@ func TestModernPathBatchSameRoutesOnOneAndManyProcessors(t *testing.T) {
 		t.Fatal("a Modern batch's routes depend on the processors that ran it")
 	}
 }
+
+// Nanolathe Modern bucket open list (docs/DESIGN_MOVEMENT_PATH.md "Modern
+// bucket open list"): Strict 3.1 and Community 3.9 keep the retail heap, as
+// does a system with no rules bound, and Modern opens every search over the
+// bucket queue. The answer allocates nothing, and the search the System opens
+// keeps the list its rules answered.
+func TestPathOpenListAnswers(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		rules Rules
+		want  path.OpenList
+	}{
+		{"unbound", nil, path.OpenListHeap},
+		{"strict", StrictRules{}, path.OpenListHeap},
+		{"community", CommunityRules{}, path.OpenListHeap},
+		{"modern", &ModernRules{}, path.OpenListBuckets},
+	} {
+		sys, handles := pathBatchFixture(t)
+		sys.Rules = tc.rules
+		if got := sys.rules().PathOpenList(sys); got != tc.want {
+			t.Fatalf("%s: PathOpenList = %d, want %d", tc.name, got, tc.want)
+		}
+		if allocs := testing.AllocsPerRun(100, func() { sys.rules().PathOpenList(sys) }); allocs != 0 {
+			t.Fatalf("%s: PathOpenList allocates %.0f", tc.name, allocs)
+		}
+		// Too little work for the search to finish in its first call.
+		sys.Scheduler.SetStepAllowance(400)
+		sys.BeginTick(100)
+		sys.SubmitMove(handles[0], 0, path.Cell{X: 1, Z: 2}, path.Cell{X: 156, Z: 45})
+		sys.Scheduler.Tick(100)
+		ws := handleRow(sys.sessions, int(handles[0]))
+		if ws == nil || ws.session == nil {
+			t.Fatalf("%s: the long search is not open after one call", tc.name)
+		}
+		if got := ws.session.Config().OpenList; got != tc.want {
+			t.Fatalf("%s: the opened search keeps open list %d, want %d", tc.name, got, tc.want)
+		}
+	}
+}

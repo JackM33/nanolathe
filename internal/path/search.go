@@ -323,6 +323,10 @@ type SearchConfig struct {
 	// or that is given one another search still holds, keeps its own map and
 	// produces the same visit order and the same route [04 §7.2].
 	Workspace *Workspace
+	// OpenList is the search's open-list discipline. Strict 3.1 and Community
+	// 3.9 leave it zero, the retail heap [04 R-PATH-01 §1]; Modern selects the
+	// bucket queue (docs/DESIGN_MOVEMENT_PATH.md "Modern bucket open list").
+	OpenList OpenList
 }
 
 // A completed search reports its route points, its terminating status, the
@@ -362,8 +366,11 @@ type Session struct {
 	setupSteps   int
 	ns           *NodeStore
 	heap         Heap
-	expanded     bool
-	fan          Fan
+	// open is the open list of a search whose OpenList is OpenListBuckets;
+	// the heap is left empty for it, as open is for a retail search.
+	open     bucketQueue
+	expanded bool
+	fan      Fan
 }
 
 // NewSession opens a search for cfg and seeds it. A zero Scale means the
@@ -418,8 +425,11 @@ func (s *Session) Release() {
 	if ws := s.entries.ws; ws != nil && s.ns != nil {
 		ws.nodes = s.ns.nodes[:0]
 		ws.heapEntries, ws.heapPositions = s.heap.entries[:0], s.heap.positions[:0]
+		s.open.clear()
+		ws.bucketEntries, ws.bucketHeads, ws.bucketWords, ws.bucketOver = s.open.entries, s.open.heads, s.open.occupied, s.open.over
 		s.ns.nodes = nil
 		s.heap = Heap{}
+		s.open = bucketQueue{}
 	}
 	s.entries.release()
 }
@@ -484,10 +494,13 @@ func (s *Session) init() {
 	if ws := s.entries.ws; ws != nil {
 		nodes = ws.nodes
 		s.heap.entries, s.heap.positions = ws.heapEntries, ws.heapPositions
+		s.open.entries, s.open.heads, s.open.occupied, s.open.over = ws.bucketEntries, ws.bucketHeads, ws.bucketWords, ws.bucketOver
 		ws.nodes, ws.heapEntries, ws.heapPositions = nil, nil, nil
+		ws.bucketEntries, ws.bucketHeads, ws.bucketWords, ws.bucketOver = nil, nil, nil, nil
 	}
 	s.ns = newSessionNodeStore(s.scale, &s.entries, nodes)
 	s.heap.Clear()
+	s.open.clear()
 	startDir := s.cfg.StartDir
 	if startDir > 7 {
 		startDir = DirN
@@ -500,7 +513,11 @@ func (s *Session) init() {
 	s.ns.Get(startID).Run = StartRun
 	s.ns.SetOpen(startID, true)
 	s.touch(s.cfg.Start, entry{status: 1, dir: startDir, node: heapID(startID)})
-	s.heap.Push(startID, s.ns.Get(startID).F)
+	if s.cfg.OpenList == OpenListBuckets {
+		s.open.push(startID, s.ns.Get(startID).F)
+	} else {
+		s.heap.Push(startID, s.ns.Get(startID).F)
+	}
 	s.seeded = true
 }
 
@@ -556,10 +573,25 @@ func (s *Session) Resume(budget int) ([]Point, Status, bool) {
 	passable := s.cfg.PassableValue
 	hasBounds, bounds := s.cfg.HasBounds, s.cfg.Bounds
 	extraDir := s.cfg.CostDir
-	for s.heap.HasCandidate() && s.popped-startPopped < budget {
-		id, f, ok := s.heap.BeginExpand()
-		if !ok {
-			break
+	// Nanolathe Modern bucket open list: the same expansion over a bucket
+	// queue. A stale entry is discarded by the pop and not charged.
+	buckets := s.cfg.OpenList == OpenListBuckets
+	for s.popped-startPopped < budget {
+		var id NodeID
+		var f int32
+		if buckets {
+			var ok bool
+			if id, f, ok = s.open.popLive(ns.nodes); !ok {
+				break
+			}
+		} else {
+			if !s.heap.HasCandidate() {
+				break
+			}
+			var ok bool
+			if id, f, ok = s.heap.BeginExpand(); !ok {
+				break
+			}
 		}
 		s.popped++
 		n := &ns.nodes[id]
@@ -645,7 +677,11 @@ func (s *Session) Resume(budget int) ([]Point, Status, bool) {
 				gNew := curG + turn + step + int32(node.TerrainTerm) + short
 				if state == 1 && ns.TryRelax(other, gNew, id, d) {
 					node.Run = run
-					s.heap.Fix(other, node.F)
+					if buckets {
+						s.open.push(other, node.F)
+					} else {
+						s.heap.Fix(other, node.F)
+					}
 				}
 				continue
 			}
@@ -657,7 +693,11 @@ func (s *Session) Resume(budget int) ([]Point, Status, bool) {
 			gNew := curG + turn + step + terrain + short
 			nid := ns.allocFresh(c, gNew, goal.H(c), id, d, run, uint16(terrain))
 			node := &ns.nodes[nid]
-			s.heap.Open(nid, node.F)
+			if buckets {
+				s.open.push(nid, node.F)
+			} else {
+				s.heap.Open(nid, node.F)
+			}
 			// Opening ORs the state into the existing flags, preserving both
 			// ray visitation and enumerated terminals [04 R-PATH-01 §1].
 			e = entry{status: e.status | 1, dir: d, node: heapID(nid)}
@@ -673,7 +713,7 @@ func (s *Session) Resume(budget int) ([]Point, Status, bool) {
 			ix.store(sl, c, e)
 		}
 	}
-	if !s.heap.HasCandidate() {
+	if buckets && !s.open.hasLive(ns.nodes) || !buckets && !s.heap.HasCandidate() {
 		s.done, s.resultStatus = true, StatusRejected
 		return nil, s.resultStatus, true
 	}

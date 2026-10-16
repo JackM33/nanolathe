@@ -1,6 +1,10 @@
 package path
 
-import "github.com/nanolathe-gg/nanolathe/internal/pool"
+import (
+	"slices"
+
+	"github.com/nanolathe-gg/nanolathe/internal/pool"
+)
 
 // Nanolathe Modern parallel path batches (docs/DESIGN_MOVEMENT_PATH.md
 // "Modern parallel path batches"; docs/INVARIANTS.md I1 "Parallel simulation
@@ -10,13 +14,14 @@ import "github.com/nanolathe-gg/nanolathe/internal/pool"
 // search runs in 100-pop slices until it publishes, and only then is the next
 // request polled [04 R-PATH-01 §6]. Under the Modern rule set the scheduler
 // instead latches up to a fixed number of admitted searches and expands them
-// in rounds. A round is fixed before it starts — which searches, in admission
-// order, and how many heap pops each may take — and is a function of
-// simulation state alone. The searches of a round expand concurrently, each on
-// its own storage, against inputs nothing writes until the round has joined;
-// the simulation goroutine then charges every search's work and publishes the
-// finished ones in admission order. Which goroutine ran which search, and how
-// many ran at once, cannot reach anything the scheduler computes.
+// together, in at most two rounds a call. A round is fixed before it starts —
+// which searches, in admission order, and how many pops each may take — and
+// is a function of simulation state alone. The searches of a round expand
+// concurrently, each on its own storage, against inputs nothing writes until
+// the round has joined; the simulation goroutine then charges every search's
+// work and publishes the finished ones in admission order. Which goroutine
+// ran which search, and how many ran at once, cannot reach anything the
+// scheduler computes.
 
 // batchProvider is the optional boundary of Modern parallel path batches. A
 // provider that does not implement it, or answers zero, keeps the retail
@@ -24,7 +29,7 @@ import "github.com/nanolathe-gg/nanolathe/internal/pool"
 type batchProvider interface {
 	// PathBatch is asked once per scheduler call. searches > 0 selects the
 	// batch scheduler: at most that many admitted searches are latched at
-	// once, and no search expands more than pops heap pops in one call.
+	// once, and no search expands more than pops pops in one call.
 	PathBatch() (searches int, pops int32)
 	// OpenBatch readies a latched request's search on the simulation
 	// goroutine: request setup when it has no open search, nothing when it
@@ -59,6 +64,11 @@ type latchedSearch struct {
 	// spent counts the pops expanded in the current call. It is reset at the
 	// start of every call, so it carries nothing between ticks.
 	spent int32
+	// budget is the pops the search was handed for the coming round, and
+	// fromParked the part of it drawn from its player's parked work. Both are
+	// set while a round is planned and cleared when it has run, so they are
+	// zero between calls.
+	budget, fromParked int32
 }
 
 // latchedPlayer reports whether player owns a latched search.
@@ -82,8 +92,13 @@ func (s *Scheduler) latchedIndex(unit pool.Handle) int {
 }
 
 // removeLatched removes the latched search at i, keeping the order of the
-// rest.
+// rest. A budget it was handed for a round that has not run goes back to the
+// round, so a later search may be handed it.
 func (s *Scheduler) removeLatched(i int) {
+	if m := s.latched[i]; m.budget > 0 {
+		s.round.pool -= m.budget - m.fromParked
+		s.round.parked[m.player] -= m.fromParked
+	}
 	s.latched = append(s.latched[:i], s.latched[i+1:]...)
 }
 
@@ -112,12 +127,26 @@ func (s *Scheduler) recordBatchTrace(req Request, work WorkResult, tick uint32) 
 	s.recordTrace(Trace{Request: RequestTrace{Unit: req.Unit, Player: req.Player, Start: req.Start, Goal: goal, Activation: req.Activation}, Goal: goal, Points: append([]Point(nil), work.Points...), Status: work.Status, Done: work.Done, Tick: tick})
 }
 
+// batchRounds is the most rounds one scheduler call runs. Each round ends in
+// a join that waits for its longest search, so fewer rounds keep more of the
+// helpers busy; a second round fills the places the first freed, which keeps
+// requests from waiting a tick longer when many come due together. It is a
+// constant of the batch scheduler, never anything of the host
+// (docs/DESIGN_MOVEMENT_PATH.md "Modern parallel path batches").
+const batchRounds = 2
+
 // tickBatch is one scheduler call under Modern parallel path batches, after
 // the call's shares have been added and total is the call's work. Polling,
 // its charges, the idle-run batching and the bounded-work stop are retail's
 // admission loop; what differs is that admission does not wait for the
-// latched searches to finish, and that the latched searches expand in
-// rounds.
+// latched searches to finish, and that the latched searches expand together
+// in at most batchRounds rounds a call.
+//
+// A round first hands the searches already latched their budgets, then fills
+// the free places, then hands the searches it admitted theirs from what is
+// left, and only then expands them all together. A call runs at most
+// batchRounds rounds; a place a search frees in the last of them is filled by
+// the next call.
 func (s *Scheduler) tickBatch(tick uint32, bp batchProvider, maxSearches int, popCap int32, total int32, bound workBoundProvider, sweepStop bool) {
 	// A request the retail scheduler latched before a switch to a batching
 	// set becomes the first latched search; nothing it did is repeated.
@@ -131,21 +160,20 @@ func (s *Scheduler) tickBatch(tick uint32, bp batchProvider, maxSearches int, po
 	for i := range s.latched {
 		s.latched[i].spent = 0
 	}
-	// Latched searches expand before anything is polled, as the retail loop
-	// continues its active search first [04 R-PATH-01 §6]; the places they
-	// free are then filled, and the new searches expand in the next round.
-	for {
-		var ran bool
-		total, ran = s.runBatchRound(tick, bp, popCap, total)
-		admitted := false
-		if total > 0 && len(s.latched) < maxSearches {
-			before := len(s.latched)
-			total = s.admitBatch(tick, bp, maxSearches, total, bound, sweepStop)
-			admitted = len(s.latched) > before
+	for range batchRounds {
+		s.round.reset()
+		// The searches already latched are handed their budgets before
+		// anything is polled, as the retail loop continues its active search
+		// before it polls [04 R-PATH-01 §6]: the admission loop sees only
+		// what they leave of the total.
+		s.planBatch(popCap, total)
+		if reserved := s.round.pool; total-reserved > 0 && len(s.latched) < maxSearches {
+			total = s.admitBatch(tick, bp, maxSearches, total-reserved, bound, sweepStop) + reserved
 		}
-		if !ran && !admitted {
-			// Nothing has budget left this call and nothing new waits: the
-			// rest waits for the next call's shares.
+		// The searches admitted now are handed theirs from what is left.
+		s.planBatch(popCap, total)
+		var ran bool
+		if total, ran = s.runBatchRound(tick, bp, total); !ran {
 			break
 		}
 	}
@@ -170,6 +198,39 @@ func (s *Scheduler) chargeBatch(player int, charge int32, total int32) int32 {
 	s.parked[player] -= from
 	s.accumulator[player] -= charge - from
 	return total - (charge - from)
+}
+
+// planBatch hands the round's budgets to the latched searches that have none
+// yet, in admission order.
+//
+// Every latched search continues on the call's combined total whatever its
+// player's balance, as the retail scheduler's one active search does, and is
+// charged to its own player [04 R-PATH-01 §6]; positive credit is required
+// only to admit a request. A player's searches may also spend the work its
+// swept polling parked this call, which no other player's search may. No
+// search takes more than it has left of the call's per-search pops, and a
+// round never hands out more than the call has left. Work is handed out in
+// whole retail slices: the retail loop runs a 100-pop slice while any work
+// remains [04 R-PATH-01 §6]. A search left without budget waits for the
+// next call.
+func (s *Scheduler) planBatch(popCap int32, total int32) {
+	round := &s.round
+	for i := range s.latched {
+		m := &s.latched[i]
+		if m.budget > 0 || m.spent >= popCap {
+			continue
+		}
+		p := m.player
+		left := max(total-round.pool, 0) + s.parked[p] - round.parked[p]
+		budget := min(popCap-m.spent, (left+popsPerRequest-1)/popsPerRequest*popsPerRequest)
+		if budget <= 0 {
+			continue
+		}
+		fromParked := max(min(budget, s.parked[p]-round.parked[p]), 0)
+		round.parked[p] += fromParked
+		round.pool += budget - fromParked
+		m.budget, m.fromParked = budget, fromParked
+	}
 }
 
 // admitBatch polls for requests while the batch has a free place and work
@@ -244,30 +305,18 @@ func (s *Scheduler) admitBatch(tick uint32, bp batchProvider, maxSearches int, t
 	return total
 }
 
-// runBatchRound expands the latched searches that have budget this round,
-// concurrently, then charges and publishes in admission order.
-//
-// Budgets are handed out in admission order. Every latched search continues
-// on the call's combined total whatever its player's balance, as the retail
-// scheduler's one active search does, and is charged to its own player
-// [04 R-PATH-01 §6]; positive credit is required only to admit a request. A
-// player's searches may also spend the work its swept polling parked this
-// call, which no other player's search may. No search takes more than it has
-// left of the call's per-search pops, and a round never hands out more than
-// the call has left. A search left without budget waits for the next call;
-// what a finished search did not use is handed out again in the next round.
-// Work is handed out in whole retail slices, so a batch of one search with no
-// per-search cap is the retail scheduler. It reports whether any search had
-// budget.
+// runBatchRound expands every latched search that was handed a budget,
+// concurrently, then charges and publishes in admission order. It reports
+// whether any search had a budget.
 //
 // The members are named by unit before anything is opened or published, and
 // each is looked up again before it is touched: a publication that cancelled
-// a later member's request leaves nothing of it to settle.
-func (s *Scheduler) runBatchRound(tick uint32, bp batchProvider, popCap int32, total int32) (int32, bool) {
+// a member's request leaves nothing of it to resume or settle.
+func (s *Scheduler) runBatchRound(tick uint32, bp batchProvider, total int32) (int32, bool) {
 	round := &s.round
-	round.reset()
+	round.units = round.units[:0]
 	for i := range s.latched {
-		if s.latched[i].spent < popCap {
+		if s.latched[i].budget > 0 {
 			round.units = append(round.units, s.latched[i].req.Unit)
 		}
 	}
@@ -277,25 +326,14 @@ func (s *Scheduler) runBatchRound(tick uint32, bp batchProvider, popCap int32, t
 	// Open (or find) each member's search on the simulation goroutine. A
 	// search that has to be set up again — its storage was dropped while it
 	// was latched — charges its setup as a retail continuation does.
-	ran := false
 	for _, unit := range round.units {
 		i := s.latchedIndex(unit)
-		if i < 0 {
+		if i < 0 || s.latched[i].budget <= 0 {
 			continue
 		}
 		m := s.latched[i]
-		p := m.player
-		// What this round has not yet handed out, of the call's total and of
-		// the player's parked work, in whole retail slices: the retail loop
-		// runs a 100-pop slice while any work remains [04 R-PATH-01 §6].
-		left := max(total-round.pool, 0) + s.parked[p] - round.parked[p]
-		budget := min(popCap-m.spent, (left+popsPerRequest-1)/popsPerRequest*popsPerRequest)
-		if budget <= 0 {
-			continue
-		}
-		ran = true
 		search, work := bp.OpenBatch(m.req, m.scale, m.slot)
-		total = s.chargeBatch(p, int32(work.SetupSteps+work.Pops), total)
+		total = s.chargeBatch(m.player, int32(work.SetupSteps+work.Pops), total)
 		if work.Done || search == nil {
 			work.Done = true
 			s.removeLatched(i)
@@ -305,12 +343,15 @@ func (s *Scheduler) runBatchRound(tick uint32, bp batchProvider, popCap int32, t
 			}
 			continue
 		}
-		fromParked := max(min(budget, s.parked[p]-round.parked[p]), 0)
-		round.parked[p] += fromParked
-		round.pool += budget - fromParked
-		round.add(unit, search, int(budget))
+		round.add(unit, search, int(m.budget))
 	}
+	// A publication while opening may have cancelled a member opened before
+	// it, and cancellation drops the member's search: it is not resumed.
+	round.items = slices.DeleteFunc(round.items, func(it batchItem) bool { return s.latchedIndex(it.unit) < 0 })
 	round.run()
+	for i := range s.latched {
+		s.latched[i].budget, s.latched[i].fromParked = 0, 0
+	}
 	// Settle in admission order.
 	for k := range round.items {
 		it := &round.items[k]
@@ -331,5 +372,5 @@ func (s *Scheduler) runBatchRound(tick uint32, bp batchProvider, popCap int32, t
 		}
 	}
 	round.release()
-	return total, ran
+	return total, true
 }

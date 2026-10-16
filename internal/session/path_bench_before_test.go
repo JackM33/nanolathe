@@ -18,6 +18,7 @@ type modernNoPathfinding struct{ movement.ModernRules }
 
 func (*modernNoPathfinding) PathWorkBound(*movement.System) (int32, bool)      { return 0, false }
 func (*modernNoPathfinding) PathBatch(*movement.System) (int, int32)           { return 0, 0 }
+func (*modernNoPathfinding) PathOpenList(*movement.System) path.OpenList       { return path.OpenListHeap }
 func (*modernNoPathfinding) GroupDestinationSlots(*movement.System) bool       { return false }
 func (*modernNoPathfinding) UnreachableMoves(*movement.System) (int32, uint32) { return 0, 0 }
 func (*modernNoPathfinding) WedgeEscape(*movement.System) bool                 { return false }
@@ -32,6 +33,11 @@ func (*modernNoBound) PathWorkBound(*movement.System) (int32, bool) { return 0, 
 type modernNoBatch struct{ movement.ModernRules }
 
 func (*modernNoBatch) PathBatch(*movement.System) (int, int32) { return 0, 0 }
+
+// modernNoBuckets keeps the retail heap as every search's open list.
+type modernNoBuckets struct{ movement.ModernRules }
+
+func (*modernNoBuckets) PathOpenList(*movement.System) path.OpenList { return path.OpenListHeap }
 
 type modernNoSlots struct{ movement.ModernRules }
 
@@ -80,6 +86,7 @@ func init() {
 	})
 	RegisterRuleSet("modern-no-bound", func() RuleSet { return RuleSet{Movement: &modernNoBound{}} })
 	RegisterRuleSet("modern-no-batch", func() RuleSet { return RuleSet{Movement: &modernNoBatch{}} })
+	RegisterRuleSet("modern-no-buckets", func() RuleSet { return RuleSet{Movement: &modernNoBuckets{}} })
 	RegisterRuleSet("modern-no-slots", func() RuleSet { return RuleSet{Movement: &modernNoSlots{}} })
 	RegisterRuleSet("modern-no-unreach", func() RuleSet { return RuleSet{Movement: &modernNoUnreach{}} })
 	RegisterRuleSet("modern-no-wedge", func() RuleSet { return RuleSet{Movement: &modernNoWedge{}} })

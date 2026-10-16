@@ -3267,6 +3267,10 @@ func (s *System) searchUnder(r path.Request, scale int32, budget int, through ui
 			cfg, s.searchCfg = s.searchCfg, path.SearchConfig{}
 			s.checkpointSearch = nil
 		}
+		// Nanolathe Modern bucket open list: the open-list discipline is
+		// asked once per opened search; Strict keeps the retail heap
+		// (docs/DESIGN_MOVEMENT_PATH.md "Modern bucket open list").
+		cfg.OpenList = s.rules().PathOpenList(s)
 		// A replaced session gives the table back before the new one asks for
 		// it, so a goal or activation change does not leave it lent.
 		s.dropPathSession(idx)

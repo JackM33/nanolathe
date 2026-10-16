@@ -396,7 +396,7 @@ func (s *Scheduler) AppendCheckpointSummary(out *checkpoint.Summary) error {
 
 // AppendSearchCheckpointSummary appends the working-search words from
 // DESIGN_MULTIPLAYER §16.3.7: presence, charged popped work, setup steps,
-// expanded, logical node count, heap count. Wrapper probes contribute to
+// expanded, logical node count, open-list count. Wrapper probes contribute to
 // charged work exactly as Popped does, but no Search method is invoked.
 // Unsupported chains fail before appending any word. Full graph validation
 // and accessor attestation belong to the full checkpoint collector/writer.
@@ -429,7 +429,14 @@ func AppendSearchCheckpointSummary(search Search, out *checkpoint.Summary) error
 			out.Word(uint64(int64(s.setupSteps)))
 			checkpointSummaryBool(out, s.expanded)
 			out.Word(uint64(nodes))
-			out.Word(uint64(len(s.heap.entries)))
+			// The open list's entry count: the heap's, or under Nanolathe
+			// Modern bucket open lists the bucket queue's, stale entries
+			// included.
+			if s.cfg.OpenList == OpenListBuckets {
+				out.Word(uint64(s.open.Len()))
+			} else {
+				out.Word(uint64(len(s.heap.entries)))
+			}
 			return nil
 		case *straightenSearch:
 			if s == nil {

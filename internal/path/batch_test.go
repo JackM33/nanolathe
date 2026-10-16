@@ -12,11 +12,15 @@ import (
 // "Modern parallel path batches").
 
 // batchGrid is an authored maze: a lattice of walls with staggered gaps, so
-// that searches across it take many pops and differ in length.
-type batchGrid struct{ w, h int32 }
+// that searches across it take many pops and differ in length. walled, when
+// not the origin, is one more wall a test raises.
+type batchGrid struct {
+	w, h   int32
+	walled Cell
+}
 
-func (g batchGrid) passable(c Cell) uint8 {
-	if c.X < 0 || c.Z < 0 || c.X >= g.w || c.Z >= g.h {
+func (g *batchGrid) passable(c Cell) uint8 {
+	if c.X < 0 || c.Z < 0 || c.X >= g.w || c.Z >= g.h || c == g.walled && c != (Cell{}) {
 		return 0
 	}
 	// A wall on every fourth column, open on one row in eleven, offset by
@@ -190,19 +194,104 @@ func TestPathBatchZeroAnswerKeepsRetailScheduler(t *testing.T) {
 	}
 }
 
-// One latched search with no per-search cap is the retail scheduler: the
-// same admissions, publications, charges and poll accounting, so the batch
-// changes the schedule only through its size and cap.
-func TestPathBatchOfOneUncappedMatchesRetail(t *testing.T) {
-	retail := newBatchProviderFixture(0, 0)
-	r, retailPublished := batchWorkload(t, retail, retailOnly{retail}, 1333, 160)
-	one := newBatchProviderFixture(1, 1<<30)
-	b, onePublished := batchWorkload(t, one, one, 1333, 160)
-	if !reflect.DeepEqual(onePublished, retailPublished) {
-		t.Fatalf("publications differ:\nbatch  %d %+v\nretail %d %+v", len(onePublished), onePublished, len(retailPublished), retailPublished)
+// A call runs at most batchRounds rounds, each after its admissions: a place
+// a search frees in the last round is filled by the next call, so a batch of
+// one admits one request a round however quickly its searches finish, and
+// each latched search is settled at most once a round.
+func TestPathBatchRoundsPerCall(t *testing.T) {
+	p := newBatchProviderFixture(1, 1<<30)
+	var published []batchPublication
+	var tick uint32
+	s := NewScheduler(p.search, func(r Request, points []Point, status Status) {
+		published = append(published, batchPublication{Tick: tick, Unit: r.Unit, Status: status})
+	})
+	s.SetCandidateProvider(p)
+	s.SetStepAllowance(66650)
+	const requests = 5
+	for i := range requests {
+		p.queue[0] = append(p.queue[0], Request{Unit: pool.Handle(i + 1), Start: Cell{X: 0, Z: int32(1 + 4*i)}, Goal: PointGoal(Cell{X: 1, Z: 3}, 0)})
 	}
-	if got, want := batchStateOf(b), batchStateOf(r); !reflect.DeepEqual(got.Accumulator, want.Accumulator) || got.ServiceCount != want.ServiceCount || got.PlayerCursor != want.PlayerCursor || !reflect.DeepEqual(got.Trace, want.Trace) {
-		t.Fatalf("scheduler state differs:\nbatch  %+v\nretail %+v", got, want)
+	for tick = 1; len(published) < requests; tick++ {
+		if tick > requests {
+			t.Fatalf("published %+v by call %d", published, tick)
+		}
+		settled := len(p.settles)
+		s.Tick(tick)
+		want := min(batchRounds*int(tick), requests)
+		if got := len(p.settles) - settled; got != want-settled {
+			t.Fatalf("call %d settled %d searches, want one a round", tick, got)
+		}
+		if len(published) != want || published[want-1].Unit != pool.Handle(want) || published[want-1].Tick != tick {
+			t.Fatalf("after call %d published %+v, want units through %d", tick, published, want)
+		}
+		if left := len(p.queue[0]); left != requests-want {
+			t.Fatalf("after call %d %d requests wait, want %d", tick, left, requests-want)
+		}
+	}
+}
+
+// The searches a call already holds are handed their budgets before anything
+// is polled, as the retail loop continues its active search first: when a
+// latched search is handed the whole of the call's work, nothing is admitted
+// into the free place [04 R-PATH-01 §6].
+func TestPathBatchContinuationsBudgetedBeforeAdmission(t *testing.T) {
+	p := newBatchProviderFixture(2, 1<<30)
+	s := NewScheduler(p.search, func(Request, []Point, Status) {})
+	s.SetCandidateProvider(p)
+	s.SetStepAllowance(400)
+	p.queue[0] = []Request{{Unit: 1, Start: Cell{X: 1, Z: 1}, Goal: PointGoal(Cell{X: 60, Z: 45}, 0)}}
+	s.Tick(1)
+	if len(s.latched) != 1 {
+		t.Fatalf("latched %d searches, want the long one", len(s.latched))
+	}
+	p.queue[1] = []Request{{Unit: 2, Player: 1, Start: Cell{X: 5, Z: 5}, Goal: PointGoal(Cell{X: 6, Z: 6}, 0)}}
+	before := p.sessions[1].Popped()
+	s.Tick(2)
+	if len(p.queue[1]) != 1 || len(s.latched) != 1 {
+		t.Fatalf("a request was admitted while the latched search held the call's work: %d waiting, %d latched", len(p.queue[1]), len(s.latched))
+	}
+	if got := p.sessions[1].Popped() - before; got != 400 {
+		t.Fatalf("the latched search expanded %d pops, want the call's whole 400", got)
+	}
+}
+
+// A publication while a round's members are opened may cancel a member opened
+// before it. Cancellation drops that member's search, so the round does not
+// resume it and nothing of it is settled or published.
+func TestPathBatchPublicationWhileOpeningCancelsEarlierMember(t *testing.T) {
+	p := newBatchProviderFixture(2, 50)
+	var published []pool.Handle
+	var s *Scheduler
+	s = NewScheduler(p.search, func(r Request, _ []Point, _ Status) {
+		published = append(published, r.Unit)
+		if r.Unit == 2 {
+			s.Cancel(1)
+			delete(p.sessions, 1)
+		}
+	})
+	s.SetCandidateProvider(p)
+	s.SetStepAllowance(66650)
+	far := func(x int32) Goal { return PointGoal(Cell{X: 60, Z: 40 + x}, 0) }
+	p.queue[0] = []Request{{Unit: 1, Start: Cell{X: 1, Z: 1}, Goal: far(0)}}
+	p.queue[1] = []Request{{Unit: 2, Player: 1, Start: Cell{X: 1, Z: 5}, Goal: far(1)}}
+	s.Tick(1)
+	if len(s.latched) != 2 {
+		t.Fatalf("latched %d searches, want both", len(s.latched))
+	}
+	// Unit 2's search storage is dropped while it is latched and its start
+	// is walled before it is set up again: the second setup finishes at once
+	// and publishes while the round's members are opened, after unit 1.
+	first := p.sessions[1]
+	popped := first.Popped()
+	delete(p.sessions, 2)
+	p.grid.walled = Cell{X: 1, Z: 5}
+	settled := len(p.settles)
+	s.Tick(2)
+	if want := []pool.Handle{2}; !reflect.DeepEqual(published, want) {
+		t.Fatalf("published %v, want %v", published, want)
+	}
+	if first.Popped() != popped || len(p.settles) != settled || len(s.latched) != 0 {
+		t.Fatalf("the cancelled member was resumed (%d pops), settled (%d) or kept (%d latched)", first.Popped()-popped, len(p.settles)-settled, len(s.latched))
 	}
 }
 

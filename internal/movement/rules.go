@@ -1,6 +1,9 @@
 package movement
 
-import "github.com/nanolathe-gg/nanolathe/internal/units"
+import (
+	"github.com/nanolathe-gg/nanolathe/internal/path"
+	"github.com/nanolathe-gg/nanolathe/internal/units"
+)
 
 // Rules is the movement system's gameplay seam. It carries the learned-terrain
 // policy, the contested-cell claim answer, the follower's re-route throttle,
@@ -107,6 +110,13 @@ type Rules interface {
 	// and nothing of the host — the answer may not depend on how many
 	// processors run the batch.
 	PathBatch(s *System) (searches int, pops int32)
+
+	// PathOpenList is the open list every route search the System opens
+	// keeps: path.OpenListHeap is retail's binary heap and its tie order
+	// [04 R-PATH-01 §1]; path.OpenListBuckets is the Modern bucket queue
+	// (docs/DESIGN_MOVEMENT_PATH.md "Modern bucket open list"). It is asked
+	// once per opened search and must be a pure answer: no writes, no RNG.
+	PathOpenList(s *System) path.OpenList
 
 	// GroupDestinationSlots reports whether an ordinary group move gives each
 	// ground actor its own destination footprint: outliers keep their bearing
@@ -249,6 +259,10 @@ func (StrictRules) PathWorkBound(*System) (int32, bool) { return 0, false }
 // [04 R-PATH-01 §6]. Community inherits it.
 func (StrictRules) PathBatch(*System) (int, int32) { return 0, 0 }
 
+// PathOpenList is retail's binary heap under Strict 3.1 [04 R-PATH-01 §1].
+// Community inherits it.
+func (StrictRules) PathOpenList(*System) path.OpenList { return path.OpenListHeap }
+
 // GroupDestinationSlots is off under Strict 3.1: actors keep retail's
 // centroid offsets and outliers share the clicked point [04 R-STANCE-01 §5].
 func (StrictRules) GroupDestinationSlots(*System) bool { return false }
@@ -310,13 +324,17 @@ func (*ModernRules) PathWorkBound(*System) (int32, bool) { return modernCarrySha
 // than anything of the host, so every machine computes the same batches
 // (docs/DESIGN_MOVEMENT_PATH.md "Modern parallel path batches").
 const (
-	modernPathBatch     = 8
+	modernPathBatch     = 16
 	modernPathBatchPops = 4096
 )
 
 // PathBatch runs Modern's route searches in parallel batches
 // (docs/DESIGN_MOVEMENT_PATH.md "Modern parallel path batches").
 func (*ModernRules) PathBatch(*System) (int, int32) { return modernPathBatch, modernPathBatchPops }
+
+// PathOpenList keeps every route search's open list in a bucket queue
+// (docs/DESIGN_MOVEMENT_PATH.md "Modern bucket open list").
+func (*ModernRules) PathOpenList(*System) path.OpenList { return path.OpenListBuckets }
 
 // GroupDestinationSlots gives each actor of an ordinary group move its own
 // destination (DESIGN_INTERFACE_HUD_INPUT "Modern group destination slots").

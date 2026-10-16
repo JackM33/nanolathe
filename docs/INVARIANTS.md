@@ -433,7 +433,7 @@ Current contracts are DESIGN_WEAPONS_PROJECTILES §2.3.1 (terrain admission),
 "Modern Hold Fire" and "Modern danger response", DESIGN_MOVEMENT_PATH
 "Modern danger escape", "Modern learned terrain", "Modern group-order
 spreading", "Modern bounded path work", "Modern parallel path batches",
-"Modern unreachable moves", "Modern route straightening", "Modern wedge escape" and "Modern traffic" with its
+"Modern bucket open list", "Modern unreachable moves", "Modern route straightening", "Modern wedge escape" and "Modern traffic" with its
 seven parts (which retired "Modern re-route staggering", "Modern allied
 pass-through", "Modern jam release" and "Modern pocket release" from Modern;
 those remain documented as the pathfinding laboratory's baseline),
