@@ -211,6 +211,27 @@ func TestRadialSectorSpansCoverOnce(t *testing.T) {
 		{88, 160, 300, 590, 1}, // reflex, across the top
 		{26, 30, 80, 108, 0},
 	}
+	// A disc and the ring that starts just past it tile the plane between
+	// them, as the band's base glass and the tray's do.
+	seam := map[[2]int]int{}
+	for _, r := range [][2]float64{{0, 84}, {84 + 1e-6, 160}} {
+		radialSectorSpans(0, 0, r[0], r[1], 0, 360, 0, func(x0, x1, y int) {
+			for x := x0; x <= x1; x++ {
+				seam[[2]int{x, y}]++
+			}
+		})
+	}
+	for y := -160; y <= 160; y++ {
+		for x := -160; x <= 160; x++ {
+			want := 0
+			if x*x+y*y <= 160*160 {
+				want = 1
+			}
+			if got := seam[[2]int{x, y}]; got != want {
+				t.Fatalf("disc and ring cover (%d,%d) %d times, want %d", x, y, got, want)
+			}
+		}
+	}
 	for _, tc := range cases {
 		hits := map[[2]int]int{}
 		radialSectorSpans(0, 0, tc.r0, tc.r1, tc.a0, tc.a1, tc.gap, func(x0, x1, y int) {

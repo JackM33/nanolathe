@@ -529,7 +529,9 @@ func (h *retailBattleHUD) drawBuildRadial(c *client.Client, b *battleSession) {
 		trayFrom, trayTo = 0, 360
 	}
 	if len(fan) != 0 && trayHalf > 0 {
-		radialShade(c, pal, cx, cy, bandOut+1, trayOut, trayFrom, trayTo, 0, radialLevel(radialShadeBase, open))
+		// The tray's base starts just past the disc's, so the two cover
+		// every pixel between band and tray exactly once.
+		radialShade(c, pal, cx, cy, bandOut+1e-6, trayOut, trayFrom, trayTo, 0, radialLevel(radialShadeBase, open))
 		radialShade(c, pal, cx, cy, radialTrayInner, trayOut, trayFrom, trayTo, radialSlotGap, radialLevel(radialShadeTray, open))
 	}
 	caption := h.radialCaptionFor(b)

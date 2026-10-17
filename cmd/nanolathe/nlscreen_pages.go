@@ -1036,7 +1036,7 @@ func (s *nlScreen) controlCards() []nlCard {
 		},
 		half("buildradial", "Build radial", []string{"armmex", "armsolar"}, []string{"Off", "On"}, []string{"Middle-drag pans", "Middle opens build radial"},
 			func(p *settings.Presentation) *int { return &p.BuildRadial },
-			"With a commander or construction unit selected, hold the middle mouse button and flick to a category, then a structure, and release to place it. A quick tap keeps the menu open for clicking. While it is on, middle-drag camera pan gives way only when a builder is selected."),
+			"With a commander or construction unit selected, hold the middle mouse button, flick toward a category and on out to a structure, then release to pick it for placement. A quick tap keeps the menu open for clicking. While it is on, middle-drag camera pan gives way only when a builder is selected."),
 		half("tab", "Tab key", []string{"armrad", "armmark"}, []string{"Options", "Overview"}, []string{"Opens the battle menu", "Shows the whole map"},
 			func(p *settings.Presentation) *int { return &p.Overview },
 			"Tab opens Options or the overview: whole-map zoom and back in Modern, the megamap in Strict 3.1 and Community 3.9. Community enables camera zoom with Options selected. Modern with No zoom or the Classic renderer keeps Options. F2 opens Options."),
