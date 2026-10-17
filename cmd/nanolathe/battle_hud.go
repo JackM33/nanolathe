@@ -221,6 +221,9 @@ type retailBattleHUD struct {
 
 	texts  hudTextMemos
 	stamps []int32 // strip stamp origins, reused per draw
+	// radial caches the optional build radial's resolved colours and
+	// derived pictures (DESIGN_INTERFACE_HUD_INPUT §3.18).
+	radial radialArt
 }
 
 // loadRetailBattleHUD binds the same side-selected resources as the retail

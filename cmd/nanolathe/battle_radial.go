@@ -20,23 +20,56 @@ import (
 	"github.com/nanolathe-gg/nanolathe/internal/pool"
 )
 
-// Ring geometry in surface pixels. The dead-zone swallows the press jitter
-// around the centre; the category band holds the six fixed category slots;
-// beyond it the flick's angle names an item on the expanded ring.
+// Ring geometry in virtual chrome pixels: the menu is laid out on the rail's
+// magnified surface, so it grows with the Modern UI scale like the rest of
+// the chrome. The hub is the dead-zone; the category band holds the six
+// fixed category slots; beyond it the expanded category's items fan out
+// around that category's own direction, so the flick that opened it keeps
+// travelling into its middle items.
 const (
-	radialDeadZone     = 26.0
-	radialRingInner    = 88.0
-	radialRingOuter    = 190.0
-	radialCategoryR    = 76
-	radialItemR        = 122
-	radialItemsPerPage = 10
+	radialHubR      = 30  // hub radius, and the dead-zone around the centre
+	radialBandInner = 33  // category band, inner edge
+	radialBandOuter = 84  // category band, outer edge; beyond it the items
+	radialCatIconR  = 58  // category picture centre
+	radialCatIcon   = 30  // category picture diameter
+	radialItemR     = 122 // item picture centre
+	radialItemIcon  = 64  // item picture diameter, the authored gadget size
+	radialTrayInner = 88  // the item tray behind the fan
+	radialTrayOuter = 160
+	// radialExtent is how far the drawn menu reaches from its centre: the
+	// tray plus its soft rim. The centre is clamped this far inside the
+	// viewport so nothing the menu offers is ever clipped.
+	radialExtent = radialTrayOuter + 3
+	// A sticky click farther out than this dismisses the menu even in the
+	// direction of an item; a held flick has no outer limit, so a fast
+	// gesture that overshoots the ring still picks by direction.
+	radialDismissR = radialTrayOuter + 28
+
+	radialItemStep     = 36.0 // degrees between neighbouring items on a fan
+	radialItemsPerPage = 10   // a full ring at radialItemStep
+
+	// radialPressSlop is how far the opening press must travel before its
+	// position counts. A menu shifted away from a viewport edge opens with
+	// the pointer already off its centre; until the pointer moves, that
+	// offset must neither expand a category nor turn a tap into a pick.
+	radialPressSlop = 4
+)
+
+// Animation lengths in serviced host frames, so a paused battle still
+// animates and a capture is deterministic. Purely cosmetic.
+const (
+	radialOpenFrames  = 6 // ring scale and fade-in
+	radialFanFrames   = 6 // items sliding out of their category
+	radialHoverFrames = 4 // hovered item lifting off the ring
 )
 
 // buildRadialState is the menu's host state. The zero value is closed.
 type buildRadialState struct {
 	open    bool
-	sticky  bool // a tap left it open for ordinary clicking
-	cx, cy  int32
+	sticky  bool  // a tap left it open for ordinary clicking
+	cx, cy  int32 // ring centre on the virtual chrome surface
+	ox, oy  int32 // the opening press, same surface
+	scale   int32 // the chrome magnification the menu opened under
 	builder pool.Handle
 	// builderName and builderPages name the builder's authored build
 	// pages, whose GAFs carry the stock products' gadget pictures.
@@ -44,15 +77,24 @@ type buildRadialState struct {
 	builderPages int
 	groups       []hud.RadialGroup
 
-	lockedCat int // group index the item ring shows, -1 for none
-	hoverCat  int // group index under the pointer, -1 for none
-	hoverItem int // index into the locked group's current page, -1 for none
-	page      int
-	movedOut  bool // the opening hold left the dead-zone
-	age       int  // serviced host frames, for the open ease
+	lockedCat  int  // group index the item ring shows, -1 for none
+	hoverCat   int  // group index under the pointer, -1 for none
+	hoverItem  int  // index into the shown group's current page, -1 for none
+	page       int  // current page of the shown group
+	movedOut   bool // the opening hold left the dead-zone
+	pressMoved bool // the pointer has left the opening press's slop
+
+	// Pointer direction from the centre, for the hub's direction caret.
+	pointerDeg  float64
+	pointerDist float64
+
+	age      int // serviced frames since opening
+	fanAge   int // serviced frames since the shown group or page changed
+	hoverAge int // serviced frames since the hovered item changed
 }
 
-// radialPointer is one serviced host frame reduced to the menu's terms.
+// radialPointer is one serviced host frame reduced to the menu's terms, in
+// the same virtual coordinates as the ring.
 type radialPointer struct {
 	X, Y           int32
 	MiddlePressed  bool
@@ -63,9 +105,10 @@ type radialPointer struct {
 	Wheel          float32
 }
 
-func (s *buildRadialState) openAt(cx, cy int32, builder pool.Handle, groups []hud.RadialGroup) {
+func (s *buildRadialState) openAt(cx, cy, ox, oy int32, builder pool.Handle, groups []hud.RadialGroup) {
 	*s = buildRadialState{
-		open: true, cx: cx, cy: cy, builder: builder, groups: groups,
+		open: true, cx: cx, cy: cy, ox: ox, oy: oy, scale: 1,
+		builder: builder, groups: groups,
 		lockedCat: -1, hoverCat: -1, hoverItem: -1,
 	}
 }
@@ -74,9 +117,9 @@ func (s *buildRadialState) close() { *s = buildRadialState{} }
 
 // category reports the bucket whose items the ring currently shows: the
 // hovered slot while the pointer names one, else the locked expansion.
-// In sticky mode a clicked category stays locked — the pointer usually
-// crosses other slots on its way to an item, and the ring must not
-// retarget under it — so there the lock outranks the hover.
+// In sticky mode a clicked category stays locked — the pointer can cross
+// other slots on its way to an item, and the ring must not retarget under
+// it — so there the lock outranks the hover.
 func (s *buildRadialState) category() hud.RadialCategory {
 	if i := s.groupIndex(); i >= 0 {
 		return s.groups[i].Category
@@ -147,6 +190,38 @@ func radialSector(deg float64, n int) int {
 	return int(math.Floor((deg+step/2)/step)) % n
 }
 
+// radialSlotAngle is a category's fixed direction: each bucket owns a
+// 60-degree slot clockwise from the top in bucket order.
+func radialSlotAngle(c hud.RadialCategory) float64 {
+	return float64(c) * 360 / float64(hud.RadialCategoryCount)
+}
+
+// radialItemAngle is item i's direction on a fan of n items centred on the
+// given category's slot, neighbours radialItemStep apart in authored order
+// clockwise.
+func radialItemAngle(c hud.RadialCategory, i, n int) float64 {
+	deg := radialSlotAngle(c) + (float64(i)-float64(n-1)/2)*radialItemStep
+	return math.Mod(deg+720, 360)
+}
+
+// radialItemAt is the fan item nearest the direction, or -1 when the
+// direction falls outside a partial fan. A full page of items rings the
+// whole circle, so every direction names one.
+func radialItemAt(c hud.RadialCategory, n int, deg float64) int {
+	if n <= 0 {
+		return -1
+	}
+	diff := math.Mod(deg-radialSlotAngle(c)+540, 360) - 180 // [-180, 180)
+	i := int(math.Floor(diff/radialItemStep + float64(n)/2))
+	if float64(n)*radialItemStep >= 360 {
+		return (i%n + n) % n
+	}
+	if i < 0 || i >= n {
+		return -1
+	}
+	return i
+}
+
 // groupAtAngle maps a direction onto the fixed category slots: each
 // category owns its 60-degree slot by bucket order whether or not this
 // builder offers it, and an empty slot names no group.
@@ -160,6 +235,15 @@ func (s *buildRadialState) groupAtAngle(deg float64) int {
 	return -1
 }
 
+// itemAt is the shown page's item in the direction, or -1.
+func (s *buildRadialState) itemAt(deg float64) int {
+	g, ok := s.group()
+	if !ok {
+		return -1
+	}
+	return radialItemAt(g.Category, len(s.pageItems()), deg)
+}
+
 // step services one frame and reports the product chosen on it, if any.
 // An open menu consumes every frame it is shown on, so no world click,
 // selection drag or latch can start underneath it.
@@ -168,6 +252,8 @@ func (s *buildRadialState) step(p radialPointer) (string, bool) {
 		return "", false
 	}
 	s.age++
+	s.fanAge++
+	s.hoverAge++
 	if p.Escape || p.RightPressed {
 		s.close()
 		return "", true
@@ -176,20 +262,25 @@ func (s *buildRadialState) step(p radialPointer) (string, bool) {
 		s.close()
 		return "", true
 	}
+	if !s.pressMoved && (radialAbs(p.X-s.ox) > radialPressSlop || radialAbs(p.Y-s.oy) > radialPressSlop) {
+		s.pressMoved = true
+	}
 	dx := float64(p.X - s.cx)
 	dy := float64(p.Y - s.cy)
 	dist := math.Hypot(dx, dy)
 	deg := radialAngle(dx, dy)
+	s.pointerDeg, s.pointerDist = deg, dist
 
+	shownBefore, pageBefore, hoverBefore := s.groupIndex(), s.page, s.hoverItem
 	s.hoverItem = -1
 	switch {
-	case dist < radialDeadZone:
+	case dist < radialHubR, !s.sticky && !s.pressMoved:
 		s.hoverCat = -1
-	case dist < radialRingInner:
+	case dist < radialBandOuter:
 		s.movedOut = true
 		s.hoverCat = s.groupAtAngle(deg)
 		// A held flick expands whatever slot it crosses; a sticky menu
-		// changes its locked category only on a plate click, below.
+		// changes its locked category only on a slot click, below.
 		if !s.sticky && s.hoverCat >= 0 && s.hoverCat != s.lockedCat {
 			s.lockedCat = s.hoverCat
 			s.page = 0
@@ -205,10 +296,8 @@ func (s *buildRadialState) step(p radialPointer) (string, bool) {
 			}
 		}
 		s.hoverCat = s.lockedCat
-		if dist <= radialRingOuter {
-			if items := s.pageItems(); len(items) != 0 {
-				s.hoverItem = radialSector(deg, len(items))
-			}
+		if !s.sticky || dist <= radialDismissR {
+			s.hoverItem = s.itemAt(deg)
 		}
 	}
 	if p.Wheel != 0 {
@@ -219,12 +308,16 @@ func (s *buildRadialState) step(p radialPointer) (string, bool) {
 			}
 			s.page = ((s.page+step)%pages + pages) % pages
 			s.hoverItem = -1
-			if dist >= radialRingInner && dist <= radialRingOuter {
-				if items := s.pageItems(); len(items) != 0 {
-					s.hoverItem = radialSector(deg, len(items))
-				}
+			if dist >= radialBandOuter && (!s.sticky || dist <= radialDismissR) {
+				s.hoverItem = s.itemAt(deg)
 			}
 		}
+	}
+	if s.groupIndex() != shownBefore || s.page != pageBefore {
+		s.fanAge = 0
+	}
+	if s.hoverItem != hoverBefore {
+		s.hoverAge = 0
 	}
 
 	selected := ""
@@ -241,7 +334,7 @@ func (s *buildRadialState) step(p radialPointer) (string, bool) {
 		case selected != "":
 			s.close()
 			return selected, true
-		case !s.movedOut, s.groupIndex() >= 0 && dist < radialRingInner:
+		case !s.movedOut, s.groupIndex() >= 0 && dist < radialBandOuter:
 			// A tap, or a release still inside the category band: stay
 			// open sticky with whatever category is expanded.
 			s.sticky = true
@@ -256,18 +349,29 @@ func (s *buildRadialState) step(p radialPointer) (string, bool) {
 		case selected != "":
 			s.close()
 			return selected, true
-		case dist >= radialDeadZone && dist < radialRingInner && s.hoverCat >= 0:
-			s.lockedCat = s.hoverCat
-			s.page = 0
+		case dist >= radialHubR && dist < radialBandOuter && s.hoverCat >= 0:
+			if s.lockedCat != s.hoverCat {
+				s.lockedCat = s.hoverCat
+				s.page = 0
+				s.fanAge = 0
+			}
 			return "", true
 		default:
-			// A click on the hub, an empty slot or far outside the
-			// ring dismisses the sticky menu without a world click.
+			// A click on the hub, an empty slot, a gap in the fan or far
+			// outside the ring dismisses the sticky menu without a world
+			// click.
 			s.close()
 			return "", true
 		}
 	}
 	return "", true
+}
+
+func radialAbs(v int32) int32 {
+	if v < 0 {
+		return -v
+	}
+	return v
 }
 
 // serviceBuildRadial opens the menu on an admitted middle press and
@@ -289,9 +393,12 @@ func (b *battleSession) serviceBuildRadial(in *input.State, mouse input.MouseSta
 		return false
 	}
 	builder := frame.CommandPage.Builder
-	if b.radial.open && builder != b.radial.builder {
+	// A selection change to another builder, or a UI scale change under the
+	// open ring, closes it rather than retargeting it.
+	if b.radial.open && (builder != b.radial.builder || b.radial.scale != b.chromeScale()) {
 		b.radial.close()
 	}
+	vx, vy := b.railPointer(mx, my)
 	if !b.radial.open {
 		if !mouse.Pressed(input.MouseButtonMiddle) || builder == 0 ||
 			!b.overBattleViewport(mx, my) || b.isOverMinimap(mx, my) {
@@ -302,13 +409,14 @@ func (b *battleSession) serviceBuildRadial(in *input.State, mouse input.MouseSta
 			return false
 		}
 		cx, cy := b.radialCentre(mx, my)
-		b.radial.openAt(cx, cy, builder, groups)
+		b.radial.openAt(cx, cy, vx, vy, builder, groups)
+		b.radial.scale = b.chromeScale()
 		b.radial.builderName, b.radial.builderPages = radialBuilderInfo(b.cat, frame)
 		b.playUICue(nil, cueNextBuildMenu)
 	}
 	before := b.radial.category()
 	selected, consumed := b.radial.step(radialPointer{
-		X: mx, Y: my,
+		X: vx, Y: vy,
 		MiddlePressed:  mouse.Pressed(input.MouseButtonMiddle),
 		MiddleReleased: mouse.Released(input.MouseButtonMiddle),
 		LeftPressed:    mouse.Pressed(input.MouseButtonLeft),
@@ -328,16 +436,18 @@ func (b *battleSession) serviceBuildRadial(in *input.State, mouse input.MouseSta
 	return consumed
 }
 
-// radialCentre clamps the ring inside the battle viewport the chrome
-// leaves, so a press near an edge shifts the whole menu rather than
-// clipping its far side. A viewport too small for the full extent
-// centres the ring on it.
+// radialCentre places the ring for a press at framebuffer (mx, my) and
+// returns its centre on the virtual chrome surface. The ring is clamped
+// inside the battle viewport the chrome leaves, so a press near an edge
+// shifts the whole menu rather than clipping its far side; a viewport too
+// small for the full extent centres the ring on it.
 func (b *battleSession) radialCentre(mx, my int32) (int32, int32) {
-	extent := int32(radialItemR + 34) // ring radius plus a gadget half and rim
+	k := b.chromeScale()
+	extent := int32(radialExtent) * k
 	left, top, bottom := b.cam.ChromeInset()
 	w, h := b.surfaceSize()
-	return radialClampAxis(mx, left+1, w-1, extent),
-		radialClampAxis(my, top, h-bottom-1, extent)
+	return b.railPointer(radialClampAxis(mx, left+1, w-1, extent),
+		radialClampAxis(my, top, h-bottom-1, extent))
 }
 
 func radialClampAxis(v, lo, hi, extent int32) int32 {
@@ -371,4 +481,23 @@ func radialBuilderInfo(cat *content.Catalog, f *frame.Frame) (string, int) {
 		return unit.DefName, pages
 	}
 	return "", 0
+}
+
+// stageCapture poses an open menu for a headless capture: the group
+// expanded, the item hovered with the pointer resting on it, and every
+// animation finished. The capture path has no pointer to gesture with.
+func (s *buildRadialState) stageCapture(group, item int) {
+	if !s.open || group < 0 || group >= len(s.groups) {
+		return
+	}
+	s.sticky = true
+	s.movedOut, s.pressMoved = true, true
+	s.lockedCat, s.hoverCat = group, group
+	s.hoverItem = -1
+	if items := s.pageItems(); item >= 0 && item < len(items) {
+		s.hoverItem = item
+		s.pointerDeg = radialItemAngle(s.groups[group].Category, item, len(items))
+		s.pointerDist = radialItemR
+	}
+	s.age, s.fanAge, s.hoverAge = radialOpenFrames, radialFanFrames, radialHoverFrames
 }
