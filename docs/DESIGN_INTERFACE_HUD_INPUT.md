@@ -5440,7 +5440,7 @@ it, and a second middle press toggles it closed. A sticky menu with
 nothing locked previews the slot under the pointer and locks it when the
 pointer reaches the fan; a locked category stays put while the pointer
 crosses other slots on its way to an item, and only another slot click
-retargets it. A ring shifted away from an edge by more than its hub's
+retargets it. A ring shifted away from an edge by at least its hub's
 radius leaves the pointer over a slot or the fan rather than the hub,
 where a held release would pick without any flick, so such a menu opens
 sticky and waits for a click. Escape and right-click cancel at either
@@ -5461,20 +5461,21 @@ read as lighter glass. A fade cannot darken unexplored black ground, so
 opaque rims and seams carry the shape there. Each slot shows its first
 product's gadget picture box-filtered to a small disc; items show theirs
 cropped to full-size discs, growing out of their category's picture as the
-fan opens. Derived discs are built once per picture and diameter and
+fan opens. Derived discs are built once per picture, diameter and tone and
 cached; growth passes through a fixed handful of diameters. The hovered
 item lifts outward, brightens through LHT and takes an accent ring; a
 caret on the hub's rim points where the pointer aims; a category with
 several pages shows a pip per page on the tray's rim. The hub captions the
-hovered product's name in the COMIX face over a pill, with its metal and
-energy costs each in the side's authored resource-bar colour beside a
-swatch, or the hovered category and how many it offers. Its other colours
-are Nanolathe decoration resolved by nearest match in the loaded palette.
-A composite gadget frame, which has no leaf pixels to crop, falls back to
-the product's name. The derived pictures are kept for one builder at a
-time. Animation counts serviced host frames — six to open, six to unfurl a
-fan, four to lift a hover — so a paused battle still animates and captures
-are deterministic. Every fade is recorded ahead of the opaque art, so the
+hovered product's name in the COMIX face — on a pill of its own across the
+band when wider than the hub — with its metal and energy costs each in the
+side's authored resource-bar colour beside a swatch, or the hovered
+category and how many it offers. Its other colours are Nanolathe
+decoration resolved by nearest match in the loaded palette. A composite
+gadget frame, which has no leaf pixels to crop, falls back to the
+product's name. The derived pictures are kept for one builder at a time.
+Animation counts serviced host frames — six to open, six to unfurl a fan,
+four to lift a hover — so a paused battle still animates and captures are
+deterministic. Every fade is recorded ahead of the opaque art, so the
 Enhanced scheduler adds one phase, not one per layer; the executors differ
 only in the tone of the glass, as with every other shade rect.
 
@@ -5499,11 +5500,11 @@ nothing under the glass is hovered, so the footer describes no unit the
 menu hides. The one deliberate trade is that an admitted middle press —
 radial on, a builder with placement products selected — opens the menu
 instead of starting that pan; every other middle press pans exactly as
-before. A selection change to another builder, or a change of UI scale,
-closes the menu rather than retargeting it. Opening while a placement is
-already armed is allowed and choosing re-arms to the new product;
-cancelling leaves the armed placement untouched. It draws on the indexed
-battle HUD list over the chrome and under modal windows.
+before. A selection change to another builder, or a change of UI scale or
+window size, closes the menu rather than retargeting it. Opening while a
+placement is already armed is allowed and choosing re-arms to the new
+product; cancelling leaves the armed placement untouched. It draws on the
+indexed battle HUD list over the chrome and under modal windows.
 
 **Verification.** `TestRadialCategoryBucketsAuthoredFields` and
 `TestRadialGroupsPartitionPlacementProductsInAuthoredOrder` lock the

@@ -368,10 +368,6 @@ func runShot(opts Options, cs *contentSet) error {
 					return err
 				}
 				b.radial.stageCapture(group, item)
-				if group < 0 {
-					b.radial.sticky = true
-					b.radial.age = radialOpenFrames
-				}
 			}
 		}
 	}

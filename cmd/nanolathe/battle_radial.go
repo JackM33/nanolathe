@@ -62,10 +62,13 @@ type buildRadialState struct {
 	open bool
 	// sticky is open for ordinary clicking: after a tap, or from the start
 	// when the ring opened shifted off the press.
-	sticky  bool
-	cx, cy  int32 // ring centre on the virtual chrome surface
-	scale   int32 // the chrome magnification the menu opened under
-	builder pool.Handle
+	sticky bool
+	cx, cy int32 // ring centre on the virtual chrome surface
+	scale  int32 // the chrome magnification the menu opened under
+	// surfW and surfH are the surface size it opened on; a resize closes
+	// it rather than leaving the ring clamped to the old viewport.
+	surfW, surfH int32
+	builder      pool.Handle
 	// builderName and builderPages name the builder's authored build
 	// pages, whose GAFs carry the stock products' gadget pictures.
 	builderName  string
@@ -252,11 +255,14 @@ func (s *buildRadialState) step(p radialPointer) (string, bool) {
 		}
 	default:
 		s.movedOut = true
-		// One fast flick can cross the whole category band between two
-		// serviced frames; expand from this frame's direction rather
+		// A sticky preview locks the category it was showing. One fast
+		// flick can cross the whole band between two serviced frames, so
+		// with nothing shown, expand from this frame's direction rather
 		// than dropping the gesture.
 		if s.lockedCat < 0 {
-			s.lockedCat = s.groupAtAngle(deg)
+			if s.lockedCat = shownBefore; s.lockedCat < 0 {
+				s.lockedCat = s.groupAtAngle(deg)
+			}
 		}
 		s.hoverCat = s.lockedCat
 	}
@@ -349,6 +355,7 @@ func (b *battleSession) openBuildRadial(f *frame.Frame, mx, my int32) bool {
 	}
 	b.radial.openAt(cx, cy, f.CommandPage.Builder, groups)
 	b.radial.scale = b.chromeScale()
+	b.radial.surfW, b.radial.surfH = b.surfaceSize()
 	// The builder's name and page count select the page GAFs that carry
 	// the stock products' gadget pictures.
 	if v, ok := snapshotUnitByHandle(f, f.CommandPage.Builder); ok {
@@ -390,9 +397,11 @@ func (b *battleSession) serviceBuildRadial(mouse input.MouseState, mx, my int32)
 		b.radial.close()
 		return false
 	}
-	// A selection change to another builder, or a UI scale change under the
-	// open ring, closes it rather than retargeting it.
-	if b.radial.open && (f.CommandPage.Builder != b.radial.builder || b.radial.scale != b.chromeScale()) {
+	// A selection change to another builder, or a UI scale or surface size
+	// change under the open ring, closes it rather than retargeting it.
+	w, h := b.surfaceSize()
+	if b.radial.open && (f.CommandPage.Builder != b.radial.builder || b.radial.scale != b.chromeScale() ||
+		b.radial.surfW != w || b.radial.surfH != h) {
 		b.radial.close()
 	}
 	opened := false
@@ -417,8 +426,9 @@ func (b *battleSession) serviceBuildRadial(mouse input.MouseState, mx, my int32)
 		Wheel:          mouse.ZoomScrollY,
 	})
 	// One cue for each frame that changes the shown items: the opening, a
-	// new category or a new page.
-	if b.radial.open && (opened || b.radial.groupIndex() != group || b.radial.page != page) {
+	// new category or a new page. A preview returning to none is silent.
+	shown := b.radial.groupIndex()
+	if b.radial.open && (opened || shown != group && shown >= 0 || b.radial.page != page) {
 		b.playUICue(nil, cueNextBuildMenu)
 	}
 	if selected != "" && b.cat != nil {
@@ -452,14 +462,19 @@ func radialClampAxis(v, lo, hi, extent int32) (int32, bool) {
 	return max(lo+extent, min(v, hi-extent)), true
 }
 
-// stageCapture poses an open menu for a headless capture: the group
-// expanded, the item hovered with the pointer resting on it, and every
-// animation finished. The capture path has no pointer to gesture with.
+// stageCapture poses an open menu for a headless capture: sticky, every
+// animation finished, and — unless group is -1, the bare category ring —
+// the group expanded with the item hovered and the pointer resting on it.
+// The capture path has no pointer to gesture with.
 func (s *buildRadialState) stageCapture(group, item int) {
-	if !s.open || group < 0 || group >= len(s.groups) {
+	if !s.open || group >= len(s.groups) {
 		return
 	}
 	s.sticky, s.movedOut = true, true
+	s.age, s.fanAge, s.hoverAge = radialOpenFrames, radialFanFrames, radialHoverFrames
+	if group < 0 {
+		return
+	}
 	s.lockedCat, s.hoverCat = group, group
 	s.hoverItem = -1
 	if items := s.pageItems(); item >= 0 && item < len(items) {
@@ -467,5 +482,4 @@ func (s *buildRadialState) stageCapture(group, item int) {
 		s.pointerDeg = radialItemAngle(s.groups[group].Category, item, len(items))
 		s.pointerDist = radialItemR
 	}
-	s.age, s.fanAge, s.hoverAge = radialOpenFrames, radialFanFrames, radialHoverFrames
 }

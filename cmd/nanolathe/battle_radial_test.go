@@ -185,7 +185,7 @@ func TestRadialWheelPagesItems(t *testing.T) {
 	if s.page != 0 || s.pages() != 2 {
 		t.Fatalf("pages: page=%d pages=%d, want 0/2", s.page, s.pages())
 	}
-	// Trackpad-sized fractions bank into one whole notch per page.
+	// Fractional notches bank into one whole notch per page.
 	s.step(radialPointer{X: x, Y: y, Wheel: 0.5})
 	if s.page != 0 {
 		t.Fatalf("half notch: page=%d, want 0", s.page)
@@ -215,6 +215,7 @@ func TestRadialSectorSpansCoverOnce(t *testing.T) {
 		{88, 160, 150, 330, 1},
 		{88, 160, 300, 590, 1}, // reflex, across the top
 		{26, 30, 80, 108, 0},
+		{88, 160, 0, 360, 1}, // a full-page tray: a whole turn ignores the gap
 	}
 	// A disc and the ring that starts just past it tile the plane between
 	// them, as the band's base glass and the tray's do.

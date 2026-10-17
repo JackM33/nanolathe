@@ -84,9 +84,8 @@ type radialDiscKey struct {
 // radialArt is the radial's per-HUD cache: the resolved style and the
 // derived disc pictures, each built once per authored frame.
 type radialArt struct {
-	style   radialStyle
-	discs   map[radialDiscKey]*formats.GAFFrame
-	nearest map[[3]uint8]byte
+	style radialStyle
+	discs map[radialDiscKey]*formats.GAFFrame
 	// pictures caches each product's resolved gadget frame for one
 	// builder; a nil entry records a product without a picture.
 	pictureBuilder string
@@ -122,7 +121,7 @@ func (h *retailBattleHUD) radialStyle() *radialStyle {
 		metal:     metal,
 		energy:    energy,
 	}
-	a.discs, a.nearest = nil, nil
+	a.discs = nil
 	return &a.style
 }
 
@@ -162,10 +161,10 @@ func radialHalfPlane(a, b float64) (lo, hi int) {
 // half-planes either side of the sector, intersected for a sweep under
 // half a turn and united over it, so every row costs constant work.
 func radialSectorSpans(cx, cy int, r0, r1, a0, a1, gap float64, emit func(x0, x1, y int)) {
-	if r1 <= 0 || r1 < r0 {
+	sweep := a1 - a0
+	if r1 <= 0 || r1 < r0 || sweep <= 0 {
 		return
 	}
-	sweep := a1 - a0
 	whole := sweep >= 360
 	reflex := sweep > 180
 	d0x, d0y := radialDir(a0)
@@ -334,7 +333,8 @@ func (h *retailBattleHUD) radialProductFrame(product, builder string, pages int)
 func (h *retailBattleHUD) radialDisc(src *formats.GAFFrame, size, tone int) *formats.GAFFrame {
 	st := h.radialStyle()
 	// A composite frame has no leaf pixels to crop; nil takes the caller's
-	// text fallback rather than drawing an empty disc.
+	// text fallback rather than drawing an empty disc, as below for a
+	// frame with no opaque pixel.
 	if src == nil || st.pal == nil || size <= 0 || src.Width == 0 || src.Height == 0 ||
 		src.SubframeCount != 0 || len(src.Subframes) != 0 {
 		return nil
@@ -352,6 +352,7 @@ func (h *retailBattleHUD) radialDisc(src *formats.GAFFrame, size, tone int) *for
 		Pixels: make([]byte, size*size), Transparent: make([]bool, size*size),
 	}
 	r := float64(size) / 2
+	opaqueAny := false
 	for y := 0; y < size; y++ {
 		for x := 0; x < size; x++ {
 			i := y*size + x
@@ -365,7 +366,7 @@ func (h *retailBattleHUD) radialDisc(src *formats.GAFFrame, size, tone int) *for
 			if size == side {
 				b, opaque = src.At(ox+x, oy+y)
 			} else {
-				b, opaque = a.boxSample(pal, src, ox+x*side/size, oy+y*side/size,
+				b, opaque = radialBoxSample(pal, src, ox+x*side/size, oy+y*side/size,
 					ox+max((x+1)*side/size, x*side/size+1), oy+max((y+1)*side/size, y*side/size+1))
 			}
 			if !opaque {
@@ -379,7 +380,12 @@ func (h *retailBattleHUD) radialDisc(src *formats.GAFFrame, size, tone int) *for
 				b = pal.ShadeLookup(tone+32, b)
 			}
 			out.Pixels[i] = b
+			opaqueAny = true
 		}
+	}
+	if !opaqueAny {
+		// Nothing to show: nil takes the caller's text fallback.
+		return nil
 	}
 	if a.discs == nil {
 		a.discs = map[radialDiscKey]*formats.GAFFrame{}
@@ -388,9 +394,9 @@ func (h *retailBattleHUD) radialDisc(src *formats.GAFFrame, size, tone int) *for
 	return out
 }
 
-// boxSample averages the opaque source pixels of [x0,x1)×[y0,y1) and
+// radialBoxSample averages the opaque source pixels of [x0,x1)×[y0,y1) and
 // returns the nearest palette entry.
-func (a *radialArt) boxSample(pal *palette.Tables, f *formats.GAFFrame, x0, y0, x1, y1 int) (byte, bool) {
+func radialBoxSample(pal *palette.Tables, f *formats.GAFFrame, x0, y0, x1, y1 int) (byte, bool) {
 	var r, g, b, n int
 	for y := y0; y < y1; y++ {
 		for x := x0; x < x1; x++ {
@@ -403,16 +409,7 @@ func (a *radialArt) boxSample(pal *palette.Tables, f *formats.GAFFrame, x0, y0, 
 	if n == 0 {
 		return 0, false
 	}
-	rgb := [3]uint8{uint8(r / n), uint8(g / n), uint8(b / n)}
-	if v, ok := a.nearest[rgb]; ok {
-		return v, true
-	}
-	v := unitViewerColor(pal, int(rgb[0]), int(rgb[1]), int(rgb[2]))
-	if a.nearest == nil {
-		a.nearest = map[[3]uint8]byte{}
-	}
-	a.nearest[rgb] = v
-	return v, true
+	return unitViewerColor(pal, r/n, g/n, b/n), true
 }
 
 // radialShadowText draws FNT text with a one-pixel drop shadow, centred on
@@ -455,9 +452,6 @@ func (h *retailBattleHUD) radialCaptionFor(b *battleSession) radialCaption {
 	if gi >= 0 && gi < len(s.groups) {
 		g := s.groups[gi]
 		detail := fmt.Sprintf("%d to build", len(g.Products))
-		if len(g.Products) == 1 {
-			detail = "1 to build"
-		}
 		if pages := s.pages(); pages > 1 && gi == s.groupIndex() {
 			detail = fmt.Sprintf("page %d of %d  -  wheel", s.page+1, pages)
 		}
