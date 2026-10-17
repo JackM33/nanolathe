@@ -37,7 +37,8 @@ const (
 	radialTrayOuter = 160
 	// radialExtent is how far the drawn menu reaches from its centre: the
 	// tray plus its soft rim. The centre is clamped this far inside the
-	// viewport so nothing the menu offers is ever clipped.
+	// viewport so nothing the menu offers is ever clipped, and a viewport
+	// too small for that declines the menu.
 	radialExtent = radialTrayOuter + 3
 	// A sticky click farther out than this dismisses the menu even in the
 	// direction of an item; a held flick has no outer limit, so a fast
@@ -304,9 +305,9 @@ func (s *buildRadialState) step(p radialPointer) (string, bool) {
 		case selected != "":
 			s.close()
 			return selected, true
-		case !s.movedOut, s.groupIndex() >= 0 && dist < radialBandOuter:
-			// A tap, or a release still inside the category band: stay
-			// open sticky with whatever category is expanded.
+		case !s.movedOut, dist < radialHubR, s.groupIndex() >= 0 && dist < radialBandOuter:
+			// A tap, a release back on the hub, or one still inside the
+			// category band: stay open sticky with whatever is expanded.
 			s.sticky = true
 		default:
 			s.close()
@@ -342,7 +343,10 @@ func (b *battleSession) openBuildRadial(f *frame.Frame, mx, my int32) bool {
 	if len(groups) == 0 {
 		return false
 	}
-	cx, cy := b.radialCentre(mx, my)
+	cx, cy, fits := b.radialCentre(mx, my)
+	if !fits {
+		return false
+	}
 	b.radial.openAt(cx, cy, f.CommandPage.Builder, groups)
 	b.radial.scale = b.chromeScale()
 	// The builder's name and page count select the page GAFs that carry
@@ -357,10 +361,12 @@ func (b *battleSession) openBuildRadial(f *frame.Frame, mx, my int32) bool {
 	vx, vy := b.railPointer(mx, my)
 	b.radial.sticky = math.Hypot(float64(cx-vx), float64(cy-vy)) >= radialHubR
 	// The menu takes the pointer, so a gesture already in flight ends here,
-	// as it does when the battle menu or the megamap opens.
+	// as it does when the battle menu or the megamap opens, and the economy
+	// panel, which paints above it, closes.
 	state := &b.battleState().Input
 	state.DragActive, state.HUDCaptured = false, false
 	b.modernDrag, b.resourceClick = nil, nil
+	b.economyPanel = economyPanelState{}
 	return true
 }
 
@@ -368,8 +374,9 @@ func (b *battleSession) openBuildRadial(f *frame.Frame, mx, my int32) bool {
 // services it ahead of every other pointer consumer in handleInput. True
 // means the frame belonged to the menu. The middle-drag camera pan keeps
 // every press this refuses: radial off, no builder page, a builder with no
-// placement products, a replay (which takes no orders), or a press over
-// the minimap or the economy panel.
+// placement products, a replay (which takes no orders), a camera drag in
+// progress, a viewport too small for the menu, or a press over the minimap
+// or the economy panel.
 func (b *battleSession) serviceBuildRadial(mouse input.MouseState, mx, my int32) bool {
 	if b == nil {
 		return false
@@ -391,6 +398,7 @@ func (b *battleSession) serviceBuildRadial(mouse input.MouseState, mx, my int32)
 	opened := false
 	if !b.radial.open {
 		if !mouse.Pressed(input.MouseButtonMiddle) || f.CommandPage.Builder == 0 || b.replayPlayback() != nil ||
+			b.minimapCameraCaptured || b.dragScrollActive ||
 			!b.overBattleViewport(mx, my) || b.isOverMinimap(mx, my) || b.economyPanelCovers(mx, my) ||
 			!b.openBuildRadial(f, mx, my) {
 			return false
@@ -425,22 +433,23 @@ func (b *battleSession) serviceBuildRadial(mouse input.MouseState, mx, my int32)
 // radialCentre places the ring for a press at framebuffer (mx, my) and
 // returns its centre on the virtual chrome surface. The ring is clamped
 // inside the battle viewport the chrome leaves, so a press near an edge
-// shifts the whole menu rather than clipping its far side; a viewport too
-// small for the full extent centres the ring on it.
-func (b *battleSession) radialCentre(mx, my int32) (int32, int32) {
-	k := b.chromeScale()
-	extent := int32(radialExtent) * k
+// shifts the whole menu rather than clipping its far side; fits is false
+// when the viewport cannot hold the whole menu at the current UI scale.
+func (b *battleSession) radialCentre(mx, my int32) (cx, cy int32, fits bool) {
+	extent := int32(radialExtent) * b.chromeScale()
 	left, top, bottom := b.cam.ChromeInset()
 	w, h := b.surfaceSize()
-	return b.railPointer(radialClampAxis(mx, left+1, w-1, extent),
-		radialClampAxis(my, top, h-bottom-1, extent))
+	x, fitX := radialClampAxis(mx, left+1, w-1, extent)
+	y, fitY := radialClampAxis(my, top, h-bottom-1, extent)
+	cx, cy = b.railPointer(x, y)
+	return cx, cy, fitX && fitY
 }
 
-func radialClampAxis(v, lo, hi, extent int32) int32 {
+func radialClampAxis(v, lo, hi, extent int32) (int32, bool) {
 	if hi-lo < 2*extent {
-		return (lo + hi) / 2
+		return v, false
 	}
-	return max(lo+extent, min(v, hi-extent))
+	return max(lo+extent, min(v, hi-extent)), true
 }
 
 // stageCapture poses an open menu for a headless capture: the group

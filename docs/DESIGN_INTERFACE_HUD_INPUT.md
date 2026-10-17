@@ -5419,34 +5419,35 @@ ordinary `MOBILEBUILD` placement latch `[07 §9]`.
 
 **Gesture.** With an eligible builder selected, a middle press over the
 battle viewport opens the menu centred on the cursor, shifted as a whole
-to stay inside the viewport the chrome leaves. The press is a marking
-menu: drag past the hub toward a category slot to expand it, keep going
-outward, and release on an item to arm its placement with the usual
-`addbuild` cue. Each category owns a fixed 60-degree slot clockwise from
-the top in bucket order, offered or not, so directions stay learnable. An
-expanded category's items fan out around **its own slot**, 36 degrees
-apart in authored order clockwise, so the flick that expanded it keeps
-travelling into its middle items; ten fill the ring and make a page, and
-the wheel turns one page per whole notch of the zoom wheel, which excludes
-precise trackpad scrolling, banking fractions as the megamap's wheel does
-(§3.15). A held flick picks by direction alone, so one that overshoots the
-ring still selects; releasing beyond a partial fan's ends cancels.
-Releasing inside the hub, or still inside the category band with a
-category expanded, instead leaves the menu open sticky — left-click then
-picks a category and an item, a click on the hub, an empty slot, a gap in
-the fan or well outside the tray dismisses it, and a second middle press
-toggles it closed. A sticky menu with nothing locked previews the slot
-under the pointer and locks it when the pointer reaches the fan; a locked
-category stays put while the pointer crosses other slots on its way to an
-item, and only another slot click retargets it. A ring shifted away from
-an edge by more than its hub's radius leaves the pointer over a slot or
-the fan rather than the hub, where a held release would pick without any
-flick, so such a menu opens sticky and waits for a click. Escape and
-right-click cancel at either level. `viewerStep` takes Escape ahead of
-every battle path, so its first claim is the open menu's: Escape closes
-the menu and never also deselects or disarms. The opening, each category
-change and each page cue `nextbuildmenu` once, as a sidebar page switch
-does.
+to stay inside the viewport the chrome leaves; a viewport too small for
+the whole menu at the current UI scale declines it, and that press pans as
+before. The press is a marking menu: drag past the hub toward a category
+slot to expand it, keep going outward, and release on an item to arm its
+placement with the usual `addbuild` cue. Each category owns a fixed
+60-degree slot clockwise from the top in bucket order, offered or not, so
+directions stay learnable. An expanded category's items fan out around
+**its own slot**, 36 degrees apart in authored order clockwise, so the
+flick that expanded it keeps travelling into its middle items; ten fill
+the ring and make a page, and the wheel turns one page per whole notch of
+the zoom wheel, which excludes precise trackpad scrolling, banking
+fractions as the megamap's wheel does (§3.15). A held flick picks by
+direction alone, so one that overshoots the ring still selects; releasing
+beyond a partial fan's ends cancels. Releasing inside the hub, or still
+inside the category band with a category expanded, instead leaves the menu
+open sticky — left-click then picks a category and an item, a click on the
+hub, an empty slot, a gap in the fan or well outside the tray dismisses
+it, and a second middle press toggles it closed. A sticky menu with
+nothing locked previews the slot under the pointer and locks it when the
+pointer reaches the fan; a locked category stays put while the pointer
+crosses other slots on its way to an item, and only another slot click
+retargets it. A ring shifted away from an edge by more than its hub's
+radius leaves the pointer over a slot or the fan rather than the hub,
+where a held release would pick without any flick, so such a menu opens
+sticky and waits for a click. Escape and right-click cancel at either
+level. `viewerStep` takes Escape ahead of every battle path, so its first
+claim is the open menu's: Escape closes the menu and never also deselects
+or disarms. The opening, each category change and each page cue
+`nextbuildmenu` once, as a sidebar page switch does.
 
 **Presentation.** The menu is laid out on the rail's virtual surface
 inside the rail's chrome region, so the Modern UI scale magnifies it with
@@ -5459,21 +5460,23 @@ sectors, so terrain shows through darkened and the seams between slots
 read as lighter glass. A fade cannot darken unexplored black ground, so
 opaque rims and seams carry the shape there. Each slot shows its first
 product's gadget picture box-filtered to a small disc; items show theirs
-cropped to full-size discs, growing out of their category's picture as
-the fan opens. Derived discs are built once per picture and diameter and
+cropped to full-size discs, growing out of their category's picture as the
+fan opens. Derived discs are built once per picture and diameter and
 cached; growth passes through a fixed handful of diameters. The hovered
 item lifts outward, brightens through LHT and takes an accent ring; a
 caret on the hub's rim points where the pointer aims; a category with
-several pages shows a pip per page on the tray's rim. The hub captions
-the hovered product's name in the COMIX face over a pill, with its metal
-and energy costs each in the economy's colour beside a swatch, or the
-hovered category and how many it offers. Colours are Nanolathe decoration
-resolved by nearest match in the loaded palette. Animation counts serviced
-host frames — six to open, six to unfurl a fan, four to lift a hover — so
-a paused battle still animates and captures are deterministic. Every fade
-is recorded ahead of the opaque art, so the Enhanced scheduler adds one
-phase, not one per layer; the executors differ only in the tone of the
-glass, as with every other shade rect.
+several pages shows a pip per page on the tray's rim. The hub captions the
+hovered product's name in the COMIX face over a pill, with its metal and
+energy costs each in the side's authored resource-bar colour beside a
+swatch, or the hovered category and how many it offers. Its other colours
+are Nanolathe decoration resolved by nearest match in the loaded palette.
+A composite gadget frame, which has no leaf pixels to crop, falls back to
+the product's name. The derived pictures are kept for one builder at a
+time. Animation counts serviced host frames — six to open, six to unfurl a
+fan, four to lift a hover — so a paused battle still animates and captures
+are deterministic. Every fade is recorded ahead of the opaque art, so the
+Enhanced scheduler adds one phase, not one per layer; the executors differ
+only in the tone of the glass, as with every other shade rect.
 
 **Ownership.** The menu is serviced in `handleInput` ahead of every other
 pointer consumer — the economy panel and the playback overlay included —
@@ -5482,10 +5485,12 @@ selection drag, latch or world click takes part of its gesture; the GUI
 palette, modals, TALK, the megamap and focus loss all close it. Keyboard
 shortcuts keep their ordinary paths, and one that changes the selection
 closes the menu with it. It opens only on a press no minimap or economy
-panel covers, and never during a replay, which takes no orders. Opening
-ends any pointer gesture already in flight — a selection drag, a rail
-capture, a build-drag row or a pending resource double-click — as opening
-the battle menu or the megamap does, and the megamap's wheel entry yields
+panel covers, never during a replay, which takes no orders, and never
+while a minimap or Ctrl-right camera drag is in progress, which keeps its
+own release. Opening ends any pointer gesture already in flight — a
+selection drag, a rail capture, a build-drag row or a pending resource
+double-click — as opening the battle menu or the megamap does — and closes
+the economy panel, which paints above it; the megamap's wheel entry yields
 to the menu's paging. While it is open no camera input starts: edge and
 arrow scroll, wheel and gesture zoom and the middle-drag pan are all
 suppressed, and because the pan's previous-position words still advance,
@@ -5509,7 +5514,9 @@ bucketing and the exact-once partition; `TestRadialHoldFlickSelects`,
 machine and the fan layout, and `TestBuildRadialBattleInput` holds it in
 the battle's input order — the preference gate, Escape through
 `viewerStep` with and without an armed placement, a shifted ring that
-waits for a click, and the end of gestures in flight;
+waits for a click, the end of gestures in flight, live keys under the
+menu, the close on a selection change, and the refusals during a camera
+drag and in a viewport too small for the menu;
 `TestRadialSectorSpansCoverOnce` holds the glass rasterizer against a
 per-pixel definition, so no pixel is faded twice;
 `TestBuildRadialPersistence` locks the opt-in default and its

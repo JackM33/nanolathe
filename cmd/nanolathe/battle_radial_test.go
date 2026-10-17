@@ -6,6 +6,8 @@ import (
 
 	"github.com/nanolathe-gg/nanolathe/internal/hud"
 	"github.com/nanolathe-gg/nanolathe/internal/input"
+	"github.com/nanolathe-gg/nanolathe/internal/pool"
+	"github.com/nanolathe-gg/nanolathe/internal/session"
 )
 
 // radialPolar returns the point at radius r and the given angle measured
@@ -137,6 +139,14 @@ func TestRadialReleaseInCategoryBandStaysOpen(t *testing.T) {
 	if !s.open || !s.sticky || radialExpanded(&s) != hud.RadialFactory {
 		t.Fatalf("band release: open=%v sticky=%v category=%v, want true/true/Factory", s.open, s.sticky, radialExpanded(&s))
 	}
+	// Back on the hub after crossing an empty slot is a hub release too.
+	s = radialTestState()
+	x, y = radialPolar(200, 200, 180, 55) // Defence slot: no such group
+	s.step(radialPointer{X: x, Y: y})
+	s.step(radialPointer{X: 200, Y: 200})
+	if s.step(radialPointer{X: 200, Y: 200, MiddleReleased: true}); !s.open || !s.sticky {
+		t.Fatalf("hub release after an empty slot: open=%v sticky=%v, want both true", s.open, s.sticky)
+	}
 }
 
 // Right-click cancels without selecting, a second middle press toggles a
@@ -266,10 +276,12 @@ func TestRadialSectorSpansCoverOnce(t *testing.T) {
 // The menu inside the battle's real input order (DESIGN_INTERFACE_HUD_INPUT
 // §3.18): off it never opens; Escape, which viewerStep takes ahead of
 // handleInput, closes it without deselecting or disarming; a ring the
-// viewport shifts waits for a click instead of choosing on release; and a
-// selection drag or rail capture already in flight ends when it opens.
+// viewport shifts waits for a click instead of choosing on release; a
+// selection drag or rail capture already in flight ends when it opens;
+// live keys keep working under it and a selection change closes it; and a
+// camera drag in progress or a viewport too small for it refuses it.
 func TestBuildRadialBattleInput(t *testing.T) {
-	b, cl, _, _ := resourceFixture(t, false)
+	b, cl, _, builder := resourceFixture(t, false)
 	b.setSurfaceSize(640, 480)
 	middle := func(x, y int32, phase string) {
 		dragInput(b, cl, x, y, input.MouseButtonMiddle, phase, input.Modifiers{})
@@ -324,5 +336,39 @@ func TestBuildRadialBattleInput(t *testing.T) {
 	middle(384, 240, "press")
 	if in := b.battleState().Input; !b.radial.open || in.DragActive || in.HUDCaptured {
 		t.Fatalf("open=%v drag=%v hud=%v, want the menu open and both captures ended", b.radial.open, in.DragActive, in.HUDCaptured)
+	}
+
+	speed := b.sess.Clock.Requested
+	in := input.NewState()
+	in.Mouse.SetPosition(384, 240)
+	in.Kbd.SetKey(input.KeyEqual, true)
+	b.handleInput(in, cl)
+	if !b.radial.open || b.sess.Clock.Requested != speed+1 {
+		t.Fatalf("speed key under the menu: open=%v speed %d -> %d, want open and one faster", b.radial.open, speed, b.sess.Clock.Requested)
+	}
+	if err := b.enqueueSelectionCommand(session.HumanCommand{Kind: session.HumanSelectionClear}); err != nil {
+		t.Fatal(err)
+	}
+	b.sess.Step(b.sess.Clock.ScaledAnchor + 1)
+	middle(384, 240, "release")
+	if b.radial.open {
+		t.Fatal("deselecting the builder left the menu open")
+	}
+	if err := b.enqueueSelectionCommand(session.HumanCommand{Kind: session.HumanSelectionReplace, Selection: session.HumanSelectionCommand{Handles: []pool.Handle{builder}}}); err != nil {
+		t.Fatal(err)
+	}
+	b.sess.Step(b.sess.Clock.ScaledAnchor + 1)
+
+	b.minimapCameraCaptured = true
+	middle(384, 240, "press")
+	if b.radial.open {
+		t.Fatal("the menu opened during a minimap camera drag")
+	}
+	b.minimapCameraCaptured = false
+	middle(384, 240, "release")
+	b.setSurfaceSize(320, 240)
+	middle(250, 120, "press")
+	if b.radial.open {
+		t.Fatal("the menu opened in a viewport too small to hold it")
 	}
 }

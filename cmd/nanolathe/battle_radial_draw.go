@@ -69,8 +69,8 @@ type radialStyle struct {
 	outline   byte // picture outline and text shadow
 	text      byte // caption text
 	textDim   byte
-	metal     byte // the economy's metal colour
-	energy    byte // and its energy colour
+	metal     byte // the side's metal bar colour
+	energy    byte // and its energy bar colour
 }
 
 // radialDiscKey names one derived disc picture: the authored frame, the
@@ -99,6 +99,17 @@ func (h *retailBattleHUD) radialStyle() *radialStyle {
 		return &a.style
 	}
 	pal := h.pal
+	// The costs take the resource bars' own authored colours, falling back
+	// to a near match when the side authors none in range.
+	metal, energy := unitViewerColor(pal, 180, 200, 228), unitViewerColor(pal, 252, 220, 72)
+	if h.side != nil {
+		if c := h.side.MetalColor; c > 0 && c <= 255 {
+			metal = byte(c)
+		}
+		if c := h.side.EnergyColor; c > 0 && c <= 255 {
+			energy = byte(c)
+		}
+	}
 	a.style = radialStyle{
 		pal:       pal,
 		accent:    unitViewerColor(pal, 120, 236, 196),
@@ -108,8 +119,8 @@ func (h *retailBattleHUD) radialStyle() *radialStyle {
 		outline:   unitViewerColor(pal, 0, 0, 0),
 		text:      unitViewerColor(pal, 236, 240, 232),
 		textDim:   unitViewerColor(pal, 150, 158, 160),
-		metal:     unitViewerColor(pal, 180, 200, 228),
-		energy:    unitViewerColor(pal, 252, 220, 72),
+		metal:     metal,
+		energy:    energy,
 	}
 	a.discs, a.nearest = nil, nil
 	return &a.style
@@ -278,8 +289,11 @@ func (h *retailBattleHUD) radialProductFrame(product, builder string, pages int)
 		return nil
 	}
 	a := &h.radial
+	// Both caches hold one builder's pictures, so a new builder starts
+	// them afresh rather than letting a long battle accumulate every
+	// picture it has shown.
 	if a.pictures == nil || a.pictureBuilder != builder {
-		a.pictures, a.pictureBuilder = map[string]*formats.GAFFrame{}, builder
+		a.pictures, a.pictureBuilder, a.discs = map[string]*formats.GAFFrame{}, builder, nil
 	}
 	if f, ok := a.pictures[product]; ok {
 		return f
@@ -319,7 +333,10 @@ func (h *retailBattleHUD) radialProductFrame(product, builder string, pages int)
 // kept, so the executors see one stable frame per picture.
 func (h *retailBattleHUD) radialDisc(src *formats.GAFFrame, size, tone int) *formats.GAFFrame {
 	st := h.radialStyle()
-	if src == nil || st.pal == nil || size <= 0 || src.Width == 0 || src.Height == 0 {
+	// A composite frame has no leaf pixels to crop; nil takes the caller's
+	// text fallback rather than drawing an empty disc.
+	if src == nil || st.pal == nil || size <= 0 || src.Width == 0 || src.Height == 0 ||
+		src.SubframeCount != 0 || len(src.Subframes) != 0 {
 		return nil
 	}
 	a := &h.radial

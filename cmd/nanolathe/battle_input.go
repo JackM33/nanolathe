@@ -130,8 +130,11 @@ func (b *battleSession) handleInput(in *input.State, cl *client.Client) {
 	mx, my := int32(mouse.X), int32(mouse.Y)
 	// An open build radial owns the pointer ahead of every other consumer,
 	// so no panel or world path can take a frame of its gesture; it opens
-	// only on a middle press no overlay covers (§3.18).
+	// only on a middle press no overlay covers. The keyboard keeps its
+	// shortcuts underneath it (§3.18).
 	if b.serviceBuildRadial(mouse, mx, my) {
+		shortcutsServiced = true
+		b.handleBattleShortcuts(in, cl)
 		return
 	}
 	if b.serviceEconomyPanel(in, cl, mouse) {
