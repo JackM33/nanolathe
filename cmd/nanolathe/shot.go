@@ -353,26 +353,20 @@ func runShot(opts Options, cs *contentSet) error {
 		p.BuildRadial = 1
 		b.hostPresentation = &p
 		if f, ok := b.currentSnapshot(); ok && f != nil {
-			if groups := hud.RadialGroups(b.cat, hud.AllowedBuildProducts(b.cat, f)); len(groups) != 0 {
-				group, item, err := shotRadialPose(opts.ShotRadialPose, groups)
+			// Open where a player would: at the builder, which has explored
+			// the ground around it.
+			px, py := int32(shotW/2), int32(shotH/2)
+			if unit, ok := snapshotUnitByHandle(f, f.CommandPage.Builder); ok {
+				// The projection keeps the view origin the world drawers
+				// subtract [03 §2.5].
+				px, py = cl.WorldToScreenPx(unit.X, unit.Y, unit.Z)
+				px, py = px-camera.OriginX, py-camera.OriginY
+			}
+			if b.openBuildRadial(f, px, py) {
+				group, item, err := shotRadialPose(opts.ShotRadialPose, b.radial.groups)
 				if err != nil {
 					return err
 				}
-				// Open where a player would: at the builder, which has
-				// explored the ground around it.
-				px, py := int32(shotW/2), int32(shotH/2)
-				for _, unit := range f.Units {
-					if unit.Slot == f.CommandPage.Builder {
-						// The projection keeps the view origin the world
-						// drawers subtract [03 §2.5].
-						px, py = cl.WorldToScreenPx(unit.X, unit.Y, unit.Z)
-						px, py = px-camera.OriginX, py-camera.OriginY
-					}
-				}
-				cx, cy := b.radialCentre(px, py)
-				b.radial.openAt(cx, cy, cx, cy, f.CommandPage.Builder, groups)
-				b.radial.scale = b.chromeScale()
-				b.radial.builderName, b.radial.builderPages = radialBuilderInfo(b.cat, f)
 				b.radial.stageCapture(group, item)
 				if group < 0 {
 					b.radial.sticky = true

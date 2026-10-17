@@ -13,7 +13,6 @@ package main
 import (
 	"math"
 
-	"github.com/nanolathe-gg/nanolathe/internal/content"
 	"github.com/nanolathe-gg/nanolathe/internal/frame"
 	"github.com/nanolathe-gg/nanolathe/internal/hud"
 	"github.com/nanolathe-gg/nanolathe/internal/input"
@@ -47,12 +46,6 @@ const (
 
 	radialItemStep     = 36.0 // degrees between neighbouring items on a fan
 	radialItemsPerPage = 10   // a full ring at radialItemStep
-
-	// radialPressSlop is how far the opening press must travel before its
-	// position counts. A menu shifted away from a viewport edge opens with
-	// the pointer already off its centre; until the pointer moves, that
-	// offset must neither expand a category nor turn a tap into a pick.
-	radialPressSlop = 4
 )
 
 // Animation lengths in serviced host frames, so a paused battle still
@@ -65,10 +58,11 @@ const (
 
 // buildRadialState is the menu's host state. The zero value is closed.
 type buildRadialState struct {
-	open    bool
-	sticky  bool  // a tap left it open for ordinary clicking
+	open bool
+	// sticky is open for ordinary clicking: after a tap, or from the start
+	// when the ring opened shifted off the press.
+	sticky  bool
 	cx, cy  int32 // ring centre on the virtual chrome surface
-	ox, oy  int32 // the opening press, same surface
 	scale   int32 // the chrome magnification the menu opened under
 	builder pool.Handle
 	// builderName and builderPages name the builder's authored build
@@ -77,12 +71,12 @@ type buildRadialState struct {
 	builderPages int
 	groups       []hud.RadialGroup
 
-	lockedCat  int  // group index the item ring shows, -1 for none
-	hoverCat   int  // group index under the pointer, -1 for none
-	hoverItem  int  // index into the shown group's current page, -1 for none
-	page       int  // current page of the shown group
-	movedOut   bool // the opening hold left the dead-zone
-	pressMoved bool // the pointer has left the opening press's slop
+	lockedCat int     // group index the item ring shows, -1 for none
+	hoverCat  int     // group index under the pointer, -1 for none
+	hoverItem int     // index into the shown group's current page, -1 for none
+	page      int     // current page of the shown group
+	wheel     float32 // banked fraction of a wheel notch
+	movedOut  bool    // the opening hold left the dead-zone
 
 	// Pointer direction from the centre, for the hub's direction caret.
 	pointerDeg  float64
@@ -101,13 +95,12 @@ type radialPointer struct {
 	MiddleReleased bool
 	LeftPressed    bool
 	RightPressed   bool
-	Escape         bool
-	Wheel          float32
+	Wheel          float32 // zoom-wheel notches, which exclude precise trackpad scrolling
 }
 
-func (s *buildRadialState) openAt(cx, cy, ox, oy int32, builder pool.Handle, groups []hud.RadialGroup) {
+func (s *buildRadialState) openAt(cx, cy int32, builder pool.Handle, groups []hud.RadialGroup) {
 	*s = buildRadialState{
-		open: true, cx: cx, cy: cy, ox: ox, oy: oy, scale: 1,
+		open: true, cx: cx, cy: cy, scale: 1,
 		builder: builder, groups: groups,
 		lockedCat: -1, hoverCat: -1, hoverItem: -1,
 	}
@@ -115,60 +108,40 @@ func (s *buildRadialState) openAt(cx, cy, ox, oy int32, builder pool.Handle, gro
 
 func (s *buildRadialState) close() { *s = buildRadialState{} }
 
-// category reports the bucket whose items the ring currently shows: the
-// hovered slot while the pointer names one, else the locked expansion.
-// In sticky mode a clicked category stays locked — the pointer can cross
-// other slots on its way to an item, and the ring must not retarget under
-// it — so there the lock outranks the hover.
-func (s *buildRadialState) category() hud.RadialCategory {
-	if i := s.groupIndex(); i >= 0 {
-		return s.groups[i].Category
-	}
-	return hud.RadialMisc
-}
-
+// groupIndex is the group whose items the ring shows: the locked
+// expansion, else the slot under the pointer. A held flick locks every
+// slot it crosses, so it follows the pointer. A sticky menu with nothing
+// locked previews the slot under the pointer and locks it when the
+// pointer reaches the fan; once locked, only a slot click changes it, so
+// the ring does not retarget while the pointer crosses other slots on its
+// way to an item.
 func (s *buildRadialState) groupIndex() int {
-	if s.sticky && s.lockedCat >= 0 && s.lockedCat < len(s.groups) {
+	if s.lockedCat >= 0 {
 		return s.lockedCat
 	}
-	if s.hoverCat >= 0 {
-		return s.hoverCat
-	}
-	if s.lockedCat >= 0 && s.lockedCat < len(s.groups) {
-		return s.lockedCat
-	}
-	return -1
+	return s.hoverCat
 }
 
 func (s *buildRadialState) group() (hud.RadialGroup, bool) {
-	if i := s.groupIndex(); i >= 0 {
-		return s.groups[i], true
+	i := s.groupIndex()
+	if i < 0 || i >= len(s.groups) {
+		return hud.RadialGroup{}, false
 	}
-	return hud.RadialGroup{}, false
+	return s.groups[i], true
 }
 
 func (s *buildRadialState) pages() int {
-	g, ok := s.group()
-	if !ok {
-		return 0
-	}
+	g, _ := s.group()
 	return (len(g.Products) + radialItemsPerPage - 1) / radialItemsPerPage
 }
 
 func (s *buildRadialState) pageItems() []string {
 	g, ok := s.group()
-	if !ok {
-		return nil
-	}
 	start := s.page * radialItemsPerPage
-	if start < 0 || start >= len(g.Products) {
+	if !ok || start >= len(g.Products) {
 		return nil
 	}
-	end := start + radialItemsPerPage
-	if end > len(g.Products) {
-		end = len(g.Products)
-	}
-	return g.Products[start:end]
+	return g.Products[start:min(start+radialItemsPerPage, len(g.Products))]
 }
 
 // radialAngle is the pointer's direction from the centre as degrees
@@ -254,16 +227,9 @@ func (s *buildRadialState) step(p radialPointer) (string, bool) {
 	s.age++
 	s.fanAge++
 	s.hoverAge++
-	if p.Escape || p.RightPressed {
+	if p.RightPressed || (s.sticky && p.MiddlePressed) {
 		s.close()
 		return "", true
-	}
-	if s.sticky && p.MiddlePressed {
-		s.close()
-		return "", true
-	}
-	if !s.pressMoved && (radialAbs(p.X-s.ox) > radialPressSlop || radialAbs(p.Y-s.oy) > radialPressSlop) {
-		s.pressMoved = true
 	}
 	dx := float64(p.X - s.cx)
 	dy := float64(p.Y - s.cy)
@@ -272,18 +238,16 @@ func (s *buildRadialState) step(p radialPointer) (string, bool) {
 	s.pointerDeg, s.pointerDist = deg, dist
 
 	shownBefore, pageBefore, hoverBefore := s.groupIndex(), s.page, s.hoverItem
-	s.hoverItem = -1
 	switch {
-	case dist < radialHubR, !s.sticky && !s.pressMoved:
+	case dist < radialHubR:
 		s.hoverCat = -1
 	case dist < radialBandOuter:
 		s.movedOut = true
 		s.hoverCat = s.groupAtAngle(deg)
 		// A held flick expands whatever slot it crosses; a sticky menu
 		// changes its locked category only on a slot click, below.
-		if !s.sticky && s.hoverCat >= 0 && s.hoverCat != s.lockedCat {
+		if !s.sticky && s.hoverCat >= 0 {
 			s.lockedCat = s.hoverCat
-			s.page = 0
 		}
 	default:
 		s.movedOut = true
@@ -291,27 +255,33 @@ func (s *buildRadialState) step(p radialPointer) (string, bool) {
 		// serviced frames; expand from this frame's direction rather
 		// than dropping the gesture.
 		if s.lockedCat < 0 {
-			if s.lockedCat = s.groupAtAngle(deg); s.lockedCat >= 0 {
-				s.page = 0
-			}
+			s.lockedCat = s.groupAtAngle(deg)
 		}
 		s.hoverCat = s.lockedCat
-		if !s.sticky || dist <= radialDismissR {
-			s.hoverItem = s.itemAt(deg)
-		}
 	}
+	if s.groupIndex() != shownBefore {
+		s.page = 0
+	}
+	// One page per whole notch; fractions bank, as the megamap's wheel does.
 	if p.Wheel != 0 {
-		if pages := s.pages(); pages > 1 {
+		if (p.Wheel < 0) != (s.wheel < 0) {
+			s.wheel = 0
+		}
+		s.wheel += p.Wheel
+		if s.wheel >= 1 || s.wheel <= -1 {
 			step := 1
-			if p.Wheel < 0 {
+			if s.wheel < 0 {
 				step = -1
 			}
-			s.page = ((s.page+step)%pages + pages) % pages
-			s.hoverItem = -1
-			if dist >= radialBandOuter && (!s.sticky || dist <= radialDismissR) {
-				s.hoverItem = s.itemAt(deg)
+			s.wheel = 0
+			if pages := s.pages(); pages > 1 {
+				s.page = ((s.page+step)%pages + pages) % pages
 			}
 		}
+	}
+	s.hoverItem = -1
+	if dist >= radialBandOuter && (!s.sticky || dist <= radialDismissR) {
+		s.hoverItem = s.itemAt(deg)
 	}
 	if s.groupIndex() != shownBefore || s.page != pageBefore {
 		s.fanAge = 0
@@ -338,11 +308,10 @@ func (s *buildRadialState) step(p radialPointer) (string, bool) {
 			// A tap, or a release still inside the category band: stay
 			// open sticky with whatever category is expanded.
 			s.sticky = true
-			return "", true
 		default:
 			s.close()
-			return "", true
 		}
+		return "", true
 	}
 	if p.LeftPressed {
 		switch {
@@ -355,31 +324,53 @@ func (s *buildRadialState) step(p radialPointer) (string, bool) {
 				s.page = 0
 				s.fanAge = 0
 			}
-			return "", true
 		default:
 			// A click on the hub, an empty slot, a gap in the fan or far
 			// outside the ring dismisses the sticky menu without a world
 			// click.
 			s.close()
-			return "", true
 		}
 	}
 	return "", true
 }
 
-func radialAbs(v int32) int32 {
-	if v < 0 {
-		return -v
+// openBuildRadial opens the menu for a press at framebuffer (mx, my) over
+// the committed command page's builder, or reports false when that builder
+// offers no placement product.
+func (b *battleSession) openBuildRadial(f *frame.Frame, mx, my int32) bool {
+	groups := hud.RadialGroups(b.cat, hud.AllowedBuildProducts(b.cat, f))
+	if len(groups) == 0 {
+		return false
 	}
-	return v
+	cx, cy := b.radialCentre(mx, my)
+	b.radial.openAt(cx, cy, f.CommandPage.Builder, groups)
+	b.radial.scale = b.chromeScale()
+	// The builder's name and page count select the page GAFs that carry
+	// the stock products' gadget pictures.
+	if v, ok := snapshotUnitByHandle(f, f.CommandPage.Builder); ok {
+		b.radial.builderName = v.DefName
+	}
+	b.radial.builderPages = int(f.CommandPage.PageCount)
+	// Near an edge the ring shifts to stay in view, which can leave the
+	// unmoved pointer over a slot or the fan; a hold could then choose
+	// without a flick, so a ring shifted past its hub opens for clicking.
+	vx, vy := b.railPointer(mx, my)
+	b.radial.sticky = math.Hypot(float64(cx-vx), float64(cy-vy)) >= radialHubR
+	// The menu takes the pointer, so a gesture already in flight ends here,
+	// as it does when the battle menu or the megamap opens.
+	state := &b.battleState().Input
+	state.DragActive, state.HUDCaptured = false, false
+	b.modernDrag, b.resourceClick = nil, nil
+	return true
 }
 
 // serviceBuildRadial opens the menu on an admitted middle press and
-// services it ahead of every world path in handleInput. True means the
-// frame belonged to the menu. The middle-drag camera pan keeps every
-// press this refuses: radial off, no builder page, or a builder with no
-// placement products.
-func (b *battleSession) serviceBuildRadial(in *input.State, mouse input.MouseState, mx, my int32) bool {
+// services it ahead of every other pointer consumer in handleInput. True
+// means the frame belonged to the menu. The middle-drag camera pan keeps
+// every press this refuses: radial off, no builder page, a builder with no
+// placement products, a replay (which takes no orders), or a press over
+// the minimap or the economy panel.
+func (b *battleSession) serviceBuildRadial(mouse input.MouseState, mx, my int32) bool {
 	if b == nil {
 		return false
 	}
@@ -387,44 +378,39 @@ func (b *battleSession) serviceBuildRadial(in *input.State, mouse input.MouseSta
 		b.radial.close()
 		return false
 	}
-	frame, ok := b.currentSnapshot()
-	if !ok || frame == nil {
+	f, ok := b.currentSnapshot()
+	if !ok || f == nil {
 		b.radial.close()
 		return false
 	}
-	builder := frame.CommandPage.Builder
 	// A selection change to another builder, or a UI scale change under the
 	// open ring, closes it rather than retargeting it.
-	if b.radial.open && (builder != b.radial.builder || b.radial.scale != b.chromeScale()) {
+	if b.radial.open && (f.CommandPage.Builder != b.radial.builder || b.radial.scale != b.chromeScale()) {
 		b.radial.close()
 	}
-	vx, vy := b.railPointer(mx, my)
+	opened := false
 	if !b.radial.open {
-		if !mouse.Pressed(input.MouseButtonMiddle) || builder == 0 ||
-			!b.overBattleViewport(mx, my) || b.isOverMinimap(mx, my) {
+		if !mouse.Pressed(input.MouseButtonMiddle) || f.CommandPage.Builder == 0 || b.replayPlayback() != nil ||
+			!b.overBattleViewport(mx, my) || b.isOverMinimap(mx, my) || b.economyPanelCovers(mx, my) ||
+			!b.openBuildRadial(f, mx, my) {
 			return false
 		}
-		groups := hud.RadialGroups(b.cat, hud.AllowedBuildProducts(b.cat, frame))
-		if len(groups) == 0 {
-			return false
-		}
-		cx, cy := b.radialCentre(mx, my)
-		b.radial.openAt(cx, cy, vx, vy, builder, groups)
-		b.radial.scale = b.chromeScale()
-		b.radial.builderName, b.radial.builderPages = radialBuilderInfo(b.cat, frame)
-		b.playUICue(nil, cueNextBuildMenu)
+		opened = true
 	}
-	before := b.radial.category()
+	group, page := b.radial.groupIndex(), b.radial.page
+	vx, vy := b.railPointer(mx, my)
 	selected, consumed := b.radial.step(radialPointer{
 		X: vx, Y: vy,
-		MiddlePressed:  mouse.Pressed(input.MouseButtonMiddle),
+		// The opening press is not the toggle that closes a sticky menu.
+		MiddlePressed:  mouse.Pressed(input.MouseButtonMiddle) && !opened,
 		MiddleReleased: mouse.Released(input.MouseButtonMiddle),
 		LeftPressed:    mouse.Pressed(input.MouseButtonLeft),
 		RightPressed:   mouse.Pressed(input.MouseButtonRight),
-		Escape:         battleShortcutKeyboard(in).KeyDown(input.KeyEscape),
-		Wheel:          mouse.ScrollY,
+		Wheel:          mouse.ZoomScrollY,
 	})
-	if b.radial.open && b.radial.category() != before {
+	// One cue for each frame that changes the shown items: the opening, a
+	// new category or a new page.
+	if b.radial.open && (opened || b.radial.groupIndex() != group || b.radial.page != page) {
 		b.playUICue(nil, cueNextBuildMenu)
 	}
 	if selected != "" && b.cat != nil {
@@ -454,33 +440,7 @@ func radialClampAxis(v, lo, hi, extent int32) int32 {
 	if hi-lo < 2*extent {
 		return (lo + hi) / 2
 	}
-	if v < lo+extent {
-		return lo + extent
-	}
-	if v > hi-extent {
-		return hi - extent
-	}
-	return v
-}
-
-// radialBuilderInfo names the command-page builder's authored pages from
-// the committed frame: its definition name, for the page GAF lookup, and
-// its authored page-count byte [07 R-HUD-03 §6].
-func radialBuilderInfo(cat *content.Catalog, f *frame.Frame) (string, int) {
-	if cat == nil || f == nil || f.CommandPage.Builder == 0 {
-		return "", 0
-	}
-	for _, unit := range f.Units {
-		if unit.Slot != f.CommandPage.Builder {
-			continue
-		}
-		pages := 0
-		if def, ok := cat.Unit(unit.DefName); ok && def != nil {
-			pages = hud.BuilderPageCount(def)
-		}
-		return unit.DefName, pages
-	}
-	return "", 0
+	return max(lo+extent, min(v, hi-extent))
 }
 
 // stageCapture poses an open menu for a headless capture: the group
@@ -490,8 +450,7 @@ func (s *buildRadialState) stageCapture(group, item int) {
 	if !s.open || group < 0 || group >= len(s.groups) {
 		return
 	}
-	s.sticky = true
-	s.movedOut, s.pressMoved = true, true
+	s.sticky, s.movedOut = true, true
 	s.lockedCat, s.hoverCat = group, group
 	s.hoverItem = -1
 	if items := s.pageItems(); item >= 0 && item < len(items) {

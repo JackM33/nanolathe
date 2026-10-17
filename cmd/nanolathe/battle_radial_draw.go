@@ -23,7 +23,6 @@ import (
 	"fmt"
 	"math"
 	"strconv"
-	"strings"
 
 	"github.com/nanolathe-gg/nanolathe/formats"
 	"github.com/nanolathe-gg/nanolathe/internal/client"
@@ -267,10 +266,11 @@ func radialLevel(level int, e float64) int {
 	return identity + int(math.Round(float64(level-identity)*e))
 }
 
-// radialProductFrame resolves one product's gadget picture the way the
-// sidebar does: a downloaded product's own gadget GAF first (cached on
-// the HUD), then the builder's authored page GAFs — where the stock
-// corpus keeps its build-menu pictures — then the shared interface GAFs
+// radialProductFrame resolves one product's gadget picture in the
+// sidebar's order: the builder's authored page GAFs, where the stock
+// corpus keeps its build-menu pictures; then a downloaded product's own
+// gadget GAF, loaded here because the sidebar registers one only once it
+// has built that product's page; then the shared interface GAFs
 // [fmt gaf][07 R-HUD-03 §6]. Results, absences included, are cached per
 // builder.
 func (h *retailBattleHUD) radialProductFrame(product, builder string, pages int) *formats.GAFFrame {
@@ -285,19 +285,15 @@ func (h *retailBattleHUD) radialProductFrame(product, builder string, pages int)
 		return f
 	}
 	var entry *formats.GAFEntry
-	if gaf := h.generatedProductGAF(product); gaf != nil {
-		entry, _ = gaf.Find(product)
-	}
-	if entry == nil && builder != "" {
-		base := strings.ToLower(strings.TrimSpace(builder))
-		last := pages - 1 // the count includes the orders page 0
-		if last < 1 {
-			last = 1
+	// The page count includes the orders page 0.
+	for page := 1; builder != "" && page < pages && entry == nil; page++ {
+		if gaf := h.resolvePageArt(commandWindowName("", builder, true, page)); gaf != nil {
+			entry, _ = gaf.Find(product)
 		}
-		for page := 1; page <= last && entry == nil; page++ {
-			if gaf := h.resolvePageArt(base + strconv.Itoa(page)); gaf != nil {
-				entry, _ = gaf.Find(product)
-			}
+	}
+	if entry == nil {
+		if gaf := h.generatedProductGAF(product); gaf != nil {
+			entry, _ = gaf.Find(product)
 		}
 	}
 	if entry == nil {
@@ -403,7 +399,7 @@ func (a *radialArt) boxSample(pal *palette.Tables, f *formats.GAFFrame, x0, y0, 
 }
 
 // radialShadowText draws FNT text with a one-pixel drop shadow, centred on
-// cx, and returns its width.
+// cx.
 func radialShadowText(c *client.Client, fnt *formats.FNT, text string, cx, y int, color, shadow byte) {
 	if fnt == nil || text == "" {
 		return

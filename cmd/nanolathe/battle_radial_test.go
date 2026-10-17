@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/nanolathe-gg/nanolathe/internal/hud"
+	"github.com/nanolathe-gg/nanolathe/internal/input"
 )
 
 // radialPolar returns the point at radius r and the given angle measured
@@ -14,9 +15,17 @@ func radialPolar(cx, cy int32, degFromTop, r float64) (int32, int32) {
 	return cx + int32(math.Round(r*math.Sin(a))), cy - int32(math.Round(r*math.Cos(a)))
 }
 
+// radialExpanded is the category the fan shows, or -1 for none.
+func radialExpanded(s *buildRadialState) hud.RadialCategory {
+	if g, ok := s.group(); ok {
+		return g.Category
+	}
+	return -1
+}
+
 func radialTestState() buildRadialState {
 	var s buildRadialState
-	s.openAt(200, 200, 200, 200, 7, []hud.RadialGroup{
+	s.openAt(200, 200, 7, []hud.RadialGroup{
 		{Category: hud.RadialMetal, Products: []string{"ARMMEX"}},
 		{Category: hud.RadialEnergy, Products: []string{"ARMSOLAR", "ARMWIN"}},
 		{Category: hud.RadialFactory, Products: []string{"ARMLAB"}},
@@ -33,8 +42,8 @@ func TestRadialHoldFlickSelects(t *testing.T) {
 	if sel, consumed := s.step(radialPointer{X: x, Y: y}); sel != "" || !consumed || !s.open {
 		t.Fatalf("category flick: sel=%q consumed=%v open=%v", sel, consumed, s.open)
 	}
-	if s.category() != hud.RadialMetal {
-		t.Fatalf("expanded category = %v, want Metal", s.category())
+	if radialExpanded(&s) != hud.RadialMetal {
+		t.Fatalf("expanded category = %v, want Metal", radialExpanded(&s))
 	}
 	x, y = radialPolar(200, 200, 0, radialItemR) // the fan's only item, in Metal's own direction
 	s.step(radialPointer{X: x, Y: y})
@@ -80,15 +89,15 @@ func TestRadialTapStickyClicksSelect(t *testing.T) {
 		t.Fatalf("tap: open=%v sticky=%v, want both true", s.open, s.sticky)
 	}
 	x, y := radialPolar(200, 200, 60, 55)
-	if sel, _ := s.step(radialPointer{X: x, Y: y, LeftPressed: true}); sel != "" || s.category() != hud.RadialEnergy {
-		t.Fatalf("category click: sel=%q category=%v, want none/Energy", sel, s.category())
+	if sel, _ := s.step(radialPointer{X: x, Y: y, LeftPressed: true}); sel != "" || radialExpanded(&s) != hud.RadialEnergy {
+		t.Fatalf("category click: sel=%q category=%v, want none/Energy", sel, radialExpanded(&s))
 	}
 	// Crossing the Metal slot on the way to the item ring must not
 	// retarget a sticky menu away from its clicked category.
 	x, y = radialPolar(200, 200, 0, 55)
 	s.step(radialPointer{X: x, Y: y})
-	if s.category() != hud.RadialEnergy {
-		t.Fatalf("sticky crossing retargeted to %v, want Energy", s.category())
+	if radialExpanded(&s) != hud.RadialEnergy {
+		t.Fatalf("sticky crossing retargeted to %v, want Energy", radialExpanded(&s))
 	}
 	x, y = radialPolar(200, 200, radialItemAngle(hud.RadialEnergy, 1, 2), radialItemR)
 	sel, _ := s.step(radialPointer{X: x, Y: y, LeftPressed: true})
@@ -118,22 +127,6 @@ func TestRadialOvershoot(t *testing.T) {
 	}
 }
 
-// A menu shifted away from a viewport edge opens with the pointer off its
-// centre. Until the pointer moves, that offset is no gesture: a tap leaves
-// the menu sticky rather than picking whatever lay under the press.
-func TestRadialShiftedOpenTapIsNoPick(t *testing.T) {
-	var s buildRadialState
-	px, py := radialPolar(200, 200, 60, radialItemR) // Energy's item ring
-	s.openAt(200, 200, px, py, 7, radialTestState().groups)
-	s.step(radialPointer{X: px + 2, Y: py - 1}) // press jitter
-	if s.hoverCat != -1 || s.hoverItem != -1 {
-		t.Fatalf("unmoved press hovers cat=%d item=%d, want none", s.hoverCat, s.hoverItem)
-	}
-	if sel, _ := s.step(radialPointer{X: px, Y: py, MiddleReleased: true}); sel != "" || !s.open || !s.sticky {
-		t.Fatalf("shifted tap: sel=%q open=%v sticky=%v, want none/open/sticky", sel, s.open, s.sticky)
-	}
-}
-
 // Releasing a hold in the category band expands sticky instead of
 // cancelling, so a two-stage pick never punishes a short flick.
 func TestRadialReleaseInCategoryBandStaysOpen(t *testing.T) {
@@ -141,20 +134,16 @@ func TestRadialReleaseInCategoryBandStaysOpen(t *testing.T) {
 	x, y := radialPolar(200, 200, 120, 55) // Factory slot
 	s.step(radialPointer{X: x, Y: y})
 	s.step(radialPointer{X: x, Y: y, MiddleReleased: true})
-	if !s.open || !s.sticky || s.category() != hud.RadialFactory {
-		t.Fatalf("band release: open=%v sticky=%v category=%v, want true/true/Factory", s.open, s.sticky, s.category())
+	if !s.open || !s.sticky || radialExpanded(&s) != hud.RadialFactory {
+		t.Fatalf("band release: open=%v sticky=%v category=%v, want true/true/Factory", s.open, s.sticky, radialExpanded(&s))
 	}
 }
 
-// Escape and right-click cancel without selecting, a second middle press
-// toggles a sticky menu closed, and a flick into an empty category slot
-// selects nothing.
+// Right-click cancels without selecting, a second middle press toggles a
+// sticky menu closed, and a flick into an empty category slot selects
+// nothing. Escape belongs to viewerStep (TestBuildRadialBattleInput).
 func TestRadialCancels(t *testing.T) {
 	s := radialTestState()
-	if sel, _ := s.step(radialPointer{X: 200, Y: 200, Escape: true}); sel != "" || s.open {
-		t.Fatalf("escape: sel=%q open=%v", sel, s.open)
-	}
-	s = radialTestState()
 	if sel, _ := s.step(radialPointer{X: 200, Y: 200, RightPressed: true}); sel != "" || s.open {
 		t.Fatalf("right click: sel=%q open=%v", sel, s.open)
 	}
@@ -171,23 +160,29 @@ func TestRadialCancels(t *testing.T) {
 	}
 }
 
-// A category larger than one ring pages with the wheel, wrapping, and the
-// second page's lone item sits in the category's own direction.
+// A category larger than one ring pages with the wheel, a whole notch per
+// page, and the second page's lone item sits in the category's own
+// direction.
 func TestRadialWheelPagesItems(t *testing.T) {
 	var s buildRadialState
 	products := make([]string, 0, radialItemsPerPage+1)
 	for i := 0; i < radialItemsPerPage+1; i++ {
 		products = append(products, string(rune('A'+i)))
 	}
-	s.openAt(200, 200, 200, 200, 7, []hud.RadialGroup{{Category: hud.RadialMisc, Products: products}})
+	s.openAt(200, 200, 7, []hud.RadialGroup{{Category: hud.RadialMisc, Products: products}})
 	x, y := radialPolar(200, 200, 300, 55) // Misc slot
 	s.step(radialPointer{X: x, Y: y})
 	if s.page != 0 || s.pages() != 2 {
 		t.Fatalf("pages: page=%d pages=%d, want 0/2", s.page, s.pages())
 	}
-	s.step(radialPointer{X: x, Y: y, Wheel: 1})
+	// Trackpad-sized fractions bank into one whole notch per page.
+	s.step(radialPointer{X: x, Y: y, Wheel: 0.5})
+	if s.page != 0 {
+		t.Fatalf("half notch: page=%d, want 0", s.page)
+	}
+	s.step(radialPointer{X: x, Y: y, Wheel: 0.5})
 	if s.page != 1 {
-		t.Fatalf("wheel down: page=%d, want 1", s.page)
+		t.Fatalf("second half notch: page=%d, want 1", s.page)
 	}
 	x, y = radialPolar(200, 200, 300, radialItemR)
 	s.step(radialPointer{X: x, Y: y})
@@ -265,5 +260,69 @@ func TestRadialSectorSpansCoverOnce(t *testing.T) {
 				}
 			}
 		}
+	}
+}
+
+// The menu inside the battle's real input order (DESIGN_INTERFACE_HUD_INPUT
+// §3.18): off it never opens; Escape, which viewerStep takes ahead of
+// handleInput, closes it without deselecting or disarming; a ring the
+// viewport shifts waits for a click instead of choosing on release; and a
+// selection drag or rail capture already in flight ends when it opens.
+func TestBuildRadialBattleInput(t *testing.T) {
+	b, cl, _, _ := resourceFixture(t, false)
+	b.setSurfaceSize(640, 480)
+	middle := func(x, y int32, phase string) {
+		dragInput(b, cl, x, y, input.MouseButtonMiddle, phase, input.Modifiers{})
+	}
+	middle(384, 240, "press")
+	if b.radial.open {
+		t.Fatal("the menu opened with the preference off")
+	}
+	middle(384, 240, "release")
+	p := b.hostPreferences()
+	p.BuildRadial = 1
+	b.hostPresentation = &p
+
+	escape := func() {
+		cl.Input().EnqueueToken(input.Token{Kind: input.TokenEdit, Key: input.KeyEscape})
+		b.viewerStep(0, cl)
+	}
+	selected := b.localState().SelectionCount()
+	vx, vy := b.railPointer(384, 240)
+	for _, armed := range []bool{false, true} {
+		if armed {
+			b.armPlacement(b.cat.Units["armsolar"])
+		}
+		middle(384, 240, "press")
+		if !b.radial.open || b.radial.sticky || b.radial.cx != vx || b.radial.cy != vy {
+			t.Fatalf("armed=%v: centred press gave open=%v sticky=%v at %d,%d, want %d,%d", armed, b.radial.open, b.radial.sticky, b.radial.cx, b.radial.cy, vx, vy)
+		}
+		escape()
+		if b.radial.open || b.localState().SelectionCount() != selected || b.battleState().PlacementArmed() != armed {
+			t.Fatalf("armed=%v: Escape left open=%v selection=%d armed=%v", armed, b.radial.open, b.localState().SelectionCount(), b.battleState().PlacementArmed())
+		}
+		middle(384, 240, "release")
+	}
+	b.disarmPlacement()
+
+	// In the top-right corner the ring shifts down and left, leaving the
+	// pointer on Energy's fan; a small slip and a release there must not
+	// choose its solar collector.
+	middle(630, 40, "press")
+	middle(622, 46, "held")
+	middle(622, 46, "release")
+	if !b.radial.open || !b.radial.sticky || b.battleState().PlacementArmed() {
+		t.Fatalf("shifted release: open=%v sticky=%v armed=%v, want open sticky unarmed", b.radial.open, b.radial.sticky, b.battleState().PlacementArmed())
+	}
+	b.radial.close()
+
+	dragInput(b, cl, 300, 200, input.MouseButtonLeft, "press", input.Modifiers{})
+	if !b.battleState().Input.DragActive {
+		t.Fatal("fixture press started no selection drag")
+	}
+	b.battleState().Input.HUDCaptured = true // as a rail press dragged onto the battlefield leaves it
+	middle(384, 240, "press")
+	if in := b.battleState().Input; !b.radial.open || in.DragActive || in.HUDCaptured {
+		t.Fatalf("open=%v drag=%v hud=%v, want the menu open and both captures ended", b.radial.open, in.DragActive, in.HUDCaptured)
 	}
 }

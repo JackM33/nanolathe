@@ -128,6 +128,12 @@ func (b *battleSession) handleInput(in *input.State, cl *client.Client) {
 	kbd := in.Kbd
 	mouse, pointerModifiers := publishedPointer(in)
 	mx, my := int32(mouse.X), int32(mouse.Y)
+	// An open build radial owns the pointer ahead of every other consumer,
+	// so no panel or world path can take a frame of its gesture; it opens
+	// only on a middle press no overlay covers (§3.18).
+	if b.serviceBuildRadial(mouse, mx, my) {
+		return
+	}
 	if b.serviceEconomyPanel(in, cl, mouse) {
 		shortcutsServiced = battleShortcutKeyboard(in).KeyDown(input.KeyEscape)
 		return
@@ -135,13 +141,6 @@ func (b *battleSession) handleInput(in *input.State, cl *client.Client) {
 	// The playback overlay's controls take their own presses
 	// (replay_overlay.go).
 	if b.serviceReplayOverlayPointer(&mouse, mx, my) {
-		return
-	}
-	// The optional build radial takes the middle button ahead of every
-	// world path while a builder is selected (§3.18); its Escape must
-	// not also run the residual shortcut that would deselect.
-	if b.serviceBuildRadial(in, mouse, mx, my) {
-		shortcutsServiced = battleShortcutKeyboard(in).KeyDown(input.KeyEscape)
 		return
 	}
 	if b.serviceCommunityIncome(mouse) {

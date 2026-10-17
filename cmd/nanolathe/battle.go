@@ -1400,7 +1400,8 @@ func (b *battleSession) viewerStep(delta float64, cl *client.Client) {
 		in = &residual
 		shortcutKeyboard = battleShortcutKeyboard(in)
 	}
-	if !talkOwned && in.Mouse != nil && !b.economyPanelCovers(int32(in.Mouse.X), int32(in.Mouse.Y)) {
+	// An open build radial pages with the wheel instead (§3.18).
+	if !talkOwned && in.Mouse != nil && !b.radial.open && !b.economyPanelCovers(int32(in.Mouse.X), int32(in.Mouse.Y)) {
 		b.serviceMegamapWheel(in.Mouse, cl)
 	}
 	shiftHeld := shortcutKeyboard != nil && shortcutKeyboard.HasShift()
@@ -1437,6 +1438,13 @@ func (b *battleSession) viewerStep(delta float64, cl *client.Client) {
 	// returns to idle, and an idle latch deselects everything. It does not open
 	// the options window — that is F2's and Tab's row [07 R-CAM-01 §2].
 	if !talkOwned && keyDown(input.KeyEscape) {
+		// An open build radial takes the edge first: Escape closes the
+		// menu and keeps the selection and any armed placement (§3.18).
+		if b.radial.open {
+			b.radial.close()
+			cl.Cursors().SetIndex(render.CursorNormal)
+			return
+		}
 		if cl.Enhanced() && b.economyPanel.open {
 			b.economyPanel = economyPanelState{}
 			cl.Cursors().SetIndex(render.CursorNormal)
