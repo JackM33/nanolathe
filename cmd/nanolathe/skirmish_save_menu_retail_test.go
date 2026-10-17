@@ -58,6 +58,9 @@ func TestMenuSkirmishSaveLoadWithAsyncSimulation(t *testing.T) {
 			f.millis.step++
 			shell.step(1.0/30.0, f.cl)
 		}
+		// shell.step leaves the final batch running on the worker. Join before
+		// callers inspect the live session or drive a dialog outside a step.
+		shell.battle.joinSimulation(f.cl)
 	}
 	// Let both sides put real work in flight.
 	stepShell(1800)
