@@ -17,6 +17,7 @@ import (
 	"maps"
 	"math"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	// The rule sets this build can select beyond the two reserved ones. The
@@ -66,6 +67,13 @@ type Options struct {
 	// (docs/DESIGN_MODS_MUTATORS.md §4.3).
 	Mod    string
 	ModSet bool
+	// Addons are the official add-ons to enable (--addon, repeatable;
+	// --addon none enables none); AddonsSet records that the flag was
+	// given, so it replaces the saved setting for the run. A remount sets
+	// both to keep the add-ons the running content holds
+	// (docs/DESIGN_MODS_MUTATORS.md §5.7).
+	Addons    []settings.AddonSelection
+	AddonsSet bool
 	// MutatorArgs are the raw --mutator name=factor pairs; Mutators is the
 	// resolved set every battle request carries. The screen updates Mutators
 	// when the player applies a new set (docs/DESIGN_MODS_MUTATORS.md §6).
@@ -362,6 +370,21 @@ func parseFlags(args []string, out io.Writer) (Options, error) {
 			return err
 		}
 		opts.Mod = text
+		return nil
+	})
+	set.Func("addon", "official add-on to mount with the base install: id, id@version or none (repeatable; omitted uses the saved add-ons in the window, and none for --shot, --film, --battle-benchmark and --headless; docs/DESIGN_MODS_MUTATORS.md §5.7)", func(text string) error {
+		id, version, err := modlibrary.ParseSelector(text)
+		if err != nil {
+			return err
+		}
+		opts.AddonsSet = true
+		if id == "" {
+			opts.Addons = []settings.AddonSelection{}
+			return nil
+		}
+		// One version per id: a later flag for an id replaces an earlier one.
+		opts.Addons = slices.DeleteFunc(opts.Addons, func(a settings.AddonSelection) bool { return a.ID == id })
+		opts.Addons = append(opts.Addons, settings.AddonSelection{ID: id, Version: version})
 		return nil
 	})
 	set.Func("mutator", "battle mutator name=factor, e.g. buildSpeed=2 or buildCost=0.5 (repeatable; omitted uses the saved set in the window, and none for --shot, --film, --battle-benchmark and --headless)", func(text string) error {

@@ -35,7 +35,7 @@ and the retail save bank
 
 ## 1. Purpose and boundary
 
-Four features share one idea — the **match selection** (§3), the complete
+Five features share one idea — the **match selection** (§3), the complete
 set of choices that decides what a battle is:
 
 1. **The mod library.** Mods live in a Nanolathe data directory, one extracted
@@ -53,10 +53,13 @@ set of choices that decides what a battle is:
    a unit from the battle, or cap how many of it each player may have —
    applied to the per-battle catalog clone of a skirmish or Survival battle
    and fixed for that battle.
+5. **Official add-ons** (§5.7). Cavedog's bonus units, hosted by Nanolathe
+   and mounted with the base game as if they were in its folder, so a
+   player can enable them and still select any mod.
 
-**Out of scope.** Multiplayer and lobby handshakes (the match selection is
-designed to be the future handshake, not implemented as one). Stacked or
-layered mods (D6). Per-player mutators and handicaps (D7). Running anything a
+**Out of scope.** Multiplayer and lobby handshakes, which DESIGN_MULTIPLAYER
+owns. Stacked or layered mods (D6); an official add-on is base content, not
+a second mod. Per-player mutators and handicaps (D7). Running anything a
 mod ships other than authored data and COB bytecode in Nanolathe's own VM.
 Rule-level variations that data cannot express; those are Community
 feature-table parameters under DESIGN_COMMUNITY_PATCH and remain ignored by
@@ -76,7 +79,7 @@ To keep the two apart, code for this feature never uses the bare identifier
 | D2 | Every save gets a sidecar recording the mod, content profile, rule set, Community table, unit limit and mutators active when it was written. Loading the save restores that selection, including switching mod. The loading screen shows it. |
 | D3 | Redistribution permission is assumed. Nanolathe hosts the manifest **and** every download, so availability does not depend on the original sites and the hosted zips can be cleaned (§5.5). The manifest is on nanolathe.gg; the zips are assets of one GitHub release (`mods`) on the website repository, so the site's history does not carry them (revised 2026-09-23). |
 | D4 | Trust is HTTPS to nanolathe.gg. Manifest signatures are a follow-up, not a v1 requirement (§5.4). |
-| D5 | The client may use the network to fetch mod and community-map catalogues and their downloads (maps authorized 2026-10-05, §5.6) and, since DESIGN_MULTIPLAYER was adopted (2026-10-01, its §15 Q1), to connect to a multiplayer relay — and for nothing else. |
+| D5 | The client may use the network to fetch the mod, community-map and official add-on catalogues and their downloads (maps authorized 2026-10-05, §5.6; add-ons 2026-10-16, §5.7), including the downloads an online room needs, which joining fetches without asking (DESIGN_MULTIPLAYER §16.8, Q34), and, since DESIGN_MULTIPLAYER was adopted (2026-10-01, its §15 Q1), to connect to a multiplayer relay — and for nothing else. |
 | D6 | One zip per mod version, containing the complete content root. No layers. |
 | D7 | Mutators are global: every player, human and computer, plays the same catalog. |
 | D8 | Gameplay mode and renderer stay orthogonal to the mod. A mod may declare a minimum gameplay mode, which the selector enforces visibly; nothing switches silently. |
@@ -92,6 +95,7 @@ To keep the two apart, code for this feature never uses the bare identifier
 | D17 | (2026-10-05) Retail restrictions, every mode: retail's multiplayer unit-restriction rules are implemented once and offered in skirmish and Survival beside the mutators, in every gameplay mode, Strict 3.1 included, edited in the unit viewer; the multiplayer lobby reuses them later. Strict 3.1 with no restrictions remains the retail baseline and every fingerprint lock runs with none (§15). |
 | D18 | (2026-10-05) In Survival everyone obeys the restrictions, the wave attacker included, as retail binds computer players exactly as it binds humans (§15.6). |
 | D19 | (2026-10-05) Classic computer players keep retail's behaviour — a capped product stalls with the allocator's 300-tick retry — while the Modern AI does not choose a unit once it has reached that unit's cap (§15.7). |
+| D20 | (2026-10-16) Nanolathe hosts Cavedog's official bonus units and maps. The units are an add-on the player enables apart from the mod slot, so any mod can still be selected beside them; the maps join the community map catalogue (§5.7). |
 
 D9–D13 were proposed in review and accepted with the rest of the design
 direction. D14 is the maintainer's layout for the screen. D13's offer was
@@ -112,6 +116,7 @@ user's decisions for unit restrictions, recorded in §15.
 | Unit limit | settings `unitLimit`, `--unit-limit` | battle entry | sidecar |
 | Mutators | Mods & Mutators screen, `--mutator`, settings `mutators` | battle entry, for the whole battle | sidecar, catalog hash, reports |
 | Unit restrictions (skirmish and Survival only) | the unit viewer's editor and the Nanolathe screen card, `--restrict`, settings `restrictions` per mod (§15.9) | battle entry, for the whole battle | sidecar, catalog hash, reports (§15.5) |
+| Official add-ons (id, version, archive SHA-256) | Mods & Mutators screen, `--addon`, settings `addons` (§5.7) | process start (mount) | sidecar |
 
 Renderer, audio, display and other host preferences are not part of the
 selection and are never recorded.
@@ -200,10 +205,11 @@ diagnostic, so a misspelling is reported rather than ignored.
   (DESIGN_INTERFACE_HUD_INPUT §3.3 "Build page lock"; every explicit player choice, including Free flow,
   overrides it; omitted player preferences inherit the recommendation). `detect` selects nothing: the install check (§5.3
   step 4) refuses a package whose content lacks a directory it names, so a
-  config paired with other content is caught. Omitted, the mod is
-  retail-shaped. The section is kept apart from `rules` in code
-  (`profiles.Profile`), because load-time content facts are not gameplay
-  selection.
+  config paired with other content is caught. `addons`, true when omitted,
+  set to `false` keeps every official add-on (§5.7) unmounted while the mod
+  runs. Omitted, the mod is retail-shaped. The section is kept apart from
+  `rules` in code (`profiles.Profile`), because load-time content facts are
+  not gameplay selection.
 - **`rules`** are gameplay declarations. `minimumGameplay` and `gameplay`
   are reserved words only — a mod chooses Strict 3.1, Community 3.9 or
   Modern as a whole — and the recommendation is never below the minimum.
@@ -643,10 +649,13 @@ release). Add `minimumEngine` once releases are stamped.
 ### 5.2 When the client talks to the network
 
 - For mods, only when the player opens the *Get more mods* dialog (§8.2) or
-  starts a download. Never at start-up, never in battle, never in the
-  displayless command (D5). A multiplayer relay connection is the one other
-  use of the network and belongs to DESIGN_MULTIPLAYER §12; nothing of it is
-  implemented yet.
+  starts a download; for maps, the *More maps* dialog; for official add-ons,
+  when the Nanolathe screen first shows its *Add-ons* card. Never at
+  start-up, never in battle, never in the displayless command (D5). An online
+  room is the other use: its relay connection (DESIGN_MULTIPLAYER §16.5), and
+  the catalogue reads and downloads its room content needs — a host naming
+  add-on copies in its folder, a seat fetching the room's mod, add-ons or map
+  package (DESIGN_MULTIPLAYER §16.8).
 - The manifest only from `https://nanolathe.gg`. An archive from the same
   origin, where a redirect to another origin is refused, or from a
   `nanolathe-gg` GitHub release asset (§5.1). GitHub answers a release asset
@@ -785,7 +794,8 @@ User-authorized 2026-10-05. The map picker offers **More maps** above the minima
 preview to browse and install curated community maps individually. The download
 list sorts by map name alphanumerically, ignoring capitalization, for both live
 and cached catalogues. Retail maps are supplied by
-the player's install and do not appear in the hosted collection. This is
+the player's install and do not appear in the hosted collection, except
+Cavedog's bonus maps, which many installs lack (§5.7). This is
 host content management in every gameplay mode, not a gameplay rule or a mod
 selection. Installing a map does not change the selected mod, rules, settings
 or mutators.
@@ -861,9 +871,9 @@ republishes an installed id and version, or a dependency it requires, with
 other bytes, the row offers an update. The verified archives install on the
 frontend between remounts: mount without the old package, replace it through
 the library's same-version replacement, and mount the result. A failed
-replacement keeps the old package, which the final mount restores. The first release does
-not promise multiplayer map synchronization or automatic save dependency
-recovery; those remain with their owning workflows.
+replacement keeps the old package, which the final mount restores. An
+online room fetches its map's package for every seat that lacks it
+(DESIGN_MULTIPLAYER §16.8); a save does not recover a missing map package.
 
 Each map row in the ordinary picker and community catalogue exposes an **X**
 only when its winning provider belongs to a receipt-backed map package in the downloaded map library. Retail, manually
@@ -881,6 +891,118 @@ source and package identities, verifies feature dependencies and map loading,
 and publishes only inspected payloads. Package findings and unresolved
 compatibility questions belong in
 [community map packages](../research/extensions/community-map-packages.md).
+
+### 5.7 Official add-ons
+
+User-authorized 2026-10-16 (D20). After release Cavedog published bonus
+content that players installed by dropping archives into their Total
+Annihilation folder, where retail mounts every `*.UFO` at its own tier,
+below the patch and `*.CCX` archives and above the local `*.HPI` ones
+`[02 §2]`. Many installs lack it; a GOG Commander Pack install compared
+with the reference install held none of the bonus units. Nanolathe hosts the content and mounts it with the
+base game, apart from the mod slot, so a player can enable it and still
+select any mod.
+
+**What is hosted.** One add-on, `cavedog-bonus-units` version `original`,
+holds six original archives byte for byte:
+
+| Archive | Unit | Side | Role |
+|---|---|---|---|
+| `AFark.ufo` | FARK (`armfark`) | ARM | Fast assist-repair Kbot |
+| `AFlea.ufo` | Flea (`armflea`) | ARM | Fast light scout Kbot |
+| `AScarab.ufo` | Scarab (`armscab`) | ARM | Mobile missile defence |
+| `Cormabm.ufo` | Hedgehog (`cormabm`) | CORE | Mobile missile defence |
+| `CorNecro.ufo` | Necro (`cornecro`) | CORE | Resurrection Kbot |
+| `corplas.ufo` | Immolator (`corplas`) | CORE | Plasma tower |
+
+Each archive adds its unit's definition, model, script, animations,
+build-menu entry (`download/*.tdf`) and unit picture, with the weapon,
+feature, interface and sound files it needs. The four bonus maps are community-catalogue map
+packages instead (§5.6), each holding its original archive's map files: Luschinfloggen
+(`floggen.ufo`), Mounds of Mars (`Mndsmars.ufo`), PC Games' Evad River
+Delta (`Evadrivd.ufo`) and Comet Catcher (`Cometctr.ufo`). The Core
+Contingency already supplies Comet Catcher, so an install with it sees that
+package as already in the install. `Example.ufo` is not bonus content: it
+ships with the install, beside its loose campaign files.
+
+**Identity.** An add-on is named by its id, its version and its content
+digest: the SHA-256 over its archives' file names folded to lower case, their
+byte sizes and their own SHA-256s, in name order. The catalogue's contents
+list, an installed copy and byte-identical copies in the base folder all give
+the same digest, so a save, a replay or an online room names the add-on the
+same way whichever of them a machine holds.
+
+**Provenance.** The hosted archives are byte-identical to the reference
+install's copies, and the manifest records each one's size and SHA-256.
+Every unit definition carries Cavedog's 1997 copyright line, the
+Immolator's 1999. That these six are the units Cavedog released for
+download after patch 3.1 is a supported inference: published accounts
+report six units released after 3.1 and name the FARK and the Scarab among
+them. Cavedog's authorship of the four maps is unknown; a mirror of
+Cavedog's own download pages would settle both. Package preparation keeps
+any readme the archives carry and records these identities in the
+website's packaging notes.
+
+**Catalogue and library.** The catalogue is
+`https://nanolathe.gg/addons/manifest.json`: schema 1, an `addons` array of
+the mod catalogue's record fields (§5.1), and for each add-on a `contents`
+array naming every archive it holds with its byte size and SHA-256.
+Archives are assets of the website repository's `addons` release, one
+`<id>-<version>.zip` per add-on holding the original archives, root
+documentation and an identity-only schema-1 `nanolathe-mod.json`.
+`NANOLATHE_ADDON_CATALOG` overrides the catalogue for development under the
+mod override's origin rules. The library is `$XDG_DATA_HOME/nanolathe/addons`,
+falling back to `~/.local/share/nanolathe/addons`, with the mod library's
+atomic install, receipts, resume and hash policy (§5.1, §5.3). An add-on's
+payload is one to 32 `*.UFO` archives at its root, each passing the container
+gate (DESIGN_CONTENT_VFS C5) and matching the catalogue's contents list by
+name, size and SHA-256, beside root documentation; anything else refuses the
+install.
+
+**Enabling.** The settings key `addons` lists the enabled `{id, version}`.
+`--addon <id>[@<version>]`, repeatable, and `--addon none` replace it for
+one run; an id without a version selects the installed one. A saved add-on
+that is no longer installed is left out with a startup notice; one `--addon`
+names fails the start, as `--mod` does. `--shot`, `--film`, `--battle-benchmark`, `--headless` and the
+displayless command never read the setting, and tests never discover the
+library, so a capture reproduces from its command line. Installing an
+add-on enables it. Enabling, disabling or installing one reloads content in
+process, as a mod switch does (§4.4). An add-on whose archives all sit
+byte-identical in the base install's folder is shown as already in the
+install, with no switch.
+
+**Mounting.** Each enabled add-on's archives mount at the base install's
+`*.UFO` tier, in the folder of its first content root, ordered among the
+folder's own `*.UFO` files by the overlay's rule for that tier, exactly as if
+they were in the folder `[02 §2]` (DESIGN_CONTENT_VFS C1); a folder archive
+of the same name is replaced, as copying the add-on's in would. The selected mod still mounts last and wins every
+path it supplies, and the map library still mounts below the base install.
+On the reference GOG Commander Pack install no hosted archive supplies a
+logical path the base game also supplies, except Comet Catcher's map, which The Core
+Contingency's archive wins from its higher tier, as retail's folder gives.
+
+**With a mod.** Add-ons mount under every mod unless the mod's config sets
+`content.addons` to `false` (§4.2). An add-on is also left unmounted, with
+a startup notice naming it, when the base or the mod defines one of its
+unit or feature names at another path, as §5.6 refuses differing same-name
+features. The Mods & Mutators screen says when the running mod leaves an
+add-on off.
+
+**Every gameplay mode.** An add-on is content, as it is in retail's folder,
+so it applies under Strict 3.1, Community 3.9 and Modern alike. Strict 3.1
+with no add-ons is the retail baseline, and every fingerprint lock runs
+without them.
+
+**Saves, replays and online play.** The enabled add-ons are part of the
+match selection (§3). The sidecar records the add-ons mounted from the
+library (§7.2), and a load restores exactly them through the content reload;
+one the base folder holds needs no switch, and a recorded add-on this install
+has nowhere refuses the load, naming it and where to get it. A replay plays
+with the add-ons its battle had: a single-player replay's header lists them
+(DESIGN_MULTIPLAYER §10, replay format version 2) and the Replays screen
+reloads onto them first, and an online replay's room content names them. An
+online room lists them as room content, and a seat that lacks one fetches it
+in the lobby (DESIGN_MULTIPLAYER §16.8).
 
 ## 6. Mutators
 
@@ -1159,7 +1281,11 @@ as absent, which would silently drop the selection it records. A battle with
 unit restrictions adds `"restrictions": {"armkrog": 0, "armpw": 20}` and is
 written as schema 2, so that a build reading only schema 1 refuses it rather
 than restoring the bank without them; every other sidecar stays schema 1
-(§15.5). `contentProfile`
+(§15.5). A battle with official add-ons adds
+`"addons": [{"id": "cavedog-bonus-units", "version": "original", "sha256": "…"}]`,
+each with its content digest (§5.7), and is written as schema 3, with or
+without restrictions, so that a build that cannot restore them refuses the
+load. `contentProfile`
 is the mounted content's report name: the running config's id, or `retail`
 for content without one. `community` records the session's Community sources and its
 battle-entry table (`Session.CommunitySources`, `Session.EntryCommunity`), so
@@ -1291,9 +1417,21 @@ in two columns, so that no list competes with another for space (D14):
 - **Mutators (right).** A summary, not the editor, so the column never grows
   with the catalogue: up to four active mutators (then *and N more*),
   *Change...* and *Reset*.
-- *Apply* writes the settings for both columns. When the mod changed it
-  reloads (§4.4), and the settings are written only once the new content is
-  bound. *Cancel* discards both.
+- **Add-ons.** On the Nanolathe screen, the Game page's *Add-ons* card
+  after *Content* ([DESIGN_INTERFACE_HUD_INPUT §3.17](DESIGN_INTERFACE_HUD_INPUT.md#317-the-nanolathe-screen)):
+  one row per official add-on the library holds or the catalogue offers
+  (§5.7). Each row has its switch; *Get* while it is not installed, with the
+  download's size and then its progress; or *Already in your install*, with
+  no switch, when the base folder holds its archives. A row whose archives
+  are at hand names their units and shows their build pictures. The card's
+  note says when the drafted mod leaves add-ons off. The card asks the
+  catalogue only when first shown (§5.2) and, with no catalogue and nothing
+  installed, says the catalogue is unavailable. The switches belong to the
+  screen's *Apply*, and a *Get* that installs switches its add-on on. The
+  Mods & Mutators window has no add-on rows.
+- *Apply* writes the settings for both columns. When the mod or the add-ons
+  changed it reloads (§4.4), and the settings are written only once the new
+  content is bound. *Cancel* discards both.
 
 The screen and both dialogs are built on the map-select window (`SELMAP`)
 read from the **base install alone**, never through the running mod's
@@ -1376,12 +1514,13 @@ leaves the line empty (DESIGN_INTERFACE_HUD_INPUT §2.6).
 |---|---|---|
 | `internal/modlibrary` | data directory layout, metadata and the mod's config (§4.2), installed listing, selection resolution (mod → root, config, minimum, preset), extraction and validation, receipts. No network. | both commands |
 | `internal/maplibrary` | separate installed-map root and map-only payload validation, reusing modlibrary extraction and receipts. No network. | desktop command |
-| `internal/modfetch` | mod and map manifest fetch and cache, downloads with resume and progress. The content-download package that imports `net/http`; multiplayer WebSocket HTTP is isolated in `internal/relay` (DESIGN_MULTIPLAYER §16.5.6). | `cmd/nanolathe` only |
+| `internal/addonlibrary` | the official add-on root, archive-only payload validation against the catalogue's contents, the installed listing, an add-on's content digest, recognizing a copy already in the base folder, and the unit and feature names an add-on defines (§5.7), reusing modlibrary extraction and receipts. No network. The desktop command mounts the add-ons through `vfs.GameRoot.Extra`. | desktop command |
+| `internal/modfetch` | mod, map and add-on manifest fetch and cache, downloads with resume and progress. The content-download package that imports `net/http`; multiplayer WebSocket HTTP is isolated in `internal/relay` (DESIGN_MULTIPLAYER §16.5.6). | `cmd/nanolathe` only |
 | `internal/content` | `Factor`, `Mutators`, `ApplyMutators`, the mutated catalog identity; `Restrictions`, `CheckRestrictions`, `ApplyRestrictions` and the restricted identity (§15.2) | session, commands |
 | `internal/save` | the sidecar type and its read/write, separate from the bank's bytes | session, commands |
 | `internal/session` | mutators, unit restrictions and recorded Community sources in battle-entry and restore requests; building the sidecar value; reports | commands |
-| `internal/settings` | the `mod`, `mutators` and mod-scoped `restrictions` keys | commands |
-| `cmd/nanolathe` | chip, screen, in-process reload, loading-screen lines, drop-to-install, `--mod`, `--mutator`, `--restrict`, the restriction card and the unit viewer's restriction editor (§15.9) | — |
+| `internal/settings` | the `mod`, `mutators`, `addons` and mod-scoped `restrictions` keys | commands |
+| `cmd/nanolathe` | chip, screen, in-process reload, loading-screen lines, drop-to-install, `--mod`, `--addon`, `--mutator`, `--restrict`, the restriction card and the unit viewer's restriction editor (§15.9) | — |
 | `cmd/nanolathe-headless` | `--mutator`, `--restrict` and `--mod` (flags only, never the settings file). `--mod` mounts an installed mod from the library as the last root with its own config, through `modlibrary`'s command-line selection; it is refused beside several `--root` flags, and the command never fetches. `--mod-config` names a config file for a manual stack or in place of the mod's own | — |
 
 **Guards.** Architecture tests: only `internal/modfetch` and the multiplayer

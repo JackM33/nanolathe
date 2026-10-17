@@ -94,7 +94,14 @@ type Profile struct {
 	Directories  map[string]string `json:"layout,omitempty"`
 	Limits       Limits            `json:"limits,omitzero"`
 	Presentation Presentation      `json:"presentation,omitzero"`
+	// Addons set to false keeps every official add-on unmounted while this
+	// content runs; omitted, they mount (docs/DESIGN_MODS_MUTATORS.md §4.2,
+	// §5.7).
+	Addons *bool `json:"addons,omitempty"`
 }
+
+// AddonsAllowed reports whether official add-ons mount with this content.
+func (p Profile) AddonsAllowed() bool { return p.Addons == nil || *p.Addons }
 
 // Retail is the base game's profile: no directory table, the retail limits
 // (content.RetailLimits, which a zero Limits selects) and the retail

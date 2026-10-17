@@ -12,7 +12,7 @@ import (
 	"github.com/nanolathe-gg/nanolathe/internal/survival"
 )
 
-// The wire form of configuration version 1 (docs/DESIGN_MULTIPLAYER.md §8.6)
+// The wire form of configuration version 2 (docs/DESIGN_MULTIPLAYER.md §8.6)
 // in the primitives of §7.4.1, written and read through internal/netproto: u8
 // and bool are one byte, a bool exactly 0 or 1; u16, u32 and u64 are the
 // shortest unsigned base-128 varint within their width; s32 is the zigzag of
@@ -22,14 +22,14 @@ import (
 // a u32 count. There are no optional fields and no trailing bytes, and a
 // field addition is a new version.
 //
-// Design reading: the payload carries no version of its own. Version 1 is
+// Design reading: the payload carries no version of its own. Version 2 is
 // named by the identity domain and by the envelope that carries the payload,
 // as the command schema version is negotiated outside a command payload
 // (§7.4.1).
 
 // matchConfigDomain is the literal UTF-8 domain the identity hashes before
 // the encoding, with no trailing NUL.
-const matchConfigDomain = "nanolathe/match-config/1"
+const matchConfigDomain = "nanolathe/match-config/2"
 
 // EncodeMatchConfig returns the canonical encoding of a resolved
 // configuration: a fresh copy of the bytes it was frozen with. The zero value
@@ -41,7 +41,7 @@ func EncodeMatchConfig(c EffectiveMatchConfig) ([]byte, error) {
 	return append([]byte(nil), c.encoding...), nil
 }
 
-// DecodeMatchConfig reads a version 1 payload. It refuses a payload over 2
+// DecodeMatchConfig reads a version 2 payload. It refuses a payload over 2
 // MiB, a count or length over its bound before allocating from it, an
 // overlong or overflowing integer, a boolean other than 0 or 1, any field
 // ResolveMatchConfig refuses, trailing bytes, and any encoding that is not
@@ -83,7 +83,7 @@ func (c EffectiveMatchConfig) Digest() [32]byte {
 }
 
 // encodeMatchRequest writes a request validate has accepted, in the shared
-// version-1 primitives (internal/netproto).
+// version-2 primitives (internal/netproto).
 func encodeMatchRequest(r *MatchConfigRequest) ([]byte, error) {
 	var w netproto.Writer
 	w.U8(uint8(r.SessionKind)) // 1
@@ -152,6 +152,14 @@ func encodeMatchRequest(r *MatchConfigRequest) ([]byte, error) {
 	w.U32(pol.RejoinGraceMilliseconds)
 	w.U32(pol.SpectatorDelayMilliseconds)
 	w.U32(pol.ReplayReleaseDelayMilliseconds)
+	w.U32(uint32(len(r.RoomContent))) // 16
+	for _, e := range r.RoomContent {
+		w.U8(uint8(e.Kind))
+		w.Text(e.Name)
+		w.Text(e.Version)
+		w.U64(e.Size)
+		w.Digest(e.Digest)
+	}
 	return w.Bytes(), nil
 }
 
@@ -278,6 +286,17 @@ func readMatchRequest(r *netproto.Reader) MatchConfigRequest {
 	pol.RejoinGraceMilliseconds = r.U32()
 	pol.SpectatorDelayMilliseconds = r.U32()
 	pol.ReplayReleaseDelayMilliseconds = r.U32()
+	if n := r.Count(matchMaxRoomContent, 36); n > 0 { // 16
+		q.RoomContent = make([]MatchContentEntry, n)
+		for i := range q.RoomContent {
+			e := &q.RoomContent[i]
+			e.Kind = MatchContentKind(r.U8())
+			e.Name = r.Text(matchContentNameMaxBytes)
+			e.Version = r.Text(matchContentVersionBytes)
+			e.Size = r.U64()
+			e.Digest = r.Digest()
+		}
+	}
 	if r.Err() != nil {
 		return MatchConfigRequest{}
 	}

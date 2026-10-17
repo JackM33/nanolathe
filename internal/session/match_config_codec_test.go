@@ -206,25 +206,31 @@ func TestDecodeMatchConfigRefusesHostileFields(t *testing.T) {
 // The configuration encodes through the shared primitives of
 // internal/netproto (whose own tests hold the primitive vectors this file
 // once held for its private reader) byte for byte as it did with its own
-// writer: these are the encodings' SHA-256 and the identities recorded before
-// the primitives moved.
+// writer. version1 is the SHA-256 of the version-1 encoding recorded before
+// the primitives moved; version 2 is those bytes followed by field 16's
+// count, one zero byte when the room names no content, and its identity is
+// recorded under the version-2 domain (§8.6).
 func TestMatchConfigEncodingIsUnchangedBySharedPrimitives(t *testing.T) {
 	for _, c := range []struct {
 		name     string
 		request  MatchConfigRequest
 		length   int
-		encoding string
+		version1 string
 		digest   string
 	}{
-		{"skirmish", validMatchRequest(t), 1148, "3a7a322d0faed979d9b29735ef3b2f31a9d85e2fa315f7fd823252ff005aedd7", "2d418627a99d129a12e32a5311afc809b8c2556494a7faa450994f9b800ea338"},
-		{"Survival", validSurvivalRequest(t), 1182, "a468914062cd58c07cf9042d340cbd31e43dd4bdee7030827eec98ff2c001751", "b44568cb3aedeaac0c5eab149ca958639e3447ae1dd3f3892e63481ca7701593"},
+		{"skirmish", validMatchRequest(t), 1149, "3a7a322d0faed979d9b29735ef3b2f31a9d85e2fa315f7fd823252ff005aedd7", "d772688c2bb9173e0b585d24fff11e31e75805076f3979bde585e40b3fa55e4d"},
+		{"Survival", validSurvivalRequest(t), 1183, "a468914062cd58c07cf9042d340cbd31e43dd4bdee7030827eec98ff2c001751", "4b060da555e50888b705d5794ad6490b728e68e8d0ca70e243c8dfd8ce1e5d22"},
 	} {
 		config := resolveMatch(t, c.request)
 		payload := encodeMatchForTest(t, config)
-		sum := sha256.Sum256(payload)
 		digest := config.Digest()
-		if len(payload) != c.length || hex.EncodeToString(sum[:]) != c.encoding || hex.EncodeToString(digest[:]) != c.digest {
-			t.Errorf("%s: %d bytes, encoding %x, identity %x; want the recorded %d bytes, %s, %s", c.name, len(payload), sum, digest, c.length, c.encoding, c.digest)
+		if len(payload) != c.length || payload[len(payload)-1] != 0 {
+			t.Errorf("%s: %d bytes ending %#x; want %d ending in field 16's empty count", c.name, len(payload), payload[len(payload)-1], c.length)
+			continue
+		}
+		sum := sha256.Sum256(payload[:len(payload)-1])
+		if hex.EncodeToString(sum[:]) != c.version1 || hex.EncodeToString(digest[:]) != c.digest {
+			t.Errorf("%s: version-1 part %x, identity %x; want the recorded %s, %s", c.name, sum, digest, c.version1, c.digest)
 		}
 	}
 }

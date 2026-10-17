@@ -1031,6 +1031,7 @@ func (b *battleSession) teardown(cl *client.Client) {
 		b.controller.battle = nil
 	}
 	b.ended = true
+	b.playback.release()
 	b.playback = nil
 	b.sess = nil
 	b.cat = nil

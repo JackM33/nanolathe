@@ -506,7 +506,7 @@ func TestOnlineRoomCompositionRetail(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	frozen := onlineCreationFrozen(cs, [2]uint32{29, 31}, mutators, restrictions, records)
+	frozen := onlineCreationFrozen(cs, [2]uint32{29, 31}, mutators, restrictions, records, nil)
 	tenMap := ""
 	for _, name := range []string{"ashap plateau", "the pass", "seven islands", "comet catcher"} {
 		if n, err := onlineMapCapacity(cat, name); err == nil && n >= 10 {
@@ -636,11 +636,11 @@ func TestOnlineScreenCapture(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	base, err := onlineConfig(cs, cat, onlineSettingsFromSetup(shell.setup, session.ModernRuleSetName), onlinePlaceholderSeats(nil), onlineCreationFrozen(cs, [2]uint32{1, 2}, shell.opts.Mutators, content.Restrictions{}, nil))
+	base, err := onlineConfig(cs, cat, onlineSettingsFromSetup(shell.setup, session.ModernRuleSetName), onlinePlaceholderSeats(nil), onlineCreationFrozen(cs, [2]uint32{1, 2}, shell.opts.Mutators, content.Restrictions{}, nil, nil))
 	if err != nil {
 		t.Fatal(err)
 	}
-	shell.openOnlineLobby(fake, cat, base, "wss://relay.nanolathe.gg/relay")
+	shell.openOnlineLobby(fake, cat, base, "wss://relay.nanolathe.gg/relay", nil, nil)
 	shell.pollOnline()
 	capture("lobby-teams")
 	r := &shell.online.room
@@ -655,7 +655,7 @@ func TestOnlineScreenCapture(t *testing.T) {
 	shell.leaveOnlineLobby("")
 	hostLobby := newFakeOnlineLobby(0, 0, 1, 2)
 	hostLobby.code = "K7M2QX"
-	shell.openOnlineLobby(hostLobby, cat, base, "wss://relay.nanolathe.gg/relay")
+	shell.openOnlineLobby(hostLobby, cat, base, "wss://relay.nanolathe.gg/relay", nil, nil)
 	shell.online.room.settings.survival, shell.online.room.settings.pace = true, 1
 	shell.pollOnline()
 	shell.refreshOnlineLobby()
@@ -666,7 +666,7 @@ func TestOnlineScreenCapture(t *testing.T) {
 	computerLobby := newFakeOnlineLobby(0, 0, 1)
 	computerLobby.code = "K7M2QX"
 	computerLobby.state.Seats[0].Team, computerLobby.state.Seats[1].Team, computerLobby.state.Seats[1].Side = 1, 2, 1
-	shell.openOnlineLobby(computerLobby, cat, base, "wss://relay.nanolathe.gg/relay")
+	shell.openOnlineLobby(computerLobby, cat, base, "wss://relay.nanolathe.gg/relay", nil, nil)
 	shell.pollOnline()
 	shell.online.room.capacity = 4
 	for _, name := range []string{"Player2", "Allies2", "Player3", "Player3", "Allies3", "Allies3", "Energy3", "Side3"} {
@@ -692,14 +692,14 @@ func TestOnlineScreenCapture(t *testing.T) {
 	guestLobby.code = "K7M2QX"
 	guestLobby.state.Seats = computerLobby.state.Seats
 	guestLobby.state.Seats[0].Ready = true
-	shell.openOnlineLobby(guestLobby, cat, computerBase, "wss://relay.nanolathe.gg/relay")
+	shell.openOnlineLobby(guestLobby, cat, computerBase, "wss://relay.nanolathe.gg/relay", nil, nil)
 	shell.pollOnline()
 	capture("lobby-computers-guest")
 	shell.leaveOnlineLobby("")
 	// A full room: two players and eight computers on a ten-player map.
 	fullLobby := newFakeOnlineLobby(0, 0, 1)
 	fullLobby.code = "K7M2QX"
-	shell.openOnlineLobby(fullLobby, cat, base, "wss://relay.nanolathe.gg/relay")
+	shell.openOnlineLobby(fullLobby, cat, base, "wss://relay.nanolathe.gg/relay", nil, nil)
 	shell.pollOnline()
 	shell.online.room.capacity = 10
 	for row := 2; row < 10; row++ {
@@ -716,7 +716,7 @@ func TestOnlineScreenCapture(t *testing.T) {
 	// Survival: one computer survivor beside two players.
 	survivalLobby := newFakeOnlineLobby(0, 0, 1)
 	survivalLobby.code = "K7M2QX"
-	shell.openOnlineLobby(survivalLobby, cat, base, "wss://relay.nanolathe.gg/relay")
+	shell.openOnlineLobby(survivalLobby, cat, base, "wss://relay.nanolathe.gg/relay", nil, nil)
 	shell.pollOnline()
 	shell.activateGadget(lobbyGameType)
 	shell.activateGadget("Player2")
@@ -794,7 +794,7 @@ func TestOnlineRulesNamesChatCapture(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	base, err := onlineConfig(cs, cat, onlineSettingsFromSetup(shell.setup, session.ModernRuleSetName), onlinePlaceholderSeats(nil), onlineCreationFrozen(cs, [2]uint32{1, 2}, shell.opts.Mutators, content.Restrictions{}, nil))
+	base, err := onlineConfig(cs, cat, onlineSettingsFromSetup(shell.setup, session.ModernRuleSetName), onlinePlaceholderSeats(nil), onlineCreationFrozen(cs, [2]uint32{1, 2}, shell.opts.Mutators, content.Restrictions{}, nil, nil))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -806,7 +806,7 @@ func TestOnlineRulesNamesChatCapture(t *testing.T) {
 		host.state.Seats[i].Name, host.state.Seats[i].Chat = name, true
 	}
 	host.state.Seats[1].Team, host.state.Seats[2].Team = 1, 1
-	shell.openOnlineLobby(host, cat, base, "wss://relay.nanolathe.gg/relay")
+	shell.openOnlineLobby(host, cat, base, "wss://relay.nanolathe.gg/relay", nil, nil)
 	shell.pollOnline()
 	capture("rules-host-modern")
 	shell.activateGadget(lobbyRules)
@@ -875,7 +875,7 @@ func TestOnlineRulesNamesChatCapture(t *testing.T) {
 		guest.state.Seats[i].Name, guest.state.Seats[i].Chat = name, true
 	}
 	guest.state.Seats[0].Ready = true
-	shell.openOnlineLobby(guest, cat, community, "wss://relay.nanolathe.gg/relay")
+	shell.openOnlineLobby(guest, cat, community, "wss://relay.nanolathe.gg/relay", nil, nil)
 	guest.inbox = append(guest.inbox, relay.HostedChatLine{Seat: 0, Text: "welcome! Community rules today"})
 	shell.pollOnline()
 	capture("rules-guest-community")

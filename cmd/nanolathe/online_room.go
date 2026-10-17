@@ -140,13 +140,14 @@ func onlineContentSources(cs *contentSet) session.CommunitySources {
 }
 
 // onlineCreationFrozen freezes a new room on the host's content: its mod,
-// mutators, restriction records and set, and its own Community table.
-func onlineCreationFrozen(cs *contentSet, seeds [2]uint32, mutators content.Mutators, restrictions content.Restrictions, records []session.MatchUnitRestriction) onlineFrozen {
+// mutators, restriction records and set, its own Community table, and the
+// room content (field 16) with the limits it compiles under (§16.8).
+func onlineCreationFrozen(cs *contentSet, seeds [2]uint32, mutators content.Mutators, restrictions content.Restrictions, records []session.MatchUnitRestriction, roomContent []session.MatchContentEntry) onlineFrozen {
 	view := session.MatchView{MinimumScale: 64, MaximumScale: 2048, FullMap: true}
 	return onlineFrozen{
 		seeds:   seeds,
-		options: session.SkirmishEntryOptions{ContentLimits: cs.limits, Mutators: mutators, Restrictions: restrictions, CommunitySources: onlineContentSources(cs)},
-		room: session.MatchRoomInputs{Mod: matchModOf(cs.mod), ContentProfile: cs.profile, UnitRestrictions: records,
+		options: session.SkirmishEntryOptions{ContentLimits: onlineRoomLimits(cs, roomContent), Mutators: mutators, Restrictions: restrictions, CommunitySources: onlineContentSources(cs)},
+		room: session.MatchRoomInputs{Mod: matchModOf(cs.mod), ContentProfile: cs.profile, UnitRestrictions: records, RoomContent: roomContent,
 			PlayerView: view, SpectatorView: view, ReplayView: view,
 			Policies: session.MatchPolicies{Revision: 1, Scheduling: 1, Pacing: 1, Drop: 1, Audience: 1, RejoinGraceMilliseconds: 90000}},
 	}
@@ -169,6 +170,7 @@ func onlineFrozenOf(cs *contentSet, r session.MatchConfigRequest) onlineFrozen {
 		},
 		room: session.MatchRoomInputs{Mod: r.Mod, ContentProfile: p.Name, ContentDirectories: dirs,
 			UnitRestrictions: append([]session.MatchUnitRestriction(nil), r.UnitRestrictions...),
+			RoomContent:      append([]session.MatchContentEntry(nil), r.RoomContent...),
 			PlayerView:       r.PlayerView, SpectatorView: r.SpectatorView, ReplayView: r.ReplayView, Policies: r.Policies},
 	}
 }
@@ -179,14 +181,22 @@ func onlineFrozenOf(cs *contentSet, r session.MatchConfigRequest) onlineFrozen {
 // rows, with the frozen part carried unchanged. The rule set's Community table,
 // unit limit and builder defaults are resolved by the request.
 func onlineConfig(cs *contentSet, cat *content.Catalog, settings onlineSettings, seats []session.OnlineSeat, frozen onlineFrozen) (session.EffectiveMatchConfig, error) {
+	var fs vfs.FSOps
+	if cs != nil {
+		fs = cs.fs
+	}
+	return onlineConfigOn(fs, cat, settings, seats, frozen)
+}
+
+// onlineConfigOn is onlineConfig reading the map's schema from fs and the
+// sides from cat: at Ready a room that names its content composes its final
+// configuration from the room's own mount and catalog (§16.8), so no seat's
+// other archives or loose files can change it.
+func onlineConfigOn(fs vfs.FSOps, cat *content.Catalog, settings onlineSettings, seats []session.OnlineSeat, frozen onlineFrozen) (session.EffectiveMatchConfig, error) {
 	setup := session.OnlineMatchSetup{Rules: settings.rules, Survival: settings.survival, MapName: settings.mapName, Seats: seats, Computers: settings.computers,
 		SimSeed: frozen.seeds[0], CRTSeed: frozen.seeds[1], SideCount: len(session.OnlineSides(cat))}
 	if settings.survival {
 		setup.SurvivalOptions = session.SurvivalOptions{Enabled: true, Pace: settings.pace, NoAir: settings.noAir, NoNaval: settings.noNaval}
-	}
-	var fs vfs.FSOps
-	if cs != nil {
-		fs = cs.fs
 	}
 	schema, err := onlineMapSchema(fs, cat, settings.mapName, setup.Rows())
 	if err != nil {

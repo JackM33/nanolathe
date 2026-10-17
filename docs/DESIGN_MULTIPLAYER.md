@@ -1236,7 +1236,8 @@ policies that constrain the clients:
    Survival options; the seed pair (§8.3).
 2. **The match selection** of DESIGN_MODS_MUTATORS §3 — the mod's id,
    version and archive SHA-256, the content profile, the rule set's name and
-   base, the Community table, and the mutators.
+   base, the Community table, and the mutators — and the **room content**,
+   the archives and packages every seat mounts for the battle (§16.8).
 3. **The entry options** (`session.SkirmishEntryOptions`): each option that
    can change the battle is part of the configuration or held at its
    default online. `AutomatedPlayers`, the arena's switch, is never set.
@@ -1266,10 +1267,10 @@ each with its own diagnostic (`netproto.Identity`):
 |---|---|---|
 | Protocol | command schema version | Exact match. |
 | Build | the common build manifest's digest (§8.7) | **Advisory**: reported, not compared. The rehearsal (§16.7) and the in-game checksums catch incompatible simulations, so an unstamped development build, `go run` included, may play online. |
-| Content | the simulation-content digest of §8.7 | Exact match. `Catalog.Hash` alone is insufficient. |
+| Content | the simulation-content digest of §8.7, composed from the room content (§16.8) | Exact match. `Catalog.Hash` alone is insufficient. |
 | Map | SHA-256 of the map inputs the battle reads | Exact match, diagnosable apart from Content. |
 | Rules | rule set name and base; `community.Features.Digest` | Exact match. |
-| Mod | id, version and archive SHA-256 | Exact match. A client lacking the host's mod may later fetch it from the catalogue (Q14). |
+| Mod | id, version and archive SHA-256 | Exact match. A client lacking the host's mod fetches it from the catalogue at join (Q14, §16.8). |
 | Configuration | SHA-256 over §8.6's canonical encoding, seeds and defaults included | Exact match. |
 
 **Complete content identity.** It covers canonical compiled definitions and
@@ -1329,7 +1330,7 @@ present equal settings as an anti-cheat guarantee.
 
 ### 8.6 Effective configuration contract for U5
 
-Configuration version 1 is a fully explicit value. Host preferences are
+Configuration version 2 is a fully explicit value. Host preferences are
 resolved once; then that same value is validated, frozen, encoded and
 composed. Decoding never calls `SkirmishConfig.ApplyDefaults` or
 `Normalize`, whose private missing-value state and zero-resource defaults
@@ -1342,7 +1343,7 @@ without NUL, at most N bytes, checked before allocation; `digest` is exactly
 32 bytes and `id` exactly 16. Collections have a `u32` count and the stated
 order; duplicate or unsorted map keys are rejected. The whole configuration
 is at most 2 MiB. Its identity is SHA-256 of the literal UTF-8 domain
-`nanolathe/match-config/1` (no trailing NUL) followed by this positional
+`nanolathe/match-config/2` (no trailing NUL) followed by this positional
 encoding. There are no optional unknown fields or trailing bytes; adding a
 field requires a new version.
 
@@ -1363,6 +1364,7 @@ field requires a new version.
 | 13. Permissions | CheatsAllowed `bool`, WatchingAllowed `bool`. Neither local developer state nor interface preferences add permissions. GameClosed is room admission, outside battle identity. |
 | 14. View | Player, Spectator and Replay view records, each `{MinimumScale u16, MaximumScale u16, FullMap bool}`; 64 ≤ minimum ≤ maximum ≤ 2048 in 1/1024 zoom units. No-zoom-out is minimum 1024 and FullMap false (§8.4). |
 | 15. Online policies | Policy revision `u16` = 1, Scheduling `u8` = 1 (casual earliest-unsealed tick), Pacing `u8` = 1 (normal speed, no pause), Drop `u8` = 1, Audience `u8` = 1 (§11.4). Drop policy 1: retain a seat out of play idle, allow a removal vote once it has been out of play for a cumulative `RejoinGraceMilliseconds`, and on a passed vote apply the mode's final-removal rule (§11.1); its vote window, cooldown and other details are fixed protocol values (Q28), not fields. Then `RejoinGraceMilliseconds` `u32` — never a removal timer — with three uses (§11.1): the cumulative out-of-play time before a removal vote may be called, the time an admitted rejoin has to complete, and the wait before a battle with no active playing human ends without a result. Then SpectatorDelayMilliseconds `u32` and ReplayReleaseDelayMilliseconds `u32`. The room supplies every value; no implicit timeout exists. |
+| 16. Room content | At most 128 entries `{Kind u8, Name text(255), Version text(64), Size u64, Digest digest}`, sorted by Kind, then Name compared without regard to case, then Version; a Name appears once per Kind without regard to case. Kind 1, a base archive: its file name in the base install's folder, an empty Version, and the file's byte size and SHA-256. Kind 2, an official add-on: its catalogue id and version, its archives' total byte size and its content digest (DESIGN_MODS_MUTATORS §5.7). Kind 3, a map package: the catalogue id and version, and the archive's byte size and SHA-256. The room's mod stays field 8. Every seat composes the battle from exactly these (§16.8). |
 
 Each player row is positional:
 
@@ -1680,15 +1682,23 @@ skirmish or Survival), the encoded battle configuration (§8.6; for
 single-player the one `MatchConfigForFreshBattle` resolves from the fresh
 battle request), the match identity of §8.2 with an advisory build digest,
 the initial unit checksum, the recording seat, the map name, the seats with
-their names, sides, colours and roles, and the start time.
+their names, sides, colours and roles, the start time, and the official
+add-ons a single-player battle mounted (DESIGN_MODS_MUTATORS §5.7), by id,
+version, size and content digest; an online recording's configuration names
+its own content (§16.8) and lists none here. Watching a single-player replay
+first reloads the content onto its add-ons, as onto its mod, and a playback
+on content that mounts other add-ons is refused.
 
-**File format, version 1.** The magic `NLREPLAY`, the version, the header,
+**File format, version 2.** The magic `NLREPLAY`, the version, the header,
 then DEFLATE chunks of about 64 KiB of entries, each opening with the
 stream state at its start so it decodes alone: command, pump run
 (run-length: count × ticks per pump), checksum, and end (final tick and
 reason: finished, left, recording stopped, room failed). Integers are the
 netproto version-1 primitives. A file that stops inside a chunk, or without
 its end entry, plays to its last whole chunk and is listed as incomplete.
+Version 2 added the header's add-ons, and a version-1 file is not read:
+released builds wrote version-1 battle configurations, which this build no
+longer decodes either.
 A busy single-player battle takes about 4 KB a minute, half of it
 checksums.
 
@@ -2210,7 +2220,7 @@ finding.
 | Q11 | Display names until ranked play needs accounts. |
 | Q12 | A replay needs a simulation that reproduces it; no cross-release compatibility program is planned. |
 | Q13 | Desync: a room ends without a result. Later, casual rooms continue with a strict majority and move dissenters to rejoin or the drop state; rated rooms are uncertified until a trusted replayer or referee rules (§9.3). |
-| Q14 | A client lacking the host's mod may fetch it through the verified catalogue download (later). |
+| Q14 | A client lacking the room's mod, official add-ons or map package fetches them through the verified catalogue downloads when it joins (§16.8). |
 | Q15 | Identical catalogs are required; roster negotiation may come later as a catalog filter. |
 | Q16 | Retail's unit-restriction table is configuration field 12; the online lobby carries the host's restrictions (§16.6). A restriction-editing lobby screen, and a decision on retail's seeded `wacky` state, come later. |
 | Q17 | The architecture must support eventual competition: verified results by a trusted replayer, a live referee where rooms promise mid-match recovery, and an explicit integrity-level decision (§12.6). |
@@ -2230,6 +2240,7 @@ finding.
 | Q31 | An online room plays one of the reserved rule sets — Modern, Strict 3.1 or Community 3.9 — chosen by its host in the lobby and agreed in the configuration; a room starts on the reserved base of the host's current mode, and a mod's minimum gameplay applies (§16.6). |
 | Q32 | Players name themselves, optionally, and chat in the lobby and in battle through the relay. Battle chat keeps retail's recipient prefixes; a watcher or defeated seat cannot chat in battle; names need not be unique; chat is never recorded and changes no tick (§12.2). |
 | Q33 | Retail's sharing and alliance commands — share toggles and thresholds, SHARE-screen gifts of metal, energy, units and map information, Allies-window declarations and shared victory — are seat commands in every online mode, applied on their tick in stream order (Q22, Q25). A negative gift needs the cheat permission (Q8); Survival's attacker is not a gift target. Single-player refuses them, as retail runs them only in a networked session (§7.1). |
+| Q34 | A room names its content — base archives, official add-ons and the room map's package — and every seat, the host included, plays the battle on exactly that content. Joining fetches what the catalogues supply without asking and names what it cannot get before anyone is ready; the host may turn optional content off for the room; loose files in the simulation directories are never used online (§16.8). |
 
 ## 16. Delivery plan
 
@@ -2245,7 +2256,7 @@ explicitly says otherwise.
 | **M1 One simulation on every host** | Effect holds in `SimArt` and the pool timed from them on every host (L9); the portable numeric kernel and defined conversions (L1); fingerprint locks from amd64, arm64 and js/wasm builds and a lock scene that fills the Strict effect pool. | Done (§16.1). |
 | **M2 Commands, configuration and identity** | Seat-attributed commands, receiver-side permissions, allocation serials, local interface state, explicit wire schemas, complete content/build/configuration identities and the match policy fields. | Done (§16.2). |
 | **M3 Canonical checkpoints and digest** | The reviewed state inventory, the canonical writer and owner sub-digests, the bounded histories and the computer seats' application records. | Implemented; native cross-platform comparison pending (§16.3). |
-| **Online play** | Perspectives, lobby teams and per-seat results for 2–10 seats, computers the room host adds, and online Survival (part of M5); the loopback and hosted relays, room codes, the lobby, the rehearsal and the browser build's relay connection (part of M6). | Done (§16.4–§16.7). |
+| **Online play** | Perspectives, lobby teams and per-seat results for 2–10 seats, computers the room host adds, and online Survival (part of M5); the loopback and hosted relays, room codes, the lobby, the rehearsal and the browser build's relay connection (part of M6); room content agreement (§16.8). | Done (§16.4–§16.7). Room content: the first two of three steps built (§16.8). |
 | **M4 Replays** | Recorder, playback, pump ends, pacing notes, digest checks and a headless replay command. | First step built (§10): automatic local recording, playback and `--verify-replay`. Done when long Strict and Modern replays agree across platforms and between a windowed recording and headless playback, through pauses, speed changes and late AI workers. |
 | **M5 One world per player** | The rest of §6 — alliances, sharing, watchers, per-seat option bits — and the multi-seat harness (§17). Computer seats the room host adds are built (§6.6). | The harness passes for two to four human seats with computer seats under every registered rule set; single-seat locks unchanged. |
 | **M6 LAN and room codes** | The embedded relay and LAN/direct lobby, chat, departures with removal votes and the mode's final-removal rule (§11.1), shared view restrictions (§8.4), digest exchange, desync bundles and the casual desync policy (§9), and the pacing state table (§4.4). | Mixed-platform battles finish on a LAN and through the hosted relay; hostile commands are refused; §11.1's tests pass in every reserved mode; a seeded desync in a three-seat battle leaves two seats playing; impaired-network and CPU-stall runs meet budgets declared before acceptance. |
@@ -6097,6 +6108,10 @@ is ready the host starts the match. The lobby's rules:
   from its own preferences. Field 12 carries the host's restrictions,
   mapped from `content.Restrictions` as DESIGN_MODS_MUTATORS §15.3 states,
   with nothing seeded. A different mod means a new room.
+- **The room content follows the host.** Field 16 lists the base archives,
+  official add-ons and map package every seat mounts for the battle; the
+  host composes it from its own install, the room's map and its Content
+  control, and each seat resolves it when it joins (§16.8).
 - **Teams and sides.** Each player picks their own team (none or 1–5) and
   side (any side the catalog defines) by clicking them while not ready.
   Teams are static: alliances are set from them at entry, teams of two or
@@ -6152,9 +6167,11 @@ The relay treats configurations as opaque bytes and interprets no gameplay.
   closed or started room.
 - **Join**: the hello carries the code and a `LocalHello` asking for any
   seat, and no configuration. The relay compares only the protocol and
-  assigns the lowest free seat, returned in the welcome. Content and
-  configuration are compared at Ready instead, because they depend on who
-  is present.
+  assigns the lowest free seat, returned in the welcome. The content and
+  configuration identities are compared at Ready instead, because the
+  configuration depends on who is present; the client resolves the room
+  content from the configuration it receives (§16.8). The relay never
+  reads it.
 - **Lobby state** (relay to every seat, after every change): the room size;
   per seat, present, ready, team, side and colour; and a mismatch bit when
   every present seat is ready but their digests differ.
@@ -6277,15 +6294,18 @@ sides' names in index order.
 - **Join** describes the room and adopts its mod; if the room's mod is
   installed but not mounted, the client remounts it through the ordinary
   content reload, telling the player and saving it as the player's
-  selection. A missing mod is reported by name and nothing is joined. Each
-  later base configuration is adopted as it arrives; a map the player does
-  not have is reported by name and keeps Ready disabled.
+  selection. It resolves the room content (§16.8): a missing room mod is
+  downloaded in the join popup, with progress and Cancel, and missing
+  official add-ons and the map package in the lobby, with progress on its
+  status line; content it still lacks is named and keeps Ready disabled, so
+  the player can join and ask the host to turn it off. Each later base
+  configuration is adopted and resolved as it arrives.
 - **Lobby**: the room code shown large, with Copy where the host clipboard
   allows; a row per player with their name, team, side, colour and
   readiness, the local player's own team, side and colour changed by
   clicking while not ready; the host's settings (game type, Rules, Change
-  map through the ordinary map picker, Survival's options and the standard
-  skirmish options); a chat area whose line Enter opens;
+  map through the ordinary map picker, Content (§16.8), Survival's options
+  and the standard skirmish options); a chat area whose line Enter opens;
   Ready/Not ready; Start for the host, enabled when everyone present is
   ready, the digests agree and the player count fits the map or Survival's
   limit; Leave. Ready composes, prepares and rehearses off the game
@@ -6362,6 +6382,126 @@ advisory, and unstamped builds, `go run` included, may play online (§8.2,
 such as reading hidden state, is undetectable by any hash (§13). A cheat or
 difference that diverges the simulation later is caught by the in-game
 checksum, which stops the match.
+
+### 16.8 Room content
+
+**Purpose.** Two players on the same build can still compose different
+battles because their installs hold different archives: a Total
+Annihilation folder with Cavedog's bonus units and one without them compile
+different catalogs, and the Ready check (§16.7) can only report that the
+games differ. A room therefore names its content, and every seat, the host
+included, plays the battle on exactly that content. Each seat fetches what
+the catalogues supply and is told what it cannot get, before anyone presses
+Ready.
+
+**The room content** is configuration field 16 (§8.6). The host composes it
+from its own mounted content when it creates the room and again whenever a
+setting changes it. Being part of the base configuration, it is what every
+seat composes from (§16.6), and the configuration digest covers it. Each
+entry is one of:
+
+1. **A base archive**: a retail-format archive in the base install's
+   folder, at any tier of `[02 §2]` — the patch, `*.CCX`, `*.UFO` or local
+   `*.HPI` — by file name, byte size and SHA-256. An archive whose every
+   file is under `maps/` adds maps and nothing a battle on another map
+   reads, so it is listed only when it holds the room's map; installs with
+   large map collections stay joinable. Each archive is hashed once and the
+   result cached against its path, size and modification time.
+2. **An official add-on** (DESIGN_MODS_MUTATORS §5.7) by id, version, its
+   archives' total size and its content digest: each add-on the host mounts
+   from its library, and each whose archives all sit byte-identical in the
+   host's install folder, which is listed as that add-on rather than as base
+   archives so that a seat without them can fetch it. The host recognizes a
+   folder copy from its add-on library or the add-on catalogue; when it holds
+   a `*.UFO` archive neither names and no catalogue has been read, it asks the
+   catalogue while opening the room, at most once a run. An archive no add-on
+   claims stays a base archive.
+3. **A map package** (DESIGN_MODS_MUTATORS §5.6) by the same identity: only
+   the room map's own package and the dependencies it declares. The host's
+   other map packages are not part of the room.
+
+The room's mod stays field 8. Loose files in the simulation directories —
+those the §8.7 families read — are never room content: they cannot be
+described or fetched, so no seat mounts them for an online battle, and the
+lobby tells a player whose folder holds some that they are not used online.
+A map that only such loose files supply cannot be chosen for a room.
+Field 9's limits are the room content's: a room whose map comes from a
+package carries the raised terrain cap of DESIGN_MODS_MUTATORS §5.6 on every
+seat, and a room whose map does not carries none, whatever the host has
+installed.
+
+**The battle's content.** At Ready each seat mounts a content set from the
+room content: the listed base archives found in its own install folder,
+matched by file name without regard to case, each at its retail tier; the
+listed add-ons at the `*.UFO` tier, as DESIGN_MODS_MUTATORS §5.7 mounts
+them; the listed map packages below the base install; and the room's mod
+last. Archives in its folder that the room does not list are left out.
+That content set and the catalog compiled from it under field 9's limits
+compose the final configuration — the map's schema and the sides — and
+prepare, rehearse (§16.7) and play the battle; the menus keep the player's
+own content.
+
+**Resolving it.** When a client joins, and whenever a new base configuration
+arrives, it sorts every entry into one of four states:
+
+- **Present**: a base archive with the listed digest; an add-on the
+  content mounts or whose archives all sit byte-identical in the player's
+  own folder, which then mount as that add-on; an installed map package with
+  the listed identity; or an installed add-on the content leaves off, which
+  the battle mounts and the lobby enables, remounting the player's content
+  so the menus and pictures have it too.
+- **Fetched**: an add-on, map package or mod (Q14) whose catalogue offers
+  the listed identity. It is downloaded without asking, verified as every
+  catalogue download is, and installed into the player's library: the room's
+  mod before the join, in the join popup, whose Cancel stops it; an add-on
+  or a map package in the lobby, whose status line shows its progress and
+  then, if it failed, why. An installed add-on is enabled, as installing one
+  always does. The content then remounts as a More maps install does, and
+  the lobby resolves the room again.
+- **Different**: a base archive with the listed name but other bytes. It is
+  mounted, and the lobby warns that the player's copy differs from the
+  host's; if the Ready check then fails, that copy is named as the reason.
+- **Missing**: anything else. The lobby names it in product words where the
+  file belongs to one — The Core Contingency (`ccdata.ccx`, `ccmaps.ccx`,
+  `ccmiss.ccx`), Battle Tactics (`btdata.ccx`, `btmaps.ccx`,
+  `tactics1.hpi`–`tactics8.hpi`) — and by file name otherwise, keeps Ready
+  disabled, and says the host can turn it off.
+
+A player joins even while content is missing, so they can ask the host in
+chat. The browser build, which has no package libraries, resolves every
+add-on and map package as missing.
+
+**The host's Content control.** A lobby button shows the host the room
+content. The Core Contingency, Battle Tactics, each official add-on and each
+other `*.UFO` archive can be turned off for the room; the remaining archives,
+the base game and its patch, cannot. Turning something off replaces the base
+configuration and so clears readiness, as any host setting does. It is
+refused, naming the map, while the room's map comes from that content, and
+it changes only the room, never the host's own selection.
+
+**When the Ready check still fails.** A mismatch (§16.6.1) between seats
+whose content resolved with nothing different means their simulations
+differ — two builds, or a defect — and the lobby says so: "Your games
+computed the test battle differently. If everyone has the same version,
+please report this with your logs." When the seat holds a differing copy of
+a listed archive, the lobby names that copy instead. Every seat writes its
+identity's parts — content, map, rules, mod and configuration — and its
+rehearsal digest to its log at Ready, so two logs show which part differs.
+
+**Delivery.** Three steps; the first two are built:
+
+1. Configuration version 2 with field 16; the battle's content set; resolving
+   at join, with missing content named; automatic downloads of the room's
+   map package and mod; the Ready log line and the messages above. Because
+   field 9's limits follow the room, this also ends the refusal at Ready of a
+   seat that has downloaded map packages when its host has none.
+2. Official add-ons (DESIGN_MODS_MUTATORS §5.7) as field-16 entries,
+   enabled or fetched in the lobby.
+3. The host's Content control.
+
+The relay is unchanged throughout: field 16 travels in the opaque
+configuration bytes, and the whole configuration must still fit the relay's
+64 KiB (§16.6.1); an ordinary install lists a few dozen entries.
 
 ## 17. Verification
 

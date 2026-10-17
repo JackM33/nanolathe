@@ -362,6 +362,7 @@ func startSinglePlayerReplay(target replayTarget, request headless.FreshBattleRe
 		return nil, &replaySkip{reason: err.Error()}
 	}
 	header.Started = time.Now().UnixMilli()
+	header.Addons = replayAddonsOf(cs)
 	rec, err := startReplayRecording(target, header)
 	if err != nil {
 		return nil, err

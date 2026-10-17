@@ -11,7 +11,7 @@ import (
 	"github.com/nanolathe-gg/nanolathe/internal/session"
 )
 
-// File layout, version 1. Every integer is a netproto version-1 primitive
+// File layout, version 2. Every integer is a netproto version-1 primitive
 // (shortest unsigned varint unless named otherwise):
 //
 //	magic        8 bytes "NLREPLAY"
@@ -39,10 +39,11 @@ import (
 // Magic opens every replay file.
 const Magic = "NLREPLAY"
 
-// FormatVersion is the replay format this build writes and reads.
-const FormatVersion uint16 = 1
+// FormatVersion is the replay format this build writes and reads. Version
+// 2 added the header's official add-ons; this build does not read version 1.
+const FormatVersion uint16 = 2
 
-// Bounds of format version 1. They are admission limits a reader checks
+// Bounds of format version 2. They are admission limits a reader checks
 // before it allocates, not retail claims.
 const (
 	// MaxHeaderBytes bounds the encoded header, whose largest field is the
@@ -70,6 +71,11 @@ const (
 	maxNameBytes     = 255
 	// maxSeat is the highest seat number, ten seats.
 	maxSeat = 9
+	// MaxAddons bounds the header's official add-ons, and
+	// maxAddonVersionBytes an add-on's version, the configuration's own
+	// bound for a content version (§8.6 field 16).
+	MaxAddons            = 32
+	maxAddonVersionBytes = 64
 	// maxColor is the highest player colour.
 	maxColor = 9
 )
@@ -224,6 +230,19 @@ type Header struct {
 	// Started is when the battle started, Unix time in milliseconds, or zero
 	// when unknown. It is host time and never reaches a tick.
 	Started int64
+	// Addons are the official add-ons a single-player battle's content
+	// mounted, by id in ascending order (DESIGN_MODS_MUTATORS §5.7), so
+	// playback mounts them again. An online battle's configuration names
+	// its own content (field 16), and its header lists none.
+	Addons []Addon
+}
+
+// Addon is one official add-on a recorded battle mounted: its id, version,
+// archives' total size and content identity.
+type Addon struct {
+	ID, Version string
+	Size        uint64
+	Digest      [32]byte
 }
 
 // Seat is one seat as a list screen shows it.
@@ -238,6 +257,7 @@ type Seat struct {
 func (h Header) clone() Header {
 	h.Config = append([]byte(nil), h.Config...)
 	h.Seats = append([]Seat(nil), h.Seats...)
+	h.Addons = append([]Addon(nil), h.Addons...)
 	return h
 }
 
@@ -279,6 +299,13 @@ func encodeHeader(h Header) ([]byte, error) {
 		w.U8(uint8(p.Role))
 	}
 	w.S64(h.Started)
+	w.U32(uint32(len(h.Addons)))
+	for _, a := range h.Addons {
+		w.Text(a.ID)
+		w.Text(a.Version)
+		w.U64(a.Size)
+		w.Digest(a.Digest)
+	}
 	if w.Len() > MaxHeaderBytes {
 		return nil, formatError("header", fmt.Sprintf("at most %d bytes", MaxHeaderBytes))
 	}
@@ -336,10 +363,25 @@ func validateHeader(h Header) error {
 			return formatError(path+".role", "role 1 human, 2 computer, 3 watcher or 4 Survival attacker")
 		}
 	}
+	if len(h.Addons) > MaxAddons {
+		return formatError("header.addons", fmt.Sprintf("at most %d add-ons", MaxAddons))
+	}
+	for i, a := range h.Addons {
+		path := fmt.Sprintf("header.addons[%d]", i)
+		if err := text(path+".id", a.ID, maxNameBytes); err != nil {
+			return err
+		}
+		if err := text(path+".version", a.Version, maxAddonVersionBytes); err != nil {
+			return err
+		}
+		if a.ID == "" || a.Version == "" || i > 0 && h.Addons[i-1].ID >= a.ID {
+			return formatError(path, "add-ons with an id and version, in strictly ascending id order")
+		}
+	}
 	return nil
 }
 
-// decodeHeader reads a version-1 header, refusing every bound before it
+// decodeHeader reads a version-2 header, refusing every bound before it
 // allocates and any byte after the last field.
 func decodeHeader(b []byte) (Header, error) {
 	r := netproto.NewReader(b, func(path, expected string) error { return formatError("header "+path, expected) })
@@ -390,6 +432,21 @@ func decodeHeader(b []byte) (Header, error) {
 		}
 	}
 	h.Started = r.S64()
+	// An add-on row is at least 35 bytes: two empty texts, a size and a
+	// digest.
+	if count := r.Count(MaxAddons, 35); count > 0 {
+		h.Addons = make([]Addon, count)
+	}
+	for i := range h.Addons {
+		a := &h.Addons[i]
+		a.ID = r.Text(maxNameBytes)
+		a.Version = r.Text(maxAddonVersionBytes)
+		a.Size = r.U64()
+		a.Digest = r.Digest()
+		if r.Err() == nil && (a.ID == "" || a.Version == "" || i > 0 && h.Addons[i-1].ID >= a.ID) {
+			r.Fail("add-ons with an id and version, in strictly ascending id order")
+		}
+	}
 	if err := r.End(); err != nil {
 		return Header{}, err
 	}

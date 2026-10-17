@@ -365,9 +365,11 @@ func (s *nlScreen) chooseProfile(i int) {
 		// only for the pending profile to replace it on Apply.
 		if next, err := s.draftSettings(); err == nil {
 			draft := s.draftOf(next)
-			// These host/battle choices are outside profile and preset scope;
-			// draftOf describes only the settings those layers can compose.
+			// These host/battle choices and the drafted unit restrictions are
+			// outside profile and preset scope; draftOf describes only the
+			// settings those layers can compose.
 			draft.fullscreen, draft.mutators = s.draft.fullscreen, s.draft.mutators
+			draft.restrictions = s.draft.restrictions
 			for _, page := range s.pages() {
 				for _, c := range page.cards {
 					if c.key != "content" && c.key != "profile" && !s.touched[c.key] {

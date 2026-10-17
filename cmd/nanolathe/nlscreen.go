@@ -143,6 +143,8 @@ type nlScreen struct {
 	// was read from (restrictionSummary).
 	restrictSum    nlRestrictionSummary
 	restrictSumKey nlRestrictionSummaryKey
+	// addonList is the Add-ons card's listing and Get (nlscreen_addons.go).
+	addonList nlAddonList
 }
 
 func newNLScreen(host func() *gameShell) *nlScreen {
@@ -171,6 +173,9 @@ func (s *nlScreen) show(g *gameShell) {
 	s.compare, s.dialog, s.toast, s.closing = false, "", "", false
 	s.page, s.pageT, s.heroT, s.openT = 0, 0, 0, 0
 	s.focus = [5]int{}
+	// Each opening asks the add-on catalogue again once the card shows; a
+	// Get still running is followed (pollAddons).
+	s.addonList.fetched, s.addonList.failure = false, ""
 	s.open = true
 	s.lastFrame = time.Time{}
 	s.pointerClock, s.pointerTick = time.Time{}, 0
@@ -306,6 +311,7 @@ func (s *nlScreen) hide() {
 	s.closing = true
 	s.dialog = ""
 	s.warmed = nil // the menu warms the screen again for its next opening
+	s.addonList.stop()
 	// The menu underneath may switch content once it has the input back; its
 	// idle steps resume the pictures (warm).
 	s.art.pauseLoader()
@@ -353,6 +359,7 @@ func (s *nlScreen) snapshot(g *gameShell) nlDraft {
 		override:      g.lockOverridden(g.cs.mod),
 		interfaceType: g.interfaceType,
 		restrictions:  nlLiveRestrictions(g).String(),
+		addons:        nlAddonsText(g.cs.addonSelection),
 	}
 	if d.glowStrength < 0 {
 		d.glowStrength = settings.DefaultGlowStrength
@@ -397,7 +404,7 @@ func (s *nlScreen) dirty() int {
 	n := s.keysDiffer()
 	for _, page := range s.pages() {
 		for i := range page.cards {
-			if c := &page.cards[i]; !nlCardEqual(*c, &s.draft, &s.saved) {
+			if c := &page.cards[i]; nlCardChanged(*c, &s.draft, &s.saved) {
 				n++
 			}
 		}
@@ -489,8 +496,9 @@ func (s *nlScreen) setCardDraft(c nlCard, next nlDraft) {
 	}
 }
 
-// apply writes the draft through the shell. A content switch becomes a
-// reload request; everything else takes effect now and is saved.
+// apply writes the draft through the shell. A content switch or a change of
+// add-ons becomes a reload request; everything else takes effect now and is
+// saved.
 func (s *nlScreen) apply() {
 	g := s.shell()
 	if g == nil {
@@ -500,17 +508,27 @@ func (s *nlScreen) apply() {
 	if s.guardApplyLocks() {
 		return
 	}
-	if !sameMod(target, g.cs.mod) && !g.cs.manualRoots {
-		// A different content switches first, and the rest of the draft is
-		// applied to the new content's settings once it is bound
-		// (updateReload), so a change made in the same Apply is kept for the
-		// content it was made for.
+	addons, addonsChanged := s.draftAddons(g)
+	if (!sameMod(target, g.cs.mod) || addonsChanged) && !g.cs.manualRoots {
+		// A different content, or other add-ons, switch first, and the rest
+		// of the draft is applied to the new content's settings once it is
+		// bound (updateReload), so a change made in the same Apply is kept
+		// for the content it was made for.
 		request := contentReloadRequest{selector: "none", mutators: s.draft.mutators}
 		name := "Total Annihilation"
 		if target != nil {
 			request.selector = modSelectorOf(target.ID, target.Version)
 			request.mod = settings.ModSelection{ID: target.ID, Version: target.Version}
 			name = target.Name
+		}
+		if sameMod(target, g.cs.mod) {
+			// Only the add-ons changed: the running mod mounts again, and
+			// the saved mod choice stays as it was.
+			request.mod = g.modSetting
+		}
+		if addonsChanged {
+			// The reload mounts the drafted add-ons and saves them (§5.7).
+			request.addons = &addons
 		}
 		s.reload = &nlReload{request: request, name: name, draft: s.draft, touched: s.touched, presets: s.pendingPresets}
 		s.releasePreview(true)
@@ -640,6 +658,7 @@ func (s *nlScreen) updateInput(in screenkit.Input, dt float64) {
 		return
 	}
 	s.pollInstalls()
+	s.pollAddons()
 	switch s.dialog {
 	case "resolution":
 		s.updateResolution(in)
@@ -735,7 +754,7 @@ func (s *nlScreen) updateInput(in screenkit.Input, dt float64) {
 }
 
 func (s *nlScreen) step(c nlCard, v, d int) {
-	if s.cardUnavailable(c) != "" || c.kind == nlRestrictions {
+	if s.cardUnavailable(c) != "" || c.kind == nlRestrictions || c.kind == nlAddons {
 		return
 	}
 	if c.kind == nlResolution {
@@ -1661,7 +1680,10 @@ func (s *nlScreen) drawHero(screen *ebiten.Image, page nlPage, card *nlCard, idx
 	screenkit.Disc(screen, kx, y-6*u, 2.5*u, alphaC(nlGreen, a))
 	count := s.ui.text(nlTextKey{kind: "count", i: idx + 1, j: len(page.cards)}, func() string { return fmt.Sprintf("%d / %d", idx+1, len(page.cards)) })
 	kx += 16*u + df.Draw(screen, count, kx+16*u, y, ks)
-	s.drawSource(screen, card, kx+24*u, y-17*u, a)
+	if card.kind != nlAddons {
+		// No mod recommends add-ons, so their card has no source marker.
+		s.drawSource(screen, card, kx+24*u, y-17*u, a)
+	}
 	title := s.ui.upperCase(card.label)
 	size := 76 * u
 	for size > 30*u && df.Measure(title, screenkit.Style{Size: size, Tracking: 0.02}) > 720*u {
@@ -1690,8 +1712,10 @@ func (s *nlScreen) drawHero(screen *ebiten.Image, page nlPage, card *nlCard, idx
 		y = s.heroContent(screen, card, v, x, y, a)
 	case nlRestrictions:
 		y = s.heroRestrictions(screen, x, y, a)
+	case nlAddons:
+		y = s.heroAddons(screen, x, y, a)
 	}
-	if card.kind != nlGroup && s.cardUnavailable(*card) != "" {
+	if card.kind != nlGroup && (s.cardUnavailable(*card) != "" || card.kind == nlAddons && s.addonsUnavailable() != "") {
 		screenkit.Fill(screen, screenkit.Rect{X: x - 4*u, Y: controlTop - 4*u, W: 648 * u, H: y - controlTop + 8*u}, color.RGBA{8, 12, 8, 145})
 	}
 	y += 22 * u
@@ -1843,6 +1867,15 @@ func (s *nlScreen) cardNote(card nlCard, v int) string {
 	case nlRestrictions:
 		if g := s.shell(); g != nil && g.opts.RestrictionsSet {
 			return "The command line set this run's restrictions; an edit applied here replaces them."
+		}
+	case nlAddons:
+		if reason := s.addonsUnavailable(); reason != "" {
+			return reason
+		}
+		if name := s.addonsLeftOffBy(); name != "" {
+			return s.ui.text(nlTextKey{kind: "addons off", a: name}, func() string {
+				return name + " leaves the official add-ons off. Your switches are kept for other content."
+			})
 		}
 	}
 	return ""
@@ -2182,25 +2215,7 @@ func (s *nlScreen) heroGroup(screen *ebiten.Image, card *nlCard, x, y, a float64
 		} else if !p.meter {
 			w := 110 * u
 			sr := screenkit.Rect{X: cx - w, Y: r.Y + 12*u, W: w, H: r.H - 24*u}
-			sid := s.ui.id("part-sw-", card.key, i, -1)
-			pos := s.ease(sid, float64(v), 16)
-			screenkit.Fill(screen, sr, color.RGBA{6, 8, 6, 240})
-			half := sr.W / 2
-			if pos > 0.01 {
-				screenkit.VGradient(screen, screenkit.Rect{X: sr.X + half, Y: sr.Y, W: half, H: sr.H}, alphaC(color.RGBA{90, 240, 110, 255}, pos*a), alphaC(color.RGBA{16, 120, 36, 255}, pos*a))
-			}
-			if pos < 0.99 {
-				screenkit.VGradient(screen, screenkit.Rect{X: sr.X, Y: sr.Y, W: half, H: sr.H}, alphaC(color.RGBA{96, 30, 22, 255}, (1-pos)*a), alphaC(color.RGBA{40, 12, 8, 255}, (1-pos)*a))
-			}
-			ls := screenkit.Style{Size: 12 * u, Tracking: 0.14, Top: alphaC(color.RGBA{255, 170, 150, 255}, a), Align: 1}
-			df.Draw(screen, "OFF", sr.X+half/2, sr.Y+sr.H/2+5*u, ls)
-			ls.Top = alphaC(color.RGBA{236, 255, 238, 255}, a)
-			df.Draw(screen, "ON", sr.X+half+half/2, sr.Y+sr.H/2+5*u, ls)
-			knob := screenkit.Rect{X: sr.X + (1-pos)*half, Y: sr.Y, W: half, H: sr.H}
-			screenkit.VGradient(screen, knob, color.RGBA{122, 122, 114, 255}, color.RGBA{56, 56, 50, 255})
-			screenkit.Bevel(screen, knob, 1.5*u, color.RGBA{214, 214, 206, 255}, color.RGBA{24, 24, 22, 255}, false)
-			screenkit.Outline(screen, sr, 1*u, color.RGBA{0, 0, 0, 255})
-			s.hits.Add(screenkit.Region{ID: sid, Rect: sr, Disable: disabled, Click: func() { s.setPart(*card, i, 1-v) }})
+			s.partSwitch(screen, s.ui.id("part-sw-", card.key, i, -1), sr, v, disabled, a, func() { s.setPart(*card, i, 1-v) })
 		} else {
 			n := len(p.steps)
 			sw, gap := 30*u, 6*u
@@ -2225,6 +2240,32 @@ func (s *nlScreen) heroGroup(screen *ebiten.Image, card *nlCard, x, y, a float64
 		}
 	}
 	return y + float64(len(card.parts))*(rowH+6*u)
+}
+
+// partSwitch is a row's small throw switch, as the grouped cards and the
+// Add-ons card draw it: the knob covers the side not chosen, over a lit
+// green ON or a dark red OFF. v is 0 or 1; click flips it.
+func (s *nlScreen) partSwitch(screen *ebiten.Image, id string, sr screenkit.Rect, v int, disabled bool, a float64, click func()) {
+	u := s.u()
+	df := s.fonts.Display
+	pos := s.ease(id, float64(v), 16)
+	screenkit.Fill(screen, sr, color.RGBA{6, 8, 6, 240})
+	half := sr.W / 2
+	if pos > 0.01 {
+		screenkit.VGradient(screen, screenkit.Rect{X: sr.X + half, Y: sr.Y, W: half, H: sr.H}, alphaC(color.RGBA{90, 240, 110, 255}, pos*a), alphaC(color.RGBA{16, 120, 36, 255}, pos*a))
+	}
+	if pos < 0.99 {
+		screenkit.VGradient(screen, screenkit.Rect{X: sr.X, Y: sr.Y, W: half, H: sr.H}, alphaC(color.RGBA{96, 30, 22, 255}, (1-pos)*a), alphaC(color.RGBA{40, 12, 8, 255}, (1-pos)*a))
+	}
+	ls := screenkit.Style{Size: 12 * u, Tracking: 0.14, Top: alphaC(color.RGBA{255, 170, 150, 255}, a), Align: 1}
+	df.Draw(screen, "OFF", sr.X+half/2, sr.Y+sr.H/2+5*u, ls)
+	ls.Top = alphaC(color.RGBA{236, 255, 238, 255}, a)
+	df.Draw(screen, "ON", sr.X+half+half/2, sr.Y+sr.H/2+5*u, ls)
+	knob := screenkit.Rect{X: sr.X + (1-pos)*half, Y: sr.Y, W: half, H: sr.H}
+	screenkit.VGradient(screen, knob, color.RGBA{122, 122, 114, 255}, color.RGBA{56, 56, 50, 255})
+	screenkit.Bevel(screen, knob, 1.5*u, color.RGBA{214, 214, 206, 255}, color.RGBA{24, 24, 22, 255}, false)
+	screenkit.Outline(screen, sr, 1*u, color.RGBA{0, 0, 0, 255})
+	s.hits.Add(screenkit.Region{ID: id, Rect: sr, Disable: disabled, Click: click})
 }
 
 // ease moves a named animation value toward target, frame by frame.
@@ -2606,11 +2647,11 @@ func (s *nlScreen) drawCarousel(screen *ebiten.Image, page nlPage, focus int, dt
 		r := screenkit.Rect{X: x, Y: y, W: cw, H: ch}
 		cv := c.get(&s.draft)
 		alpha := appear
-		if s.cardUnavailable(*c) != "" {
+		if s.cardUnavailable(*c) != "" || c.kind == nlAddons && s.addonsUnavailable() != "" {
 			// Unavailable cards remain inspectable, with their choices dimmed.
 			alpha = appear * 0.45
 		}
-		s.drawCard(screen, c, r, cv, i == focus, alpha, !nlCardEqual(*c, &s.saved, &s.draft))
+		s.drawCard(screen, c, r, cv, i == focus, alpha, nlCardChanged(*c, &s.saved, &s.draft))
 		s.hits.Add(screenkit.Region{ID: id, Rect: r, Click: func() { s.focusCard(i) }, Right: func() {
 			s.focusCard(i)
 		}})
@@ -2698,7 +2739,14 @@ func (s *nlScreen) drawCard(screen *ebiten.Image, c *nlCard, r screenkit.Rect, v
 		}
 		return
 	}
-	if c.kind != nlContent && n <= 8 {
+	if c.kind == nlAddons {
+		// One lamp, as a switch has: lit while any add-on is on.
+		state := 2
+		if v > 0 {
+			state = 1
+		}
+		s.segment(screen, screenkit.Rect{X: r.X + r.W - 36*u, Y: r.Y + 165*u, W: 22 * u, H: 13 * u}, state, 0)
+	} else if c.kind != nlContent && n <= 8 {
 		lw, lh, lg := 7*u, 13*u, 3*u
 		if c.kind == nlSwitch {
 			lw = 22 * u
@@ -2731,7 +2779,9 @@ func (s *nlScreen) drawCard(screen *ebiten.Image, c *nlCard, r screenkit.Rect, v
 		value = resolutionLabel(s.draft.resolution)
 	}
 	s.fonts.Body.Draw(screen, value, r.X+14*u, r.Y+177*u, screenkit.Style{Size: 10.5 * u, Top: alphaC(nlGreenText, a)})
-	s.drawCardSource(screen, c, r, a)
+	if c.kind != nlAddons {
+		s.drawCardSource(screen, c, r, a)
+	}
 	if changed {
 		s.lamp(screen, r.X+r.W-16*u, r.Y+22*u, 5*u, nlAmber, true)
 	}

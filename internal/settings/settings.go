@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/nanolathe-gg/nanolathe/internal/community"
@@ -384,6 +385,35 @@ type ModSelection struct {
 	Version string `json:"version,omitempty"`
 }
 
+// AddonSelection is one entry of the settings key `addons`: an official
+// add-on's id and version (docs/DESIGN_MODS_MUTATORS.md §5.7).
+type AddonSelection struct {
+	ID      string `json:"id"`
+	Version string `json:"version"`
+}
+
+// NormalizeAddons trims each entry, drops one without an id or version, keeps
+// the last version stated for an id and orders the result by id. An empty
+// result is nil.
+func NormalizeAddons(in []AddonSelection) []AddonSelection {
+	byID := make(map[string]AddonSelection, len(in))
+	for _, a := range in {
+		a.ID, a.Version = strings.TrimSpace(a.ID), strings.TrimSpace(a.Version)
+		if a.ID != "" && a.Version != "" {
+			byID[a.ID] = a
+		}
+	}
+	if len(byID) == 0 {
+		return nil
+	}
+	out := make([]AddonSelection, 0, len(byID))
+	for _, a := range byID {
+		out = append(out, a)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
+	return out
+}
+
 // ModernAI is the `modernAI` block: key=value parameters for the Modern AI
 // computer players' brain, applied to every computer player, by the battle's
 // difficulty and by lobby slot. For each key the most specific layer that
@@ -477,6 +507,10 @@ type Settings struct {
 	// only stored and round-tripped here; the mod library resolves it. The
 	// zero value selects no mod and is omitted from the file.
 	Mod ModSelection `json:"mod,omitzero"`
+	// Addons are the enabled official add-ons (docs/DESIGN_MODS_MUTATORS.md
+	// §5.7), one version per id, in id order. Like Mod it is the player's
+	// own choice, never a mod's layer; the add-on library resolves it.
+	Addons []AddonSelection `json:"addons,omitempty"`
 	// ModernAI is the settings key `modernAI`: parameters for the Modern AI
 	// computer players' brain, in three layers
 	// (docs/DESIGN_SESSIONS_AI_SAVE.md "Modern AI computer player",
@@ -1264,6 +1298,7 @@ func (s *Settings) Normalize() {
 	if len(s.Restrictions) == 0 {
 		s.Restrictions = nil
 	}
+	s.Addons = NormalizeAddons(s.Addons)
 	// The modernAI layers are likewise kept verbatim for the command that
 	// checks them; only empty maps are folded to absent.
 	s.ModernAI.normalize()

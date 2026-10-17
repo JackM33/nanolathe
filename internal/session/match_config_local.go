@@ -36,12 +36,15 @@ type MatchRoomInputs struct {
 	// by slot. Rows of other roles ignore theirs.
 	Participants     [SkirmishMaxPlayers]MatchParticipantID
 	UnitRestrictions []MatchUnitRestriction
-	CheatsAllowed    bool
-	WatchingAllowed  bool
-	PlayerView       MatchView
-	SpectatorView    MatchView
-	ReplayView       MatchView
-	Policies         MatchPolicies
+	// RoomContent is field 16, the content every seat mounts (§16.8), in
+	// canonical order; empty composes from each seat's own content.
+	RoomContent     []MatchContentEntry
+	CheatsAllowed   bool
+	WatchingAllowed bool
+	PlayerView      MatchView
+	SpectatorView   MatchView
+	ReplayView      MatchView
+	Policies        MatchPolicies
 }
 
 // NewMatchConfigRequest is the local request adapter: it resolves a skirmish
@@ -126,6 +129,7 @@ func newMatchConfigRequest(cfg SkirmishConfig, options SkirmishEntryOptions, roo
 		ReplayView:       room.ReplayView,
 		Policies:         room.Policies,
 		UnitRestrictions: append([]MatchUnitRestriction(nil), room.UnitRestrictions...),
+		RoomContent:      append([]MatchContentEntry(nil), room.RoomContent...),
 	}
 	// The rule words as composition reads them: Location zero randomizes and
 	// anything else is identity; commander death through its closed

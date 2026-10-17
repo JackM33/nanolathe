@@ -105,3 +105,99 @@ func TestOneRootPreservesExistingManifest(t *testing.T) {
 		t.Fatal("single/repeated root changed manifest identity")
 	}
 }
+
+// An online battle mounts the base install with only the archives its room
+// names and none of its loose files, and the roots keep the priority spans
+// their positions give them (docs/DESIGN_MULTIPLAYER.md §16.8).
+func TestGameRootsAdmitNamedArchivesWithoutLoose(t *testing.T) {
+	base, mod := t.TempDir(), t.TempDir()
+	write := func(root, name string, files ...vfs.ArchiveFile) {
+		t.Helper()
+		var buf bytes.Buffer
+		if err := vfs.WriteArchive(&buf, files, vfs.ArchiveWriteOptions{}); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(root, name), buf.Bytes(), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write(base, "totala1.hpi", vfs.ArchiveFile{Path: "units/base.fbi", Data: []byte("base")}, vfs.ArchiveFile{Path: "shared.txt", Data: []byte("base")})
+	write(base, "Extra.ufo", vfs.ArchiveFile{Path: "units/extra.fbi", Data: []byte("extra")})
+	if err := os.MkdirAll(filepath.Join(base, "units"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(base, "units", "loose.fbi"), []byte("loose"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(mod, "shared.txt"), []byte("mod"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	fs := vfs.New()
+	defer fs.Close()
+	admit := func(name string) bool { return name == "totala1.hpi" }
+	if err := fs.MountGameRoots([]vfs.GameRoot{{Dir: base, Archives: admit, NoLoose: true}, {Dir: mod}}); err != nil {
+		t.Fatal(err)
+	}
+	if data, err := fs.ReadFile("units/base.fbi"); err != nil || string(data) != "base" {
+		t.Fatalf("named archive = %q, %v", data, err)
+	}
+	for _, left := range []string{"units/extra.fbi", "units/loose.fbi"} {
+		if _, err := fs.Stat(left); err == nil {
+			t.Fatalf("%s is mounted", left)
+		}
+	}
+	if data, err := fs.ReadFile("shared.txt"); err != nil || string(data) != "mod" {
+		t.Fatalf("later root winner = %q, %v", data, err)
+	}
+	whole := vfs.New()
+	defer whole.Close()
+	if err := whole.MountGameDirectories([]string{base, mod}); err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{"units/base.fbi", "shared.txt"} {
+		a, b := fs.Sources(path), whole.Sources(path)
+		if len(a) == 0 || len(b) == 0 || a[0].Source.Priority != b[0].Source.Priority {
+			t.Fatalf("%s: filtered winner %+v, whole %+v", path, a, b)
+		}
+	}
+}
+
+// An extra archive mounts as if it sat in the root: in its tier's lexical
+// order by file name, replacing a same-named archive of the folder
+// (docs/DESIGN_MODS_MUTATORS.md §5.7).
+func TestGameRootExtraArchivesJoinTheFoldersTier(t *testing.T) {
+	base, library := t.TempDir(), t.TempDir()
+	write := func(root, name, data string) {
+		t.Helper()
+		var buf bytes.Buffer
+		if err := vfs.WriteArchive(&buf, []vfs.ArchiveFile{{Path: "shared.txt", Data: []byte(data)}, {Path: name + ".txt", Data: []byte(data)}}, vfs.ArchiveWriteOptions{}); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(root, name), buf.Bytes(), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write(base, "totala1.hpi", "base")
+	write(base, "Alpha.ufo", "alpha")
+	write(base, "Zulu.ufo", "zulu")
+	write(base, "Mike.ufo", "folder mike")
+	write(library, "MIKE.ufo", "library mike")
+	write(library, "Bravo.ufo", "bravo")
+	fs := vfs.New()
+	defer fs.Close()
+	extra := []string{filepath.Join(library, "MIKE.ufo"), filepath.Join(library, "Bravo.ufo")}
+	if err := fs.MountGameRoots([]vfs.GameRoot{{Dir: base, Archives: func(name string) bool { return name != "Bravo.ufo" }, Extra: extra}}); err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, source := range fs.Sources("shared.txt") {
+		got = append(got, source.Source.SourcePath)
+	}
+	want := []string{filepath.Join(base, "Zulu.ufo"), filepath.Join(library, "MIKE.ufo"), filepath.Join(library, "Bravo.ufo"), filepath.Join(base, "Alpha.ufo"), filepath.Join(base, "totala1.hpi")}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("sources = %v, want %v", got, want)
+	}
+	if _, err := fs.Stat("Bravo.ufo.txt"); err != nil {
+		t.Fatal("the root's archive filter left out an extra archive")
+	}
+}

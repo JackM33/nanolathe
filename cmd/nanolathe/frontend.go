@@ -183,6 +183,10 @@ type gameShell struct {
 	// (docs/DESIGN_MODS_MUTATORS.md §4.3, §6).
 	modSetting     settings.ModSelection
 	mutatorSetting map[string]string
+	// addonSetting is the saved add-on selection, written back unchanged
+	// unless a screen or an online join applies another, so --addon never
+	// overwrites it (docs/DESIGN_MODS_MUTATORS.md §5.7).
+	addonSetting []settings.AddonSelection
 	// restrictions is the running content's saved unit-restriction setting
 	// and what that content makes of it (mods.go,
 	// docs/DESIGN_MODS_MUTATORS.md §15.9). Like mutatorSetting it is

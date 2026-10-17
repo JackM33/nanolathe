@@ -5118,8 +5118,8 @@ Card portraits and mutator examples follow the same content selection. When a
 capability is absent, the preview uses a compatible demonstration and explains
 the limitation. This is settings presentation policy, user-authorized 2026-09-30.
 
-**Game, Graphics and Effects pages.** Game holds content, rules, unit limit,
-radar dots and the Sidebar card's Build items and Orders below build preferences.
+**Game, Graphics and Effects pages.** Game holds content, add-ons, rules, unit
+limit, radar dots and the Sidebar card's Build items and Orders below build preferences.
 Graphics holds the renderer, frame rate, game resolution and fullscreen.
 Renderer, resolution and fullscreen work with both renderers; frame rate and
 the adaptive sidebar require Enhanced. The Sidebar card's placement does not
@@ -5208,6 +5208,34 @@ included, never changes it. `TestNLRestrictionCardSummary`,
 `TestUnitViewerRestrictCardRouteEditsScreenDraft` and
 `TestNLPresetsExcludeRestrictions` lock these; `--nl-shot-only restrictions`
 with `--restrict` entries captures the card.
+
+**Add-ons card.** The Game page's second card lists the official add-ons
+([DESIGN_MODS_MUTATORS §5.7](DESIGN_MODS_MUTATORS.md#57-official-add-ons)):
+one row per add-on the add-on library holds or the add-on catalogue offers,
+with its lamp, name and version and, at the right, its throw switch; *Get*
+while it is not installed, with the download's size beside the version, and
+the download's progress while it runs; or *Already in your install*, with no
+switch, when the base install's folder holds its archives byte for byte. A
+row whose archives are at hand, installed or in the folder, names the units
+they define and shows their build pictures, read from those archives, so
+they show before the add-on is mounted; another row shows the catalogue's
+summary. The card asks the live catalogue only when an opening of the screen
+first shows it ([DESIGN_MODS_MUTATORS §5.2](DESIGN_MODS_MUTATORS.md#52-when-the-client-talks-to-the-network));
+meanwhile, and when it cannot be reached, the library and the cached
+catalogue stand, and with neither a plain line says the add-on catalogue is
+unavailable. The switches edit the draft and Apply's count includes them.
+*Get* runs the process's one add-on download and, once it installs,
+switches its add-on on in the draft, also when the screen was closed and
+opened again meanwhile; Apply then mounts it. A drafted mod whose config
+leaves add-ons off is named in the card's note, and the switches stay, kept
+for other content. No controls profile, preset or mod recommendation carries
+the selection, so the card has no source marker; the arrows and the wheel
+step nothing; a command-line asset stack disables it, as it disables
+content. The card's portrait prefers a bonus unit, and the content roster
+stands in another Kbot when none is mounted.
+`TestNLScreenAddonGetSwitchesOnForApply` and `TestNLScreenAddonSwitchPointer`
+lock the catalogue timing, the Get, the draft and the reload request;
+`--nl-shot-only addons` captures the card.
 
 **Preview and menu audio.** Retail menu sound must match retail exactly:
 authored per-screen cue selection and aliases [07 R-FE-01 §2], ordinary cue
@@ -5344,7 +5372,10 @@ controls (unless a profile was chosen here), exactly as the Mods & Mutators
 screen makes it, except that the screen stays open: a loading plate covers
 it while the content switches, and the draft is then applied to the new
 shell and saved, so the changes made in the same Apply belong to the new
-content. Otherwise the settings are saved at once. The rule-lock override is
+content. A changed add-on selection is such a reload too, carrying the
+selection to mount and save, under the drafted mod or, when only the add-ons
+changed, the running one, whose saved choice it keeps. Otherwise the
+settings are saved at once. The rule-lock override is
 [DESIGN_MODS_MUTATORS §4.3](DESIGN_MODS_MUTATORS.md#43-selection-and-precedence)
 "Overriding a rule lock".
 

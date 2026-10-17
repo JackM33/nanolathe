@@ -9,6 +9,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 	"sync"
@@ -17,6 +18,7 @@ import (
 	"github.com/nanolathe-gg/nanolathe/internal/client"
 	"github.com/nanolathe-gg/nanolathe/internal/content"
 	"github.com/nanolathe-gg/nanolathe/internal/lockstep"
+	"github.com/nanolathe-gg/nanolathe/internal/modfetch"
 	"github.com/nanolathe-gg/nanolathe/internal/netproto"
 	"github.com/nanolathe-gg/nanolathe/internal/platform/ebitenapp"
 	"github.com/nanolathe-gg/nanolathe/internal/relay"
@@ -128,7 +130,16 @@ type onlineJobResult struct {
 	cat     *content.Catalog
 	base    session.EffectiveMatchConfig
 	address string
-	err     error
+	// archives are this install's base archives, hashed on the job's
+	// goroutine for the room content (§16.8), and known the official
+	// add-ons it can name.
+	archives []localArchive
+	known    []knownAddon
+	// modEntry is the catalogue's copy of the described room's mod, which
+	// the join downloads (Q14); refusal is a plain-words reason to stop.
+	modEntry *modfetch.Entry
+	refusal  string
+	err      error
 }
 
 func (s *onlineScreen) run(work func(context.Context) onlineJobResult) {
@@ -232,15 +243,32 @@ func (g *gameShell) startOnlineCreate() {
 	cs, mutators, restrictions := g.cs, g.opts.Mutators, g.opts.Restrictions
 	s.phase, s.status = onlineConnecting, "Opening a room on "+g.onlineServerLabel()+"..."
 	s.run(func(ctx context.Context) onlineJobResult {
+		archives, err := baseArchives(cs)
+		if err != nil {
+			return onlineJobResult{err: err}
+		}
+		known := onlineKnownAddons(ctx, func(known []knownAddon) bool { return hostNeedsAddonCatalogue(archives, known) })
+		roomContent, err := onlineRoomContent(cs, archives, known, settings.mapName)
+		if err != nil {
+			return onlineJobResult{err: err}
+		}
+		// The lobby's catalog is the host's whole content, every map it can
+		// choose included. Field 12's definition IDs index the room's own
+		// catalog, the one every seat's battle compiles; a map package adds
+		// no unit, so a later map leaves them valid.
 		cat, err := cs.compileCatalog(nil)
 		if err != nil {
 			return onlineJobResult{err: err}
 		}
-		records, err := onlineMatchRestrictions(restrictions, cat)
+		roomCat, err := roomCatalog(cs, archives, known, roomContent)
 		if err != nil {
 			return onlineJobResult{err: err}
 		}
-		base, err := onlineBaseConfig(cs, cat, settings, onlineCreationFrozen(cs, [2]uint32{sim, crt}, mutators, restrictions, records))
+		records, err := onlineMatchRestrictions(restrictions, roomCat)
+		if err != nil {
+			return onlineJobResult{err: err}
+		}
+		base, err := onlineBaseConfig(cs, cat, settings, onlineCreationFrozen(cs, [2]uint32{sim, crt}, mutators, restrictions, records, roomContent))
 		if err != nil {
 			return onlineJobResult{err: err}
 		}
@@ -254,7 +282,7 @@ func (g *gameShell) startOnlineCreate() {
 		if err != nil {
 			return onlineJobResult{err: err}
 		}
-		return onlineJobResult{lobby: lobby, cat: cat, base: base, address: address}
+		return onlineJobResult{lobby: lobby, cat: cat, base: base, address: address, archives: archives, known: known}
 	})
 	g.refreshOnlinePanel()
 }
@@ -326,7 +354,11 @@ func (g *gameShell) adoptOnlineRoom(room onlineRoom, remounted bool) {
 			g.onlineIdleStatus("This game's mod " + onlineModName(want) + " could not be selected.")
 			return
 		}
-		selector, refusal := g.onlineModPlan(want)
+		selector, refusal, fetch := g.onlineModPlan(want)
+		if fetch {
+			g.startOnlineModFetch(room, want)
+			return
+		}
 		if refusal != "" {
 			g.onlineIdleStatus(refusal)
 			return
@@ -354,41 +386,49 @@ func (g *gameShell) adoptOnlineRoom(room onlineRoom, remounted bool) {
 		if err != nil {
 			return onlineJobResult{err: err}
 		}
+		archives, err := baseArchives(cs)
+		if err != nil {
+			return onlineJobResult{err: err}
+		}
+		// The catalogue is asked only for a listed add-on this seat can
+		// neither mount nor name, which it may have to fetch (§16.8).
+		known := onlineKnownAddons(ctx, func(known []knownAddon) bool { return roomAddonsUnknown(cs, known, base.Request().RoomContent) })
 		dial, cancel := context.WithTimeout(ctx, onlineOpenTimeout)
 		defer cancel()
 		lobby, err := onlineRelayService.Open(dial, room.address, room.code, onlineHello(1, base.Request().RuleName), nil, 0, options)
 		if err != nil {
 			return onlineJobResult{err: err}
 		}
-		return onlineJobResult{lobby: lobby, cat: cat, base: base, address: room.address}
+		return onlineJobResult{lobby: lobby, cat: cat, base: base, address: room.address, archives: archives, known: known}
 	})
 	g.refreshOnlinePanel()
 }
 
-// onlineModPlan is the content reload that mounts want, or why it cannot.
-func (g *gameShell) onlineModPlan(want session.MatchMod) (selector, refusal string) {
+// onlineModPlan is the content reload that mounts want, or why it cannot;
+// fetch asks for the catalogue download of a mod this install lacks (Q14).
+func (g *gameShell) onlineModPlan(want session.MatchMod) (selector, refusal string, fetch bool) {
 	if onlineContentRefusal(g.cs) != nil {
-		return "", onlineRefusalText(onlineContentRefusal(g.cs))
+		return "", onlineRefusalText(onlineContentRefusal(g.cs)), false
 	}
 	name := onlineModName(want)
 	if want.ID == "" {
-		return "none", ""
+		return "none", "", false
 	}
 	lib, err := openModLibrary()
 	if err != nil {
-		return "", "This game needs the mod " + name + ", but the mod library is unavailable."
+		return "", "This game needs the mod " + name + ", but the mod library is unavailable.", false
 	}
 	mod, ok, err := lib.Lookup(want.ID, want.Version)
 	if err != nil || !ok {
-		return "", "This game needs the mod " + name + ", which is not installed. Install it from NANOLATHE, Mods, then join again."
+		return "", "", true
 	}
 	if sameMod(&mod, g.cs.mod) || want.Archive != ([32]byte{}) && matchModOf(&mod).Archive != want.Archive {
-		return "", "This game needs a different copy of " + name + " than the one installed."
+		return "", "This game needs a different copy of " + name + " than the one installed.", false
 	}
 	if missing := unmetModRequirements(g.cs.baseRoots, mod); len(missing) > 0 {
-		return "", "This game needs " + name + ", which needs " + missing[0] + " from the base install."
+		return "", "This game needs " + name + ", which needs " + missing[0] + " from the base install.", false
 	}
-	return modSelectorOf(mod.ID, mod.Version), ""
+	return modSelectorOf(mod.ID, mod.Version), "", false
 }
 
 // resumeOnlineJoin continues a join on the shell a content reload built for
@@ -440,6 +480,7 @@ func (g *gameShell) pollOnline() {
 		}
 	}
 	g.syncOnlineCodeField()
+	g.pollOnlineModFetch()
 	if s = g.online; s != nil && s.phase == onlineInLobby && s.room.lobby != nil {
 		g.pollOnlineLobby()
 	}
@@ -449,10 +490,14 @@ func (g *gameShell) finishOnlineJob(r onlineJobResult) {
 	switch {
 	case r.err != nil:
 		g.onlineFail(r.err)
+	case r.refusal != "":
+		g.onlineIdleStatus(r.refusal)
+	case r.modEntry != nil && r.described != nil:
+		g.beginOnlineModDownload(*r.described, *r.modEntry)
 	case r.described != nil:
 		g.adoptOnlineRoom(*r.described, false)
 	case r.lobby != nil:
-		g.openOnlineLobby(r.lobby, r.cat, r.base, r.address)
+		g.openOnlineLobby(r.lobby, r.cat, r.base, r.address, r.archives, r.known)
 	default:
 		g.onlineIdleStatus("")
 	}
@@ -473,11 +518,37 @@ type onlinePrepared struct {
 	key       onlineRoomKey
 	identity  [32]byte
 	rehearsal [32]byte
+	// parts are the identity's fields, which Ready writes to the log so two
+	// seats' logs show which one differs (§16.8).
+	parts netproto.Identity
+	// roomFS is the room content's overlay the battle was frozen from, nil
+	// when it composed from this seat's own content. The battle takes it at
+	// Start; a battle never entered closes it (close).
+	roomFS io.Closer
+}
+
+// close releases a prepared battle that will not be entered.
+func (p *onlinePrepared) close() {
+	if p != nil && p.roomFS != nil {
+		_ = p.roomFS.Close()
+		p.roomFS = nil
+	}
 }
 
 type onlineReadyJob struct {
 	cancel context.CancelFunc
 	done   chan onlineReadyResult
+}
+
+// abandon stops a Ready check nobody will collect, and releases the battle
+// it prepared if it finishes anyway.
+func (j *onlineReadyJob) abandon() {
+	j.cancel()
+	go func() {
+		if result := <-j.done; result.prepared != nil {
+			result.prepared.close()
+		}
+	}()
 }
 
 type onlineReadyResult struct {
@@ -492,7 +563,7 @@ func (g *gameShell) setOnlineReady(ready bool) {
 	r := &g.online.room
 	if !ready {
 		if r.readyJob != nil {
-			r.readyJob.cancel()
+			r.readyJob.abandon()
 			r.readyJob = nil
 		}
 		if r.ready {
@@ -512,19 +583,20 @@ func (g *gameShell) setOnlineReady(ready bool) {
 		g.reportOnlineReady(p)
 		return
 	}
+	r.prepared.close()
 	r.prepared, r.readyErr, r.notice = nil, nil, ""
 	seats, slot, ok := onlineSeatsOf(r.state, r.lobby.Seat(), r.settings.survival)
 	if !ok {
 		return
 	}
-	key, base, settings, cat, cs, opts := r.key(), r.base, r.settings, r.cat, g.cs, g.opts
+	key, base, settings, cat, cs, opts, plan := r.key(), r.base, r.settings, r.cat, g.cs, g.opts, r.content
 	ctx, cancel := context.WithCancel(context.Background())
 	job := &onlineReadyJob{cancel: cancel, done: make(chan onlineReadyResult, 1)}
 	r.readyJob = job
 	onlineWork.Add(1)
 	go func() {
 		defer onlineWork.Done()
-		job.done <- composeOnlineReady(ctx, cs, cat, opts, base, settings, seats, slot, key)
+		job.done <- composeOnlineReady(ctx, cs, cat, opts, base, settings, seats, slot, key, plan)
 	}()
 	g.refreshOnlineLobby()
 }
@@ -532,31 +604,54 @@ func (g *gameShell) setOnlineReady(ready bool) {
 // composeOnlineReady composes the final configuration — the base plus the
 // present seats as slots with their teams, sides, colours and names, then the
 // base's computers — prepares this seat's battle at its slot and rehearses it
-// (§16.6, §16.7).
-func composeOnlineReady(ctx context.Context, cs *contentSet, cat *content.Catalog, opts Options, base session.EffectiveMatchConfig, settings onlineSettings, seats []session.OnlineSeat, slot uint8, key onlineRoomKey) onlineReadyResult {
-	config, err := onlineConfig(cs, cat, settings, seats, onlineFrozenOf(cs, base.Request()))
-	if err != nil {
+// (§16.6, §16.7). A room that names its content composes the battle's
+// simulation from plan's mount of it (§16.8), which the prepared battle then
+// owns.
+func composeOnlineReady(ctx context.Context, cs *contentSet, cat *content.Catalog, opts Options, base session.EffectiveMatchConfig, settings onlineSettings, seats []session.OnlineSeat, slot uint8, key onlineRoomKey, plan roomContentPlan) onlineReadyResult {
+	frozen := onlineFrozenOf(cs, base.Request())
+	simFS, roomFS := cs.fs, io.Closer(nil)
+	fail := func(err error) onlineReadyResult {
+		if roomFS != nil {
+			_ = roomFS.Close()
+		}
 		return onlineReadyResult{err: err}
 	}
-	sess, inputs, identity, err := composeOnlineMatch(cs, cat, config, slot)
+	if len(base.Request().RoomContent) > 0 {
+		mounted, view, err := roomContentFS(cs, plan)
+		if err != nil {
+			return onlineReadyResult{err: err}
+		}
+		simFS, roomFS = view, mounted
+		// The final configuration and the battle read the room's own
+		// catalog, compiled under the room's limits, so the lobby's catalog
+		// of this seat's whole install never reaches either.
+		if cat, err = content.CompileWithOptions(view, content.Options{Limits: frozen.options.ContentLimits}); err != nil {
+			return fail(err)
+		}
+	}
+	config, err := onlineConfigOn(simFS, cat, settings, seats, frozen)
 	if err != nil {
-		return onlineReadyResult{err: err}
+		return fail(err)
+	}
+	sess, inputs, identity, err := composeOnlineMatchOn(cs, simFS, cat, config, slot)
+	if err != nil {
+		return fail(err)
 	}
 	if err := ctx.Err(); err != nil {
-		return onlineReadyResult{err: err}
+		return fail(err)
 	}
 	rehearsal, err := rehearsalDigest(inputs, config)
 	if err != nil {
-		return onlineReadyResult{err: err}
+		return fail(err)
 	}
 	if err := ctx.Err(); err != nil {
-		return onlineReadyResult{err: err}
+		return fail(err)
 	}
 	// Optional load-time art, prepared here as the loading screen's goroutine
 	// prepares it (DESIGN_GPU_RENDERER §14.4).
 	detail := detailArtFor(opts, cs, sess.World, nil)
 	return onlineReadyResult{prepared: &onlinePrepared{sess: sess, inputs: inputs, config: config, detail: detail, slot: slot, key: key,
-		identity: onlineIdentityDigest(identity), rehearsal: rehearsal}}
+		identity: onlineIdentityDigest(identity), rehearsal: rehearsal, parts: identity, roomFS: roomFS}}
 }
 
 // finishOnlineReady reports Ready once the check passed for the room as it
@@ -571,6 +666,7 @@ func (g *gameShell) finishOnlineReady(result onlineReadyResult) {
 		fmt.Fprintf(os.Stderr, "nanolathe: online ready: %v\n", result.err)
 		r.readyErr = result.err
 	case result.prepared.key != r.key():
+		result.prepared.close()
 		r.notice = "The game changed while it was being checked. Choose Ready again."
 	default:
 		r.prepared = result.prepared
@@ -580,6 +676,11 @@ func (g *gameShell) finishOnlineReady(result onlineReadyResult) {
 
 func (g *gameShell) reportOnlineReady(p *onlinePrepared) {
 	r := &g.online.room
+	// Each seat logs what it reports, so two logs show which part of the
+	// check differs (§16.8).
+	id := p.parts
+	fmt.Fprintf(os.Stderr, "nanolathe: online ready: content=%x map=%x rules=%s/%d/%x mod=%q/%q/%x configuration=%x identity=%x rehearsal=%x\n",
+		id.Content, id.Map, id.Rules.Name, id.Rules.Base, id.Rules.Community, id.Mod.ID, id.Mod.Version, id.Mod.Archive, id.Configuration, p.identity, p.rehearsal)
 	if err := r.lobby.SetReady(true, p.identity, p.rehearsal); err != nil {
 		g.leaveOnlineLobby(onlineRefusalText(err))
 		return
@@ -662,7 +763,8 @@ func (g *gameShell) enterOnlineBattle(p *onlinePrepared, conn lockstep.Client, c
 	g.importedRetailBattle, g.lastBattleSurvival = false, false
 	g.pendingDetail = p.detail
 	g.commitBattleCandidate(battle)
-	battle.multiplayer = &battleMultiplayer{driver: driver, completed: driver.Completed, net: stats, openingReady: openingReady}
+	battle.multiplayer = &battleMultiplayer{driver: driver, completed: driver.Completed, net: stats, openingReady: openingReady, roomContent: p.roomFS}
+	p.roomFS = nil
 	battle.returnToMenu = g.returnFromOnlineBattle
 	battle.returnToSkirmish = g.returnFromOnlineBattle
 	if clPtr != nil {

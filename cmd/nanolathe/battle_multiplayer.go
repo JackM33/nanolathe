@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
 	"net/netip"
 	"os"
 	"strings"
@@ -43,6 +44,10 @@ type battleMultiplayer struct {
 	// chat is the hosted connection's chat and the seat map it is addressed
 	// by (battle_online_chat.go). It never touches the stream.
 	chat onlineChat
+	// roomContent is the room content's overlay the battle was frozen from
+	// (DESIGN_MULTIPLAYER §16.8), closed with the battle; nil when it
+	// composed from the seat's own content.
+	roomContent io.Closer
 }
 
 func (o Options) localMultiplayer() bool    { return o.LocalMPListen != "" || o.LocalMPJoin != "" }
@@ -226,6 +231,10 @@ func (m *battleMultiplayer) close() {
 	if m.relay != nil {
 		_ = m.relay.Close()
 		m.relay = nil
+	}
+	if m.roomContent != nil {
+		_ = m.roomContent.Close()
+		m.roomContent = nil
 	}
 }
 

@@ -4,7 +4,6 @@
 package maplibrary
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -53,20 +52,31 @@ type Skipped struct {
 //
 // A package that fails its mount-time audit is returned in skipped rather than
 // failing the mount: one damaged package must not stop the game from starting.
-// File-manager clutter inside a package is ignored here (osClutter); install
+// File-manager clutter inside a package is ignored here (modlibrary.OSClutter); install
 // validation of a hash-pinned archive stays strict. The error reports only a
 // library that cannot be read.
 func Roots(root string) (roots []string, skipped []Skipped, err error) {
+	dependencies, maps, skipped, err := scanRoots(root)
+	return append(dependencies, maps...), skipped, err
+}
+
+// DependencyRoots are the installed packages Roots mounts that hold no map:
+// the shared feature packages maps depend on, in mount order.
+func DependencyRoots(root string) ([]string, error) {
+	dependencies, _, _, err := scanRoots(root)
+	return dependencies, err
+}
+
+func scanRoots(root string) (dependencies, maps []string, skipped []Skipped, err error) {
 	if _, err := os.Stat(root); errors.Is(err, fs.ErrNotExist) {
-		return nil, nil, nil
+		return nil, nil, nil, nil
 	} else if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	installed, err := (&modlibrary.Library{Root: root}).Installed()
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
-	var dependencies, maps []string
 	for _, item := range installed {
 		if err := identityOnly(item.Dir, item.Metadata); err != nil {
 			skipped = append(skipped, Skipped{Dir: item.Dir, Err: err})
@@ -84,7 +94,7 @@ func Roots(root string) (roots []string, skipped []Skipped, err error) {
 			maps = append(maps, item.Dir)
 		}
 	}
-	return append(dependencies, maps...), skipped, nil
+	return dependencies, maps, skipped, nil
 }
 
 // SelectRoots keeps the map roots that validate against the current base and
@@ -295,26 +305,12 @@ func Validator(baseRoots []string, mapPath string) func(string, modlibrary.Metad
 }
 
 func identityOnly(root string, meta modlibrary.Metadata) error {
-	fail := func() error {
-		return diagnostic("map package contains configuration", modlibrary.MetadataFile, []string{root}, "identity-only schema 1 metadata")
-	}
-	if meta.Schema != 1 || meta.Config != nil {
-		return fail()
-	}
-	raw, err := os.ReadFile(filepath.Join(root, modlibrary.MetadataFile))
+	ok, err := modlibrary.IdentityOnly(root, meta)
 	if err != nil {
 		return err
 	}
-	var fields map[string]json.RawMessage
-	if err := json.Unmarshal(raw, &fields); err != nil {
-		return err
-	}
-	for key := range fields {
-		switch key {
-		case "schema", "id", "name", "version", "summary", "homepage":
-		default:
-			return fail()
-		}
+	if !ok {
+		return diagnostic("map package contains configuration", modlibrary.MetadataFile, []string{root}, "identity-only schema 1 metadata")
 	}
 	return nil
 }
@@ -354,35 +350,10 @@ func allowedContent(name string) bool {
 	return false
 }
 
-func rootDocument(name string) bool {
-	if strings.Contains(name, "/") {
-		return false
-	}
-	name = strings.ToLower(name)
-	return path.Ext(name) == ".txt" || path.Ext(name) == ".md" || path.Ext(name) == ".rtf" || path.Ext(name) == ".html" || name == "readme" || name == "license" || name == "copying"
-}
-
-// osClutter reports file-manager and archiver litter that a host can leave in
-// an installed package after Nanolathe wrote it: Finder's .DS_Store and
-// AppleDouble "._" companions, Explorer's Thumbs.db and desktop.ini, and
-// anything under a __MACOSX folder. It is a host policy for the mount-time
-// audit only (docs/DESIGN_CONTENT_VFS.md "Downloaded community maps").
-func osClutter(rel string) bool {
-	parts := strings.Split(rel, "/")
-	for _, part := range parts[:len(parts)-1] {
-		if strings.EqualFold(part, "__MACOSX") {
-			return true
-		}
-	}
-	base := parts[len(parts)-1]
-	return strings.HasPrefix(base, "._") || strings.EqualFold(base, ".DS_Store") ||
-		strings.EqualFold(base, "Thumbs.db") || strings.EqualFold(base, "desktop.ini")
-}
-
 // inspect audits every archive entry, including shadowed entries, as well as
 // loose files. Each container is opened explicitly: ordinary VFS discovery may
 // skip a rejected archive, which is unsuitable for accepting a hosted package.
-// tolerateClutter is the mount-time audit of an installed package: osClutter
+// tolerateClutter is the mount-time audit of an installed package: modlibrary.OSClutter
 // files are neither refused nor treated as maps. Installation passes false.
 func inspect(root string, tolerateClutter bool) (*vfs.FS, []string, error) {
 	mounted := vfs.New()
@@ -405,7 +376,7 @@ func inspect(root string, tolerateClutter bool) (*vfs.FS, []string, error) {
 		if entry.IsDir() {
 			return nil
 		}
-		if tolerateClutter && osClutter(rel) {
+		if tolerateClutter && modlibrary.OSClutter(rel) {
 			return nil
 		}
 		if !entry.Type().IsRegular() {
@@ -424,7 +395,7 @@ func inspect(root string, tolerateClutter bool) (*vfs.FS, []string, error) {
 			}
 			return nil
 		}
-		if rel == modlibrary.MetadataFile || rel == modlibrary.ReceiptFile || rootDocument(rel) || allowedContent(rel) {
+		if rel == modlibrary.MetadataFile || rel == modlibrary.ReceiptFile || modlibrary.RootDocument(rel) || allowedContent(rel) {
 			return nil
 		}
 		return diagnostic("map package contains non-map content", rel, []string{root}, "only map assets, support assets and root documentation")
@@ -438,7 +409,7 @@ func inspect(root string, tolerateClutter bool) (*vfs.FS, []string, error) {
 	var paths []string
 	seen := make(map[string]bool)
 	for _, entry := range mounted.Entries() {
-		if entry.IsDir || !strings.HasPrefix(entry.Path, "maps/") || seen[entry.Path] || (tolerateClutter && osClutter(entry.Path)) {
+		if entry.IsDir || !strings.HasPrefix(entry.Path, "maps/") || seen[entry.Path] || (tolerateClutter && modlibrary.OSClutter(entry.Path)) {
 			continue
 		}
 		seen[entry.Path] = true

@@ -7,11 +7,13 @@ package main
 // unit limit (§15.5 for the restrictions).
 
 import (
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"os"
 	"strings"
 
+	"github.com/nanolathe-gg/nanolathe/internal/addonlibrary"
 	"github.com/nanolathe-gg/nanolathe/internal/community"
 	"github.com/nanolathe-gg/nanolathe/internal/content"
 	"github.com/nanolathe-gg/nanolathe/internal/gameplay"
@@ -73,6 +75,9 @@ func (g *gameShell) saveSidecar() save.Sidecar {
 		case g.cs.mod != nil:
 			out.Mod.Mod = &save.SidecarMod{ID: g.cs.mod.ID, Version: g.cs.mod.Version, SHA256: g.cs.mod.Receipt.SHA256}
 		}
+		for _, a := range g.cs.addons {
+			out.Addons = append(out.Addons, save.SidecarAddon{ID: a.ID, Version: a.Version, SHA256: fmt.Sprintf("%x", addonlibrary.Digest(a.Archives))})
+		}
 	}
 	return out
 }
@@ -103,6 +108,41 @@ type sidecarModPlan struct {
 	// when the running content already matches.
 	switchTo  string
 	selection settings.ModSelection
+	// addons, when set, is the add-on selection to reload with, because the
+	// running content mounts other add-ons than the save recorded (§5.7).
+	addons *[]settings.AddonSelection
+}
+
+// planSidecarAddons is what a sidecar's `addons` asks of the running
+// content (§5.7): nothing when it mounts exactly the recorded add-ons;
+// otherwise the selection to reload with, each recorded add-on from the
+// library unless the base folder holds it; and a refusal naming a recorded
+// add-on this install has nowhere.
+func (g *gameShell) planSidecarAddons(sc save.Sidecar) (*[]settings.AddonSelection, error) {
+	if g.cs == nil {
+		return nil, nil
+	}
+	want := make([]addonIdentity, 0, len(sc.Addons))
+	for _, a := range sc.Addons {
+		var digest [32]byte
+		if b, err := hex.DecodeString(a.SHA256); err == nil && len(b) == len(digest) {
+			copy(digest[:], b)
+		}
+		want = append(want, addonIdentity{a.ID, a.Version, digest})
+	}
+	known := libraryAddonsOf()
+	if addonsSatisfied(g.cs, want, known) {
+		return nil, nil
+	}
+	if g.cs.manualRoots {
+		// A reload would mount the base install alone and lose the stack.
+		return nil, refuseLoad("This game was saved with other official add-ons. Start Nanolathe with --addon naming them to load it with these --root flags")
+	}
+	selection, missing := addonSelectionFor(g.cs, want, known)
+	if missing != nil {
+		return nil, refuseLoad("This game needs the official add-on %s %s. Get it from Add-ons on the Nanolathe screen, then load the game again", missing.id, missing.version)
+	}
+	return &selection, nil
 }
 
 func (g *gameShell) planSidecarMod(sc save.Sidecar) (sidecarModPlan, error) {
@@ -270,6 +310,9 @@ func (g *gameShell) switchModForLoad(path string, plan sidecarModPlan, sel sidec
 		if plan.selection.ID != "" {
 			name = plan.selection.ID + " " + plan.selection.Version
 		}
+		if plan.addons != nil && plan.switchTo == g.cs.modSelector() {
+			name = "other official add-ons"
+		}
 		return refuseLoad("This game was saved with %s. Start Nanolathe without --map to load it", name)
 	}
 	pendingContentReload = &contentReloadRequest{
@@ -278,6 +321,7 @@ func (g *gameShell) switchModForLoad(path string, plan sidecarModPlan, sel sidec
 		mutators: sel.mutators,
 		gameplay: sel.gameplay,
 		loadSave: path,
+		addons:   plan.addons,
 	}
 	return nil
 }
@@ -333,6 +377,13 @@ func saveSidecarLine(bankPath string) string {
 		}
 	}
 	line := name
+	switch len(sc.Addons) {
+	case 0:
+	case 1:
+		line += " + 1 add-on"
+	default:
+		line += fmt.Sprintf(" + %d add-ons", len(sc.Addons))
+	}
 	if m, err := content.ParseMutators(sc.Mutators); err == nil && !m.IsZero() {
 		line += " - " + mutatorSummary(m)
 	}

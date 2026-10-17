@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"path"
 	"strings"
 	"unicode/utf8"
 
@@ -157,6 +158,33 @@ type MatchUnitRestriction struct {
 	Limit        uint8
 }
 
+// MatchContentKind is a field-16 entry's kind (§8.6, §16.8).
+type MatchContentKind uint8
+
+const (
+	// MatchContentBaseArchive is a retail-format archive in the base
+	// install's folder, named by its file name.
+	MatchContentBaseArchive MatchContentKind = 1
+	// MatchContentAddon is an official add-on, named by its catalogue id
+	// (DESIGN_MODS_MUTATORS §5.7).
+	MatchContentAddon MatchContentKind = 2
+	// MatchContentMapPackage is a downloaded map package, named by its
+	// catalogue id (DESIGN_MODS_MUTATORS §5.6).
+	MatchContentMapPackage MatchContentKind = 3
+)
+
+// MatchContentEntry is one entry of field 16, the room content: what one
+// seat must mount for the battle. A base archive carries its file name, no
+// version, and the file's size and SHA-256; an add-on or map package its
+// catalogue id and version and its archive's size and SHA-256.
+type MatchContentEntry struct {
+	Kind    MatchContentKind
+	Name    string
+	Version string
+	Size    uint64
+	Digest  [32]byte
+}
+
 // MatchView is one view record of field 14, in the camera's 1/1024 zoom
 // units. The native no-zoom-out preset is a minimum of 1024 without the full
 // map.
@@ -236,6 +264,11 @@ type MatchConfigRequest struct {
 	ReplayView    MatchView
 
 	Policies MatchPolicies // 15
+
+	// RoomContent is field 16 in canonical order (§16.8). Empty means the
+	// battle composes from the seat's own mounted content, as a
+	// single-player recording or a command-line play test does.
+	RoomContent []MatchContentEntry // 16
 }
 
 // EffectiveMatchConfig is a resolved, validated and frozen configuration.
@@ -247,7 +280,7 @@ type EffectiveMatchConfig struct {
 	encoding []byte
 }
 
-// Protocol limits of configuration version 1 (§8.6). They are admission
+// Protocol limits of configuration version 2 (§8.6). They are admission
 // bounds, not retail claims.
 const (
 	matchConfigMaxBytes      = 2 << 20
@@ -270,6 +303,9 @@ const (
 	matchViewMinScale        = 64
 	matchViewMaxScale        = 2048
 	matchKeyMaxBytes         = 255
+	matchMaxRoomContent      = 128
+	matchContentNameMaxBytes = 255
+	matchContentVersionBytes = 64
 )
 
 // matchMutatorSteps is field 11's step table: index i is the factor the
@@ -362,6 +398,9 @@ func ResolveMatchConfig(r MatchConfigRequest) (EffectiveMatchConfig, error) {
 	if len(c.UnitRestrictions) == 0 {
 		c.UnitRestrictions = nil
 	}
+	if len(c.RoomContent) == 0 {
+		c.RoomContent = nil
+	}
 	encoding, err := encodeMatchRequest(&c)
 	if err != nil {
 		return EffectiveMatchConfig{}, err
@@ -393,6 +432,9 @@ func (r MatchConfigRequest) clone() MatchConfigRequest {
 	}
 	if r.UnitRestrictions != nil {
 		out.UnitRestrictions = append([]MatchUnitRestriction{}, r.UnitRestrictions...)
+	}
+	if r.RoomContent != nil {
+		out.RoomContent = append([]MatchContentEntry{}, r.RoomContent...)
 	}
 	return out
 }
@@ -499,7 +541,65 @@ func (r *MatchConfigRequest) validate() (RuleSet, error) {
 	if p.Revision != MatchPolicyRevision || p.Scheduling != MatchPolicyScheduling || p.Pacing != MatchPolicyPacing || p.Drop != MatchPolicyDrop || p.Audience != MatchPolicyAudience {
 		return RuleSet{}, matchFieldError("policies", "revision 1 with scheduling, pacing, drop and audience policy 1")
 	}
+	// 16. Room content.
+	if err := r.validateRoomContent(); err != nil {
+		return RuleSet{}, err
+	}
 	return set, nil
+}
+
+// validateRoomContent checks field 16's schema: at most 128 entries of a
+// known kind in ascending kind order and, within a kind, strictly ascending
+// names compared without regard to case, so a name appears once per kind. A
+// base archive is a plain archive file name with no version; an add-on or
+// map package names a version. Whether a seat can mount each one is the
+// seat's own question at join (§16.8).
+func (r *MatchConfigRequest) validateRoomContent() error {
+	if len(r.RoomContent) > matchMaxRoomContent {
+		return matchFieldError("roomContent", fmt.Sprintf("at most %d entries", matchMaxRoomContent))
+	}
+	for i, e := range r.RoomContent {
+		at := fmt.Sprintf("roomContent[%d]", i)
+		if e.Kind < MatchContentBaseArchive || e.Kind > MatchContentMapPackage {
+			return matchFieldError(at+".kind", "1 base archive, 2 official add-on or 3 map package")
+		}
+		if err := validateMatchText(at+".name", e.Name, matchContentNameMaxBytes); err != nil {
+			return err
+		}
+		if err := validateMatchText(at+".version", e.Version, matchContentVersionBytes); err != nil {
+			return err
+		}
+		if e.Name == "" || strings.TrimSpace(e.Name) != e.Name {
+			return matchFieldError(at+".name", "a nonempty name without surrounding space")
+		}
+		if e.Kind == MatchContentBaseArchive {
+			if strings.ContainsAny(e.Name, "/\\:") || e.Name == "." || e.Name == ".." || !matchArchiveName(e.Name) {
+				return matchFieldError(at+".name", "an archive's file name: an HPI, UFO, CCX or patch-tier GP3, GP4, GPF or SWX")
+			}
+			if e.Version != "" {
+				return matchFieldError(at+".version", "empty for a base archive")
+			}
+		} else if e.Version == "" {
+			return matchFieldError(at+".version", "the catalogue version of an add-on or map package")
+		}
+		if i > 0 {
+			prev := r.RoomContent[i-1]
+			if prev.Kind > e.Kind || prev.Kind == e.Kind && strings.ToLower(prev.Name) >= strings.ToLower(e.Name) {
+				return matchFieldError(at, "entries in ascending kind order and, within a kind, strictly ascending names compared without regard to case")
+			}
+		}
+	}
+	return nil
+}
+
+// matchArchiveName reports a file name the base install's mount discovers
+// as an archive (vfs.IsArchiveName).
+func matchArchiveName(name string) bool {
+	switch strings.ToLower(path.Ext(name)) {
+	case ".hpi", ".ufo", ".ccx", ".gp3", ".gp4", ".gpf", ".swx":
+		return true
+	}
+	return false
 }
 
 // validateSeats checks field 4 and every row.

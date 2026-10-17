@@ -93,11 +93,24 @@ type replayLoadResult struct {
 	err      error
 }
 
+// abandon drops a Watch still composing: its goroutine finishes, and the
+// playback it composed, with any room content it mounted, is released.
+func (j *replayLoad) abandon() {
+	go func() {
+		if res := <-j.done; res.playback != nil {
+			res.playback.release()
+		}
+	}()
+}
+
 // replayWatchResume is a Watch waiting on the content reload that mounts its
 // replay's mod; the shell the reload builds resumes it (pollReplays).
 type replayWatchResume struct {
 	path string
 	mod  session.MatchMod
+	// addons are the official add-ons a single-player replay recorded,
+	// which the switch mounts (DESIGN_MODS_MUTATORS §5.7).
+	addons []addonIdentity
 }
 
 var pendingReplayWatch *replayWatchResume
@@ -259,11 +272,15 @@ func (g *gameShell) openReplaysScreen() error {
 }
 
 // closeReplaysScreen leaves the screen. A Watch still composing is
-// abandoned; its goroutine finishes and its playback is dropped.
+// abandoned; its goroutine finishes and its playback is released.
 func (g *gameShell) closeReplaysScreen() {
 	s := g.replays
 	if s == nil {
 		return
+	}
+	if s.load != nil {
+		s.load.abandon()
+		s.load = nil
 	}
 	if g.frontend != nil {
 		if s.confirm != nil && g.frontend.Panels.Modal() == s.confirm {
@@ -509,6 +526,10 @@ func replayFileProblem(err error) string {
 
 // replayOpenProblem says in plain words why a replay did not compose.
 func replayOpenProblem(err error) string {
+	var missing *roomContentMissingError
+	if errors.As(err, &missing) {
+		return "it needs " + joinNames(roomContentNames(missing.missing)) + ", which you don't have."
+	}
 	switch {
 	case errors.Is(err, session.ErrMatchMapMismatch):
 		return "your copy of the map differs from the recording's."
@@ -582,6 +603,7 @@ func (g *gameShell) activateReplaysGadget(name string) bool {
 		g.playMenuCue(cuePreviousScreen)
 		if s.load != nil {
 			// Cancel stops a Watch still composing; otherwise it leaves.
+			s.load.abandon()
 			s.load, s.status = nil, ""
 			g.refreshReplaysPanel()
 			return true
@@ -614,8 +636,31 @@ func (g *gameShell) watchSelectedReplay() {
 		fail("Cannot play: this version cannot read its settings.")
 		return
 	}
-	if want != matchModOf(g.cs.mod) {
-		selector, name, refusal := g.replayModPlan(want)
+	// A single-player replay plays with the add-ons its battle mounted; an
+	// online one's room names its own content (§16.8).
+	var addons *[]settings.AddonSelection
+	var recorded []addonIdentity
+	if !l.Header.Kind.Online() {
+		recorded = replayAddonIdentities(l.Header.Addons)
+		known := libraryAddonsOf()
+		if !addonsSatisfied(g.cs, recorded, known) {
+			if onlineContentRefusal(g.cs) != nil {
+				fail("Recorded with other official add-ons. Start without extra --root or --mod-config content to watch it.")
+				return
+			}
+			selection, missing := addonSelectionFor(g.cs, recorded, known)
+			if missing != nil {
+				fail("Cannot play: recorded with the official add-on " + modSelectorOf(missing.id, missing.version) + ", which is not installed. Get it from Add-ons on the Nanolathe screen.")
+				return
+			}
+			addons = &selection
+		}
+	}
+	if want != matchModOf(g.cs.mod) || addons != nil {
+		selector, name, refusal := g.cs.modSelector(), "the recorded add-ons", ""
+		if want != matchModOf(g.cs.mod) {
+			selector, name, refusal = g.replayModPlan(want)
+		}
 		if refusal != "" {
 			fail(refusal)
 			return
@@ -626,8 +671,9 @@ func (g *gameShell) watchSelectedReplay() {
 			selector: selector,
 			mod:      settings.ModSelection{ID: want.ID, Version: want.Version},
 			mutators: g.opts.Mutators,
+			addons:   addons,
 		}
-		pendingReplayWatch = &replayWatchResume{path: l.Path, mod: want}
+		pendingReplayWatch = &replayWatchResume{path: l.Path, mod: want, addons: recorded}
 		return
 	}
 	if !g.hasSkirmishMap(l.Map()) {
@@ -698,6 +744,11 @@ func (g *gameShell) resumeReplayWatch(r replayWatchResume) {
 		if g.cs.modNotice != "" {
 			s.status = g.cs.modNotice
 		}
+		g.refreshReplaysPanel()
+		return
+	}
+	if !addonsSatisfied(g.cs, r.addons, libraryAddonsOf()) {
+		s.status = "The replay's official add-ons could not be loaded."
 		g.refreshReplaysPanel()
 		return
 	}

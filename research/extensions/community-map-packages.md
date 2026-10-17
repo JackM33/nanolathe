@@ -380,3 +380,37 @@ twenty packages and previews retain their original size and hash identities.
 | [micro-ta-machines](https://www.ta-archive.com/downloads/maps/Micro-TA-Machines_%28r2010%29.zip) | `maps/micro-ta-machines.ota` | 2128936 | 6663729 | `b64eb63bb694d509357150e66afbb20929e9bac83b494a35ec05106bb53d56bc` |
 | [crooked-creek](https://www.ta-archive.com/downloads/maps/incoming/Crooked_Creek_%28moddb%29.zip) | `maps/crooked creek.ota` | 10616253 | 28272391 | `350fe0ac01336e9ba7e0128e4075690fb5882d65b23566a57d84875d670ca090` |
 | [thin-air](https://www.ta-archive.com/downloads/maps/greybeard_Thin_Air.zip) | `maps/thin air.ota` | 7529922 | 21122330 | `375f11632e442420162aea027377376a8ddf1d750dc539bd74a74357e0028cb5` |
+
+## Cavedog bonus maps — October 16, 2026
+
+The maintainer approved hosting the bonus content that installs carry beside
+the base game (DESIGN_MODS_MUTATORS §5.7, D20). Four of those archives hold
+only a map pair each, so they join this catalogue as ordinary map packages
+rather than as an official add-on.
+
+**Established — source identity.** Each package expands one `*.UFO` archive
+of the reference install; every file in it is under `maps/`, and the package
+holds those OTA/TNT bytes unchanged, paths in lower case. Comet Catcher's OTA
+names its mission "Shew Drop"; the catalogue uses the file's name, which the
+map chooser lists.
+
+**Unknown — authorship and release.** Whether Cavedog published these four
+as downloads, and when, is not established; "PC Games'" in one name suggests
+a magazine release. A mirror of Cavedog's download pages would settle it.
+
+**Established — bounded engine acceptance.** All four ZIPs install through
+`maplibrary.InstallValidator` against an install holding every reference
+archive except the four sources. Comet Catcher is refused there with
+`ErrMapInInstall`, because The Core Contingency's `ccmaps.ccx` already
+supplies `maps/comet catcher.ota`; it installs only for an install without
+that expansion. Each is refused the same way against the reference install,
+whose folder holds the sources. Every referenced feature comes from retail,
+and no shared dependency is needed. The four total 5541937 download bytes and
+16777157 expanded bytes; their minimap PNGs total 26903 bytes.
+
+| Package | Selected OTA path | ZIP bytes | Expanded bytes | Source archive | Source SHA-256 |
+|---|---|---:|---:|---|---|
+| comet-catcher | `maps/comet catcher.ota` | 1876725 | 5379185 | `Cometctr.ufo` | `b7055488519dc028acafa09d71cdf767c0bc1ba8faf21e0aa637408403619123` |
+| luschinfloggen | `maps/luschinfloggen.ota` | 1018945 | 3111601 | `floggen.ufo` | `0e88714622e3bd45f1d1747c81f84ba72f7e3a0c5d476a150f15535f9a3bc978` |
+| mounds-of-mars | `maps/mounds of mars.ota` | 1509919 | 4566972 | `Mndsmars.ufo` | `69be3671a251f0b2c9940e502226c220c389cf49f7ae8bef788f31eae9e10704` |
+| pc-games-evad-river-delta | `maps/pc games' evad river delta.ota` | 1136348 | 3719399 | `Evadrivd.ufo` | `4c825aff22668f7f7e55438be27b8fdff1d09ab6f53619974d82493bda5a274a` |

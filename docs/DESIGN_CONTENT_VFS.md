@@ -784,6 +784,21 @@ content audit, or no longer validates against the current base and mod stack
 the reason and its directory, while the base game and the other packages
 mount; its map stays removable from the catalogue.
 
+**Official add-ons** (user-authorized 2026-10-16) are Cavedog's bonus
+archives kept in their own library
+([DESIGN_MODS_MUTATORS §5.7](DESIGN_MODS_MUTATORS.md#57-official-add-ons)).
+An enabled add-on's archives join the base install's `*.UFO` tier (C1),
+ordered among the folder's own `*.UFO` files as if they were in it, so the
+patch and `*.CCX` archives still win over them and they still win over the
+local `*.HPI` archives `[02 §2]`; an archive of the same name in the folder
+is replaced, as copying the add-on's in would. The selected mod mounts above
+them and the map library below the base install, as before. Their provider
+IDs are their file names, as a folder copy's are, so the mount's manifest is
+the one the archives in the folder would give, while the provenance's source
+path still names the library copy. As with downloaded maps, displayless
+runs, captures, benchmarks and tests discover no add-on implicitly; they
+mount one only when `--addon` names it.
+
 Each is a place where the code deliberately departs from the written contract,
 with the reason and the resolution. None is a compatibility flag: there is one
 behaviour.

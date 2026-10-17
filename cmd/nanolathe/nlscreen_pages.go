@@ -41,6 +41,9 @@ type nlDraft struct {
 	// (docs/DESIGN_MODS_MUTATORS.md §15.9), "" for none: a string keeps the
 	// draft comparable, and two sets with equal strings are Equal.
 	restrictions string
+	// addons is the official add-on selection (docs/DESIGN_MODS_MUTATORS.md
+	// §5.7) as nlAddonsText spells it, "" for none, for the same reason.
+	addons string
 }
 
 type nlKind int
@@ -55,6 +58,7 @@ const (
 	nlContent                    // the mod chooser
 	nlResolution                 // monitor presets and custom dimensions
 	nlRestrictions               // the unit restrictions' summary, edited in the unit viewer
+	nlAddons                     // the official add-ons, a switch or Get each
 )
 
 type nlCard struct {
@@ -212,6 +216,7 @@ func (s *nlScreen) gameCards() []nlCard {
 			},
 			scene: func(*nlDraft, int) string { return "armor" },
 		},
+		s.addonsCard(),
 		{
 			key: "rules", label: "Rules", pics: []string{"armck", "armcv"}, kind: nlLayers,
 			steps: []string{"Strict 3.1", "Community 3.9", "Modern"},

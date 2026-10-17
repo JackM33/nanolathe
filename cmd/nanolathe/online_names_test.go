@@ -179,7 +179,7 @@ func TestOnlineFitCaptionKeepsTheMark(t *testing.T) {
 // The battle's first message names the player when it has a name.
 func TestOnlineEntryNoticeNamesThePlayer(t *testing.T) {
 	useOnlineSessionSeams(t, 0)
-	frozen := onlineCreationFrozen(&contentSet{profile: "retail", limits: content.RetailLimits()}, [2]uint32{1, 2}, content.Mutators{}, content.Restrictions{}, nil)
+	frozen := onlineCreationFrozen(&contentSet{profile: "retail", limits: content.RetailLimits()}, [2]uint32{1, 2}, content.Mutators{}, content.Restrictions{}, nil, nil)
 	config, err := onlineConfig(nil, onlineTestCatalog(), onlineSettings{mapName: "Test Map"}, []session.OnlineSeat{{Name: "Daniel"}, {Color: 1}}, frozen)
 	if err != nil {
 		t.Fatal(err)
