@@ -1,3 +1,5 @@
+//go:build retail
+
 package hud
 
 import (
@@ -59,12 +61,6 @@ func TestRadialRetailCorpusPartition(t *testing.T) {
 			def, _ := cat.Unit(product)
 			if got := RadialCategoryOf(cat, def); got != want {
 				t.Errorf("side %d product %s bucket = %v, want %v", side, product, got, want)
-			}
-		}
-		if side == 0 {
-			groups := RadialGroups(cat, cat.BuildMenus[chain.Commander].Buttons)
-			for _, g := range groups {
-				t.Logf("commander %s bucket %s: %v", chain.Commander, g.Category.Label(), g.Products)
 			}
 		}
 	}

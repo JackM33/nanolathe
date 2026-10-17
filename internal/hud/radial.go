@@ -48,24 +48,29 @@ func (c RadialCategory) Label() string {
 }
 
 // RadialCategoryOf buckets one definition by its authored fields, using
-// the economy's own terms for production [02 "Unit record"]: metal comes
-// from extraction, metal making and the passive metal make; energy from
-// the passive energy make net of upkeep (a solar authors its output as a
-// negative energy use, and a radar's equal make and use net to nothing),
-// or the wind and tidal generator branches. A defence authors at least
-// one weapon name — the resolved weapon pointers are populated for every
-// definition, armed or not, so they cannot carry this test. The tests run
-// in this order because a structure can satisfy several: a factory is a
-// builder first, a metal producer that also stores energy is metal first,
-// and an armed radar is a defence first. Anything no test recognises is
-// Misc — a bucket, never a drop.
+// the economy's own terms for production [02 "Unit record"]. A structure
+// with the builder flag is a factory when its authored menu names a mobile
+// product, and otherwise a utility: an air repair pad authors the flag
+// and a small energy make, and belongs with the support structures, not
+// the generators. Metal comes from extraction, metal making and the
+// passive metal make; energy from the passive energy make net of upkeep
+// (a solar authors its output as a negative energy use, and a radar's
+// equal make and use net to nothing), or the wind and tidal generator
+// branches. A defence authors at least one weapon name — the resolved
+// weapon pointers are populated for every definition, armed or not, so
+// they cannot carry this test. The tests run in this order because a
+// structure can satisfy several: a metal producer that also stores energy
+// is metal first, and an armed radar is a defence first. Anything no test
+// recognises is Misc — a bucket, never a drop.
 func RadialCategoryOf(cat *content.Catalog, def *content.UnitDef) RadialCategory {
 	if def == nil {
 		return RadialMisc
 	}
 	switch {
-	case radialIsFactory(cat, def):
+	case def.Builder && radialBuildsMobile(cat, def):
 		return RadialFactory
+	case def.Builder:
+		return RadialUtility
 	case def.ExtractsMetal > 0 || def.MetalMake > 0 || def.MakesMetal > 0:
 		return RadialMetal
 	case def.EnergyMake-def.EnergyUse > 0 || def.WindGenerator > 0 || def.TidalGenerator > 0:
@@ -81,29 +86,17 @@ func RadialCategoryOf(cat *content.Catalog, def *content.UnitDef) RadialCategory
 	}
 }
 
-// radialIsFactory reports whether a structure builds mobile units: the
-// authored builder flag on a building-class definition whose authored
-// menu names at least one mobile (non-building) product. A builder whose
-// menu cannot be read — a hand-built fixture catalog without menus, say —
-// falls back to the builder flag alone, which still separates a plant
-// from an extractor.
-func radialIsFactory(cat *content.Catalog, def *content.UnitDef) bool {
-	if !def.Builder {
-		return false
-	}
+// radialBuildsMobile reports whether a definition's authored build menu
+// names at least one mobile (non-building) product.
+func radialBuildsMobile(cat *content.Catalog, def *content.UnitDef) bool {
 	if cat == nil {
-		return true
-	}
-	menu := cat.BuildMenus[content.CanonicalKey(def.UnitName)]
-	if menu == nil {
-		return true
-	}
-	if len(menu.Buttons) == 0 {
 		return false
 	}
-	for _, button := range menu.Buttons {
-		if product, ok := cat.Unit(button); ok && product != nil && product.BMCode != 0 {
-			return true
+	if menu := cat.BuildMenus[content.CanonicalKey(def.UnitName)]; menu != nil {
+		for _, button := range menu.Buttons {
+			if product, ok := cat.Unit(button); ok && product != nil && product.BMCode != 0 {
+				return true
+			}
 		}
 	}
 	return false

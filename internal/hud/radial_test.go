@@ -26,6 +26,9 @@ func radialFixture() *content.Catalog {
 		def("ARMSOLAR", func(d *content.UnitDef) { d.EnergyUse = -20 }),
 		def("ARMWIN", func(d *content.UnitDef) { d.WindGenerator = 1 }),
 		def("ARMLAB", func(d *content.UnitDef) { d.Builder = true }),
+		// A builder structure with no mobile product, like the air repair
+		// pad, which also authors a small energy make.
+		def("ARMASP", func(d *content.UnitDef) { d.Builder = true; d.EnergyMake = 10 }),
 		def("ARMLLT", func(d *content.UnitDef) { d.Weapon1 = "laser" }),
 		def("ARMRAD", func(d *content.UnitDef) { d.RadarDistance = 900; d.EnergyMake = 5; d.EnergyUse = 5 }),
 		def("ARMESTOR", func(d *content.UnitDef) { d.EnergyStorage = 1000 }),
@@ -52,6 +55,7 @@ func TestRadialCategoryBucketsAuthoredFields(t *testing.T) {
 		"ARMLLT":   RadialDefence,
 		"ARMRAD":   RadialUtility,
 		"ARMESTOR": RadialUtility,
+		"ARMASP":   RadialUtility,
 		"ARMDRAG":  RadialMisc,
 	} {
 		d, _ := cat.Unit(product)

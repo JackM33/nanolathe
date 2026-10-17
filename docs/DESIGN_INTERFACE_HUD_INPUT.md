@@ -5402,7 +5402,9 @@ placement products — `hud.AllowedBuildProducts` filtered to building
 class — grouped by authored definition fields, never by unit name, so
 mods classify by what their structures do. Each offered product lands in
 exactly one bucket, in authored order: a structure builder whose menu
-names a mobile product is a **Factory**; else metal extraction or making
+names a mobile product is a **Factory**, and any other structure builder
+— the air repair pad, which also authors a small energy make — is
+**Radar & Utility**; else metal extraction or making
 is **Metal**; else positive net energy production in the economy's own
 terms — passive make net of upkeep (a solar authors its output as a
 negative energy use; a radar's equal make and use net to nothing), wind
