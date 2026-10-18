@@ -356,6 +356,12 @@ type Player struct {
 	// 2026-09-25). Normalize keeps "classic" and reads everything else as
 	// Modern, which the writer omits.
 	AI string `json:"ai,omitempty"`
+	// Start is the row's chosen start position, a Nanolathe lobby choice
+	// with no retail registry value: 0, stored as no key, leaves it to
+	// Location, and 1..MaxPlayers names the map's StartPos<n>
+	// (docs/DESIGN_SESSIONS_AI_SAVE.md "Chosen start positions"). Normalize
+	// reads any other value as 0.
+	Start int `json:"start,omitempty"`
 }
 
 // PlayerAIClassic is the stored word of a row that plays the Classic AI; a
@@ -1227,6 +1233,9 @@ func (s *Skirmish) Normalize() {
 			s.Players[i].AI = PlayerAIClassic
 		} else {
 			s.Players[i].AI = ""
+		}
+		if s.Players[i].Start < 0 || s.Players[i].Start > MaxPlayers {
+			s.Players[i].Start = 0
 		}
 	}
 }

@@ -71,6 +71,9 @@ func SurvivalConfigFor(mapName string, players []SkirmishPlayer, opts SurvivalOp
 	var used [SkirmishMaxPlayers]bool
 	for i, p := range players {
 		p.AllyGroup = team
+		// Survival places its commanders itself (DESIGN_SURVIVAL §4.2), so
+		// a start the skirmish rows chose does not come along.
+		p.Start = 0
 		p.Controller = SkirmishControllerComputer
 		if i == 0 {
 			p.Controller = SkirmishControllerHuman

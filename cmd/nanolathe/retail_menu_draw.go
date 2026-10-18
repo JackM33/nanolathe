@@ -736,6 +736,9 @@ func (g *gameShell) drawRetailSurface(c *client.Client, p *ui.Panel, index int, 
 			// cleared and centred canvas [07 R-FE-01 §5].
 			pixels := d.previewPixels(int(r.W), int(r.H))
 			c.UIBlitIndexed(pixels, int(r.W)-1, int(r.H)-1, int(r.X), int(r.Y), int(r.W)-1, int(r.H)-1)
+			// Nanolathe numbers the start positions so the setup screen's
+			// Start buttons can be read (skirmish_starts.go).
+			g.drawMapStartMarkers(c, p, d, r)
 		}
 		return
 	}

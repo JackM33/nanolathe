@@ -1346,6 +1346,20 @@ is at most 2 MiB. Its identity is SHA-256 of the literal UTF-8 domain
 encoding. There are no optional unknown fields or trailing bytes; adding a
 field requires a new version.
 
+**Version 2** (Nanolathe, 2026-10-18) is version 1's fifteen fields followed
+by the version-2 fields below. A configuration encodes as version 2 only
+when a version-2 field differs from its default, and its identity then
+hashes the domain `nanolathe/match-config/2`; every configuration version 1
+can describe keeps its version-1 bytes and identity, so existing replays
+and room identities are unchanged. A reader tells the versions apart by
+whether bytes follow field 15. A version-2 tail holding only defaults is
+not canonical and is refused, and a version-1 reader refuses a version-2
+payload as trailing bytes, which is the "different release" refusal.
+
+| Order / effective field | Representation and normalization |
+|---|---|
+| 16. Seat starts | One `u8` per seat in slot order: 0 automatic, 1..10 the chosen `StartPos<n>` (DESIGN_SESSIONS_AI_SAVE "Chosen start positions"). Nonzero only on an online skirmish's human or computer row, and no two rows choose the same start. Battle entry refuses a start the map's selected schema lacks. |
+
 | Order / effective field | Representation and normalization |
 |---|---|
 | 1. SessionKind | `u8`: 1 online skirmish, 2 online Survival. Campaign and single-player recording headers have their own admission. |

@@ -153,6 +153,8 @@ func (g *gameShell) serviceMenuWidgets(p *ui.Panel, in *input.State) bool {
 				g.setup.Players[slot].Energy = decreaseResource(g.setup.Players[slot].Energy)
 			} else if kind == "Color" {
 				g.setup.Players[slot].Color = g.nextRetailPlayerColor(slot, -1)
+			} else if kind == skirmishStartPrefix {
+				g.cycleSkirmishStart(slot, -1)
 			}
 			g.refreshRetailPanel()
 			return true
@@ -506,6 +508,8 @@ func (g *gameShell) activateDynamicSkirmishGadget(name string) {
 		p.Energy = increaseResource(p.Energy)
 	case "Color":
 		p.Color = g.nextRetailPlayerColor(index, 1)
+	case skirmishStartPrefix:
+		g.cycleSkirmishStart(index, 1)
 	}
 	g.refreshRetailPanel()
 }
@@ -646,7 +650,7 @@ func (g *gameShell) cycleRetailController(slot int) {
 
 func dynamicSlot(name string) (int, string, bool) {
 	name = gui.CallbackName(name)
-	for _, prefix := range []string{"Player", "Side", "Allies", "Metal", "Energy", "Color"} {
+	for _, prefix := range []string{"Player", "Side", "Allies", "Metal", "Energy", "Color", skirmishStartPrefix} {
 		if !strings.HasPrefix(name, prefix) {
 			continue
 		}
@@ -752,6 +756,11 @@ func (g *gameShell) retailSkirmishStartError() string {
 	}
 	if g.retailAllPlayersSameAlliedGroup(n) {
 		return "All players may not be in the same allied group."
+	}
+	// Chosen start positions are Nanolathe's; the Survival screen places
+	// its own commanders.
+	if !g.survivalMenu {
+		return g.skirmishStartError()
 	}
 	return ""
 }

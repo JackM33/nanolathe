@@ -2,6 +2,7 @@ package session
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/nanolathe-gg/nanolathe/internal/ai"
@@ -167,7 +168,18 @@ type SkirmishPlayer struct {
 	// (docs/DESIGN_MULTIPLAYER.md §6.6). It means nothing on any other row
 	// or in a setup with one battle word.
 	Difficulty int
+	// Start is the start position the player chose in the lobby: 0 leaves
+	// it to the setup's Location word, and 1..10 names the map's
+	// `StartPos<n>` by its authored number. It is a Nanolathe lobby choice
+	// with no retail counterpart, offered in every gameplay mode; a setup
+	// with no choice places commanders exactly as retail does
+	// (docs/DESIGN_SESSIONS_AI_SAVE.md "Chosen start positions").
+	Start int
 }
+
+// SkirmishMaxStart is the highest start position a player can choose: one
+// per possible player.
+const SkirmishMaxStart = SkirmishMaxPlayers
 
 // SkirmishConfig is the skirmish setup discriminant per [08 "Skirmish configuration"].
 // MapName is the --map selection (basename without extension).
@@ -356,6 +368,28 @@ func (c SkirmishConfig) Validate() error {
 				return fmt.Errorf("session: computer seat %d difficulty %d: want 0 easy, 1 medium or 2 hard [08 R-AI-01 §12]", i+1, p.Difficulty)
 			}
 		}
+	}
+	return validateChosenStarts(c)
+}
+
+// validateChosenStarts refuses a chosen start outside 1..SkirmishMaxStart and
+// two players that chose the same one. Whether the map has the start is
+// battle entry's question, since it depends on the schema the player count
+// selects (docs/DESIGN_SESSIONS_AI_SAVE.md "Chosen start positions").
+func validateChosenStarts(c SkirmishConfig) error {
+	var owner [SkirmishMaxStart + 1]int
+	for i := 0; i < c.NumPlayers && i < len(c.Players); i++ {
+		start := c.Players[i].Start
+		if start < 0 || start > SkirmishMaxStart {
+			return fmt.Errorf("session: player %d start position %d: want 0 (automatic) or 1..%d", i+1, start, SkirmishMaxStart)
+		}
+		if start == 0 {
+			continue
+		}
+		if owner[start] != 0 {
+			return fmt.Errorf("session: players %d and %d both chose start position %d: want each start chosen at most once", owner[start], i+1, start)
+		}
+		owner[start] = i + 1
 	}
 	return nil
 }
@@ -573,6 +607,17 @@ func (c SkirmishConfig) NormalizedBytes() []byte {
 		b = append(b, 'D')
 		for i := 0; i < 10; i++ {
 			b = append(b, byte(c.Players[i].Difficulty))
+		}
+	}
+	// Chosen start positions only when one is chosen, so a setup that leaves
+	// every start to Location keeps its existing bytes.
+	for i := 0; i < 10; i++ {
+		if c.Players[i].Start != 0 {
+			b = append(b, 'P')
+			for j := 0; j < 10; j++ {
+				b = append(b, byte(c.Players[j].Start))
+			}
+			break
 		}
 	}
 	return b
@@ -1344,6 +1389,123 @@ func shuffleEligibleStarts(crt *rng.CRT, order []int) {
 	}
 }
 
+// skirmishStartAssignment maps each eligible slot to the stored number of the
+// start position its commander takes, and reports how many slots chose theirs.
+//
+// With no chosen start it is retail's placement: Location nonzero is the
+// identity, slot i taking stored number i; Location zero permutes the
+// eligible slots with the loading CRT walk [08 "Randomization for skirmish
+// starts"][P0-04].
+//
+// **Nanolathe policy (user-authorized 2026-10-18).** A player who chose a
+// start takes it. The others share what is left: under fixed starts each
+// keeps its own number when that start exists and is free, and the rest take
+// the lowest free starts in slot order; under random starts the lowest free
+// starts, one per remaining player, are dealt out by a Fisher–Yates shuffle
+// on the same loading CRT. The CRT is the disposable loading stream, so the
+// simulation stream is untouched either way. A chosen start the map lacks is
+// retail's missing-start fatal; too few free starts is this build's error
+// (docs/DESIGN_SESSIONS_AI_SAVE.md "Chosen start positions").
+func skirmishStartAssignment(cfg SkirmishConfig, eligible []int, starts []mission.Special, crt *rng.CRT) (map[int]int, int, error) {
+	assignment := make(map[int]int, len(eligible))
+	chosen := 0
+	for _, slot := range eligible {
+		if cfg.Players[slot].Start != 0 {
+			chosen++
+		}
+	}
+	if chosen == 0 {
+		order := slices.Clone(eligible)
+		if cfg.Location == 0 {
+			// Location==0 → randomized via the CRT walk [08 "Randomization for
+			// skirmish starts"].
+			if len(order) < 3 {
+				// Gate: (CRT_rand()*2)/0x8000 unbiased 0/1 ; if 0 skip shuffle [P0-04].
+				gate := (int(crt.Rand()) * 2) / 0x8000
+				if gate != 0 {
+					shuffleEligibleStarts(crt, order)
+				}
+			} else {
+				shuffleEligibleStarts(crt, order)
+			}
+		}
+		// Location !=0 → identity (no shuffle) [P0-04]. For each eligible
+		// logical slot in ascending order, the start is order[next].
+		for idx, logical := range eligible {
+			assignment[logical] = order[idx]
+		}
+		return assignment, 0, nil
+	}
+	// The map's start numbers, ascending and once each; a duplicated record
+	// resolves to its first authored copy at placement either way.
+	var free []int
+	for _, sp := range starts {
+		if id := int(sp.ID); !slices.Contains(free, id) {
+			free = append(free, id)
+		}
+	}
+	slices.Sort(free)
+	var rest []int
+	for _, slot := range eligible {
+		start := cfg.Players[slot].Start
+		if start == 0 {
+			rest = append(rest, slot)
+			continue
+		}
+		stored := start - 1
+		if startTaken(assignment, stored) {
+			return nil, 0, fmt.Errorf("nanolathe: skirmish start position %d chosen twice: slot %d, expected each start chosen at most once", start, slot)
+		}
+		at := slices.Index(free, stored)
+		if at < 0 {
+			return nil, 0, errStartPositionMissing(stored)
+		}
+		assignment[slot] = stored
+		free = slices.Delete(free, at, at+1)
+	}
+	if len(free) < len(rest) {
+		return nil, 0, fmt.Errorf("nanolathe: skirmish start positions: map %q has %d free after the chosen ones, expected one for each of %d other players", cfg.MapName, len(free), len(rest))
+	}
+	if cfg.Location != 0 {
+		// Each remaining slot keeps its own number when free, then the
+		// others take the lowest free starts in slot order.
+		var unplaced []int
+		for _, slot := range rest {
+			if at := slices.Index(free, slot); at >= 0 {
+				assignment[slot] = slot
+				free = slices.Delete(free, at, at+1)
+			} else {
+				unplaced = append(unplaced, slot)
+			}
+		}
+		for i, slot := range unplaced {
+			assignment[slot] = free[i]
+		}
+		return assignment, chosen, nil
+	}
+	pool := slices.Clone(free[:len(rest)])
+	for k := len(pool) - 1; k > 0; k-- {
+		r := int(crt.Uint32n(uint32(k + 1)))
+		pool[k], pool[r] = pool[r], pool[k]
+	}
+	for i, slot := range rest {
+		assignment[slot] = pool[i]
+	}
+	return assignment, chosen, nil
+}
+
+// startTaken reports whether a slot already took the stored start number.
+// The assignment is read by lookup only, never ranged, so its order is not
+// observable.
+func startTaken(assignment map[int]int, stored int) bool {
+	for slot := 0; slot < SkirmishMaxPlayers; slot++ {
+		if got, ok := assignment[slot]; ok && got == stored {
+			return true
+		}
+	}
+	return false
+}
+
 func skirmishReconstructUnits(s *Session, cfg SkirmishConfig, m *mission.Mission) error {
 	if s.Units == nil {
 		return fmt.Errorf("session: missing Units for skirmish battle entry [01 §6.1]")
@@ -1408,36 +1570,14 @@ func skirmishReconstructUnits(s *Session, cfg SkirmishConfig, m *mission.Mission
 		}
 		eligible = append(eligible, i)
 	}
-	n := len(eligible)
 	// Setup owns a disposable loading stream seeded from the explicit battle
 	// bootstrap seed. The simulation stream and retained session CRT are not
 	// read [01 R-CORE-02][01 R-PLAT-01 §7][08 R-ENTRY-01 §5] [I4] DET-01.
 	crt := rng.NewCRT(cfg.RNGCrtSeed)
-	// Build the permutation of eligible slots.
-	local28 := make([]int, n)
-	copy(local28, eligible)
-	if cfg.Location == 0 {
-		// Location==0 → randomized via the CRT walk [08 "Randomization for
-		// skirmish starts"].
-		if n < 3 {
-			// Gate: (CRT_rand()*2)/0x8000 unbiased 0/1 ; if 0 skip shuffle [P0-04].
-			gate := (int(crt.Rand()) * 2) / 0x8000
-			if gate != 0 {
-				shuffleEligibleStarts(&crt, local28)
-			}
-		} else {
-			shuffleEligibleStarts(&crt, local28)
-		}
-	} else {
-		// Location !=0 → identity (no shuffle) [P0-04].
-	}
-	// Map logical slot → startPosIndex via permuted eligible list.
-	// For each eligible logical in ascending order, map = local28[next].
-	permMap := make(map[int]int) // logical slot -> permuted slot
-	for idx, logical := range eligible {
-		if idx < len(local28) {
-			permMap[logical] = local28[idx]
-		}
+	// Map logical slot → stored start number.
+	permMap, chosen, err := skirmishStartAssignment(cfg, eligible, starts, &crt)
+	if err != nil {
+		return err
 	}
 	// Community schema units target authored START POSITIONS rather than player
 	// numbers. Snapshot the inverse table after the source's neutral-unit
@@ -1454,8 +1594,11 @@ func skirmishReconstructUnits(s *Session, cfg SkirmishConfig, m *mission.Mission
 	// With pre-determined starts the lobby shows every player which start
 	// each slot takes, so a Modern controller is told as well; under random
 	// starts nobody is, and it searches (docs/DESIGN_SESSIONS_AI_SAVE.md
-	// "Modern AI computer player"). The retail step never reads it.
-	if cfg.Location != 0 {
+	// "Modern AI computer player"). Every player choosing a start is the
+	// same knowledge; a partial choice under random starts is not, since an
+	// unpublished owner reads as an empty start. The retail step never reads
+	// it.
+	if cfg.Location != 0 || chosen == len(eligible) {
 		publishStartOwners(s, starts, eligible, permMap)
 	}
 	// Helper to find a StartPos special by its authored 1-based suffix, which

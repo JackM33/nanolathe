@@ -200,6 +200,9 @@ func matchSeatsFromSetup(cfg SkirmishConfig, options SkirmishEntryOptions, room 
 		if p.AllyGroup < 0 || p.AllyGroup > SkirmishDefaultAllyGroup {
 			return nil, matchFieldError(path+".allyGroup", "0..5")
 		}
+		if p.Start < 0 || p.Start > SkirmishMaxStart {
+			return nil, matchFieldError(path+".start", fmt.Sprintf("0 automatic or 1..%d", SkirmishMaxStart))
+		}
 		if p.Metal < 0 || p.Metal > math.MaxInt32 || p.Energy < 0 || p.Energy > math.MaxInt32 {
 			return nil, matchFieldError(path+".metal, energy", "finalized resources 0..2147483647")
 		}
@@ -217,6 +220,7 @@ func matchSeatsFromSetup(cfg SkirmishConfig, options SkirmishEntryOptions, room 
 			s.Metal, s.Energy = 0, 0
 		case p.IsHuman():
 			s.Role = MatchRoleHuman
+			s.Start = uint8(p.Start)
 			s.Participant = room.Participants[i]
 			s.BuilderOptions = RuleSetForMode(cfg.Gameplay).Orders.DefaultBuilderOptions()
 			if options.BuilderOptions != nil {
@@ -227,6 +231,7 @@ func matchSeatsFromSetup(cfg SkirmishConfig, options SkirmishEntryOptions, room 
 			s.Participant = room.Participants[i]
 		default:
 			s.Role = MatchRoleComputer
+			s.Start = uint8(p.Start)
 			s.HostSeat = uint8(local)
 			s.ComputerKind = p.AI
 			s.Difficulty = difficulty

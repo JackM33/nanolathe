@@ -1038,6 +1038,26 @@ The controller cycle and the row build's all-Open fallback (row 0 Player,
 row 1 Computer, applied when the rows are built, not at settings load) also
 read only the shown rows `[08 R-SKIR-01 §1]`.
 
+**Start positions (Nanolathe setup policy, user-authorized 2026-10-18).**
+Each live row has a Start button, a copy of the row's Metal button moved to
+x 400, in the empty strip between the player box and the option column,
+under a `Start` heading cloned from the Location label on the baked heading
+line. Open rows and the Survival screen have none. The button reads `Auto`
+or the chosen start's number; a left click steps forward through Auto and
+the selected map's starts, a right click steps back, and both skip a start
+another live row holds. The starts are those of the schema a battle of the
+current live rows selects (`mission.SelectNetworkSchema`), so changing the
+rows can change them; the Start preflight then refuses a choice the map no
+longer offers (`Start position N is not on this map for P players.`) or one
+two rows share. The map picker's preview numbers the same starts, each a
+small bevelled box over its position in the preview's own projection, so
+the numbers can be read; nothing else on that screen changes. The choice
+persists with the row (`start` in the settings file) and is carried to
+battle as `SkirmishPlayer.Start`
+([DESIGN_SESSIONS_AI_SAVE "Chosen start positions"](DESIGN_SESSIONS_AI_SAVE.md#chosen-start-positions)).
+Tests: `TestSkirmishScreenChoosesStartPositionsRetail`, which with
+`NANOLATHE_SHOT_DIR` set writes both screens as PNGs.
+
 **Computer AI (Nanolathe divergence, user decision 2026-09-25).** Each
 computer row plays the Classic or the Modern AI
 ([DESIGN_SESSIONS_AI_SAVE](DESIGN_SESSIONS_AI_SAVE.md#modern-ai-computer-player)

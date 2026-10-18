@@ -170,6 +170,17 @@ host's set as battle-configuration field 12 (user-authorized 2026-10-08,
 DESIGN_MULTIPLAYER §16.6). It is owned by
 [DESIGN_MODS_MUTATORS](docs/DESIGN_MODS_MUTATORS.md) §15.
 
+**Skirmish setup choices are the sixth mode-independent exception
+(user-authorized 2026-10-18).** A player may choose the start position its
+commander begins on, offered for skirmish in every gameplay mode, Strict 3.1
+included, from a Start button on each setup-screen row. Chosen starts are
+taken first; the others share what is left by the Location setting, a random
+deal using only the disposable loading CRT. It adds no seam, no simulation
+draw and no per-tick state. Strict 3.1 *with no chosen start* is the retail
+baseline, and every fingerprint lock runs with none. Replays carry the choice
+as configuration version 2, which a configuration without it never uses. It is
+owned by [DESIGN_SESSIONS_AI_SAVE](docs/DESIGN_SESSIONS_AI_SAVE.md#chosen-start-positions).
+
 Current policies: [terrain admission](docs/DESIGN_WEAPONS_PROJECTILES.md#231-modern-terrain-admission),
 [Hold Fire](docs/DESIGN_UNITS_ORDERS_COB.md#modern-hold-fire), and
 [factory-exit yielding](docs/DESIGN_ECONOMY_CONSTRUCTION.md#modern-factory-exit-yielding), and

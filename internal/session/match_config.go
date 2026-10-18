@@ -119,6 +119,13 @@ type MatchSeat struct {
 	// All, difficulty and seat layers already merged, in ascending key order.
 	// Every other role carries none.
 	AIParams []AIParam
+
+	// Start is the row's chosen start position, field 16 of version 2: 0
+	// leaves it to Location, 1..SkirmishMaxStart names the map's
+	// `StartPos<n>`. Only a human or computer row of a skirmish chooses
+	// one, and no two rows choose the same (docs/DESIGN_SESSIONS_AI_SAVE.md
+	// "Chosen start positions").
+	Start uint8
 }
 
 // MatchMod is field 8: the selected mod's public identity. Base content is
@@ -550,6 +557,9 @@ func (r *MatchConfigRequest) validateSeats(set RuleSet) error {
 	if humans == 0 {
 		return matchFieldError("seats", "at least one human seat")
 	}
+	if err := r.validateSeatStarts(); err != nil {
+		return err
+	}
 	limit := matchComputersPerHost(set)
 	for host, count := range hosted {
 		if count > limit {
@@ -597,6 +607,44 @@ func (r *MatchConfigRequest) validateSeats(set RuleSet) error {
 		}
 	}
 	return nil
+}
+
+// validateSeatStarts checks version 2's field 16: a chosen start is
+// 1..SkirmishMaxStart on a skirmish's human or computer row, and no two rows
+// choose the same. Survival places its commanders itself (DESIGN_SURVIVAL
+// §4.2), so every Survival row holds zero.
+func (r *MatchConfigRequest) validateSeatStarts() error {
+	var owner [SkirmishMaxStart + 1]int
+	for i := range r.Seats {
+		start := r.Seats[i].Start
+		if start == 0 {
+			continue
+		}
+		path := fmt.Sprintf("seats[%d].start", i)
+		if start > SkirmishMaxStart {
+			return matchFieldError(path, fmt.Sprintf("0 automatic or 1..%d", SkirmishMaxStart))
+		}
+		if role := r.Seats[i].Role; r.SessionKind != MatchOnlineSkirmish || (role != MatchRoleHuman && role != MatchRoleComputer) {
+			return matchFieldError(path, "zero except on a skirmish's human or computer row")
+		}
+		if owner[start] != 0 {
+			return matchFieldError(path, fmt.Sprintf("a start no other row chose (seat %d chose %d)", owner[start]-1, start))
+		}
+		owner[start] = i + 1
+	}
+	return nil
+}
+
+// version is the configuration version a request encodes as: 2 when it
+// holds a version-2 field other than its default, 1 otherwise, so every
+// configuration version 1 can describe keeps its bytes and identity (§8.6).
+func (r *MatchConfigRequest) version() int {
+	for i := range r.Seats {
+		if r.Seats[i].Start != 0 {
+			return 2
+		}
+	}
+	return 1
 }
 
 // matchTeamOfTwo reports whether seat i shares a team (an ally group other

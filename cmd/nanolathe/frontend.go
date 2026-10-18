@@ -902,6 +902,8 @@ func (g *gameShell) openMenuWithTokenFlush(mode shellMode, flushTokens bool) {
 				g.installSkirmishDynamicGadgets(window)
 				if g.survivalMenu {
 					applySurvivalLayout(window)
+				} else {
+					installSkirmishStartColumn(window)
 				}
 			}
 			if mode == modeMenuMap {

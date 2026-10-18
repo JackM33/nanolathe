@@ -2508,6 +2508,63 @@ teammate holds as many of that type); the Classic control,
 ([DESIGN_MODS_MUTATORS §15.11](DESIGN_MODS_MUTATORS.md#1511-verification));
 and the existing synchronous/asynchronous arena comparison.
 
+### Chosen start positions
+
+**Nanolathe setup policy (user-authorized 2026-10-18).** A skirmish player
+may choose the start position its commander begins on. It is a lobby choice,
+like the mutators and unit restrictions: it is offered in every gameplay
+mode, Strict 3.1 included, adds no rule seam, no simulation random draw and
+no per-tick state, and a setup in which nobody chooses places every
+commander exactly as retail does. Strict 3.1 *with no chosen start* is the
+retail baseline, and every fingerprint lock runs with none.
+
+**Retail behaviour.** Skirmish battle entry gives each eligible slot a stored
+start number: the slot's own under fixed starts, and a cyclic permutation of
+the eligible slots from the loading CRT walk under random starts; a stored
+number the map lacks is the verbatim missing-start fatal
+`[08 R-ENTRY-01 §5]` `[08 "Randomization for skirmish starts"]`.
+
+**Policy.** `SkirmishPlayer.Start` is 0 (automatic) or 1..10, the authored
+number of the map's `StartPos<n>`; `Validate` refuses a value outside that
+range and two live rows choosing the same one. When at least one eligible
+slot chose, `skirmishStartAssignment` replaces retail's step:
+
+1. Each slot that chose takes its start. A start the map's selected schema
+   lacks is the retail missing-start fatal for that stored number.
+2. The others share the starts left, by the Location word. **Fixed:** each
+   keeps its own number when that start exists and is free; the rest take
+   the lowest free starts in slot order. **Random:** the lowest free starts,
+   one per remaining slot, are dealt by a Fisher–Yates shuffle on the same
+   disposable loading CRT the retail walk uses; the simulation stream is not
+   read. Too few free starts is this build's error.
+
+The Modern AI is told the start owners (`ai.Manager.StartOwners`) under fixed
+starts as before, and also when every eligible slot chose, since the lobby
+showed every choice; a partial choice under random starts publishes nothing,
+because an unpublished owner reads as an empty start. Survival places its own
+commanders (DESIGN_SURVIVAL §4.2) and clears any row's choice. The Community
+schema's random-start exchange of the last human and computer
+(DESIGN_COMMUNITY_PATCH §4.5) skips a slot that chose its start.
+
+**Where the choice travels.** The setup screen's Start buttons
+(DESIGN_INTERFACE_HUD_INPUT §2.6 "Start positions") and the settings file
+(`start`, omitted for automatic) carry it to `skirmishConfigForStart`, which
+keeps it with its row through the compaction. Replays carry it as field 16 of
+configuration version 2 (DESIGN_MULTIPLAYER §8.6); a configuration with no
+choice keeps its version-1 bytes and identity. A save needs none: the bank
+already holds the commanders where they stand. The online lobby offers no
+control for it yet; a seat's choice would need a relay seat message.
+
+**Tests:** `TestUnchosenStartsKeepRetailPlacement` (identity and the CRT walk,
+with retail's draw count), `TestChosenStartsUnderFixedLocation`,
+`TestChosenStartsUnderRandomLocation` (the deal replayed from the CRT
+definition), `TestChosenStartsRefuseWhatTheMapCannotSeat`,
+`TestChosenStartPlacesTheCommander`,
+`TestChosenStartsEncodeAsConfigurationVersion2`,
+`TestChosenStartsRoundTripTheLocalAdapter` and, on the retail art,
+`TestSkirmishScreenChoosesStartPositionsRetail`, which composes the screen's
+battle under Strict 3.1 and Modern and checks every commander's start.
+
 ## 6. Research map
 
 | Behaviour | Owning research |

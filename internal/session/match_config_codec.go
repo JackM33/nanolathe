@@ -26,10 +26,21 @@ import (
 // named by the identity domain and by the envelope that carries the payload,
 // as the command schema version is negotiated outside a command payload
 // (§7.4.1).
+//
+// Version 2 is version 1's fields followed by the version-2 fields, and a
+// configuration encodes as version 2 only when one of those fields differs
+// from its default. Every configuration version 1 can describe therefore
+// keeps its version-1 bytes and identity, and a reader tells the versions
+// apart by whether bytes follow field 15. A version-2 tail that holds only
+// defaults is not canonical and is refused. A version-1 reader refuses a
+// version-2 payload as trailing bytes.
 
-// matchConfigDomain is the literal UTF-8 domain the identity hashes before
-// the encoding, with no trailing NUL.
-const matchConfigDomain = "nanolathe/match-config/1"
+// matchConfigDomain and matchConfigDomainV2 are the literal UTF-8 domains the
+// identity hashes before the encoding, with no trailing NUL.
+const (
+	matchConfigDomain   = "nanolathe/match-config/1"
+	matchConfigDomainV2 = "nanolathe/match-config/2"
+)
 
 // EncodeMatchConfig returns the canonical encoding of a resolved
 // configuration: a fresh copy of the bytes it was frozen with. The zero value
@@ -52,7 +63,7 @@ func DecodeMatchConfig(payload []byte) (EffectiveMatchConfig, error) {
 		return EffectiveMatchConfig{}, matchFieldError("payload", fmt.Sprintf("at most %d bytes, got %d", matchConfigMaxBytes, len(payload)))
 	}
 	r := netproto.NewReader(payload, matchFieldError)
-	request := readMatchRequest(r)
+	request := readMatchRequest(r, len(payload))
 	if err := r.End(); err != nil {
 		return EffectiveMatchConfig{}, err
 	}
@@ -75,7 +86,11 @@ func (c EffectiveMatchConfig) Digest() [32]byte {
 		return [32]byte{}
 	}
 	h := sha256.New()
-	h.Write([]byte(matchConfigDomain))
+	if c.request.version() == 2 {
+		h.Write([]byte(matchConfigDomainV2))
+	} else {
+		h.Write([]byte(matchConfigDomain))
+	}
 	h.Write(c.encoding)
 	var out [32]byte
 	copy(out[:], h.Sum(nil))
@@ -152,6 +167,11 @@ func encodeMatchRequest(r *MatchConfigRequest) ([]byte, error) {
 	w.U32(pol.RejoinGraceMilliseconds)
 	w.U32(pol.SpectatorDelayMilliseconds)
 	w.U32(pol.ReplayReleaseDelayMilliseconds)
+	if r.version() == 2 {
+		for i := range r.Seats { // 16
+			w.U8(r.Seats[i].Start)
+		}
+	}
 	return w.Bytes(), nil
 }
 
@@ -185,10 +205,11 @@ func writeMatchSeat(w *netproto.Writer, s *MatchSeat) {
 // encoded-size bound on a row's parameters.
 func matchUvarintLen(v uint64) int { return netproto.UvarintLen(v) }
 
-// readMatchRequest reads the fields of §8.6 in order. A text field's UTF-8
-// and NUL rule is the reader's; every other content rule is validate's, which
-// DecodeMatchConfig runs on the result.
-func readMatchRequest(r *netproto.Reader) MatchConfigRequest {
+// readMatchRequest reads the fields of §8.6 in order, and the version-2
+// fields when bytes of a payload of size bytes follow field 15. A text
+// field's UTF-8 and NUL rule is the reader's; every other content rule is
+// validate's, which DecodeMatchConfig runs on the result.
+func readMatchRequest(r *netproto.Reader, size int) MatchConfigRequest {
 	var q MatchConfigRequest
 	q.SessionKind = MatchSessionKind(r.U8()) // 1
 	q.RuleName = r.Key()                     // 2
@@ -278,6 +299,11 @@ func readMatchRequest(r *netproto.Reader) MatchConfigRequest {
 	pol.RejoinGraceMilliseconds = r.U32()
 	pol.SpectatorDelayMilliseconds = r.U32()
 	pol.ReplayReleaseDelayMilliseconds = r.U32()
+	if r.Err() == nil && r.Offset() < size {
+		for i := range q.Seats { // 16
+			q.Seats[i].Start = r.U8()
+		}
+	}
 	if r.Err() != nil {
 		return MatchConfigRequest{}
 	}

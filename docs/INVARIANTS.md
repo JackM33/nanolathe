@@ -511,6 +511,15 @@ fingerprint lock runs with none. It is owned by
 [DESIGN_MODS_MUTATORS](DESIGN_MODS_MUTATORS.md) §15 and is not yet
 implemented.
 
+**Skirmish setup choices are the sixth mode-independent exception
+(user-authorized 2026-10-18).** A skirmish player may choose its commander's
+start position in every gameplay mode, Strict 3.1 included. Chosen starts are
+taken first and the rest are shared by the Location word, a random deal
+drawing only the disposable loading CRT; there is no seam, simulation draw or
+per-tick state. Strict 3.1 *with no chosen start* is the retail baseline, and
+every fingerprint lock runs with none. It is owned by
+[DESIGN_SESSIONS_AI_SAVE](DESIGN_SESSIONS_AI_SAVE.md#chosen-start-positions).
+
 The mode word also selects a **registered** set by name: a third-party set is
 compiled in through `mods/`, which only a command may import, and it composes
 the shipped implementations rather than reimplementing a policy. Such a set
