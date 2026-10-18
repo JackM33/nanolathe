@@ -132,6 +132,14 @@ func (h *retailBattleHUD) servicePaletteFrame(b *battleSession, in *input.State,
 	defer restore()
 
 	frame := b.railPointerFrame(pointerFrame(in, nil, false))
+	// An eligible middle press over the world ends a sidebar drag before its
+	// capture can claim that frame and prevent the radial opening (§3.18).
+	if p.CaptureIndex() >= 0 && !guiRectContains(ctx.window.Rect, frame.PointerX, frame.PointerY) {
+		mouse, _ := publishedPointer(in)
+		if b.canOpenBuildRadial(ctx.frame, mouse, int32(mouse.X), int32(mouse.Y)) {
+			p.ResetPress()
+		}
+	}
 	if b.cl != nil && b.cl.Enhanced() && (b.economyPanel.open || b.economyPanel.captured) {
 		// The explanation owns its click and the outside click that closes
 		// it, including where a compact layout overlaps the command palette.

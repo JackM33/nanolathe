@@ -8,6 +8,7 @@ import (
 	"os"
 	"runtime"
 	"runtime/pprof"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -339,6 +340,37 @@ func runShot(opts Options, cs *contentSet) error {
 	// No construction order is submitted and no extra tick is needed.
 	cl.SetFocused(true) // The windowless capture supplies focused input explicitly.
 	b.battleState().Input.ShiftHeld = opts.ShotShift
+	// `--shot-radial` opens the optional build radial (DESIGN_INTERFACE_HUD_INPUT
+	// §3.18) over the committed selection `--shot-select` published, at the
+	// end of its animations. `--shot-radial-pose` chooses what it shows:
+	// "open" for the bare category ring, or a category (its label's first
+	// word, e.g. "energy") with an optional ":item" index to hover; by
+	// default the fullest category is expanded with its middle item hovered.
+	// The capture path has no pointer, so the presentation state is written
+	// rather than gestured; nothing is armed or submitted [I6].
+	if opts.ShotRadial {
+		p := b.hostPreferences()
+		p.BuildRadial = 1
+		b.hostPresentation = &p
+		if f, ok := b.currentSnapshot(); ok && f != nil {
+			// Open where a player would: at the builder, which has explored
+			// the ground around it.
+			px, py := int32(shotW/2), int32(shotH/2)
+			if unit, ok := snapshotUnitByHandle(f, f.CommandPage.Builder); ok {
+				// The projection keeps the view origin the world drawers
+				// subtract [03 §2.5].
+				px, py = cl.WorldToScreenPx(unit.X, unit.Y, unit.Z)
+				px, py = px-camera.OriginX, py-camera.OriginY
+			}
+			if b.openBuildRadial(f, px, py) {
+				group, item, err := shotRadialPose(opts.ShotRadialPose, b.radial.groups)
+				if err != nil {
+					return err
+				}
+				b.radial.stageCapture(group, item)
+			}
+		}
+	}
 	if opts.ShotBuild != "" {
 		def, ok := b.cat.Unit(opts.ShotBuild)
 		if !ok || def == nil {
@@ -644,4 +676,43 @@ func shotSiblingPath(shot, suffix string) string {
 		return shot[:len(shot)-len(".png")] + suffix
 	}
 	return shot + suffix
+}
+
+// shotRadialPose parses `--shot-radial-pose` into the group to expand and
+// the item to hover: "open" expands nothing; "<category>[:<item>]" names a
+// category by its label's first word; empty picks the fullest category and
+// its middle item, the one in the category's own direction.
+func shotRadialPose(pose string, groups []hud.RadialGroup) (group, item int, err error) {
+	pose = strings.ToLower(strings.TrimSpace(pose))
+	if pose == "open" {
+		return -1, -1, nil
+	}
+	name, index, hasIndex := strings.Cut(pose, ":")
+	group = 0
+	if name == "" {
+		for i := range groups {
+			if len(groups[i].Products) > len(groups[group].Products) {
+				group = i
+			}
+		}
+	} else {
+		group = -1
+		for i, g := range groups {
+			label, _, _ := strings.Cut(strings.ToLower(g.Category.Label()), " ")
+			if label == name {
+				group = i
+			}
+		}
+		if group < 0 {
+			return 0, 0, fmt.Errorf("nanolathe: --shot-radial-pose: category %q is not offered by the selected builder", name)
+		}
+	}
+	shown := min(len(groups[group].Products), radialItemsPerPage)
+	item = (shown - 1) / 2
+	if hasIndex {
+		if item, err = strconv.Atoi(index); err != nil || item < -1 || item >= shown {
+			return 0, 0, fmt.Errorf("nanolathe: --shot-radial-pose: item %q is not -1..%d", index, shown-1)
+		}
+	}
+	return group, item, nil
 }

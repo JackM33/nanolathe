@@ -221,6 +221,9 @@ type retailBattleHUD struct {
 
 	texts  hudTextMemos
 	stamps []int32 // strip stamp origins, reused per draw
+	// radial caches the optional build radial's resolved colours and
+	// derived pictures (DESIGN_INTERFACE_HUD_INPUT §3.18).
+	radial radialArt
 }
 
 // loadRetailBattleHUD binds the same side-selected resources as the retail
@@ -1039,6 +1042,9 @@ func (h *retailBattleHUD) draw(c *client.Client, b *battleSession, presented cli
 		b.drawDeveloperStatus(c, cur, h.primaryFont)
 		b.drawDeveloperHost(c, h.primaryFont)
 	}
+	// The optional build radial paints over the chrome but under every
+	// modal window (DESIGN_INTERFACE_HUD_INPUT §3.18).
+	h.drawBuildRadial(c, b)
 	h.drawBattleMenu(c, b)
 	// ARMOPT's read-only children paint above the surviving options root they
 	// were opened from [07 R-FE-01 §7][07 R-WGT-01 §1].
