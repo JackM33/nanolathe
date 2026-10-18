@@ -348,7 +348,10 @@ func (h *retailBattleHUD) radialDisc(src *formats.GAFFrame, size, tone int) *for
 	side := min(int(src.Width), int(src.Height))
 	ox, oy := (int(src.Width)-side)/2, (int(src.Height)-side)/2
 	out := &formats.GAFFrame{
-		Width: uint16(size), Height: uint16(size),
+		// Builder changes retire this cache; the renderer must not keep each
+		// discarded generation in its permanent atlas (§3.18).
+		Transient: true,
+		Width:     uint16(size), Height: uint16(size),
 		Pixels: make([]byte, size*size), Transparent: make([]bool, size*size),
 	}
 	r := float64(size) / 2

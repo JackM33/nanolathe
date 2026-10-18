@@ -5472,7 +5472,10 @@ side's authored resource-bar colour beside a swatch, or the hovered
 category and how many it offers. Its other colours are Nanolathe
 decoration resolved by nearest match in the loaded palette. A composite
 gadget frame, which has no leaf pixels to crop, falls back to the
-product's name. The derived pictures are kept for one builder at a time.
+product's name. The derived pictures are kept for one builder at a time
+and marked transient for the renderer's bounded upload cache
+(DESIGN_GPU_RENDERER §2.3), so changing builders cannot accumulate discarded
+picture generations in its permanent atlas.
 Animation counts serviced host frames — six to open, six to unfurl a fan,
 four to lift a hover — so a paused battle still animates and captures are
 deterministic. Every fade is recorded ahead of the opaque art, so the
@@ -5494,7 +5497,9 @@ double-click — as opening the battle menu or the megamap does — and closes
 the economy panel, which paints above it; the megamap's wheel entry yields
 to the menu's paging. While it is open no camera input starts: edge and
 arrow scroll, wheel and gesture zoom and the middle-drag pan are all
-suppressed, and because the pan's previous-position words still advance,
+suppressed through the menu's closing frame, including an item pick or
+cancellation; input ownership survives the open-state change. Because the
+pan's previous-position words still advance,
 closing the menu cannot jump the camera. The cursor is the plain arrow and
 nothing under the glass is hovered, so the footer describes no unit the
 menu hides. The one deliberate trade is that an admitted middle press —
@@ -5518,6 +5523,10 @@ the battle's input order — the preference gate, Escape through
 waits for a click, the end of gestures in flight, live keys under the
 menu, the close on a selection change, and the refusals during a camera
 drag and in a viewport too small for the menu;
+`TestBuildRadialClosingFrameOwnsPointer` holds the closing frame's camera
+ownership and the following frame's return to normal input;
+`TestRadialDiscsUseTransientLifetime` holds the derived pictures' bounded
+renderer lifetime across builder changes;
 `TestRadialSectorSpansCoverOnce` holds the glass rasterizer against a
 per-pixel definition, so no pixel is faded twice;
 `TestBuildRadialPersistence` locks the opt-in default and its

@@ -4,8 +4,10 @@ import (
 	"math"
 	"testing"
 
+	"github.com/nanolathe-gg/nanolathe/formats"
 	"github.com/nanolathe-gg/nanolathe/internal/hud"
 	"github.com/nanolathe-gg/nanolathe/internal/input"
+	"github.com/nanolathe-gg/nanolathe/internal/palette"
 	"github.com/nanolathe-gg/nanolathe/internal/pool"
 	"github.com/nanolathe-gg/nanolathe/internal/session"
 )
@@ -371,5 +373,84 @@ func TestBuildRadialBattleInput(t *testing.T) {
 	middle(250, 120, "press")
 	if b.radial.open {
 		t.Fatal("the menu opened in a viewport too small to hold it")
+	}
+}
+
+// Closing the menu does not release its frame to the later camera pass
+// (DESIGN_INTERFACE_HUD_INPUT §3.18), whether an item was picked or the
+// gesture was cancelled. The following frame resumes ordinary camera input.
+func TestBuildRadialClosingFrameOwnsPointer(t *testing.T) {
+	for _, action := range []string{"click", "release", "cancel"} {
+		t.Run(action, func(t *testing.T) {
+			b, cl, _, _ := resourceFixture(t, false)
+			p := b.hostPreferences()
+			p.BuildRadial = 1
+			b.hostPresentation = &p
+			mouse := cl.Input().Mouse
+			mouse.SetPosition(384, 240)
+			b.viewerStep(0, cl)
+			f, _ := b.currentSnapshot()
+			if !b.openBuildRadial(f, 384, 240) {
+				t.Fatal("menu did not open")
+			}
+			group := b.radial.groupAtAngle(radialSlotAngle(hud.RadialEnergy))
+			b.radial.stageCapture(group, 0)
+			x, y := radialPolar(b.radial.cx, b.radial.cy, radialSlotAngle(hud.RadialEnergy), radialItemR)
+			mouse.SetPosition(float32(x), float32(y))
+			switch action {
+			case "click":
+				mouse.SetButton(input.MouseButtonLeft, true)
+			case "release":
+				b.radial.sticky = false
+				mouse.SetButton(input.MouseButtonMiddle, true)
+				mouse.ResetEdges()
+				mouse.SetButton(input.MouseButtonMiddle, false)
+			case "cancel":
+				mouse.SetButton(input.MouseButtonMiddle, true)
+				mouse.SetButton(input.MouseButtonRight, true)
+			}
+			mouse.SetWheel(0, 1)
+			zoom := b.zoom.Target(b.cam)
+			viewX, viewZ := b.cam.X, b.cam.Z
+			b.viewerStep(0, cl)
+			if b.radial.open || b.battleState().PlacementArmed() != (action != "cancel") {
+				t.Fatal("menu did not finish the gesture")
+			}
+			if b.zoom.Target(b.cam) != zoom || b.cam.X != viewX || b.cam.Z != viewZ {
+				t.Fatal("the menu's closing frame moved or zoomed the camera")
+			}
+			mouse.SetButton(input.MouseButtonLeft, false)
+			mouse.SetButton(input.MouseButtonMiddle, false)
+			mouse.SetButton(input.MouseButtonRight, false)
+			mouse.ResetEdges()
+			mouse.SetWheel(0, 1)
+			b.viewerStep(0, cl)
+			if b.zoom.Target(b.cam) == zoom {
+				t.Fatal("the closed menu kept the following frame's wheel")
+			}
+		})
+	}
+}
+
+// Builder changes retire these derived pictures from the HUD cache. They
+// must use the renderer's bounded transient uploads rather than its permanent
+// source atlas (DESIGN_INTERFACE_HUD_INPUT §3.18; DESIGN_GPU_RENDERER §2.3).
+func TestRadialDiscsUseTransientLifetime(t *testing.T) {
+	src := &formats.GAFFrame{Width: 2, Height: 2, Pixels: []byte{7, 7, 7, 7}, Transparent: make([]bool, 4)}
+	h := &retailBattleHUD{
+		pal: &palette.Tables{},
+		common: &formats.GAF{Entries: []formats.GAFEntry{{
+			Name: "picture", Frames: []formats.GAFFrameRef{{Frame: src}},
+		}}},
+	}
+	for _, builder := range []string{"first", "second", "first"} {
+		pic := h.radialProductFrame("picture", builder, 0)
+		disc := h.radialDisc(pic, 2, 0)
+		if disc == nil || !disc.Transient {
+			t.Fatal("derived radial picture would enter the permanent renderer atlas")
+		}
+		if h.radialDisc(pic, 2, 0) != disc {
+			t.Fatal("the current builder did not reuse its derived picture")
+		}
 	}
 }

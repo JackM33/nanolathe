@@ -132,7 +132,8 @@ func (b *battleSession) handleInput(in *input.State, cl *client.Client) {
 	// so no panel or world path can take a frame of its gesture; it opens
 	// only on a middle press no overlay covers. The keyboard keeps its
 	// shortcuts underneath it (§3.18).
-	if b.serviceBuildRadial(mouse, mx, my) {
+	b.radialPointerOwned = b.serviceBuildRadial(mouse, mx, my)
+	if b.radialPointerOwned {
 		shortcutsServiced = true
 		b.handleBattleShortcuts(in, cl)
 		return
