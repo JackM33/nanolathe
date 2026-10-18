@@ -209,7 +209,7 @@ func onlineConfig(cs *contentSet, cat *content.Catalog, settings onlineSettings,
 		request.Location = settings.location
 		// Version 1's rule shares a room's sight, so only the other choice is
 		// written (configuration field 17).
-		if settings.separateSight {
+		if settings.separateSight && onlineSeatRules(settings.rules).AlliedSightChoice() {
 			request.AlliedSight = session.MatchAlliedSightSeparate
 		}
 	}

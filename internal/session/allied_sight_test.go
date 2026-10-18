@@ -8,7 +8,7 @@ import (
 )
 
 // Allied Sight's teams are read from the alliance table (docs/DESIGN_SESSIONS_AI_SAVE.md
-// "Allied shared sight"): mutual allies form a team, a player alone in its
+// "Modern allied sight"): mutual allies form a team, a player alone in its
 // group and an absent slot join none. Membership is observed through the
 // jammer exemption, which a vision team grants its members under every rule
 // set and Strict 3.1 otherwise refuses [03 R-VIS-01 §5].

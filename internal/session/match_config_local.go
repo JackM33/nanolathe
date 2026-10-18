@@ -142,9 +142,9 @@ func newMatchConfigRequest(cfg SkirmishConfig, options SkirmishEntryOptions, roo
 		return MatchConfigRequest{}, matchFieldError("unitLimit", fmt.Sprintf("%d..%d", matchMinUnitLimit, matchMaxUnitLimit))
 	}
 	r.UnitLimit = uint16(cfg.UnitLimit)
-	// A single-player setup's allied sight; an online room writes its own
-	// choice over this (onlineConfig).
-	if cfg.AlliedSight && !cfg.Survival.Enabled {
+	// A single-player setup's allied sight, where the rule set offers the
+	// choice; an online room writes its own choice over this (onlineConfig).
+	if cfg.AlliedSight && !cfg.Survival.Enabled && seatRulesOf(set).AlliedSightChoice() {
 		r.AlliedSight = MatchAlliedSightShared
 	}
 	if cfg.Survival.Enabled {
@@ -155,6 +155,14 @@ func newMatchConfigRequest(cfg SkirmishConfig, options SkirmishEntryOptions, roo
 	}
 	if r.Seats, err = matchSeatsFromSetup(cfg, options, room, lobby); err != nil {
 		return MatchConfigRequest{}, err
+	}
+	// A chosen start is carried only where the rule set honours it, so a
+	// Strict 3.1 battle's configuration stays version 1 whatever the
+	// lobby rows still hold.
+	if !seatRulesOf(set).ChosenStarts() {
+		for i := range r.Seats {
+			r.Seats[i].Start = 0
+		}
 	}
 	if r.ContentProfile, err = matchContentProfileFromEntry(room, options.ContentLimits); err != nil {
 		return MatchConfigRequest{}, err

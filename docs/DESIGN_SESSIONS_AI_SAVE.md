@@ -2508,15 +2508,17 @@ teammate holds as many of that type); the Classic control,
 ([DESIGN_MODS_MUTATORS §15.11](DESIGN_MODS_MUTATORS.md#1511-verification));
 and the existing synchronous/asynchronous arena comparison.
 
-### Chosen start positions
+### Modern chosen start positions
 
-**Nanolathe setup policy (user-authorized 2026-10-18).** A skirmish player
-may choose the start position its commander begins on. It is a lobby choice,
-like the mutators and unit restrictions: it is offered in every gameplay
-mode, Strict 3.1 included, adds no rule seam, no simulation random draw and
-no per-tick state, and a setup in which nobody chooses places every
-commander exactly as retail does. Strict 3.1 *with no chosen start* is the
-retail baseline, and every fingerprint lock runs with none.
+**Nanolathe Modern policy (user-authorized 2026-10-18).** A skirmish player
+may choose the start position its commander begins on. Modern and Community
+3.9 honour the choice; Strict 3.1 keeps retail's placement, so its setup
+screen offers none, its battle entry ignores one a setup still carries, and
+its configuration refuses one. The decision is `SeatRules.ChosenStarts`
+(`StrictSeats` false, `ModernSeats` true; Community 3.9 binds
+`ModernSeats`). It adds no simulation random draw and no per-tick state, and
+a setup in which nobody chooses places every commander exactly as retail
+does in every mode, so every fingerprint lock is unchanged.
 
 **Retail behaviour.** Skirmish battle entry gives each eligible slot a stored
 start number: the slot's own under fixed starts, and a cyclic permutation of
@@ -2555,7 +2557,9 @@ choice keeps its version-1 bytes and identity. A save needs none: the bank
 already holds the commanders where they stand. The online lobby offers no
 control for it yet; a seat's choice would need a relay seat message.
 
-**Tests:** `TestUnchosenStartsKeepRetailPlacement` (identity and the CRT walk,
+**Tests:** `TestStrictIgnoresChosenStarts` (the seam's answers, Strict's
+bypass with retail's draws, and a Strict configuration's refusal),
+`TestUnchosenStartsKeepRetailPlacement` (identity and the CRT walk,
 with retail's draw count), `TestChosenStartsUnderFixedLocation`,
 `TestChosenStartsUnderRandomLocation` (the deal replayed from the CRT
 definition), `TestChosenStartsRefuseWhatTheMapCannotSeat`,
@@ -2563,20 +2567,24 @@ definition), `TestChosenStartsRefuseWhatTheMapCannotSeat`,
 `TestChosenStartsEncodeAsConfigurationVersion2`,
 `TestChosenStartsRoundTripTheLocalAdapter` and, on the retail art,
 `TestSkirmishScreenChoosesStartPositionsRetail`, which composes the screen's
-battle under Strict 3.1 and Modern and checks every commander's start.
+battle under Strict 3.1 (retail's starts) and Modern (the choices) and
+checks every commander's start.
 
-### Allied shared sight
+### Modern allied sight
 
-**Nanolathe setup policy (user-authorized 2026-10-18).** Allies may share
-line of sight, radar and the explored map, chosen per battle in every game:
-the skirmish setup screen's Allied Sight option for a single-player skirmish,
-the online lobby host's for an online skirmish (DESIGN_MULTIPLAYER §6.7
-"Allied sight"). It is offered in every gameplay mode, Strict 3.1 included,
-and adds no rule seam, random draw or per-tick state of its own. A
-single-player skirmish without it plays exactly as retail, which never
-merges an ally's current sight `[03 §3.2]` `[03 R-VIS-01 §7]`; Strict 3.1
-*without Allied Sight* is the retail baseline, and every fingerprint lock
-runs without it. Survival's survivors always share (DESIGN_SURVIVAL §4.3).
+**Nanolathe Modern policy (user-authorized 2026-10-18).** Allies may share
+line of sight, radar and the explored map, chosen per battle: the skirmish
+setup screen's Allied Sight option for a single-player skirmish, the online
+lobby host's for an online skirmish (DESIGN_MULTIPLAYER §6.7 "Allied
+sight"). Modern and Community 3.9 honour the choice; Strict 3.1 keeps
+retail's separate sight in a single-player skirmish, which never merges an
+ally's current sight `[03 §3.2]` `[03 R-VIS-01 §7]`, and the approved online
+policy's shared sight in an online room, so neither screen offers the
+choice there, battle entry and load ignore it, and the configuration
+refuses it. The decision is `SeatRules.AlliedSightChoice` (`StrictSeats`
+false, `ModernSeats` true). It adds no random draw or per-tick state, and a
+battle without the choice is unchanged in every mode, so every fingerprint
+lock is unchanged. Survival's survivors always share (DESIGN_SURVIVAL §4.3).
 
 **Policy.** `SkirmishConfig.AlliedSight` makes each team one side through
 the vision-team mechanism Survival and online teams already use
@@ -2606,9 +2614,9 @@ the restored units publish coverage. A campaign takes none.
 **Tests:** `TestAlliedSightTeamsFollowTheAllianceTable`,
 `TestAlliedSightIsConfigurationField17`,
 `TestAlliedSightSharesATeamsSightRetail` (a three-player battle on Ashap
-Plateau under Strict 3.1 and Modern: the human sees its teammate's commander
-only with the option and never the opponent's, also after a save and a load
-with and without the sidecar flag), `TestTheSettingsFileKeepsAlliedSight`,
+Plateau: under Modern the human sees its teammate's commander only with the
+option, under Strict 3.1 never, and never the opponent's; also after a
+Modern save and a load with and without the sidecar flag), `TestTheSettingsFileKeepsAlliedSight`,
 `TestOnlineLobbyHostChoosesAlliedSight` and, on the retail art,
 `TestSkirmishScreenSharesAlliedSightRetail`.
 

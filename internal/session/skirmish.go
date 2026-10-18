@@ -173,7 +173,7 @@ type SkirmishPlayer struct {
 	// `StartPos<n>` by its authored number. It is a Nanolathe lobby choice
 	// with no retail counterpart, offered in every gameplay mode; a setup
 	// with no choice places commanders exactly as retail does
-	// (docs/DESIGN_SESSIONS_AI_SAVE.md "Chosen start positions").
+	// (docs/DESIGN_SESSIONS_AI_SAVE.md "Modern chosen start positions").
 	Start int
 }
 
@@ -217,7 +217,7 @@ type SkirmishConfig struct {
 	// counterpart, offered in every gameplay mode; false is retail, which
 	// never merges an ally's sight [03 §3.2]. An online battle takes its
 	// room's choice from the configuration instead, and Survival's survivors
-	// always share (docs/DESIGN_SESSIONS_AI_SAVE.md "Allied shared sight").
+	// always share (docs/DESIGN_SESSIONS_AI_SAVE.md "Modern allied sight").
 	AlliedSight bool
 
 	// Explicit battle RNG seeds [R-CORE-02] DET-01. Retail derives the sim
@@ -384,7 +384,7 @@ func (c SkirmishConfig) Validate() error {
 // validateChosenStarts refuses a chosen start outside 1..SkirmishMaxStart and
 // two players that chose the same one. Whether the map has the start is
 // battle entry's question, since it depends on the schema the player count
-// selects (docs/DESIGN_SESSIONS_AI_SAVE.md "Chosen start positions").
+// selects (docs/DESIGN_SESSIONS_AI_SAVE.md "Modern chosen start positions").
 func validateChosenStarts(c SkirmishConfig) error {
 	var owner [SkirmishMaxStart + 1]int
 	for i := 0; i < c.NumPlayers && i < len(c.Players); i++ {
@@ -1137,7 +1137,8 @@ func composeSkirmish(entry skirmishEntry, options SkirmishEntryOptions, audio vf
 	}
 	if entry.online != nil {
 		s.setOnlineVisionTeams(&entry.online.request)
-	} else if cfg.AlliedSight && !cfg.Survival.Enabled {
+	} else if cfg.AlliedSight && !cfg.Survival.Enabled && seatRulesOf(s.Rules).AlliedSightChoice() {
+		// Strict 3.1 keeps retail's separate sight (SeatRules).
 		s.setAlliedVisionTeams()
 	}
 	if err := applyAIOverrides(s, options.AIOverrides); err != nil {
@@ -1421,12 +1422,12 @@ func shuffleEligibleStarts(crt *rng.CRT, order []int) {
 // on the same loading CRT. The CRT is the disposable loading stream, so the
 // simulation stream is untouched either way. A chosen start the map lacks is
 // retail's missing-start fatal; too few free starts is this build's error
-// (docs/DESIGN_SESSIONS_AI_SAVE.md "Chosen start positions").
-func skirmishStartAssignment(cfg SkirmishConfig, eligible []int, starts []mission.Special, crt *rng.CRT) (map[int]int, int, error) {
+// (docs/DESIGN_SESSIONS_AI_SAVE.md "Modern chosen start positions").
+func skirmishStartAssignment(cfg SkirmishConfig, eligible []int, starts []mission.Special, crt *rng.CRT, chosenAllowed bool) (map[int]int, int, error) {
 	assignment := make(map[int]int, len(eligible))
 	chosen := 0
 	for _, slot := range eligible {
-		if cfg.Players[slot].Start != 0 {
+		if chosenAllowed && cfg.Players[slot].Start != 0 {
 			chosen++
 		}
 	}
@@ -1591,7 +1592,7 @@ func skirmishReconstructUnits(s *Session, cfg SkirmishConfig, m *mission.Mission
 	// read [01 R-CORE-02][01 R-PLAT-01 §7][08 R-ENTRY-01 §5] [I4] DET-01.
 	crt := rng.NewCRT(cfg.RNGCrtSeed)
 	// Map logical slot → stored start number.
-	permMap, chosen, err := skirmishStartAssignment(cfg, eligible, starts, &crt)
+	permMap, chosen, err := skirmishStartAssignment(cfg, eligible, starts, &crt, seatRulesOf(s.Rules).ChosenStarts())
 	if err != nil {
 		return err
 	}

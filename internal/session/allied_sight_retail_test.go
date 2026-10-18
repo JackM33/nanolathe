@@ -13,10 +13,10 @@ import (
 
 // Allied Sight on the retail corpus: in a three-player skirmish on Ashap
 // Plateau where the human and one computer are a team, the human sees its
-// teammate's commander only with the option, never the opponent's, under
-// Strict 3.1 as under Modern; and a save keeps the choice through its
-// sidecar's flag, so the load sees the same (docs/DESIGN_SESSIONS_AI_SAVE.md
-// "Allied shared sight").
+// teammate's commander only with the option under Modern, never under
+// Strict 3.1, which keeps retail's separate sight, and never the opponent's;
+// and a save keeps the choice through its sidecar's flag, so the load sees
+// the same (docs/DESIGN_SESSIONS_AI_SAVE.md "Modern allied sight").
 func TestAlliedSightSharesATeamsSightRetail(t *testing.T) {
 	cat, fs := retailcat.Shared(t)
 	commander := func(s *Session, owner uint8) *units.Unit {
@@ -46,8 +46,8 @@ func TestAlliedSightSharesATeamsSightRetail(t *testing.T) {
 			if err != nil {
 				t.Fatalf("%s: compose: %v", rules, err)
 			}
-			if got := sees(s, 1); got != shared {
-				t.Fatalf("%s, allied sight %v: the human sees its teammate's commander %v", rules, shared, got)
+			if got, want := sees(s, 1), shared && rules != StrictRuleSetName; got != want {
+				t.Fatalf("%s, allied sight %v: the human sees its teammate's commander %v, want %v", rules, shared, got, want)
 			}
 			if sees(s, 2) {
 				t.Fatalf("%s, allied sight %v: the human sees the opponent's commander", rules, shared)

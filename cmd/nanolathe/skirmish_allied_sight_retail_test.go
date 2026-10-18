@@ -17,8 +17,9 @@ import (
 // The skirmish screen's Allied Sight button on the retail art: a click turns
 // it on, and the battle the screen starts — the human and a computer on one
 // team, a second computer opposed — gives the human its teammate's sight
-// under Strict 3.1 as under Modern (DESIGN_INTERFACE_HUD_INPUT §2.6 "Allied
-// sight"). With NANOLATHE_SHOT_DIR set, the screen is written as a PNG.
+// under Modern, while Strict 3.1 keeps retail's separate sight
+// (DESIGN_INTERFACE_HUD_INPUT §2.6 "Allied sight"). With NANOLATHE_SHOT_DIR
+// set, the screen is written as a PNG.
 func TestSkirmishScreenSharesAlliedSightRetail(t *testing.T) {
 	resetSaveLoadScreenState(t)
 	shell, _ := retailShellForTest(t)
@@ -65,7 +66,7 @@ func TestSkirmishScreenSharesAlliedSightRetail(t *testing.T) {
 			t.Fatalf("%s: the battle lost Allied Sight", mode)
 		}
 		for _, u := range s.Units.Iter() {
-			want := u.Owner != 2
+			want := u.Owner == 0 || (u.Owner == 1 && mode != gameplay.Strict31)
 			if got := s.Vis.VisiblePoint(visibility.PlayerID(0), u.X, u.Y, u.Z); got != want {
 				t.Fatalf("%s: the human sees player %d's commander %v, want %v", mode, u.Owner, got, want)
 			}

@@ -124,7 +124,7 @@ type MatchSeat struct {
 	// leaves it to Location, 1..SkirmishMaxStart names the map's
 	// `StartPos<n>`. Only a human or computer row of a skirmish chooses
 	// one, and no two rows choose the same (docs/DESIGN_SESSIONS_AI_SAVE.md
-	// "Chosen start positions").
+	// "Modern chosen start positions").
 	Start uint8
 }
 
@@ -249,7 +249,7 @@ type MatchConfigRequest struct {
 }
 
 // MatchAlliedSight is field 17: whether a skirmish's teams share sight and
-// radar (docs/DESIGN_SESSIONS_AI_SAVE.md "Allied shared sight",
+// radar (docs/DESIGN_SESSIONS_AI_SAVE.md "Modern allied sight",
 // DESIGN_MULTIPLAYER §6.7 "Allied sight"). Its zero value is version 1's
 // rule, which differs by how the battle is played, so every configuration
 // version 1 describes keeps its meaning: an online skirmish's teams share
@@ -544,6 +544,9 @@ func (r *MatchConfigRequest) validate() (RuleSet, error) {
 	if r.SessionKind != MatchOnlineSkirmish && r.AlliedSight != MatchAlliedSightVersion1 {
 		return RuleSet{}, matchFieldError("alliedSight", "0 for Survival, whose survivors always share")
 	}
+	if r.AlliedSight != MatchAlliedSightVersion1 && !seatRulesOf(set).AlliedSightChoice() {
+		return RuleSet{}, matchFieldError("alliedSight", fmt.Sprintf("0: rule set %q keeps version 1's sight", r.RuleName))
+	}
 	return set, nil
 }
 
@@ -595,7 +598,7 @@ func (r *MatchConfigRequest) validateSeats(set RuleSet) error {
 	if humans == 0 {
 		return matchFieldError("seats", "at least one human seat")
 	}
-	if err := r.validateSeatStarts(); err != nil {
+	if err := r.validateSeatStarts(set); err != nil {
 		return err
 	}
 	limit := matchComputersPerHost(set)
@@ -651,7 +654,7 @@ func (r *MatchConfigRequest) validateSeats(set RuleSet) error {
 // 1..SkirmishMaxStart on a skirmish's human or computer row, and no two rows
 // choose the same. Survival places its commanders itself (DESIGN_SURVIVAL
 // §4.2), so every Survival row holds zero.
-func (r *MatchConfigRequest) validateSeatStarts() error {
+func (r *MatchConfigRequest) validateSeatStarts(set RuleSet) error {
 	var owner [SkirmishMaxStart + 1]int
 	for i := range r.Seats {
 		start := r.Seats[i].Start
@@ -659,6 +662,9 @@ func (r *MatchConfigRequest) validateSeatStarts() error {
 			continue
 		}
 		path := fmt.Sprintf("seats[%d].start", i)
+		if !seatRulesOf(set).ChosenStarts() {
+			return matchFieldError(path, fmt.Sprintf("0: rule set %q assigns every start by Location", r.RuleName))
+		}
 		if start > SkirmishMaxStart {
 			return matchFieldError(path, fmt.Sprintf("0 automatic or 1..%d", SkirmishMaxStart))
 		}

@@ -109,6 +109,12 @@ type RuleSet struct {
 // units and hosted computers are destroyed or kept, which §15 Q6, Q26 and Q28
 // select with one answer for both halves — belongs to this interface too,
 // and is added here when M6 implements removal.
+//
+// It also answers the skirmish setup's seat questions, which battle entry
+// and the lobby ask before any tick: whether a player may choose where its
+// commander starts, and whether the lobby may choose a team's shared sight
+// (docs/DESIGN_SESSIONS_AI_SAVE.md "Modern chosen start positions", "Modern
+// allied sight"). Strict 3.1 answers as retail, which offers neither.
 type SeatRules interface {
 	// ComputerSeatsPerHuman is the most computer seats one human seat may
 	// add, within the lobby's available seats.
@@ -125,6 +131,17 @@ type SeatRules interface {
 	// that pass, keeps normal sight and the defeated human watches with
 	// normal fog until its computers are gone.
 	ComputersStopWithHost() bool
+	// ChosenStarts reports whether a skirmish player's chosen start replaces
+	// retail's StartPos assignment for that player. Retail assigns every
+	// start by the Location word [08 R-ENTRY-01 §5].
+	ChosenStarts() bool
+	// AlliedSightChoice reports whether the lobby's Allied Sight choice
+	// applies: a single-player skirmish's teams may share sight and radar,
+	// and an online skirmish room may keep its teams' sight separate. Retail
+	// never merges an ally's sight [03 §3.2]; an online room's teams share
+	// it in every mode (docs/DESIGN_MULTIPLAYER.md §6.7), which a refused
+	// choice leaves as it is.
+	AlliedSightChoice() bool
 }
 
 // StrictSeats is retail's answer: one computer per human machine, hosted by
@@ -141,6 +158,13 @@ func (StrictSeats) ComputerSeatsPerHuman() int { return 1 }
 // a defeated viewer's [03 R-VIS-01 §4].
 func (StrictSeats) ComputersStopWithHost() bool { return true }
 
+// ChosenStarts is retail's: every start comes from the Location word.
+func (StrictSeats) ChosenStarts() bool { return false }
+
+// AlliedSightChoice is retail's: no choice, so a single-player team keeps
+// separate sight and an online room's teams share it.
+func (StrictSeats) AlliedSightChoice() bool { return false }
+
 // ModernSeats is the approved Nanolathe online policy for Modern and
 // Community 3.9 (docs/DESIGN_MULTIPLAYER.md §6.6, §15 Q23): a human may add
 // computers up to the available lobby seats, and a hosted computer keeps
@@ -156,6 +180,15 @@ func (ModernSeats) ComputerSeatsPerHuman() int { return SkirmishMaxPlayers }
 // hosts play on until they are destroyed or the battle ends, and a defeated
 // host's sensor pass stays an ordinary viewer's while one of them lives.
 func (ModernSeats) ComputersStopWithHost() bool { return false }
+
+// ChosenStarts is the Nanolathe Modern policy approved on 2026-10-18: a
+// player's chosen start replaces its assignment
+// (docs/DESIGN_SESSIONS_AI_SAVE.md "Modern chosen start positions").
+func (ModernSeats) ChosenStarts() bool { return true }
+
+// AlliedSightChoice is the Nanolathe Modern policy approved on 2026-10-18
+// (docs/DESIGN_SESSIONS_AI_SAVE.md "Modern allied sight").
+func (ModernSeats) AlliedSightChoice() bool { return true }
 
 // UnitLimitRules is the save/restore unit-limit policy seam
 // (DESIGN_SESSIONS_AI_SAVE "Modern save unit limits"). It is the one gameplay

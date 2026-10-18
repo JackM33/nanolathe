@@ -359,7 +359,7 @@ type Player struct {
 	// Start is the row's chosen start position, a Nanolathe lobby choice
 	// with no retail registry value: 0, stored as no key, leaves it to
 	// Location, and 1..MaxPlayers names the map's StartPos<n>
-	// (docs/DESIGN_SESSIONS_AI_SAVE.md "Chosen start positions"). Normalize
+	// (docs/DESIGN_SESSIONS_AI_SAVE.md "Modern chosen start positions"). Normalize
 	// reads any other value as 0.
 	Start int `json:"start,omitempty"`
 }
@@ -382,7 +382,7 @@ type Skirmish struct {
 	// AlliedSight is the Allied Sight option, a Nanolathe lobby choice with
 	// no retail registry value: teammates share sight and radar. Absent is
 	// false, retail's separate sight (docs/DESIGN_SESSIONS_AI_SAVE.md
-	// "Allied shared sight").
+	// "Modern allied sight").
 	AlliedSight bool     `json:"alliedSight,omitempty"`
 	Players     []Player `json:"players"`
 }

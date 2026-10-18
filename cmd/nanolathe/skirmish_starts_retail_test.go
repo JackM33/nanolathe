@@ -18,7 +18,7 @@ import (
 // cycles Auto and the map's starts, skipping one another row holds; the
 // battle the screen starts places each commander on its choice under
 // Strict 3.1 as under Modern; and the map picker numbers the starts
-// (docs/DESIGN_SESSIONS_AI_SAVE.md "Chosen start positions",
+// (docs/DESIGN_SESSIONS_AI_SAVE.md "Modern chosen start positions",
 // DESIGN_INTERFACE_HUD_INPUT §2.6 "Start positions"). With
 // NANOLATHE_SHOT_DIR set, both screens are written there as PNGs.
 func TestSkirmishScreenChoosesStartPositionsRetail(t *testing.T) {
@@ -87,9 +87,14 @@ func TestSkirmishScreenChoosesStartPositionsRetail(t *testing.T) {
 			t.Fatalf("%s: the setup does not compose: %v", mode, err)
 		}
 		for _, u := range battle.Session.Units.Iter() {
-			x, z := at(cfg.Players[u.Owner].Start)
+			// Strict 3.1 ignores the choice: fixed starts are the identity.
+			start := cfg.Players[u.Owner].Start
+			if mode == gameplay.Strict31 {
+				start = int(u.Owner) + 1
+			}
+			x, z := at(start)
 			if u.X != x || u.Z != z {
-				t.Fatalf("%s: player %d commander at (%d,%d), want StartPos%d (%d,%d)", mode, u.Owner, u.X>>16, u.Z>>16, cfg.Players[u.Owner].Start, x>>16, z>>16)
+				t.Fatalf("%s: player %d commander at (%d,%d), want StartPos%d (%d,%d)", mode, u.Owner, u.X>>16, u.Z>>16, start, x>>16, z>>16)
 			}
 		}
 	}

@@ -334,7 +334,7 @@ func validPlayer(p PlayerID) bool { return p < 10 }
 // lobby team of two or more unless the room keeps sight separate
 // (docs/DESIGN_MULTIPLAYER.md §6.7 "Allied sight"); and a single-player
 // skirmish with the Allied Sight option, once per team
-// (docs/DESIGN_SESSIONS_AI_SAVE.md "Allied shared sight").
+// (docs/DESIGN_SESSIONS_AI_SAVE.md "Modern allied sight").
 // Members must be disjoint across calls. Reference counts stay balanced
 // because every team is fixed for the battle: a stamp and its later removal
 // reach the same grids.

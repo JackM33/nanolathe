@@ -4,7 +4,7 @@ import "github.com/nanolathe-gg/nanolathe/internal/visibility"
 
 // setAlliedVisionTeams makes each team of a single-player skirmish one side
 // for sight, the explored map and radar (docs/DESIGN_SESSIONS_AI_SAVE.md
-// "Allied shared sight"), the vision-team mechanism Survival's survivors and
+// "Modern allied sight"), the vision-team mechanism Survival's survivors and
 // online teams use (DESIGN_SURVIVAL §4.3, DESIGN_MULTIPLAYER §6.7).
 //
 // A team is read from the alliance table, not the setup's ally groups, so a

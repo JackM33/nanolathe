@@ -1058,24 +1058,29 @@ DESIGN_MULTIPLAYER §6.6) have no Players control. Tests:
 which composes a one-human, seven-computer battle under Strict 3.1 and
 Modern and, with `NANOLATHE_SHOT_DIR` set, writes the eight-row screen.
 
-**Allied sight (Nanolathe setup policy, user-authorized 2026-10-18).** An
+**Allied sight (Nanolathe Modern policy, user-authorized 2026-10-18).** Under
+Modern and Community 3.9 rules (`SeatRules.AlliedSightChoice`; Strict 3.1
+shows neither control, below), an
 `Allied Sight` heading cloned from the Location label at (175, 290) and a
 two-stage button cloned from Mapping at (175, 306), `Separate` or `Shared`,
 sit beside Players under the player box; a click flips it. Shared makes each
 team's players share line of sight, radar and the explored map
-([DESIGN_SESSIONS_AI_SAVE "Allied shared sight"](DESIGN_SESSIONS_AI_SAVE.md#allied-shared-sight)).
+([DESIGN_SESSIONS_AI_SAVE "Modern allied sight"](DESIGN_SESSIONS_AI_SAVE.md#modern-allied-sight)).
 It defaults to Separate, retail's sight, persists as `alliedSight` in the
 settings file, and is carried to battle as `SkirmishConfig.AlliedSight`. The
 Survival screen, whose survivors always share, has none. The online lobby
 gives the host the same button in a skirmish room, in the Air Waves slot that
 only a Survival room shows; it defaults to Shared there, as online skirmishes
-always shared, and guests see it greyed (DESIGN_MULTIPLAYER §6.7). Tests:
+always shared, and guests see it greyed; a Strict 3.1 room shows none and
+keeps its teams' shared sight (DESIGN_MULTIPLAYER §6.7). Tests:
 `TestTheSettingsFileKeepsAlliedSight`, `TestOnlineLobbyHostChoosesAlliedSight`
 and `TestSkirmishScreenSharesAlliedSightRetail`, which with
 `NANOLATHE_SHOT_DIR` set writes the screen as a PNG.
 
-**Start positions (Nanolathe setup policy, user-authorized 2026-10-18).**
-Each live row has a Start button, a copy of the row's Metal button moved to
+**Start positions (Nanolathe Modern policy, user-authorized 2026-10-18).**
+Under Modern and Community 3.9 rules (`SeatRules.ChosenStarts`; a Strict 3.1
+screen shows no Start column and its preflight ignores the rows' choices),
+each live row has a Start button, a copy of the row's Metal button moved to
 x 400, in the empty strip between the player box and the option column,
 under a `Start` heading cloned from the Location label on the baked heading
 line. Open rows and the Survival screen have none. The button reads `Auto`
@@ -1090,7 +1095,7 @@ small bevelled box over its position in the preview's own projection, so
 the numbers can be read; nothing else on that screen changes. The choice
 persists with the row (`start` in the settings file) and is carried to
 battle as `SkirmishPlayer.Start`
-([DESIGN_SESSIONS_AI_SAVE "Chosen start positions"](DESIGN_SESSIONS_AI_SAVE.md#chosen-start-positions)).
+([DESIGN_SESSIONS_AI_SAVE "Modern chosen start positions"](DESIGN_SESSIONS_AI_SAVE.md#modern-chosen-start-positions)).
 Tests: `TestSkirmishScreenChoosesStartPositionsRetail`, which with
 `NANOLATHE_SHOT_DIR` set writes both screens as PNGs.
 

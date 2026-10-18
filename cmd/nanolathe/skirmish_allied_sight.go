@@ -1,7 +1,7 @@
 package main
 
 // The Allied Sight option (docs/DESIGN_INTERFACE_HUD_INPUT.md §2.6 "Allied
-// sight", docs/DESIGN_SESSIONS_AI_SAVE.md "Allied shared sight"): whether a
+// sight", docs/DESIGN_SESSIONS_AI_SAVE.md "Modern allied sight"): whether a
 // team's players share line of sight, radar and the explored map. The
 // skirmish setup screen offers it under the player box, beside Players; the
 // online lobby offers it to the host in the same slot, which a skirmish
@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/nanolathe-gg/nanolathe/internal/gui"
+	"github.com/nanolathe-gg/nanolathe/internal/session"
 	"github.com/nanolathe-gg/nanolathe/internal/ui"
 )
 
@@ -65,11 +66,39 @@ func installSkirmishAlliedSight(window *gui.Window) {
 	window.Gadgets = append(window.Gadgets, alliedSightGadgets(window, alliedSightX)...)
 }
 
-// refreshSkirmishAlliedSight shows the setup's choice.
+// refreshSkirmishAlliedSight shows the setup's choice where the selected
+// rules offer it; Strict 3.1 keeps retail's separate sight and shows none.
 func (g *gameShell) refreshSkirmishAlliedSight(p *ui.Panel) {
 	if g.survivalMenu {
 		return
 	}
+	offered := g.setupSeatRules().AlliedSightChoice()
+	p.SetActive(alliedSightButton, offered)
+	p.SetActive(alliedSightLabel, offered)
 	p.SetStageAt(p.Index(alliedSightButton), boolInt(g.setup.AlliedSight))
 	p.SetHelp(alliedSightButton, alliedSightHelp(g.setup.AlliedSight))
+}
+
+// setupSeatRules is the seat policy of the rules a battle started now would
+// use (session.SeatRules): it decides which Nanolathe setup choices the
+// screen offers. A set without one answers as Strict 3.1.
+func (g *gameShell) setupSeatRules() session.SeatRules {
+	return seatRulesFor(session.RuleSetForMode(g.gameplay))
+}
+
+// seatRulesFor is a rule set's seat policy, Strict 3.1's when it has none.
+func seatRulesFor(set session.RuleSet) session.SeatRules {
+	if set.Seats == nil {
+		return session.StrictSeats{}
+	}
+	return set.Seats
+}
+
+// onlineSeatRules is a room's seat policy by its rule-set name.
+func onlineSeatRules(rules string) session.SeatRules {
+	set, ok := session.LookupRuleSet(rules)
+	if !ok {
+		return session.StrictSeats{}
+	}
+	return seatRulesFor(set)
 }

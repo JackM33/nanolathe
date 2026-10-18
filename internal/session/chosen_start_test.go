@@ -6,13 +6,14 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/nanolathe-gg/nanolathe/internal/community"
 	"github.com/nanolathe-gg/nanolathe/internal/mission"
 	"github.com/nanolathe-gg/nanolathe/internal/sim/numeric"
 	"github.com/nanolathe-gg/nanolathe/internal/sim/rng"
 )
 
-// Chosen start positions (docs/DESIGN_SESSIONS_AI_SAVE.md "Chosen start
-// positions"): a lobby choice per player, Nanolathe policy in every mode. A
+// Chosen start positions (docs/DESIGN_SESSIONS_AI_SAVE.md "Modern chosen
+// start positions"): a lobby choice per player, Nanolathe policy in every mode. A
 // setup with no choice must place exactly as retail does; the others lock the
 // policy's ordering rules.
 
@@ -49,7 +50,7 @@ func TestUnchosenStartsKeepRetailPlacement(t *testing.T) {
 	for _, location := range []int{1, 0} {
 		cfg := chosenStartConfig(location, 0, 0, 0, 0)
 		crt := rng.NewCRT(cfg.RNGCrtSeed)
-		got, chosen, err := skirmishStartAssignment(cfg, eligibleSlots(4), chosenStarts(), &crt)
+		got, chosen, err := skirmishStartAssignment(cfg, eligibleSlots(4), chosenStarts(), &crt, true)
 		if err != nil || chosen != 0 {
 			t.Fatalf("location %d: %v, %d chosen", location, err, chosen)
 		}
@@ -77,7 +78,7 @@ func TestUnchosenStartsKeepRetailPlacement(t *testing.T) {
 func TestChosenStartsUnderFixedLocation(t *testing.T) {
 	cfg := chosenStartConfig(1, 0, 0, 1, 0)
 	crt := rng.NewCRT(cfg.RNGCrtSeed)
-	got, chosen, err := skirmishStartAssignment(cfg, eligibleSlots(4), chosenStarts(), &crt)
+	got, chosen, err := skirmishStartAssignment(cfg, eligibleSlots(4), chosenStarts(), &crt, true)
 	if err != nil || chosen != 1 {
 		t.Fatalf("assignment: %v, %d chosen", err, chosen)
 	}
@@ -97,7 +98,7 @@ func TestChosenStartsUnderFixedLocation(t *testing.T) {
 func TestChosenStartsUnderRandomLocation(t *testing.T) {
 	cfg := chosenStartConfig(0, 5, 0, 0, 0)
 	crt := rng.NewCRT(cfg.RNGCrtSeed)
-	got, _, err := skirmishStartAssignment(cfg, eligibleSlots(4), chosenStarts(), &crt)
+	got, _, err := skirmishStartAssignment(cfg, eligibleSlots(4), chosenStarts(), &crt, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -126,13 +127,13 @@ func TestChosenStartsUnderRandomLocation(t *testing.T) {
 func TestChosenStartsRefuseWhatTheMapCannotSeat(t *testing.T) {
 	starts := chosenStarts()[:4] // stored 3, 0, 5, 1
 	crt := rng.NewCRT(1)
-	if _, _, err := skirmishStartAssignment(chosenStartConfig(1, 3, 0), eligibleSlots(2), starts, &crt); err == nil || err.Error() != errStartPositionMissing(2).Error() {
+	if _, _, err := skirmishStartAssignment(chosenStartConfig(1, 3, 0), eligibleSlots(2), starts, &crt, true); err == nil || err.Error() != errStartPositionMissing(2).Error() {
 		t.Fatalf("missing StartPos3: %v, want %q", err, errStartPositionMissing(2))
 	}
-	if _, _, err := skirmishStartAssignment(chosenStartConfig(1, 2, 2), eligibleSlots(2), starts, &crt); err == nil || !strings.Contains(err.Error(), "chosen twice") {
+	if _, _, err := skirmishStartAssignment(chosenStartConfig(1, 2, 2), eligibleSlots(2), starts, &crt, true); err == nil || !strings.Contains(err.Error(), "chosen twice") {
 		t.Fatalf("duplicate choice: %v", err)
 	}
-	if _, _, err := skirmishStartAssignment(chosenStartConfig(0, 1, 0, 0, 0, 0), eligibleSlots(5), starts, &crt); err == nil || !strings.Contains(err.Error(), "free after the chosen ones") {
+	if _, _, err := skirmishStartAssignment(chosenStartConfig(0, 1, 0, 0, 0, 0), eligibleSlots(5), starts, &crt, true); err == nil || !strings.Contains(err.Error(), "free after the chosen ones") {
 		t.Fatalf("five players on four starts: %v", err)
 	}
 	if err := validateChosenStarts(chosenStartConfig(1, 4, 4)); err == nil {
@@ -153,6 +154,7 @@ func TestChosenStartPlacesTheCommander(t *testing.T) {
 	)
 	cfg := wu19178Config()
 	cfg.Players[0].Start = 2
+	s.Rules.Seats = ModernSeats{}
 	if err := skirmishReconstructUnits(s, cfg, m); err != nil {
 		t.Fatalf("skirmishReconstructUnits: %v", err)
 	}
@@ -222,5 +224,44 @@ func TestChosenStartsRoundTripTheLocalAdapter(t *testing.T) {
 	back, _ := matchSkirmishSetup(&r)
 	if back.Players[0].Start != 0 || back.Players[1].Start != 2 {
 		t.Fatalf("admitted setup starts %d %d, want 0 2", back.Players[0].Start, back.Players[1].Start)
+	}
+}
+
+// Strict 3.1 keeps retail's placement: a chosen start is ignored, with no
+// CRT draw beyond retail's, and the configuration refuses one
+// (docs/DESIGN_SESSIONS_AI_SAVE.md "Modern chosen start positions").
+func TestStrictIgnoresChosenStarts(t *testing.T) {
+	if (StrictSeats{}).ChosenStarts() || !(ModernSeats{}).ChosenStarts() || !CommunityRuleSet().Seats.ChosenStarts() {
+		t.Fatal("the reserved sets answer the chosen-start question wrongly")
+	}
+	for _, location := range []int{1, 0} {
+		cfg := chosenStartConfig(location, 3, 0, 0, 0)
+		crt := rng.NewCRT(cfg.RNGCrtSeed)
+		got, chosen, err := skirmishStartAssignment(cfg, eligibleSlots(4), chosenStarts(), &crt, false)
+		if err != nil || chosen != 0 {
+			t.Fatalf("location %d: %v, %d chosen", location, err, chosen)
+		}
+		control := rng.NewCRT(cfg.RNGCrtSeed)
+		want := eligibleSlots(4)
+		if location == 0 {
+			shuffleEligibleStarts(&control, want)
+		}
+		for slot, start := range want {
+			if got[slot] != start || crt.Draws() != control.Draws() {
+				t.Fatalf("location %d: slot %d took %d after %d draws, want retail's %d after %d", location, slot, got[slot], crt.Draws(), start, control.Draws())
+			}
+		}
+	}
+	r := validMatchRequest(t)
+	r.RuleName, r.RuleBase = StrictRuleSetName, MatchBaseStrict31
+	r.Community = community.Features{}
+	r.Mod, r.ContentProfile = MatchMod{}, MatchContentProfile{Name: "retail", Units: 512, Weapons: 256, TNTBytes: 16 << 20, LOSBytes: 1 << 20}
+	r.Seats[2].ComputerKind, r.Seats[2].AIParams = 0, nil
+	if _, err := ResolveMatchConfig(r); err != nil {
+		t.Skipf("the fixture is not a Strict configuration: %v", err)
+	}
+	r.Seats[0].Start = 1
+	if _, err := ResolveMatchConfig(r); err == nil {
+		t.Fatal("a Strict 3.1 configuration carried a chosen start")
 	}
 }

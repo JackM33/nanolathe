@@ -788,8 +788,10 @@ func (g *gameShell) refreshOnlineLobbySettings(host bool) {
 	for _, name := range []string{survivalAirButton, survivalSeaButton, lobbyAirLabel, lobbySeaLabel} {
 		p.SetActive(name, set.survival)
 	}
-	p.SetActive(alliedSightButton, !set.survival)
-	p.SetActive(alliedSightLabel, !set.survival)
+	// Strict 3.1 rooms keep every team's shared sight (SeatRules).
+	offered := !set.survival && onlineSeatRules(set.rules).AlliedSightChoice()
+	p.SetActive(alliedSightButton, offered)
+	p.SetActive(alliedSightLabel, offered)
 	p.SetStageAt(p.Index(alliedSightButton), boolInt(!set.separateSight))
 	p.SetHelp(alliedSightButton, alliedSightHelp(!set.separateSight))
 	p.SetText(lobbyLocLabel, "Location")
@@ -1005,6 +1007,9 @@ func (g *gameShell) activateOnlineLobbyGadget(name string) bool {
 	case survivalSeaButton:
 		set.noNaval = !set.noNaval
 	case alliedSightButton:
+		if !onlineSeatRules(set.rules).AlliedSightChoice() {
+			return true
+		}
 		set.separateSight = !set.separateSight
 	case lobbyRules:
 		lowest := onlineLowestRulesStage(g.cs)

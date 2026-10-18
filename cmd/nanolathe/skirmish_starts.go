@@ -2,7 +2,7 @@ package main
 
 // Chosen start positions on the skirmish setup screen
 // (docs/DESIGN_INTERFACE_HUD_INPUT.md §2.6 "Start positions",
-// docs/DESIGN_SESSIONS_AI_SAVE.md "Chosen start positions"). Each live row
+// docs/DESIGN_SESSIONS_AI_SAVE.md "Modern chosen start positions"). Each live row
 // has a Start button beside the player box that names the map's StartPos<n>
 // the player begins on, or Auto to leave it to the Location setting; the map
 // picker's preview numbers the starts so the choice can be read.
@@ -147,7 +147,7 @@ func skirmishStartCaption(start int) string {
 func (g *gameShell) refreshSkirmishStarts(p *ui.Panel) {
 	for i := 0; i < session.SkirmishMaxPlayers; i++ {
 		name := skirmishStartPrefix + strconv.Itoa(i)
-		live := !g.survivalMenu && i < g.setup.NumPlayers && g.retailControllers[i] != 0
+		live := !g.survivalMenu && i < g.setup.NumPlayers && g.retailControllers[i] != 0 && g.setupSeatRules().ChosenStarts()
 		p.SetActive(name, live)
 		if !live {
 			continue
@@ -160,8 +160,12 @@ func (g *gameShell) refreshSkirmishStarts(p *ui.Panel) {
 
 // skirmishStartError is the Start preflight's check of the chosen starts:
 // each live row's choice must be on the map, and no two rows may share one.
-// It returns "" when every choice can be placed.
+// It returns "" when every choice can be placed, and always under rules that
+// ignore chosen starts.
 func (g *gameShell) skirmishStartError() string {
+	if !g.setupSeatRules().ChosenStarts() {
+		return ""
+	}
 	choices := g.skirmishStartChoices()
 	var owner [session.SkirmishMaxStart + 1]bool
 	for i := 0; i < g.shownSkirmishRows(); i++ {
