@@ -1364,7 +1364,7 @@ payload as trailing bytes, which is the "different release" refusal.
 
 | Order / effective field | Representation and normalization |
 |---|---|
-| 16. Seat starts | One `u8` per seat in slot order: 0 automatic, 1..10 the chosen `StartPos<n>` (DESIGN_SESSIONS_AI_SAVE "Modern chosen start positions"). Nonzero only on an online skirmish's human or computer row, under a rule set whose `SeatRules.ChosenStarts` is true (not Strict 3.1), and no two rows choose the same start. Battle entry refuses a start the map's selected schema lacks. |
+| 16. Seat starts | Per seat in slot order, a `bool` set, then when set the chosen point's X and Z as two `u32` world pixels below 2^20 (DESIGN_SESSIONS_AI_SAVE "Modern chosen start positions"). Set only on an online skirmish's human or computer row, under a rule set whose `SeatRules.ChosenStarts` is true (not Strict 3.1). Battle entry moves the point to the nearest cell the commander can stand on. |
 | 17. AlliedSight | `u8`: 0 version 1's rule — an online skirmish's teams share sight and radar (§6.7), a single-player battle's do not — 1 separate, 2 shared (DESIGN_SESSIONS_AI_SAVE "Modern allied sight"). Zero for Survival, whose survivors always share, and under a rule set whose `SeatRules.AlliedSightChoice` is false (Strict 3.1). The adapters write 0 for a battle's version-1 rule and an explicit value only for the other choice: 2 for a shared single-player setup, 1 for a separate online room. |
 
 | Order / effective field | Representation and normalization |

@@ -2526,49 +2526,66 @@ the eligible slots from the loading CRT walk under random starts; a stored
 number the map lacks is the verbatim missing-start fatal
 `[08 R-ENTRY-01 §5]` `[08 "Randomization for skirmish starts"]`.
 
-**Policy.** `SkirmishPlayer.Start` is 0 (automatic) or 1..10, the authored
-number of the map's `StartPos<n>`; `Validate` refuses a value outside that
-range and two live rows choosing the same one. When at least one eligible
-slot chose, `skirmishStartAssignment` replaces retail's step:
+**Policy.** `SkirmishPlayer.Start` is a `StartPoint`: unset (Auto), or a
+point on the map in world pixels, the units the map's own `StartPos` records
+use, where the player put its commander in the setup screen's Place Starts
+window. `Validate` refuses coordinates outside `0..StartPointLimit`. When
+at least one eligible slot chose a point, `skirmishStartAssignment`
+replaces retail's step:
 
-1. Each slot that chose takes its start. A start the map's selected schema
-   lacks is the retail missing-start fatal for that stored number.
-2. The others share the starts left, by the Location word. **Fixed:** each
-   keeps its own number when that start exists and is free; the rest take
-   the lowest free starts in slot order. **Random:** the lowest free starts,
-   one per remaining slot, are dealt by a Fisher–Yates shuffle on the same
-   disposable loading CRT the retail walk uses; the simulation stream is not
-   read. Too few free starts is this build's error.
+1. Each slot that chose a point begins there. Every authored start within
+   `chosenStartClaim` (24 cells, 384 world pixels) of a chosen point is
+   claimed by it, so no other commander begins on top of a chosen one.
+2. The others share the authored starts left, by the Location word.
+   **Fixed:** each keeps its own number when that start exists and is
+   unclaimed; the rest take the lowest free starts in slot order.
+   **Random:** the lowest free starts, one per remaining slot, are dealt by a
+   Fisher–Yates shuffle on the same disposable loading CRT the retail walk
+   uses; the simulation stream is not read. Too few free starts is this
+   build's error.
+3. Battle entry moves each chosen point onto the map and to the nearest
+   cell, ring by ring out to 48 cells, where the commander passes the spawn
+   command's placement checks — its movement class's slope and water
+   limits, its footprint and the units and features already there
+   (`chosenStartPosition`, the search Survival's spawns use). Commanders are
+   created in slot order, so two players who chose one point begin side by
+   side. No cell within reach is this build's error.
 
 The Modern AI is told the start owners (`ai.Manager.StartOwners`) under fixed
-starts as before, and also when every eligible slot chose, since the lobby
-showed every choice; a partial choice under random starts publishes nothing,
-because an unpublished owner reads as an empty start. Survival places its own
+starts when nobody chose a point; a chosen point is not an authored start,
+and an unpublished owner reads as an empty start, so such a battle publishes
+nothing and every Modern controller searches. Survival places its own
 commanders (DESIGN_SURVIVAL §4.2) and clears any row's choice. The Community
 schema's random-start exchange of the last human and computer
-(DESIGN_COMMUNITY_PATCH §4.5) skips a slot that chose its start.
+(DESIGN_COMMUNITY_PATCH §4.5) skips a slot that chose, and a chosen point
+takes no authored start, so no schema placement replaces its commander.
 
-**Where the choice travels.** The setup screen's Start buttons
+**Where the choice travels.** The setup screen's Place Starts window
 (DESIGN_INTERFACE_HUD_INPUT §2.6 "Start positions") and the settings file
-(`start`, omitted for automatic) carry it to `skirmishConfigForStart`, which
-keeps it with its row through the compaction. Replays carry it as field 16 of
-configuration version 2 (DESIGN_MULTIPLAYER §8.6); a configuration with no
-choice keeps its version-1 bytes and identity. A save needs none: the bank
-already holds the commanders where they stand. The online lobby offers no
-control for it yet; a seat's choice would need a relay seat message.
+(`start` per row with the map the points were placed on, `startMap`) carry
+it to `skirmishConfigForStart`, which keeps it with its row through the
+compaction; a point belongs to its map, so choosing another map clears the
+points, and a settings file whose points name another map loads them as
+Auto. Replays carry it as field 16 of configuration version 2
+(DESIGN_MULTIPLAYER §8.6); a configuration with no choice keeps its
+version-1 bytes and identity. A save needs none: the bank already holds the
+commanders where they stand. The online lobby offers no control for it; a
+seat's choice would need a relay seat message.
 
 **Tests:** `TestStrictIgnoresChosenStarts` (the seam's answers, Strict's
 bypass with retail's draws, and a Strict configuration's refusal),
-`TestUnchosenStartsKeepRetailPlacement` (identity and the CRT walk,
-with retail's draw count), `TestChosenStartsUnderFixedLocation`,
-`TestChosenStartsUnderRandomLocation` (the deal replayed from the CRT
-definition), `TestChosenStartsRefuseWhatTheMapCannotSeat`,
-`TestChosenStartPlacesTheCommander`,
+`TestUnchosenStartsKeepRetailPlacement` (identity and the CRT walk, with
+retail's draw count), `TestChosenPointsUnderFixedLocation` (a point claims
+the authored start beside it), `TestChosenPointsUnderRandomLocation` (the
+deal replayed from the CRT definition),
+`TestChosenPointsRefuseWhatTheMapCannotSeat`, `TestChosenPointPlacesTheCommander`,
 `TestChosenStartsEncodeAsConfigurationVersion2`,
-`TestChosenStartsRoundTripTheLocalAdapter` and, on the retail art,
-`TestSkirmishScreenChoosesStartPositionsRetail`, which composes the screen's
-battle under Strict 3.1 (retail's starts) and Modern (the choices) and
-checks every commander's start.
+`TestChosenStartsRoundTripTheLocalAdapter`,
+`TestTheSettingsFileKeepsEachRowsStartPoint`, `TestPlaceStartsFollowsTheRules`
+and, on the retail art, `TestSkirmishScreenPlacesStartsOnTheMapRetail`, which
+places a player through the window's own clicks and composes the screen's
+battle under Strict 3.1 (retail's starts) and Modern (the chosen commander
+within a few cells of the click).
 
 ### Modern allied sight
 

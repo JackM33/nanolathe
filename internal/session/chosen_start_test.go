@@ -12,25 +12,30 @@ import (
 	"github.com/nanolathe-gg/nanolathe/internal/sim/rng"
 )
 
-// Chosen start positions (docs/DESIGN_SESSIONS_AI_SAVE.md "Modern chosen
-// start positions"): a lobby choice per player, Nanolathe policy in every mode. A
-// setup with no choice must place exactly as retail does; the others lock the
-// policy's ordering rules.
+// Chosen start points (docs/DESIGN_SESSIONS_AI_SAVE.md "Modern chosen
+// start positions"): a lobby choice per player, a Nanolathe Modern policy
+// that Strict 3.1 ignores. A setup with no choice must place exactly as
+// retail does; the others lock the policy's claiming and ordering rules.
 
-// chosenStarts are stored numbers 0..5, authored out of order so the
-// assignment's own ordering is what puts them in ascending order.
+// chosenStarts are stored numbers 0..5 a thousand pixels apart on one line,
+// authored out of order so the assignment's own ordering is what puts them
+// in ascending order.
 func chosenStarts() []mission.Special {
 	var starts []mission.Special
 	for _, id := range []int{3, 0, 5, 1, 4, 2} {
-		starts = append(starts, mission.Special{Kind: 1, ID: int32(id), X: int16(10 + 10*id), Z: int16(20 + 10*id)})
+		starts = append(starts, mission.Special{Kind: 1, ID: int32(id), X: int16(500 + 1000*id), Z: 700})
 	}
 	return starts
 }
 
-func chosenStartConfig(location int, starts ...int) SkirmishConfig {
-	cfg := SkirmishConfig{NumPlayers: len(starts), Location: location, RNGCrtSeed: 67890, MapName: "fixture"}
-	for i, start := range starts {
-		cfg.Players[i].Start = start
+// chosenStartConfig is a setup of len(points) players; a nil point leaves
+// the player to Location.
+func chosenStartConfig(location int, points ...*[2]int32) SkirmishConfig {
+	cfg := SkirmishConfig{NumPlayers: len(points), Location: location, RNGCrtSeed: 67890, MapName: "fixture"}
+	for i, p := range points {
+		if p != nil {
+			cfg.Players[i].Start = StartPoint{Set: true, X: p[0], Z: p[1]}
+		}
 	}
 	return cfg
 }
@@ -48,11 +53,11 @@ func eligibleSlots(n int) []int {
 // starts with exactly its draws.
 func TestUnchosenStartsKeepRetailPlacement(t *testing.T) {
 	for _, location := range []int{1, 0} {
-		cfg := chosenStartConfig(location, 0, 0, 0, 0)
+		cfg := chosenStartConfig(location, nil, nil, nil, nil)
 		crt := rng.NewCRT(cfg.RNGCrtSeed)
-		got, chosen, err := skirmishStartAssignment(cfg, eligibleSlots(4), chosenStarts(), &crt, true)
-		if err != nil || chosen != 0 {
-			t.Fatalf("location %d: %v, %d chosen", location, err, chosen)
+		got, points, err := skirmishStartAssignment(cfg, eligibleSlots(4), chosenStarts(), &crt, true)
+		if err != nil || len(points) != 0 {
+			t.Fatalf("location %d: %v, points %v", location, err, points)
 		}
 		want := eligibleSlots(4)
 		control := rng.NewCRT(cfg.RNGCrtSeed)
@@ -70,19 +75,26 @@ func TestUnchosenStartsKeepRetailPlacement(t *testing.T) {
 	}
 }
 
-// Under fixed starts a chosen start is taken first, every other player keeps
-// its own number when that start is free, and the rest take the lowest free
-// starts in slot order. Here slot 2 chooses StartPos1 (stored 0), so slots 1
-// and 3 keep their own, and slot 0, whose own was taken, gets the lowest
-// free start — stored 2, slot 2's own. No CRT draw is taken.
-func TestChosenStartsUnderFixedLocation(t *testing.T) {
-	cfg := chosenStartConfig(1, 0, 0, 1, 0)
+// Under fixed starts a chosen point claims every authored start within
+// chosenStartClaim of it; every other player keeps its own number when that
+// start is free, and the rest take the lowest free starts in slot order.
+// Here slot 2 chooses a point beside stored start 0, so slots 1 and 3 keep
+// their own, and slot 0, whose own was claimed, takes the lowest free start,
+// stored 2. No CRT draw is taken.
+func TestChosenPointsUnderFixedLocation(t *testing.T) {
+	cfg := chosenStartConfig(1, nil, nil, &[2]int32{520, 760}, nil)
 	crt := rng.NewCRT(cfg.RNGCrtSeed)
-	got, chosen, err := skirmishStartAssignment(cfg, eligibleSlots(4), chosenStarts(), &crt, true)
-	if err != nil || chosen != 1 {
-		t.Fatalf("assignment: %v, %d chosen", err, chosen)
+	got, points, err := skirmishStartAssignment(cfg, eligibleSlots(4), chosenStarts(), &crt, true)
+	if err != nil {
+		t.Fatal(err)
 	}
-	for slot, want := range []int{2, 1, 0, 3} {
+	if p, ok := points[2]; !ok || p != [2]int32{520, 760} || len(points) != 1 {
+		t.Fatalf("points %v, want slot 2's own", points)
+	}
+	if _, ok := got[2]; ok {
+		t.Fatalf("slot 2 also took an authored start: %v", got)
+	}
+	for slot, want := range map[int]int{0: 2, 1: 1, 3: 3} {
 		if got[slot] != want {
 			t.Fatalf("slot %d took %d, want %d (assignment %v)", slot, got[slot], want, got)
 		}
@@ -95,15 +107,13 @@ func TestChosenStartsUnderFixedLocation(t *testing.T) {
 // Under random starts the players who chose nothing are dealt the lowest
 // free starts, one each, by a Fisher–Yates shuffle on the loading CRT. The
 // expectation replays the shuffle from the stream definition [01 §7.2].
-func TestChosenStartsUnderRandomLocation(t *testing.T) {
-	cfg := chosenStartConfig(0, 5, 0, 0, 0)
+// Slot 0's point is far from every start, so it claims none.
+func TestChosenPointsUnderRandomLocation(t *testing.T) {
+	cfg := chosenStartConfig(0, &[2]int32{9000, 9000}, nil, nil, nil)
 	crt := rng.NewCRT(cfg.RNGCrtSeed)
 	got, _, err := skirmishStartAssignment(cfg, eligibleSlots(4), chosenStarts(), &crt, true)
 	if err != nil {
 		t.Fatal(err)
-	}
-	if got[0] != 4 {
-		t.Fatalf("slot 0 took %d, want its chosen StartPos5 (stored 4)", got[0])
 	}
 	pool := []int{0, 1, 2}
 	state := cfg.RNGCrtSeed
@@ -122,43 +132,36 @@ func TestChosenStartsUnderRandomLocation(t *testing.T) {
 	}
 }
 
-// A chosen start the map lacks is retail's missing-start fatal, a duplicate
-// is refused, and too few free starts is this build's error.
-func TestChosenStartsRefuseWhatTheMapCannotSeat(t *testing.T) {
+// Too few starts left after the chosen points is this build's error, and a
+// point outside the coordinate bound is refused by Validate.
+func TestChosenPointsRefuseWhatTheMapCannotSeat(t *testing.T) {
 	starts := chosenStarts()[:4] // stored 3, 0, 5, 1
 	crt := rng.NewCRT(1)
-	if _, _, err := skirmishStartAssignment(chosenStartConfig(1, 3, 0), eligibleSlots(2), starts, &crt, true); err == nil || err.Error() != errStartPositionMissing(2).Error() {
-		t.Fatalf("missing StartPos3: %v, want %q", err, errStartPositionMissing(2))
+	cfg := chosenStartConfig(1, &[2]int32{500, 700}, nil, nil, nil, nil)
+	if _, _, err := skirmishStartAssignment(cfg, eligibleSlots(5), starts, &crt, true); err == nil || !strings.Contains(err.Error(), "starts left after the chosen points") {
+		t.Fatalf("four players on three free starts: %v", err)
 	}
-	if _, _, err := skirmishStartAssignment(chosenStartConfig(1, 2, 2), eligibleSlots(2), starts, &crt, true); err == nil || !strings.Contains(err.Error(), "chosen twice") {
-		t.Fatalf("duplicate choice: %v", err)
-	}
-	if _, _, err := skirmishStartAssignment(chosenStartConfig(0, 1, 0, 0, 0, 0), eligibleSlots(5), starts, &crt, true); err == nil || !strings.Contains(err.Error(), "free after the chosen ones") {
-		t.Fatalf("five players on four starts: %v", err)
-	}
-	if err := validateChosenStarts(chosenStartConfig(1, 4, 4)); err == nil {
-		t.Fatal("Validate accepted two players on one start")
-	}
-	if err := validateChosenStarts(chosenStartConfig(1, SkirmishMaxStart+1, 0)); err == nil {
-		t.Fatal("Validate accepted a start beyond the last")
+	if err := validateChosenStarts(chosenStartConfig(1, &[2]int32{StartPointLimit, 0}, nil)); err == nil {
+		t.Fatal("Validate accepted a point beyond the coordinate bound")
 	}
 }
 
-// Battle entry places each commander on its assignment's start: here slot 0
-// chooses StartPos2, so slot 1, whose own start that is, takes StartPos1.
-func TestChosenStartPlacesTheCommander(t *testing.T) {
+// Battle entry places a chosen commander on the nearest cell it can stand
+// on, here the chosen cell itself on flat open ground, and gives the other
+// player its own authored start, which the far point does not claim.
+func TestChosenPointPlacesTheCommander(t *testing.T) {
 	s := strictNewSessionWithUnits(t, 0, 7, 11)
 	m := wu19178Mission(
 		mission.Special{Kind: 1, ID: 0, X: 12, Z: 20, Name: "StartPos1"},
 		mission.Special{Kind: 1, ID: 1, X: 24, Z: 28, Name: "StartPos2"},
 	)
 	cfg := wu19178Config()
-	cfg.Players[0].Start = 2
+	cfg.Players[0].Start = StartPoint{Set: true, X: 400, Z: 410}
 	s.Rules.Seats = ModernSeats{}
 	if err := skirmishReconstructUnits(s, cfg, m); err != nil {
 		t.Fatalf("skirmishReconstructUnits: %v", err)
 	}
-	want := map[uint8][2]int32{0: {24, 28}, 1: {12, 20}}
+	want := map[uint8][2]int32{0: {25*16 + 8, 25*16 + 8}, 1: {24, 28}}
 	for _, u := range s.Units.Iter() {
 		w := want[u.Owner]
 		if u.X != numeric.Fixed(w[0])<<16 || u.Z != numeric.Fixed(w[1])<<16 {
@@ -167,67 +170,7 @@ func TestChosenStartPlacesTheCommander(t *testing.T) {
 	}
 }
 
-// Version 2 of the configuration: a request with no chosen start keeps its
-// version-1 bytes and identity (TestMatchConfigEncodingIsUnchangedBySharedPrimitives
-// holds them), one with a chosen start appends one byte per seat and field
-// 17 and hashes under the version-2 domain, and a version-2 tail of defaults
-// is refused.
-func TestChosenStartsEncodeAsConfigurationVersion2(t *testing.T) {
-	r := validMatchRequest(t)
-	v1 := encodeMatchForTest(t, resolveMatch(t, r))
-	r.Seats[0].Start = 3
-	r.Seats[2].Start = 1
-	c := resolveMatch(t, r)
-	v2 := encodeMatchForTest(t, c)
-	if !bytes.Equal(v2[:len(v1)], v1) || !bytes.Equal(v2[len(v1):], []byte{3, 0, 1, 0}) {
-		t.Fatalf("version 2 is not version 1, one start byte per seat and field 17:\nv1 %x\nv2 %x", v1, v2)
-	}
-	h := sha256.New()
-	h.Write([]byte(matchConfigDomainV2))
-	h.Write(v2)
-	if digest := c.Digest(); !bytes.Equal(digest[:], h.Sum(nil)) {
-		t.Fatalf("version 2 identity %x does not hash the version-2 domain", digest)
-	}
-	if !checkMatchDecode(t, v2) {
-		t.Fatal("a version-2 payload did not decode")
-	}
-	decoded, _ := DecodeMatchConfig(v2)
-	if got := decoded.Request().Seats; got[0].Start != 3 || got[1].Start != 0 || got[2].Start != 1 {
-		t.Fatalf("decoded starts %d %d %d, want 3 0 1", got[0].Start, got[1].Start, got[2].Start)
-	}
-	if checkMatchDecode(t, append(append([]byte(nil), v1...), 0, 0, 0, 0)) {
-		t.Fatal("a version-2 tail of defaults decoded")
-	}
-	r.Seats[1].Start = 3
-	if _, err := ResolveMatchConfig(r); err == nil {
-		t.Fatal("two seats on one start resolved")
-	}
-	s := validSurvivalRequest(t)
-	s.Seats[0].Start = 1
-	if _, err := ResolveMatchConfig(s); err == nil {
-		t.Fatal("a Survival seat with a chosen start resolved")
-	}
-}
-
-// The local adapter and the admitted setup carry each row's choice, so a
-// replay composes the battle its recording played.
-func TestChosenStartsRoundTripTheLocalAdapter(t *testing.T) {
-	cfg := DirectSkirmishConfig("fixture")
-	cfg.Players[1].Start = 2
-	r, err := NewMatchConfigRequest(cfg, SkirmishEntryOptions{}, MatchRoomInputs{Policies: MatchPolicies{Revision: 1, Scheduling: 1, Pacing: 1, Drop: 1, Audience: 1}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if r.Seats[0].Start != 0 || r.Seats[1].Start != 2 {
-		t.Fatalf("request starts %d %d, want 0 2", r.Seats[0].Start, r.Seats[1].Start)
-	}
-	back, _ := matchSkirmishSetup(&r)
-	if back.Players[0].Start != 0 || back.Players[1].Start != 2 {
-		t.Fatalf("admitted setup starts %d %d, want 0 2", back.Players[0].Start, back.Players[1].Start)
-	}
-}
-
-// Strict 3.1 keeps retail's placement: a chosen start is ignored, with no
+// Strict 3.1 keeps retail's placement: a chosen point is ignored, with no
 // CRT draw beyond retail's, and the configuration refuses one
 // (docs/DESIGN_SESSIONS_AI_SAVE.md "Modern chosen start positions").
 func TestStrictIgnoresChosenStarts(t *testing.T) {
@@ -235,11 +178,11 @@ func TestStrictIgnoresChosenStarts(t *testing.T) {
 		t.Fatal("the reserved sets answer the chosen-start question wrongly")
 	}
 	for _, location := range []int{1, 0} {
-		cfg := chosenStartConfig(location, 3, 0, 0, 0)
+		cfg := chosenStartConfig(location, &[2]int32{520, 700}, nil, nil, nil)
 		crt := rng.NewCRT(cfg.RNGCrtSeed)
-		got, chosen, err := skirmishStartAssignment(cfg, eligibleSlots(4), chosenStarts(), &crt, false)
-		if err != nil || chosen != 0 {
-			t.Fatalf("location %d: %v, %d chosen", location, err, chosen)
+		got, points, err := skirmishStartAssignment(cfg, eligibleSlots(4), chosenStarts(), &crt, false)
+		if err != nil || len(points) != 0 {
+			t.Fatalf("location %d: %v, points %v", location, err, points)
 		}
 		control := rng.NewCRT(cfg.RNGCrtSeed)
 		want := eligibleSlots(4)
@@ -258,10 +201,66 @@ func TestStrictIgnoresChosenStarts(t *testing.T) {
 	r.Mod, r.ContentProfile = MatchMod{}, MatchContentProfile{Name: "retail", Units: 512, Weapons: 256, TNTBytes: 16 << 20, LOSBytes: 1 << 20}
 	r.Seats[2].ComputerKind, r.Seats[2].AIParams = 0, nil
 	if _, err := ResolveMatchConfig(r); err != nil {
-		t.Skipf("the fixture is not a Strict configuration: %v", err)
+		t.Fatalf("the fixture is not a Strict configuration: %v", err)
 	}
-	r.Seats[0].Start = 1
+	r.Seats[0].Start = StartPoint{Set: true, X: 100, Z: 100}
 	if _, err := ResolveMatchConfig(r); err == nil {
 		t.Fatal("a Strict 3.1 configuration carried a chosen start")
+	}
+}
+
+// Version 2 of the configuration: a request with no chosen point keeps its
+// version-1 bytes and identity (TestMatchConfigEncodingIsUnchangedBySharedPrimitives
+// holds them); one with a chosen point appends each seat's flag, the set
+// seats' coordinates and field 17, and hashes under the version-2 domain;
+// and a version-2 tail of defaults is refused.
+func TestChosenStartsEncodeAsConfigurationVersion2(t *testing.T) {
+	r := validMatchRequest(t)
+	v1 := encodeMatchForTest(t, resolveMatch(t, r))
+	r.Seats[0].Start = StartPoint{Set: true, X: 3, Z: 4}
+	r.Seats[2].Start = StartPoint{Set: true, X: 1, Z: 2}
+	c := resolveMatch(t, r)
+	v2 := encodeMatchForTest(t, c)
+	if tail := []byte{1, 3, 4, 0, 1, 1, 2, 0}; !bytes.Equal(v2[:len(v1)], v1) || !bytes.Equal(v2[len(v1):], tail) {
+		t.Fatalf("version 2 is not version 1, each seat's start and field 17:\nv1 %x\nv2 %x", v1, v2)
+	}
+	h := sha256.New()
+	h.Write([]byte(matchConfigDomainV2))
+	h.Write(v2)
+	if digest := c.Digest(); !bytes.Equal(digest[:], h.Sum(nil)) {
+		t.Fatalf("version 2 identity %x does not hash the version-2 domain", digest)
+	}
+	if !checkMatchDecode(t, v2) {
+		t.Fatal("a version-2 payload did not decode")
+	}
+	decoded, _ := DecodeMatchConfig(v2)
+	if got := decoded.Request().Seats; got[0].Start != r.Seats[0].Start || got[1].Start.Set || got[2].Start != r.Seats[2].Start {
+		t.Fatalf("decoded starts %+v %+v %+v", got[0].Start, got[1].Start, got[2].Start)
+	}
+	if checkMatchDecode(t, append(append([]byte(nil), v1...), 0, 0, 0, 0)) {
+		t.Fatal("a version-2 tail of defaults decoded")
+	}
+	s := validSurvivalRequest(t)
+	s.Seats[0].Start = StartPoint{Set: true, X: 1, Z: 1}
+	if _, err := ResolveMatchConfig(s); err == nil {
+		t.Fatal("a Survival seat with a chosen start resolved")
+	}
+}
+
+// The local adapter and the admitted setup carry each row's choice, so a
+// replay composes the battle its recording played.
+func TestChosenStartsRoundTripTheLocalAdapter(t *testing.T) {
+	cfg := DirectSkirmishConfig("fixture")
+	cfg.Players[1].Start = StartPoint{Set: true, X: 640, Z: 320}
+	r, err := NewMatchConfigRequest(cfg, SkirmishEntryOptions{}, MatchRoomInputs{Policies: MatchPolicies{Revision: 1, Scheduling: 1, Pacing: 1, Drop: 1, Audience: 1}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.Seats[0].Start.Set || r.Seats[1].Start != cfg.Players[1].Start {
+		t.Fatalf("request starts %+v %+v", r.Seats[0].Start, r.Seats[1].Start)
+	}
+	back, _ := matchSkirmishSetup(&r)
+	if back.Players[0].Start.Set || back.Players[1].Start != cfg.Players[1].Start {
+		t.Fatalf("admitted setup starts %+v %+v", back.Players[0].Start, back.Players[1].Start)
 	}
 }

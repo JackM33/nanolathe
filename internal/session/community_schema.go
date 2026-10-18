@@ -64,7 +64,7 @@ func (s *Session) configureCommunitySchemaStarts(cfg SkirmishConfig, m *mission.
 		// A start a player chose is never exchanged: the correction belongs
 		// to the random deal (docs/DESIGN_SESSIONS_AI_SAVE.md "Modern chosen
 		// start positions").
-		if lastHuman >= 0 && lastComputer >= 0 && computerPosition < humanPosition && cfg.Players[lastHuman].Start == 0 && cfg.Players[lastComputer].Start == 0 {
+		if lastHuman >= 0 && lastComputer >= 0 && computerPosition < humanPosition && !cfg.Players[lastHuman].Start.Set && !cfg.Players[lastComputer].Start.Set {
 			assignment[lastHuman], assignment[lastComputer] = assignment[lastComputer], assignment[lastHuman]
 		}
 	}

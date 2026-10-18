@@ -356,13 +356,22 @@ type Player struct {
 	// 2026-09-25). Normalize keeps "classic" and reads everything else as
 	// Modern, which the writer omits.
 	AI string `json:"ai,omitempty"`
-	// Start is the row's chosen start position, a Nanolathe lobby choice
-	// with no retail registry value: 0, stored as no key, leaves it to
-	// Location, and 1..MaxPlayers names the map's StartPos<n>
-	// (docs/DESIGN_SESSIONS_AI_SAVE.md "Modern chosen start positions"). Normalize
-	// reads any other value as 0.
-	Start int `json:"start,omitempty"`
+	// Start is where the row's commander was placed on Skirmish.StartMap, a
+	// Nanolathe Modern lobby choice with no retail registry value: absent
+	// leaves it to Location (docs/DESIGN_SESSIONS_AI_SAVE.md "Modern chosen
+	// start positions"). Normalize drops a point outside 0..StartLimit.
+	Start *StartPoint `json:"start,omitempty"`
 }
+
+// StartPoint is a chosen commander start in world pixels.
+type StartPoint struct {
+	X int `json:"x"`
+	Z int `json:"z"`
+}
+
+// StartLimit bounds a stored start point's coordinates, as
+// session.StartPointLimit does a battle's.
+const StartLimit = 1 << 20
 
 // PlayerAIClassic is the stored word of a row that plays the Classic AI; a
 // Modern row stores none.
@@ -383,8 +392,11 @@ type Skirmish struct {
 	// no retail registry value: teammates share sight and radar. Absent is
 	// false, retail's separate sight (docs/DESIGN_SESSIONS_AI_SAVE.md
 	// "Modern allied sight").
-	AlliedSight bool     `json:"alliedSight,omitempty"`
-	Players     []Player `json:"players"`
+	AlliedSight bool `json:"alliedSight,omitempty"`
+	// StartMap is the map the rows' start points were placed on; a load for
+	// another map drops them, since a point means nothing elsewhere.
+	StartMap string   `json:"startMap,omitempty"`
+	Players  []Player `json:"players"`
 }
 
 // ModSelection is the settings key `mod`: one mod's id and, optionally, its
@@ -1239,8 +1251,8 @@ func (s *Skirmish) Normalize() {
 		} else {
 			s.Players[i].AI = ""
 		}
-		if s.Players[i].Start < 0 || s.Players[i].Start > MaxPlayers {
-			s.Players[i].Start = 0
+		if p := s.Players[i].Start; p != nil && (p.X < 0 || p.Z < 0 || p.X >= StartLimit || p.Z >= StartLimit) {
+			s.Players[i].Start = nil
 		}
 	}
 }

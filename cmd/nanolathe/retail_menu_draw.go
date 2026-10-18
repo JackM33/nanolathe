@@ -24,7 +24,7 @@ func (g *gameShell) drawRetailPanel(c *client.Client) {
 	}
 	if g.onlineLobbyActive() {
 		g.drawOnlineLobbyHelp(c)
-	} else if g.frontend.Mode == modeMenuSkirmish {
+	} else if g.frontend.Mode == modeMenuSkirmish && g.startPlacer == nil {
 		mouse, _ := c.Input().PointerSample()
 		g.updateHoverHelp(int32(mouse.X), int32(mouse.Y))
 	}
@@ -40,6 +40,9 @@ func (g *gameShell) drawRetailPanel(c *client.Client) {
 			mode = g.frontend.Mode
 		}
 		g.drawRetailWindow(c, mode, entry.Panel)
+	}
+	if g.startPlacer != nil && g.frontend.Mode == modeMenuSkirmish && g.frontend.Panels.Modal() == nil {
+		g.drawStartPlacer(c)
 	}
 }
 

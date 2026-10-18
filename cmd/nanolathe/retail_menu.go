@@ -597,7 +597,7 @@ func (g *gameShell) refreshSkirmishPanel() {
 		p.SetHelp("Metal"+prefix, "Left click to increase metal. Right click to decrease metal.")
 		p.SetHelp("Energy"+prefix, "Left click to increase energy. Right click to decrease energy.")
 	}
-	g.refreshSkirmishStarts(p)
+	g.refreshSkirmishPlaceStarts(p)
 	g.refreshSkirmishPlayerCount(p)
 	g.refreshSkirmishAlliedSight(p)
 }

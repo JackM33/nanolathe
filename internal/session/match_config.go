@@ -120,12 +120,12 @@ type MatchSeat struct {
 	// Every other role carries none.
 	AIParams []AIParam
 
-	// Start is the row's chosen start position, field 16 of version 2: 0
-	// leaves it to Location, 1..SkirmishMaxStart names the map's
-	// `StartPos<n>`. Only a human or computer row of a skirmish chooses
-	// one, and no two rows choose the same (docs/DESIGN_SESSIONS_AI_SAVE.md
+	// Start is the row's chosen start point, field 16 of version 2: unset
+	// leaves it to Location; set, X and Z are world pixels below
+	// StartPointLimit. Only a human or computer row of a skirmish chooses
+	// one, under a rule set that honours it (docs/DESIGN_SESSIONS_AI_SAVE.md
 	// "Modern chosen start positions").
-	Start uint8
+	Start StartPoint
 }
 
 // MatchMod is field 8: the selected mod's public identity. Base content is
@@ -650,31 +650,30 @@ func (r *MatchConfigRequest) validateSeats(set RuleSet) error {
 	return nil
 }
 
-// validateSeatStarts checks version 2's field 16: a chosen start is
-// 1..SkirmishMaxStart on a skirmish's human or computer row, and no two rows
-// choose the same. Survival places its commanders itself (DESIGN_SURVIVAL
-// §4.2), so every Survival row holds zero.
+// validateSeatStarts checks version 2's field 16: a chosen point is set
+// only on a skirmish's human or computer row, under a rule set whose
+// SeatRules honours chosen starts, with coordinates below StartPointLimit.
+// Survival places its commanders itself (DESIGN_SURVIVAL §4.2), so every
+// Survival row holds none.
 func (r *MatchConfigRequest) validateSeatStarts(set RuleSet) error {
-	var owner [SkirmishMaxStart + 1]int
 	for i := range r.Seats {
-		start := r.Seats[i].Start
-		if start == 0 {
+		p := r.Seats[i].Start
+		if !p.Set {
+			if p.X != 0 || p.Z != 0 {
+				return matchFieldError(fmt.Sprintf("seats[%d].start", i), "zero coordinates for an unset start")
+			}
 			continue
 		}
 		path := fmt.Sprintf("seats[%d].start", i)
 		if !seatRulesOf(set).ChosenStarts() {
-			return matchFieldError(path, fmt.Sprintf("0: rule set %q assigns every start by Location", r.RuleName))
-		}
-		if start > SkirmishMaxStart {
-			return matchFieldError(path, fmt.Sprintf("0 automatic or 1..%d", SkirmishMaxStart))
+			return matchFieldError(path, fmt.Sprintf("unset: rule set %q assigns every start by Location", r.RuleName))
 		}
 		if role := r.Seats[i].Role; r.SessionKind != MatchOnlineSkirmish || (role != MatchRoleHuman && role != MatchRoleComputer) {
-			return matchFieldError(path, "zero except on a skirmish's human or computer row")
+			return matchFieldError(path, "unset except on a skirmish's human or computer row")
 		}
-		if owner[start] != 0 {
-			return matchFieldError(path, fmt.Sprintf("a start no other row chose (seat %d chose %d)", owner[start]-1, start))
+		if p.X < 0 || p.Z < 0 || p.X >= StartPointLimit || p.Z >= StartPointLimit {
+			return matchFieldError(path, fmt.Sprintf("coordinates 0..%d", StartPointLimit-1))
 		}
-		owner[start] = i + 1
 	}
 	return nil
 }
@@ -687,7 +686,7 @@ func (r *MatchConfigRequest) version() int {
 		return 2
 	}
 	for i := range r.Seats {
-		if r.Seats[i].Start != 0 {
+		if r.Seats[i].Start.Set {
 			return 2
 		}
 	}

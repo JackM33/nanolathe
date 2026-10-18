@@ -144,7 +144,10 @@ type gameShell struct {
 	// one-off --unit-limit is ever recorded as the player's choice.
 	savedUnitLimit int
 	selectedSlot   int
-	skirmishSides  int // authored SIDE count, bound once when the shell is constructed
+	// startPlacer is the skirmish screen's open Place Starts window, nil
+	// when closed (skirmish_starts.go).
+	startPlacer   *startPlacer
+	skirmishSides int // authored SIDE count, bound once when the shell is constructed
 	// retailControllers preserves the numeric Controller field that TotalA.exe
 	// puts in each Player%d row: 0=open, 1=human, 2=computer. The session
 	// package has a separate compatibility representation, so the conversion
@@ -878,6 +881,8 @@ func (g *gameShell) openMenuWithTokenFlush(mode shellMode, flushTokens bool) {
 	if mode != modeMenuSkirmish || oldMode != modeMenuSkirmish {
 		g.skirmishKeys = ""
 	}
+	// A window change closes the Place Starts window; its points stay.
+	g.startPlacer = nil
 	if oldPanel != nil {
 		// Clear a gesture before replacing the active window. This used to sit
 		// after panel=nil and was unreachable, allowing a held press to leak
@@ -903,7 +908,7 @@ func (g *gameShell) openMenuWithTokenFlush(mode shellMode, flushTokens bool) {
 				if g.survivalMenu {
 					applySurvivalLayout(window)
 				} else {
-					installSkirmishStartColumn(window)
+					installSkirmishPlaceStarts(window)
 					installSkirmishPlayerCount(window)
 					installSkirmishAlliedSight(window)
 				}

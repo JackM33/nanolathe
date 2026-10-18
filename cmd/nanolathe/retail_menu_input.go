@@ -36,6 +36,11 @@ func (g *gameShell) menuInput(cl *client.Client) {
 	if g.openUnitViewerPreview(in) {
 		return
 	}
+	// The Place Starts window takes every event while it is open.
+	if g.startPlacer != nil && g.frontend.Mode == modeMenuSkirmish {
+		g.serviceStartPlacer(in)
+		return
+	}
 	g.serviceMenuWidgets(p, in)
 }
 
@@ -157,8 +162,6 @@ func (g *gameShell) serviceMenuWidgets(p *ui.Panel, in *input.State) bool {
 				g.setup.Players[slot].Energy = decreaseResource(g.setup.Players[slot].Energy)
 			} else if kind == "Color" {
 				g.setup.Players[slot].Color = g.nextRetailPlayerColor(slot, -1)
-			} else if kind == skirmishStartPrefix {
-				g.cycleSkirmishStart(slot, -1)
 			}
 			g.refreshRetailPanel()
 			return true
@@ -432,6 +435,10 @@ func (g *gameShell) activateGadget(name string) {
 			g.leaveMapPicker()
 		case "LOAD", "MAPNAMES":
 			if len(g.maps) != 0 && g.mapIdx >= 0 && g.mapIdx < len(g.maps) {
+				// Chosen start points belong to the map they were placed on.
+				if !strings.EqualFold(g.setup.MapName, g.maps[g.mapIdx]) {
+					g.clearChosenStarts()
+				}
 				g.setup.MapName = g.maps[g.mapIdx]
 				g.saveSettings()
 				g.leaveMapPicker()
@@ -476,6 +483,11 @@ func (g *gameShell) activateSkirmishGadget(name string) {
 	case skirmishPlayersButton:
 		g.stepSkirmishPlayerCount(1)
 		return
+	case placeStartsButton:
+		if g.setupSeatRules().ChosenStarts() {
+			g.openStartPlacer()
+		}
+		return
 	case alliedSightButton:
 		if g.setupSeatRules().AlliedSightChoice() {
 			g.setup.AlliedSight = !g.setup.AlliedSight
@@ -519,8 +531,6 @@ func (g *gameShell) activateDynamicSkirmishGadget(name string) {
 		p.Energy = increaseResource(p.Energy)
 	case "Color":
 		p.Color = g.nextRetailPlayerColor(index, 1)
-	case skirmishStartPrefix:
-		g.cycleSkirmishStart(index, 1)
 	}
 	g.refreshRetailPanel()
 }
@@ -661,7 +671,7 @@ func (g *gameShell) cycleRetailController(slot int) {
 
 func dynamicSlot(name string) (int, string, bool) {
 	name = gui.CallbackName(name)
-	for _, prefix := range []string{"Player", "Side", "Allies", "Metal", "Energy", "Color", skirmishStartPrefix} {
+	for _, prefix := range []string{"Player", "Side", "Allies", "Metal", "Energy", "Color"} {
 		if !strings.HasPrefix(name, prefix) {
 			continue
 		}
@@ -767,11 +777,6 @@ func (g *gameShell) retailSkirmishStartError() string {
 	}
 	if g.retailAllPlayersSameAlliedGroup(n) {
 		return "All players may not be in the same allied group."
-	}
-	// Chosen start positions are Nanolathe's; the Survival screen places
-	// its own commanders.
-	if !g.survivalMenu {
-		return g.skirmishStartError()
 	}
 	return ""
 }

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"maps"
 	"os"
+	"strings"
 
 	"github.com/nanolathe-gg/nanolathe/internal/ai"
 	"github.com/nanolathe-gg/nanolathe/internal/audio"
@@ -144,7 +145,11 @@ func (g *gameShell) applySettings(s settings.Settings) {
 		row.AllyGroup = p.AllyGroup
 		row.Metal = p.Metal
 		row.Energy = p.Energy
-		row.Start = p.Start
+		// A point placed on another map means nothing on this one.
+		row.Start = session.StartPoint{}
+		if p.Start != nil && strings.EqualFold(sk.StartMap, sk.Map) {
+			row.Start = session.StartPoint{Set: true, X: int32(p.Start.X), Z: int32(p.Start.Z)}
+		}
 		// Only a row stored "classic" plays the Classic AI: a row without
 		// the word, including every row of a file written before this
 		// encoding, plays the Modern AI (user decision 2026-09-25).
@@ -278,7 +283,10 @@ func (g *gameShell) liveSettings() settings.Settings {
 			AllyGroup:  row.AllyGroup,
 			Metal:      row.Metal,
 			Energy:     row.Energy,
-			Start:      row.Start,
+		}
+		if row.Start.Set {
+			s.Skirmish.Players[i].Start = &settings.StartPoint{X: int(row.Start.X), Z: int(row.Start.Z)}
+			s.Skirmish.StartMap = setup.MapName
 		}
 		// A Classic computer row says so; a Modern row, and a row that is
 		// not a computer player, whose AI means nothing, store no word.

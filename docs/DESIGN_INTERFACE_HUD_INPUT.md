@@ -1079,25 +1079,30 @@ and `TestSkirmishScreenSharesAlliedSightRetail`, which with
 
 **Start positions (Nanolathe Modern policy, user-authorized 2026-10-18).**
 Under Modern and Community 3.9 rules (`SeatRules.ChosenStarts`; a Strict 3.1
-screen shows no Start column and its preflight ignores the rows' choices),
-each live row has a Start button, a copy of the row's Metal button moved to
-x 400, in the empty strip between the player box and the option column,
-under a `Start` heading cloned from the Location label on the baked heading
-line. Open rows and the Survival screen have none. The button reads `Auto`
-or the chosen start's number; a left click steps forward through Auto and
-the selected map's starts, a right click steps back, and both skip a start
-another live row holds. The starts are those of the schema a battle of the
-current live rows selects (`mission.SelectNetworkSchema`), so changing the
-rows can change them; the Start preflight then refuses a choice the map no
-longer offers (`Start position N is not on this map for P players.`) or one
-two rows share. The map picker's preview numbers the same starts, each a
-small bevelled box over its position in the preview's own projection, so
-the numbers can be read; nothing else on that screen changes. The choice
-persists with the row (`start` in the settings file) and is carried to
-battle as `SkirmishPlayer.Start`
+screen and the Survival screen show none), a `Start Positions` heading
+cloned from the Location label at (305, 290) and a Place Starts button
+cloned from Select Map at (305, 306) sit beside Players and Allied Sight
+under the player box. The button reads `Auto`, or how many players are
+placed (`2 Placed`), and opens the Place Starts window over the dimmed
+setup screen: a bevelled panel (30, 24, 580×432) with the live players on
+the left, each with its colour logo, its row caption (`Player`, `Modern AI`,
+`Classic AI`) and `Auto` or `Placed`, and the map on the right, the usable
+terrain fitted into a 360-pixel box in the map picker's projection
+(`retailMapPreviewCanvas`), with the map's own start positions as grey dots
+and each placed player's logo at its point. A left click on a player selects
+it (its row sunken, its marker outlined); a left click on the map places the
+selected player there and moves to the next player without a point; a right
+click on a player or its marker puts it back on Auto; Clear All clears every
+point and Done, Escape or Enter closes the window and saves the points.
+While open the window takes every pointer and key event, so nothing beneath
+reacts. Choosing another map clears the points, since a point belongs to its
+map. The map picker's preview marks the selected map's start positions for
+the current rows with small bevelled squares. The points persist with the
+rows (`start`, with `startMap`) and travel to battle as `SkirmishPlayer.Start`
 ([DESIGN_SESSIONS_AI_SAVE "Modern chosen start positions"](DESIGN_SESSIONS_AI_SAVE.md#modern-chosen-start-positions)).
-Tests: `TestSkirmishScreenChoosesStartPositionsRetail`, which with
-`NANOLATHE_SHOT_DIR` set writes both screens as PNGs.
+Tests: `TestTheSettingsFileKeepsEachRowsStartPoint`, `TestPlaceStartsFollowsTheRules`
+and `TestSkirmishScreenPlacesStartsOnTheMapRetail`, which with
+`NANOLATHE_SHOT_DIR` set writes the open window and the map picker as PNGs.
 
 **Computer AI (Nanolathe divergence, user decision 2026-09-25).** Each
 computer row plays the Classic or the Modern AI

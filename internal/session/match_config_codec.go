@@ -169,7 +169,12 @@ func encodeMatchRequest(r *MatchConfigRequest) ([]byte, error) {
 	w.U32(pol.ReplayReleaseDelayMilliseconds)
 	if r.version() == 2 {
 		for i := range r.Seats { // 16
-			w.U8(r.Seats[i].Start)
+			p := r.Seats[i].Start
+			w.Bool(p.Set)
+			if p.Set {
+				w.U32(uint32(p.X))
+				w.U32(uint32(p.Z))
+			}
 		}
 		w.U8(uint8(r.AlliedSight)) // 17
 	}
@@ -302,7 +307,14 @@ func readMatchRequest(r *netproto.Reader, size int) MatchConfigRequest {
 	pol.ReplayReleaseDelayMilliseconds = r.U32()
 	if r.Err() == nil && r.Offset() < size {
 		for i := range q.Seats { // 16
-			q.Seats[i].Start = r.U8()
+			p := &q.Seats[i].Start
+			if p.Set = r.Bool(); p.Set {
+				x, z := r.U32(), r.U32()
+				if r.Err() == nil && (x >= StartPointLimit || z >= StartPointLimit) {
+					r.FailAt(r.Offset()-1, fmt.Sprintf("start coordinates 0..%d", StartPointLimit-1))
+				}
+				p.X, p.Z = int32(x), int32(z)
+			}
 		}
 		q.AlliedSight = MatchAlliedSight(r.U8()) // 17
 	}

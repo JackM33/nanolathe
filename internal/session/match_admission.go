@@ -372,7 +372,7 @@ func matchSkirmishSetup(r *MatchConfigRequest) (SkirmishConfig, SkirmishEntryOpt
 			AllyGroup: int(seat.AllyGroup),
 			Metal:     int(seat.Metal),
 			Energy:    int(seat.Energy),
-			Start:     int(seat.Start),
+			Start:     seat.Start,
 		}
 		switch seat.Role {
 		case MatchRoleHuman:

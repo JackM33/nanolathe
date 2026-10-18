@@ -2,72 +2,396 @@ package main
 
 // Chosen start positions on the skirmish setup screen
 // (docs/DESIGN_INTERFACE_HUD_INPUT.md §2.6 "Start positions",
-// docs/DESIGN_SESSIONS_AI_SAVE.md "Modern chosen start positions"). Each live row
-// has a Start button beside the player box that names the map's StartPos<n>
-// the player begins on, or Auto to leave it to the Location setting; the map
-// picker's preview numbers the starts so the choice can be read.
+// docs/DESIGN_SESSIONS_AI_SAVE.md "Modern chosen start positions"). Under
+// Modern and Community rules a Place Starts button under the player box
+// opens a window over the setup screen: pick a player, click the map where
+// its commander should begin, and a right click puts it back on Auto.
+// Battle entry moves each chosen point to the nearest cell the commander can
+// stand on. The map picker's preview marks the map's own start positions.
 
 import (
-	"fmt"
-	"slices"
 	"strconv"
 
 	"github.com/nanolathe-gg/nanolathe/internal/client"
 	"github.com/nanolathe-gg/nanolathe/internal/gui"
+	"github.com/nanolathe-gg/nanolathe/internal/input"
 	"github.com/nanolathe-gg/nanolathe/internal/mission"
 	"github.com/nanolathe-gg/nanolathe/internal/session"
 	"github.com/nanolathe-gg/nanolathe/internal/ui"
 )
 
 const (
-	skirmishStartSource = "NANOLATHE_SKIRMISH_START"
-	skirmishStartPrefix = "StartPos"
-	// skirmishStartX puts the column in the free strip between the player
-	// box (which ends near x 395) and the option column at x 476.
-	skirmishStartX = 400
-	// skirmishStartHeadingY is the baked column headings' line.
-	skirmishStartHeadingY = 56
+	placeStartsButton = "PlaceStarts"
+	placeStartsLabel  = "PLACESTARTSLABEL"
+	placeStartsSource = "NANOLATHE_PLACE_STARTS"
+	// The third slot under the player box, beside Players and Allied Sight.
+	placeStartsX, placeStartsLabelY, placeStartsY = 305, 290, 306
 )
 
-// installSkirmishStartColumn appends each row's Start button, a copy of the
-// row's Metal button (the same 46-pixel art) moved beside the box, and a
-// heading cloned from the Location label. It runs after the row builder, so
-// the rows already have their places.
-func installSkirmishStartColumn(window *gui.Window) {
+// installSkirmishPlaceStarts appends the Start Positions heading, cloned from
+// the Location label, and the Place Starts button, a copy of Select Map.
+func installSkirmishPlaceStarts(window *gui.Window) {
 	if window == nil {
 		return
 	}
-	for i := 0; i < session.SkirmishMaxPlayers; i++ {
-		metal := window.GadgetIndex("Metal" + strconv.Itoa(i))
-		if metal < 0 {
-			continue
-		}
-		b := window.Gadgets[metal]
-		b.Name, b.SourceName = skirmishStartPrefix+strconv.Itoa(i), skirmishStartSource
-		b.Rect.X = skirmishStartX
-		window.Gadgets = append(window.Gadgets, b)
+	selectMap := window.GadgetIndex("SelectMap")
+	if selectMap < 0 {
+		return
 	}
 	for i := range window.Gadgets {
 		if window.Gadgets[i].Kind == gui.KindLabel && window.Gadgets[i].Text == "Location" {
 			l := window.Gadgets[i]
-			l.Text, l.SourceName = "Start", skirmishStartSource
-			l.Rect.X, l.Rect.Y, l.Rect.W = skirmishStartX, skirmishStartHeadingY, 46
+			l.Name, l.SourceName, l.Text = placeStartsLabel, placeStartsSource, "Start Positions"
+			l.Rect.X, l.Rect.Y = placeStartsX, placeStartsLabelY
 			window.Gadgets = append(window.Gadgets, l)
 			break
 		}
 	}
+	b := window.Gadgets[selectMap]
+	b.Name, b.SourceName, b.Art, b.QuickKey = placeStartsButton, placeStartsSource, "SelectMap", 0
+	b.Rect.X, b.Rect.Y = placeStartsX, placeStartsY
+	window.Gadgets = append(window.Gadgets, b)
 }
 
-// skirmishLivePlayers counts the shown rows that are players, the count the
-// battle's schema is chosen by (skirmishConfigForStart compacts to it).
-func (g *gameShell) skirmishLivePlayers() int {
-	live := 0
+// placerRows are the shown rows that are players, in row order.
+func (g *gameShell) placerRows() []int {
+	var rows []int
 	for i := 0; i < g.shownSkirmishRows(); i++ {
 		if g.retailControllers[i] != 0 {
-			live++
+			rows = append(rows, i)
 		}
 	}
-	return live
+	return rows
+}
+
+// placeStartsCaption is the button's text: Auto, or how many players have a
+// chosen point.
+func (g *gameShell) placeStartsCaption() string {
+	placed := 0
+	for _, row := range g.placerRows() {
+		if g.setup.Players[row].Start.Set {
+			placed++
+		}
+	}
+	if placed == 0 {
+		return "Auto"
+	}
+	return strconv.Itoa(placed) + " Placed"
+}
+
+// refreshSkirmishPlaceStarts shows the button where the selected rules honour
+// chosen starts; Strict 3.1 and the Survival screen have none.
+func (g *gameShell) refreshSkirmishPlaceStarts(p *ui.Panel) {
+	offered := !g.survivalMenu && g.setupSeatRules().ChosenStarts()
+	p.SetActive(placeStartsButton, offered)
+	p.SetActive(placeStartsLabel, offered)
+	if !offered {
+		return
+	}
+	p.SetText(placeStartsButton, g.placeStartsCaption())
+	p.SetHelp(placeStartsButton, "Click to place each player's commander on the map. Players left on Auto follow the Location setting.")
+}
+
+// clearChosenStarts drops every row's chosen point; a point belongs to the
+// map it was placed on, so a new map clears them.
+func (g *gameShell) clearChosenStarts() {
+	for i := range g.setup.Players {
+		g.setup.Players[i].Start = session.StartPoint{}
+	}
+}
+
+// startPlacer is the open Place Starts window. selected is a shown row, or
+// -1; pressed is the button a held left press began on.
+type startPlacer struct {
+	selected int
+	pressed  int
+	canvas   []byte
+	canvasOf string
+}
+
+const (
+	placerPressNone = iota
+	placerPressClear
+	placerPressDone
+)
+
+// The window's fixed layout on the 640×480 menu canvas.
+var (
+	placerPanel = gui.Rect{X: 30, Y: 24, W: 580, H: 432}
+	placerMap   = gui.Rect{X: 236, Y: 52, W: 360, H: 360}
+	placerClear = gui.Rect{X: 46, Y: 386, W: 84, H: 26}
+	placerDone  = gui.Rect{X: 138, Y: 386, W: 84, H: 26}
+)
+
+const (
+	placerRowX, placerRowY, placerRowW, placerRowH, placerRowPitch = 46, 56, 176, 24, 30
+	placerMarker                                                   = 14
+)
+
+func placerRowRect(i int) gui.Rect {
+	return gui.Rect{X: placerRowX, Y: int32(placerRowY + i*placerRowPitch), W: placerRowW, H: placerRowH}
+}
+
+// openStartPlacer opens the window on the first player without a point.
+func (g *gameShell) openStartPlacer() {
+	d := g.mapDataFor(g.setup.MapName)
+	if d == nil || d.tnt == nil {
+		reportRetailMessageError(g.showRetailMessage("The terrain for the selected map does not exist."))
+		return
+	}
+	rows := g.placerRows()
+	pl := &startPlacer{selected: -1}
+	for _, row := range rows {
+		if !g.setup.Players[row].Start.Set {
+			pl.selected = row
+			break
+		}
+	}
+	if pl.selected < 0 && len(rows) > 0 {
+		pl.selected = rows[0]
+	}
+	g.startPlacer = pl
+}
+
+// closeStartPlacer closes the window, keeping the points, and saves them.
+func (g *gameShell) closeStartPlacer() {
+	g.startPlacer = nil
+	g.saveSettings()
+	g.refreshRetailPanel()
+}
+
+// placerProjection fits the map's usable terrain, Width×16−32 by
+// Height×16−128 world pixels, into the map box, centred, as the map
+// picker's preview does (retailMapPreviewCanvas).
+func placerProjection(d *retailMapData, box gui.Rect) (inner gui.Rect, ew, eh int64, ok bool) {
+	if d == nil || d.tnt == nil {
+		return gui.Rect{}, 0, 0, false
+	}
+	ew, eh = int64(d.tnt.Width)*16-32, int64(d.tnt.Height)*16-128
+	if ew <= 0 || eh <= 0 {
+		return gui.Rect{}, 0, 0, false
+	}
+	w, h := int64(box.W), int64(box.H)
+	dstW, dstH, x0, y0 := w, h, int64(0), int64(0)
+	if ew < eh {
+		dstW = ew * w / eh
+		x0 = (w - dstW) / 2
+	} else {
+		dstH = eh * h / ew
+		y0 = (h - dstH) / 2
+	}
+	return gui.Rect{X: box.X + int32(x0), Y: box.Y + int32(y0), W: int32(dstW), H: int32(dstH)}, ew, eh, dstW > 0 && dstH > 0
+}
+
+// placerScreen is a world point's position in the map box.
+func placerScreen(inner gui.Rect, ew, eh int64, x, z int32) (int32, int32) {
+	return inner.X + int32(int64(x)*int64(inner.W)/ew), inner.Y + int32(int64(z)*int64(inner.H)/eh)
+}
+
+// placerWorld is the world point under a position in the map box, clamped to
+// the usable terrain.
+func placerWorld(inner gui.Rect, ew, eh int64, sx, sy int32) (int32, int32) {
+	x := min(max(int64(sx-inner.X)*ew/int64(inner.W), 0), ew-1)
+	z := min(max(int64(sy-inner.Y)*eh/int64(inner.H), 0), eh-1)
+	return int32(x), int32(z)
+}
+
+// serviceStartPlacer takes every key and pointer event while the window is
+// open, so nothing underneath reacts. Escape or Enter closes it. A left
+// click on a player selects it; on the map it puts the selected player
+// there and moves on to the next player without a point. A right click on a
+// player or its marker puts it back on Auto. Clear All and Done act on
+// release over the button they were pressed on.
+func (g *gameShell) serviceStartPlacer(in *input.State) {
+	pl := g.startPlacer
+	if pl == nil || in == nil {
+		return
+	}
+	tokens := in.PeekTokens()
+	in.DiscardTokens(len(tokens))
+	for _, tok := range tokens {
+		if tok.Kind == input.TokenEdit && (tok.Key == input.KeyEscape || tok.Key == input.KeyEnter) {
+			g.closeStartPlacer()
+			return
+		}
+	}
+	d := g.mapDataFor(g.setup.MapName)
+	inner, ew, eh, mapOK := placerProjection(d, placerMap)
+	rows := g.placerRows()
+	frame := pointerFrame(in, nil, false)
+	for _, ev := range frame.PointerEvents {
+		x, y := ev.X, ev.Y
+		switch ev.Kind {
+		case input.LeftDown, input.LeftDoubleClick:
+			pl.pressed = placerPressNone
+			switch {
+			case pointInRect(x, y, placerClear):
+				pl.pressed = placerPressClear
+			case pointInRect(x, y, placerDone):
+				pl.pressed = placerPressDone
+			case mapOK && pointInRect(x, y, inner):
+				if pl.selected >= 0 {
+					wx, wz := placerWorld(inner, ew, eh, x, y)
+					g.setup.Players[pl.selected].Start = session.StartPoint{Set: true, X: wx, Z: wz}
+					pl.selected = g.nextUnplacedRow(rows, pl.selected)
+				}
+			default:
+				for i, row := range rows {
+					if pointInRect(x, y, placerRowRect(i)) {
+						pl.selected = row
+					}
+				}
+			}
+		case input.LeftUp:
+			pressed := pl.pressed
+			pl.pressed = placerPressNone
+			switch {
+			case pressed == placerPressClear && pointInRect(x, y, placerClear):
+				g.clearChosenStarts()
+				if len(rows) > 0 {
+					pl.selected = rows[0]
+				}
+			case pressed == placerPressDone && pointInRect(x, y, placerDone):
+				g.closeStartPlacer()
+				return
+			}
+		case input.RightDown, input.RightDoubleClick:
+			for i, row := range rows {
+				if pointInRect(x, y, placerRowRect(i)) {
+					g.setup.Players[row].Start = session.StartPoint{}
+				}
+			}
+			if mapOK && pointInRect(x, y, inner) {
+				for _, row := range rows {
+					p := g.setup.Players[row].Start
+					if !p.Set {
+						continue
+					}
+					mx, my := placerScreen(inner, ew, eh, p.X, p.Z)
+					if placerAbs(x-mx) <= placerMarker/2+2 && placerAbs(y-my) <= placerMarker/2+2 {
+						g.setup.Players[row].Start = session.StartPoint{}
+					}
+				}
+			}
+		}
+	}
+}
+
+// nextUnplacedRow is the next player after row, in row order and wrapping,
+// that has no chosen point; row itself when every player has one.
+func (g *gameShell) nextUnplacedRow(rows []int, row int) int {
+	at := 0
+	for i, r := range rows {
+		if r == row {
+			at = i
+		}
+	}
+	for step := 1; step <= len(rows); step++ {
+		next := rows[(at+step)%len(rows)]
+		if !g.setup.Players[next].Start.Set {
+			return next
+		}
+	}
+	return row
+}
+
+func placerAbs(v int32) int32 {
+	if v < 0 {
+		return -v
+	}
+	return v
+}
+
+// drawStartPlacer paints the window over the dimmed setup screen: the
+// players with their logos and choices, the map with its authored starts as
+// grey dots and each placed player's logo, the selected player outlined,
+// and the two buttons.
+func (g *gameShell) drawStartPlacer(c *client.Client) {
+	pl := g.startPlacer
+	p := g.activePanel()
+	if pl == nil || p == nil || p.Window == nil {
+		return
+	}
+	if g.assets != nil && g.assets.pal != nil {
+		c.UIShadeRect(g.assets.pal, 0, 0, 640, 480, 8)
+	}
+	raised := retailButtonVerdict(gui.Gadget{}, 0, 0, 0, 0, false)
+	sunk := retailButtonVerdict(gui.Gadget{}, 0, 0, 1, 0, false)
+	bevel := func(r gui.Rect, down bool) {
+		v := raised
+		if down {
+			v = sunk
+		}
+		drawGUIBevel(c, r, g.guiColor(v.top), g.guiColor(v.bot), g.guiColor(v.fill))
+	}
+	bevel(placerPanel, false)
+	font := g.windowGadgetFont(p, p.Window.Gadgets[max(p.Index("HELPTEXT"), 0)])
+	measure, metric := g.retailTextMetrics(font)
+	text := func(s string, x, y, w int) {
+		g.drawRetailStringSelected(c, s, x, y, w, g.guiColor(15), 0, font)
+	}
+	text("Start Positions", int(placerPanel.X)+16, int(placerPanel.Y)+10, 200)
+	logo := func(color int, x, y, size int) {
+		if f := g.gadgetArt(gui.Gadget{Kind: gui.KindSurface, Art: "32xlogos"}, color); f != nil {
+			c.UIBlitFrameScaled(f, x, y, size, size)
+		}
+	}
+	rows := g.placerRows()
+	for i, row := range rows {
+		r := placerRowRect(i)
+		bevel(r, row == pl.selected)
+		player := g.setup.Players[row]
+		logo(player.Color, int(r.X)+5, int(r.Y)+(int(r.H)-placerMarker)/2, placerMarker)
+		name := "Player"
+		if g.retailControllers[row] == 2 {
+			name = computerAICaption(player.AI)
+		}
+		text(name, int(r.X)+24, int(r.Y)+(int(r.H)-metric)/2, 100)
+		state := "Auto"
+		if player.Start.Set {
+			state = "Placed"
+		}
+		text(state, int(r.X+r.W)-measure(state)-8, int(r.Y)+(int(r.H)-metric)/2, 60)
+	}
+	hintY := placerRowY + len(rows)*placerRowPitch + 6
+	for i, line := range []string{"Pick a player, then click", "the map. Right-click: Auto."} {
+		text(line, placerRowX, hintY+i*(metric+3), placerRowW)
+	}
+	for _, b := range []struct {
+		r       gui.Rect
+		caption string
+		press   int
+	}{{placerClear, "Clear All", placerPressClear}, {placerDone, "Done", placerPressDone}} {
+		bevel(b.r, pl.pressed == b.press)
+		text(b.caption, int(b.r.X)+(int(b.r.W)-measure(b.caption))/2, int(b.r.Y)+(int(b.r.H)-metric)/2, int(b.r.W))
+	}
+	// The map.
+	bevel(gui.Rect{X: placerMap.X - 3, Y: placerMap.Y - 3, W: placerMap.W + 6, H: placerMap.H + 6}, true)
+	c.UIFillRect(int(placerMap.X), int(placerMap.Y), int(placerMap.W), int(placerMap.H), 0)
+	d := g.mapDataFor(g.setup.MapName)
+	inner, ew, eh, ok := placerProjection(d, placerMap)
+	if !ok {
+		return
+	}
+	if pl.canvasOf != g.setup.MapName || pl.canvas == nil {
+		pl.canvas, pl.canvasOf = retailMapPreviewCanvas(d.tnt, int(placerMap.W), int(placerMap.H)), g.setup.MapName
+	}
+	c.UIBlitIndexed(pl.canvas, int(placerMap.W), int(placerMap.H), int(placerMap.X), int(placerMap.Y), int(placerMap.W), int(placerMap.H))
+	for _, sp := range mapStartPositions(d, len(rows)) {
+		x, y := placerScreen(inner, ew, eh, int32(sp.X), int32(sp.Z))
+		c.UIFillRect(int(x)-2, int(y)-2, 5, 5, g.guiColor(raised.bot))
+	}
+	for _, row := range rows {
+		p := g.setup.Players[row].Start
+		if !p.Set {
+			continue
+		}
+		x, y := placerScreen(inner, ew, eh, p.X, p.Z)
+		logo(g.setup.Players[row].Color, int(x)-placerMarker/2, int(y)-placerMarker/2, placerMarker)
+		if row == pl.selected {
+			c.UIFrameRect(int(x)-placerMarker/2-2, int(y)-placerMarker/2-2, placerMarker+4, placerMarker+4, g.guiColor(15))
+		}
+	}
 }
 
 // mapStartPositions are the selected map's start positions under the schema
@@ -96,129 +420,21 @@ func mapStartPositions(d *retailMapData, players int) []mission.Special {
 	return starts
 }
 
-// skirmishStartChoices are the authored start numbers the selected map
-// offers the current rows, ascending and once each.
-func (g *gameShell) skirmishStartChoices() []int {
-	var choices []int
-	for _, sp := range mapStartPositions(g.mapDataFor(g.setup.MapName), g.skirmishLivePlayers()) {
-		if n := int(sp.ID) + 1; n >= 1 && n <= session.SkirmishMaxStart && !slices.Contains(choices, n) {
-			choices = append(choices, n)
-		}
-	}
-	slices.Sort(choices)
-	return choices
-}
-
-// cycleSkirmishStart steps a row's start through Auto and the map's starts,
-// skipping any another live row holds: forward on the left button, back on
-// the right.
-func (g *gameShell) cycleSkirmishStart(slot, delta int) {
-	if slot < 0 || slot >= session.SkirmishMaxPlayers {
-		return
-	}
-	options := []int{0}
-	for _, n := range g.skirmishStartChoices() {
-		taken := false
-		for i := 0; i < g.shownSkirmishRows(); i++ {
-			if i != slot && g.retailControllers[i] != 0 && g.setup.Players[i].Start == n {
-				taken = true
-				break
-			}
-		}
-		if !taken {
-			options = append(options, n)
-		}
-	}
-	at := max(slices.Index(options, g.setup.Players[slot].Start), 0)
-	g.setup.Players[slot].Start = options[cycleInt(at, 0, len(options)-1, delta)]
-}
-
-// skirmishStartCaption is a row's Start button text.
-func skirmishStartCaption(start int) string {
-	if start == 0 {
-		return "Auto"
-	}
-	return strconv.Itoa(start)
-}
-
-// refreshSkirmishStarts shows each live row's Start button with its choice;
-// open rows and the Survival screen, which places its own commanders, have
-// none.
-func (g *gameShell) refreshSkirmishStarts(p *ui.Panel) {
-	for i := 0; i < session.SkirmishMaxPlayers; i++ {
-		name := skirmishStartPrefix + strconv.Itoa(i)
-		live := !g.survivalMenu && i < g.setup.NumPlayers && g.retailControllers[i] != 0 && g.setupSeatRules().ChosenStarts()
-		p.SetActive(name, live)
-		if !live {
-			continue
-		}
-		p.SetText(name, skirmishStartCaption(g.setup.Players[i].Start))
-		p.SetStatus(name, 0)
-		p.SetHelp(name, "Click to choose this player's start position; right click goes back. Auto follows the Location setting.")
-	}
-}
-
-// skirmishStartError is the Start preflight's check of the chosen starts:
-// each live row's choice must be on the map, and no two rows may share one.
-// It returns "" when every choice can be placed, and always under rules that
-// ignore chosen starts.
-func (g *gameShell) skirmishStartError() string {
-	if !g.setupSeatRules().ChosenStarts() {
-		return ""
-	}
-	choices := g.skirmishStartChoices()
-	var owner [session.SkirmishMaxStart + 1]bool
-	for i := 0; i < g.shownSkirmishRows(); i++ {
-		start := g.setup.Players[i].Start
-		if g.retailControllers[i] == 0 || start == 0 {
-			continue
-		}
-		if !slices.Contains(choices, start) {
-			return fmt.Sprintf("Start position %d is not on this map for %d players.", start, g.skirmishLivePlayers())
-		}
-		if owner[start] {
-			return fmt.Sprintf("Two players chose start position %d.", start)
-		}
-		owner[start] = true
-	}
-	return ""
-}
-
-// drawMapStartMarkers numbers the map picker preview's start positions for
-// the current rows, each a small bevelled box centred on its start. The
-// projection is the preview canvas's: the usable terrain, Width×16−32 by
-// Height×16−128 world pixels, fitted and centred in the surface
-// (retailMapPreviewCanvas).
+// drawMapStartMarkers marks the map picker preview's start positions for the
+// current rows, each a small bevelled square over its position in the
+// preview's own projection.
 func (g *gameShell) drawMapStartMarkers(c *client.Client, p *ui.Panel, d *retailMapData, r gui.Rect) {
-	if d == nil || d.tnt == nil || p == nil || p.Window == nil {
+	if d == nil || d.tnt == nil || p == nil || p.Window == nil || r.W < 8 || r.H < 8 {
 		return
 	}
-	ew, eh := int64(d.tnt.Width)*16-32, int64(d.tnt.Height)*16-128
-	if ew <= 0 || eh <= 0 || r.W < 8 || r.H < 8 {
+	inner, ew, eh, ok := placerProjection(d, r)
+	if !ok {
 		return
 	}
-	w, h := int64(r.W), int64(r.H)
-	dstW, dstH, x0, y0 := w, h, int64(0), int64(0)
-	if ew < eh {
-		dstW = ew * w / eh
-		x0 = (w - dstW) / 2
-	} else {
-		dstH = eh * h / ew
-		y0 = (h - dstH) / 2
-	}
-	font := g.windowGadgetFont(p, p.Window.Gadgets[p.Index("MAPPIC")])
-	measure, metric := g.retailTextMetrics(font)
-	for _, sp := range mapStartPositions(d, g.skirmishLivePlayers()) {
-		label := strconv.Itoa(int(sp.ID) + 1)
-		bw := int32(max(measure(label)+4, 9))
-		bh := int32(metric + 3)
-		cx := int32(int64(r.X) + x0 + int64(sp.X)*dstW/ew)
-		cy := int32(int64(r.Y) + y0 + int64(sp.Z)*dstH/eh)
-		box := gui.Rect{X: cx - bw/2, Y: cy - bh/2, W: bw, H: bh}
-		box.X = min(max(box.X, r.X), r.X+r.W-1-box.W)
-		box.Y = min(max(box.Y, r.Y), r.Y+r.H-1-box.H)
-		v := retailButtonVerdict(gui.Gadget{}, 0, 0, 0, 0, false)
+	v := retailButtonVerdict(gui.Gadget{}, 0, 0, 0, 0, false)
+	for _, sp := range mapStartPositions(d, len(g.placerRows())) {
+		x, y := placerScreen(inner, ew, eh, int32(sp.X), int32(sp.Z))
+		box := gui.Rect{X: min(max(x-3, r.X), r.X+r.W-8), Y: min(max(y-3, r.Y), r.Y+r.H-8), W: 7, H: 7}
 		drawGUIBevel(c, box, g.guiColor(v.top), g.guiColor(v.bot), g.guiColor(v.fill))
-		g.drawRetailStringSelected(c, label, int(box.X)+(int(box.W)-measure(label))/2, int(box.Y)+(int(box.H)-metric)/2, int(box.W), g.guiColor(15), 0, font)
 	}
 }

@@ -11,67 +11,81 @@ import (
 	"github.com/nanolathe-gg/nanolathe/internal/headless"
 	"github.com/nanolathe-gg/nanolathe/internal/input"
 	"github.com/nanolathe-gg/nanolathe/internal/session"
-	"github.com/nanolathe-gg/nanolathe/internal/sim/numeric"
 )
 
-// The skirmish screen's Start buttons on the retail art: each live row
-// cycles Auto and the map's starts, skipping one another row holds; the
-// battle the screen starts places each commander on its choice under
-// Strict 3.1 as under Modern; and the map picker numbers the starts
-// (docs/DESIGN_SESSIONS_AI_SAVE.md "Modern chosen start positions",
-// DESIGN_INTERFACE_HUD_INPUT §2.6 "Start positions"). With
-// NANOLATHE_SHOT_DIR set, both screens are written there as PNGs.
-func TestSkirmishScreenChoosesStartPositionsRetail(t *testing.T) {
+// The skirmish screen's Place Starts window on the retail art: it opens from
+// its button, a click on the map places the selected player and moves on to
+// the next, a right click on a marker puts the player back on Auto, and Done
+// closes it. The battle the screen then starts puts the chosen commander on
+// the nearest cell it can stand on under Modern, and on retail's start under
+// Strict 3.1 (docs/DESIGN_SESSIONS_AI_SAVE.md "Modern chosen start
+// positions", DESIGN_INTERFACE_HUD_INPUT §2.6 "Start positions"). With
+// NANOLATHE_SHOT_DIR set, the open window and the map picker are written
+// there as PNGs.
+func TestSkirmishScreenPlacesStartsOnTheMapRetail(t *testing.T) {
 	resetSaveLoadScreenState(t)
 	shell, _ := retailShellForTest(t)
 	shell.settingsWritable = false
+	shell.gameplay = gameplay.Modern
 	shot := survivalMenuShooter(t, shell)
-	caption := func(row string) string {
-		p := shell.activePanel()
-		return p.TextAt(p.Index(row))
+	cl, err := client.New(client.Options{Buffer: &frame.Buffer{}, Width: 640, Height: 480})
+	if err != nil {
+		t.Fatal(err)
+	}
+	clickAt := func(x, y int32, button input.MouseButton) {
+		mouse := cl.Input().Mouse
+		mouse.SetPosition(float32(x), float32(y))
+		mouse.SetButton(button, true)
+		shell.menuInput(cl)
+		mouse.ResetEdges()
+		mouse.SetButton(button, false)
+		shell.menuInput(cl)
+		mouse.ResetEdges()
 	}
 	shell.activateGadget("SINGLE")
 	shell.activateGadget("Skirmish")
 	shell.setup.NumPlayers = 4
 	shell.retailControllers = [session.SkirmishMaxPlayers]int{1, 2, 0, 0}
+	shell.clearChosenStarts()
 	shell.openMenu(modeMenuSkirmish)
-	choices := shell.skirmishStartChoices()
-	if len(choices) < 2 {
-		t.Skipf("map %q offers %d starts for two players", shell.setup.MapName, len(choices))
+	p := shell.activePanel()
+	if !p.ActiveAt(p.Index(placeStartsButton)) || p.TextAt(p.Index(placeStartsButton)) != "Auto" {
+		t.Fatalf("Place Starts offered %v with caption %q under Modern", p.ActiveAt(p.Index(placeStartsButton)), p.TextAt(p.Index(placeStartsButton)))
 	}
-	if got := caption("StartPos0"); got != "Auto" {
-		t.Fatalf("a fresh row's Start caption %q, want Auto", got)
+	clickRowGadget(t, shell, p, cl, placeStartsButton, input.MouseButtonLeft)
+	pl := shell.startPlacer
+	if pl == nil || pl.selected != 0 {
+		t.Fatalf("Place Starts opened %v", pl)
 	}
-	if p := shell.activePanel(); p.ActiveAt(p.Index("StartPos2")) {
-		t.Fatal("an open row shows a Start button")
+	d := shell.mapDataFor(shell.setup.MapName)
+	inner, ew, eh, ok := placerProjection(d, placerMap)
+	if !ok {
+		t.Fatalf("map %q has no preview", shell.setup.MapName)
 	}
-	last := choices[len(choices)-1]
-	cl, err := client.New(client.Options{Buffer: &frame.Buffer{}, Width: 640, Height: 480})
-	if err != nil {
-		t.Fatal(err)
+	sx, sy := inner.X+inner.W/3, inner.Y+inner.H/2
+	wantX, wantZ := placerWorld(inner, ew, eh, sx, sy)
+	clickAt(sx, sy, input.MouseButtonLeft)
+	if got := shell.setup.Players[0].Start; got != (session.StartPoint{Set: true, X: wantX, Z: wantZ}) || pl.selected != 1 {
+		t.Fatalf("a map click placed %+v and selected row %d; want (%d,%d) and row 1", got, pl.selected, wantX, wantZ)
 	}
-	click := func(name string, button input.MouseButton) {
-		clickRowGadget(t, shell, shell.activePanel(), cl, name, button)
+	clickAt(sx, sy, input.MouseButtonRight)
+	if shell.setup.Players[0].Start.Set {
+		t.Fatal("a right click on the marker kept the point")
 	}
-	click("StartPos0", input.MouseButtonLeft)  // Auto -> first start
-	click("StartPos1", input.MouseButtonLeft)  // Auto -> second start, skipping row 0's
-	click("StartPos1", input.MouseButtonRight) // back to Auto
-	click("StartPos1", input.MouseButtonRight) // wraps to the last start
-	if got, want := caption("StartPos0"), skirmishStartCaption(choices[0]); got != want {
-		t.Fatalf("row 0 Start caption %q, want %q", got, want)
+	clickAt(placerRowRect(0).X+10, placerRowRect(0).Y+10, input.MouseButtonLeft)
+	clickAt(sx, sy, input.MouseButtonLeft)
+	shot("skirmish-place-starts")
+	clickAt(placerDone.X+10, placerDone.Y+10, input.MouseButtonLeft)
+	if shell.startPlacer != nil || p.TextAt(p.Index(placeStartsButton)) != "1 Placed" {
+		t.Fatalf("Done left the window %v and the caption %q", shell.startPlacer, p.TextAt(p.Index(placeStartsButton)))
 	}
-	if got := shell.setup.Players[1].Start; got != last {
-		t.Fatalf("row 1 start %d after two right clicks, want the last start %d", got, last)
-	}
-	shot("skirmish-start-positions")
-	starts := mapStartPositions(shell.mapDataFor(shell.setup.MapName), 2)
-	at := func(n int) (numeric.Fixed, numeric.Fixed) {
-		for _, sp := range starts {
-			if int(sp.ID)+1 == n {
-				return numeric.Fixed(sp.X) << 16, numeric.Fixed(sp.Z) << 16
+	retailStart := func(owner int) (int32, int32) {
+		for _, sp := range mapStartPositions(d, 2) {
+			if int(sp.ID) == owner {
+				return int32(sp.X), int32(sp.Z)
 			}
 		}
-		t.Fatalf("no StartPos%d", n)
+		t.Fatalf("no StartPos%d", owner+1)
 		return 0, 0
 	}
 	for _, mode := range []gameplay.Mode{gameplay.Strict31, gameplay.Modern} {
@@ -87,21 +101,21 @@ func TestSkirmishScreenChoosesStartPositionsRetail(t *testing.T) {
 			t.Fatalf("%s: the setup does not compose: %v", mode, err)
 		}
 		for _, u := range battle.Session.Units.Iter() {
-			// Strict 3.1 ignores the choice: fixed starts are the identity.
-			start := cfg.Players[u.Owner].Start
-			if mode == gameplay.Strict31 {
-				start = int(u.Owner) + 1
+			x, z := int32(u.X>>16), int32(u.Z>>16)
+			if u.Owner == 0 && mode == gameplay.Modern {
+				// The nearest standable cell: within a few cells of the click.
+				if placerAbs(x-wantX) > 64 || placerAbs(z-wantZ) > 64 {
+					t.Fatalf("Modern: the chosen commander is at (%d,%d), far from the chosen (%d,%d)", x, z, wantX, wantZ)
+				}
+				continue
 			}
-			x, z := at(start)
-			if u.X != x || u.Z != z {
-				t.Fatalf("%s: player %d commander at (%d,%d), want StartPos%d (%d,%d)", mode, u.Owner, u.X>>16, u.Z>>16, start, x>>16, z>>16)
+			rx, rz := retailStart(int(u.Owner))
+			if x != rx || z != rz {
+				t.Fatalf("%s: player %d commander at (%d,%d), want its StartPos%d (%d,%d)", mode, u.Owner, x, z, u.Owner+1, rx, rz)
 			}
 		}
 	}
 	shell.activateGadget("SelectMap")
-	if shell.frontend.Mode != modeMenuMap {
-		t.Fatalf("SelectMap -> mode %d", shell.frontend.Mode)
-	}
 	shot("map-start-positions")
 	shell.activateGadget("PREVMENU")
 }

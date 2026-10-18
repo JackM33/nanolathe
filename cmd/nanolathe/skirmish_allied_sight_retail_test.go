@@ -37,7 +37,7 @@ func TestSkirmishScreenSharesAlliedSightRetail(t *testing.T) {
 	for i, group := range []int{0, 0, 1} {
 		shell.setup.Players[i].AllyGroup = group
 		shell.setup.Players[i].Color = i
-		shell.setup.Players[i].Start = 0
+		shell.setup.Players[i].Start = session.StartPoint{}
 	}
 	shell.openMenu(modeMenuSkirmish)
 	clickRowGadget(t, shell, shell.activePanel(), cl, alliedSightButton, input.MouseButtonLeft)

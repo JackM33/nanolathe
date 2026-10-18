@@ -168,18 +168,26 @@ type SkirmishPlayer struct {
 	// (docs/DESIGN_MULTIPLAYER.md §6.6). It means nothing on any other row
 	// or in a setup with one battle word.
 	Difficulty int
-	// Start is the start position the player chose in the lobby: 0 leaves
-	// it to the setup's Location word, and 1..10 names the map's
-	// `StartPos<n>` by its authored number. It is a Nanolathe lobby choice
-	// with no retail counterpart, offered in every gameplay mode; a setup
-	// with no choice places commanders exactly as retail does
-	// (docs/DESIGN_SESSIONS_AI_SAVE.md "Modern chosen start positions").
-	Start int
+	// Start is where the player put its commander on the lobby's map; the
+	// zero value leaves it to the setup's Location word. It is a Nanolathe
+	// Modern lobby choice with no retail counterpart: Strict 3.1 ignores it
+	// (SeatRules.ChosenStarts), and a setup with no choice places
+	// commanders exactly as retail does (docs/DESIGN_SESSIONS_AI_SAVE.md
+	// "Modern chosen start positions").
+	Start StartPoint
 }
 
-// SkirmishMaxStart is the highest start position a player can choose: one
-// per possible player.
-const SkirmishMaxStart = SkirmishMaxPlayers
+// StartPoint is a chosen commander start: a point on the map in world
+// pixels, the units the map's own StartPos records use. Set is false for a
+// player who chose none.
+type StartPoint struct {
+	Set  bool
+	X, Z int32
+}
+
+// StartPointLimit bounds a chosen point's coordinates: far beyond any map,
+// so it only refuses nonsense. Battle entry clamps a point to its map.
+const StartPointLimit = 1 << 20
 
 // SkirmishConfig is the skirmish setup discriminant per [08 "Skirmish configuration"].
 // MapName is the --map selection (basename without extension).
@@ -381,24 +389,15 @@ func (c SkirmishConfig) Validate() error {
 	return validateChosenStarts(c)
 }
 
-// validateChosenStarts refuses a chosen start outside 1..SkirmishMaxStart and
-// two players that chose the same one. Whether the map has the start is
-// battle entry's question, since it depends on the schema the player count
-// selects (docs/DESIGN_SESSIONS_AI_SAVE.md "Modern chosen start positions").
+// validateChosenStarts refuses a chosen point outside 0..StartPointLimit.
+// Where on the map it lands is battle entry's question
+// (docs/DESIGN_SESSIONS_AI_SAVE.md "Modern chosen start positions").
 func validateChosenStarts(c SkirmishConfig) error {
-	var owner [SkirmishMaxStart + 1]int
 	for i := 0; i < c.NumPlayers && i < len(c.Players); i++ {
-		start := c.Players[i].Start
-		if start < 0 || start > SkirmishMaxStart {
-			return fmt.Errorf("session: player %d start position %d: want 0 (automatic) or 1..%d", i+1, start, SkirmishMaxStart)
+		p := c.Players[i].Start
+		if p.Set && (p.X < 0 || p.Z < 0 || p.X >= StartPointLimit || p.Z >= StartPointLimit) {
+			return fmt.Errorf("session: player %d start point (%d,%d): want coordinates 0..%d", i+1, p.X, p.Z, StartPointLimit-1)
 		}
-		if start == 0 {
-			continue
-		}
-		if owner[start] != 0 {
-			return fmt.Errorf("session: players %d and %d both chose start position %d: want each start chosen at most once", owner[start], i+1, start)
-		}
-		owner[start] = i + 1
 	}
 	return nil
 }
@@ -623,13 +622,14 @@ func (c SkirmishConfig) NormalizedBytes() []byte {
 	if c.AlliedSight {
 		b = append(b, 'V')
 	}
-	// Chosen start positions only when one is chosen, so a setup that leaves
+	// Chosen start points only when one is chosen, so a setup that leaves
 	// every start to Location keeps its existing bytes.
 	for i := 0; i < 10; i++ {
-		if c.Players[i].Start != 0 {
+		if c.Players[i].Start.Set {
 			b = append(b, 'P')
 			for j := 0; j < 10; j++ {
-				b = append(b, byte(c.Players[j].Start))
+				p := c.Players[j].Start
+				b = append(b, boolByte(p.Set), byte(p.X), byte(p.X>>8), byte(p.X>>16), byte(p.Z), byte(p.Z>>8), byte(p.Z>>16))
 			}
 			break
 		}
@@ -1406,32 +1406,41 @@ func shuffleEligibleStarts(crt *rng.CRT, order []int) {
 	}
 }
 
-// skirmishStartAssignment maps each eligible slot to the stored number of the
-// start position its commander takes, and reports how many slots chose theirs.
+// skirmishStartAssignment decides where each eligible slot's commander
+// begins. assignment maps a slot to the stored number of the authored start
+// it takes; points maps a slot to the world point it chose, which battle
+// entry moves to the nearest cell its commander can stand on. Every
+// eligible slot is in exactly one of the two.
 //
-// With no chosen start it is retail's placement: Location nonzero is the
+// With no chosen point it is retail's placement: Location nonzero is the
 // identity, slot i taking stored number i; Location zero permutes the
 // eligible slots with the loading CRT walk [08 "Randomization for skirmish
-// starts"][P0-04].
+// starts"][P0-04]. chosenAllowed false (Strict 3.1, SeatRules.ChosenStarts)
+// ignores every chosen point.
 //
-// **Nanolathe policy (user-authorized 2026-10-18).** A player who chose a
-// start takes it. The others share what is left: under fixed starts each
-// keeps its own number when that start exists and is free, and the rest take
-// the lowest free starts in slot order; under random starts the lowest free
-// starts, one per remaining player, are dealt out by a Fisher–Yates shuffle
-// on the same loading CRT. The CRT is the disposable loading stream, so the
-// simulation stream is untouched either way. A chosen start the map lacks is
-// retail's missing-start fatal; too few free starts is this build's error
+// **Nanolathe Modern policy (user-authorized 2026-10-18).** A player who
+// chose a point begins there, and every authored start within
+// chosenStartClaim world pixels of a chosen point is taken by it, so no
+// other commander begins on top of a chosen one. The other players share the
+// authored starts left: under fixed starts each keeps its own number when
+// that start exists and is free, and the rest take the lowest free starts in
+// slot order; under random starts the lowest free starts, one per remaining
+// player, are dealt by a Fisher–Yates shuffle on the same loading CRT. The
+// CRT is the disposable loading stream, so the simulation stream is
+// untouched either way. Too few free starts is this build's error
 // (docs/DESIGN_SESSIONS_AI_SAVE.md "Modern chosen start positions").
-func skirmishStartAssignment(cfg SkirmishConfig, eligible []int, starts []mission.Special, crt *rng.CRT, chosenAllowed bool) (map[int]int, int, error) {
-	assignment := make(map[int]int, len(eligible))
-	chosen := 0
+func skirmishStartAssignment(cfg SkirmishConfig, eligible []int, starts []mission.Special, crt *rng.CRT, chosenAllowed bool) (assignment map[int]int, points map[int][2]int32, err error) {
+	assignment = make(map[int]int, len(eligible))
+	points = make(map[int][2]int32)
+	var rest []int
 	for _, slot := range eligible {
-		if chosenAllowed && cfg.Players[slot].Start != 0 {
-			chosen++
+		if p := cfg.Players[slot].Start; chosenAllowed && p.Set {
+			points[slot] = [2]int32{p.X, p.Z}
+		} else {
+			rest = append(rest, slot)
 		}
 	}
-	if chosen == 0 {
+	if len(points) == 0 {
 		order := slices.Clone(eligible)
 		if cfg.Location == 0 {
 			// Location==0 → randomized via the CRT walk [08 "Randomization for
@@ -1451,37 +1460,22 @@ func skirmishStartAssignment(cfg SkirmishConfig, eligible []int, starts []missio
 		for idx, logical := range eligible {
 			assignment[logical] = order[idx]
 		}
-		return assignment, 0, nil
+		return assignment, points, nil
 	}
-	// The map's start numbers, ascending and once each; a duplicated record
-	// resolves to its first authored copy at placement either way.
+	// The map's authored starts no chosen point claims, ascending and once
+	// each; a duplicated record resolves to its first authored copy at
+	// placement either way.
 	var free []int
 	for _, sp := range starts {
-		if id := int(sp.ID); !slices.Contains(free, id) {
-			free = append(free, id)
-		}
-	}
-	slices.Sort(free)
-	var rest []int
-	for _, slot := range eligible {
-		start := cfg.Players[slot].Start
-		if start == 0 {
-			rest = append(rest, slot)
+		id := int(sp.ID)
+		if slices.Contains(free, id) || startClaimed(sp, eligible, points) {
 			continue
 		}
-		stored := start - 1
-		if startTaken(assignment, stored) {
-			return nil, 0, fmt.Errorf("nanolathe: skirmish start position %d chosen twice: slot %d, expected each start chosen at most once", start, slot)
-		}
-		at := slices.Index(free, stored)
-		if at < 0 {
-			return nil, 0, errStartPositionMissing(stored)
-		}
-		assignment[slot] = stored
-		free = slices.Delete(free, at, at+1)
+		free = append(free, id)
 	}
+	slices.Sort(free)
 	if len(free) < len(rest) {
-		return nil, 0, fmt.Errorf("nanolathe: skirmish start positions: map %q has %d free after the chosen ones, expected one for each of %d other players", cfg.MapName, len(free), len(rest))
+		return nil, nil, fmt.Errorf("nanolathe: skirmish start positions: map %q has %d starts left after the chosen points, expected one for each of %d other players", cfg.MapName, len(free), len(rest))
 	}
 	if cfg.Location != 0 {
 		// Each remaining slot keeps its own number when free, then the
@@ -1498,7 +1492,7 @@ func skirmishStartAssignment(cfg SkirmishConfig, eligible []int, starts []missio
 		for i, slot := range unplaced {
 			assignment[slot] = free[i]
 		}
-		return assignment, chosen, nil
+		return assignment, points, nil
 	}
 	pool := slices.Clone(free[:len(rest)])
 	for k := len(pool) - 1; k > 0; k-- {
@@ -1508,19 +1502,50 @@ func skirmishStartAssignment(cfg SkirmishConfig, eligible []int, starts []missio
 	for i, slot := range rest {
 		assignment[slot] = pool[i]
 	}
-	return assignment, chosen, nil
+	return assignment, points, nil
 }
 
-// startTaken reports whether a slot already took the stored start number.
-// The assignment is read by lookup only, never ranged, so its order is not
-// observable.
-func startTaken(assignment map[int]int, stored int) bool {
-	for slot := 0; slot < SkirmishMaxPlayers; slot++ {
-		if got, ok := assignment[slot]; ok && got == stored {
+// chosenStartClaim is how near, in world pixels, an authored start must be
+// to a chosen point for the point to take it: 24 cells, well inside the
+// spacing of any stock map's starts, so a commander placed at or beside an
+// authored start is never joined there by another (Nanolathe Modern policy).
+const chosenStartClaim = 24 * 16
+
+// startClaimed reports whether a chosen point lies within chosenStartClaim
+// of the authored start. points is read by lookup in slot order, never
+// ranged.
+func startClaimed(sp mission.Special, eligible []int, points map[int][2]int32) bool {
+	for _, slot := range eligible {
+		p, ok := points[slot]
+		if !ok {
+			continue
+		}
+		dx, dz := int64(p[0])-int64(sp.X), int64(p[1])-int64(sp.Z)
+		if dx*dx+dz*dz <= chosenStartClaim*chosenStartClaim {
 			return true
 		}
 	}
 	return false
+}
+
+// chosenStartReach is how many cells out from a chosen point battle entry
+// looks for one its commander can stand on, the reach Survival's spawn
+// search uses (survivalSpawnReach).
+const chosenStartReach = survivalSpawnReach
+
+// chosenStartPosition moves a chosen point onto the map and to the nearest
+// cell, outward ring by ring, where the commander passes the spawn command's
+// placement checks: its movement class's slope and water limits, its
+// footprint and the units and features already there
+// (checkSpawnPlacement). Commanders placed earlier are already there, so two
+// players who chose one point begin side by side.
+func (s *Session) chosenStartPosition(def *content.UnitDef, p [2]int32) (x, y, z numeric.Fixed, ok bool) {
+	if s.World == nil {
+		return 0, 0, 0, false
+	}
+	cx := min(max(p[0]/16, 0), s.World.CellW-1)
+	cz := min(max(p[1]/16, 0), s.World.CellH-1)
+	return s.survivalFindCell(def, nil, 0, cx, cz, chosenStartReach)
 }
 
 func skirmishReconstructUnits(s *Session, cfg SkirmishConfig, m *mission.Mission) error {
@@ -1591,8 +1616,8 @@ func skirmishReconstructUnits(s *Session, cfg SkirmishConfig, m *mission.Mission
 	// bootstrap seed. The simulation stream and retained session CRT are not
 	// read [01 R-CORE-02][01 R-PLAT-01 §7][08 R-ENTRY-01 §5] [I4] DET-01.
 	crt := rng.NewCRT(cfg.RNGCrtSeed)
-	// Map logical slot → stored start number.
-	permMap, chosen, err := skirmishStartAssignment(cfg, eligible, starts, &crt, seatRulesOf(s.Rules).ChosenStarts())
+	// Map logical slot → stored start number, or → its chosen point.
+	permMap, points, err := skirmishStartAssignment(cfg, eligible, starts, &crt, seatRulesOf(s.Rules).ChosenStarts())
 	if err != nil {
 		return err
 	}
@@ -1611,11 +1636,10 @@ func skirmishReconstructUnits(s *Session, cfg SkirmishConfig, m *mission.Mission
 	// With pre-determined starts the lobby shows every player which start
 	// each slot takes, so a Modern controller is told as well; under random
 	// starts nobody is, and it searches (docs/DESIGN_SESSIONS_AI_SAVE.md
-	// "Modern AI computer player"). Every player choosing a start is the
-	// same knowledge; a partial choice under random starts is not, since an
-	// unpublished owner reads as an empty start. The retail step never reads
-	// it.
-	if cfg.Location != 0 || chosen == len(eligible) {
+	// "Modern AI computer player"). A chosen point is not an authored start,
+	// and an unpublished owner reads as an empty start, so a battle with one
+	// publishes nothing. The retail step never reads it.
+	if cfg.Location != 0 && len(points) == 0 {
 		publishStartOwners(s, starts, eligible, permMap)
 	}
 	// Helper to find a StartPos special by its authored 1-based suffix, which
@@ -1654,6 +1678,21 @@ func skirmishReconstructUnits(s *Session, cfg SkirmishConfig, m *mission.Mission
 		if s.onlineResults != nil {
 			x = numeric.Fixed(s.SimRNG().Uint32n(uint32(s.World.CellW*16-160))+80) << 16
 			z = numeric.Fixed(s.SimRNG().Uint32n(uint32(s.World.CellH*16-160))+80) << 16
+		}
+		// A chosen point (Nanolathe Modern policy): the nearest cell to it the
+		// commander can stand on. It takes no authored start, so no
+		// Community schema placement replaces its commander.
+		if p, chosen := points[playerIdx]; chosen {
+			def, commanderErr := skirmishCommander(s.Catalog, cfg.Players[playerIdx].Side, playerIdx)
+			if commanderErr != nil {
+				return commanderErr
+			}
+			px, py, pz, ok := s.chosenStartPosition(def, p)
+			if !ok {
+				return fmt.Errorf("nanolathe: chosen start has no room: logical path %s, providers searched [terrain], expected a cell within %d of (%d,%d) where slot %d's commander can stand", cfg.MapName, chosenStartReach, p[0], p[1], playerIdx)
+			}
+			s.createSkirmishCommander(def, playerIdx, px, py, pz)
+			continue
 		}
 		perm, has := permMap[playerIdx]
 		if !has {
@@ -1696,25 +1735,31 @@ func skirmishReconstructUnits(s *Session, cfg SkirmishConfig, m *mission.Mission
 				y = 0
 			}
 		}
-		h, err := s.Units.Create(def, uint8(playerIdx), x, y, z)
-		if err != nil {
-			// The normal allocator may fail; battle entry keeps the sparse
-			// creation entry null and continues [08 "Placement and battle entry"].
-			continue
-		}
-		if u := s.Units.Unit(h); u != nil {
-			// Mark as commander? No extra flags here but preserve placement linkage for debugging
-			u.PlacementIdx = -1
-			// Publish visibility synchronously before loader returns — no empty-coverage frame [03 §3.3] C10.
-			publishOne(s, u)
-			if s.Movement != nil && s.Movement.Routes != nil {
-				s.Movement.EnsureUnit(u)
-			}
-		}
+		s.createSkirmishCommander(def, playerIdx, x, y, z)
 	}
 	// Fresh skirmish entry skips the campaign unit spawner, including authored
 	// scenario units; only eligible commanders are created [08 R-ENTRY-01 §6].
 	return nil
+}
+
+// createSkirmishCommander creates one player's commander at battle entry and
+// publishes its coverage before the loader returns.
+func (s *Session) createSkirmishCommander(def *content.UnitDef, playerIdx int, x, y, z numeric.Fixed) {
+	h, err := s.Units.Create(def, uint8(playerIdx), x, y, z)
+	if err != nil {
+		// The normal allocator may fail; battle entry keeps the sparse
+		// creation entry null and continues [08 "Placement and battle entry"].
+		return
+	}
+	if u := s.Units.Unit(h); u != nil {
+		// Mark as commander? No extra flags here but preserve placement linkage for debugging
+		u.PlacementIdx = -1
+		// Publish visibility synchronously before loader returns — no empty-coverage frame [03 §3.3] C10.
+		publishOne(s, u)
+		if s.Movement != nil && s.Movement.Routes != nil {
+			s.Movement.EnsureUnit(u)
+		}
+	}
 }
 
 func skirmishGrantResourcesDirect(s *Session, cfg SkirmishConfig) {
