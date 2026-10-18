@@ -19,6 +19,8 @@ func kindName(k commitKind) string {
 		return "scout"
 	case pInterceptor:
 		return "interceptor"
+	case pUpgrade:
+		return "module upgrade"
 	}
 	if int(k) < len(commitNames) {
 		return commitNames[k]
@@ -81,7 +83,7 @@ func (st *Strategy) explainN(b *core.Board, x *aikit.Explain) {
 	for _, fi := range s.factories {
 		f := tab.Units[fi]
 		si := &s.info[fi]
-		if f.Side != s.k.Side || f.Depth > 3 {
+		if !s.k.Owns(f) || f.Depth > 3 {
 			continue
 		}
 		room, site := true, true
@@ -153,5 +155,6 @@ func (pr *Production) Explain(b *core.Board, x *aikit.Explain) {
 		}
 		x.Notes = append(x.Notes, fmt.Sprintf("factory %s at (%d,%d): queue %d%s", f.Info.Key, f.X, f.Z, f.QueueLen, frame))
 	}
+	pr.explainUpgrades(b, x)
 	x.Notes = append(x.Notes, fmt.Sprintf("production: %d blocked pads cleared, %d scouts made", pr.cleared, pr.scouts))
 }

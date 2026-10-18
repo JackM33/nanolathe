@@ -20,6 +20,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"github.com/nanolathe-gg/nanolathe/internal/content"
 	"os"
 	"path/filepath"
 	"runtime/pprof"
@@ -158,7 +159,7 @@ func runMatch(args []string) error {
 	watchFrom := fs.Uint("watch-from", 0, "the first tick -watch records")
 	jamOf := fs.String("jam-of", "", "the kind of unit whose reading of the ground -jam carries (a unit name); implies -jam")
 	jam := fs.Bool("jam", false, "add a picture of the ground units at the end of the match to the result, for the pathfinding laboratory")
-	rules := fs.String("rules", "", "the harness rule set, for the pathfinding laboratory: aikit-retail-move, or aikit-<set> for a laboratory rule set, as aikit-lab-overlap (default: the harness with Modern's movement)")
+	rules := fs.String("rules", "", "the harness rule set, for the pathfinding laboratory: aikit-retail-move, or aikit-<set> for a laboratory rule set, as aikit-lab-overlap, or aikit-community-3.9 / aikit-strict-3.1 for the harness under that mode (default: the harness with Modern's movement)")
 	metal := fs.Int("metal", 0, "starting metal (default skirmish 1000)")
 	energy := fs.Int("energy", 0, "starting energy (default skirmish 1000)")
 	root := fs.String("root", "", "content root")
@@ -170,6 +171,9 @@ func runMatch(args []string) error {
 	fs.Var(&players, "p", "player spec brain[:persona[:side[:k=v,...]]] (repeat)")
 	var addons playerFlags
 	fs.Var(&addons, "addon", "an add-on archive (*.ufo) or a directory of them to mount with the base install, as enabled add-ons are (repeat)")
+	var mutators playerFlags
+	fs.Var(&mutators, "mutator", "a mutator key=factor for the battle, e.g. income=0.5 (repeat; docs/DESIGN_MODS_MUTATORS.md §6)")
+	valuesFile := fs.String("values", "", "JSON object of unit key to value (metal + energy/60) that prices units for the score instead of their costs")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -195,6 +199,30 @@ func runMatch(args []string) error {
 		req.Gameplay = gameplay.Mode(*rules)
 	}
 	req.PaceTPS = *pace
+	if len(mutators) > 0 {
+		values := map[string]string{}
+		for _, m := range mutators {
+			key, value, ok := strings.Cut(m, "=")
+			if !ok {
+				return fmt.Errorf("-mutator %q: want key=factor", m)
+			}
+			values[key] = value
+		}
+		set, err := content.ParseMutators(values)
+		if err != nil {
+			return err
+		}
+		req.Mutators = set
+	}
+	if *valuesFile != "" {
+		data, err := os.ReadFile(*valuesFile)
+		if err != nil {
+			return err
+		}
+		if err := json.Unmarshal(data, &req.Values); err != nil {
+			return fmt.Errorf("-values %s: %w", *valuesFile, err)
+		}
+	}
 	for _, a := range addons {
 		if info, err := os.Stat(a); err == nil && info.IsDir() {
 			matches, _ := filepath.Glob(filepath.Join(a, "*.ufo"))

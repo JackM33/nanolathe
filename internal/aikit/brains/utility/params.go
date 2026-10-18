@@ -63,6 +63,10 @@ type Params struct {
 	Army        int32 // army: income into army and towers that pay, a sum of parts (§13.12)
 	Metal       int32 // metal: metal use at every ambition, a sum of parts (README §13.14)
 	FacBackoff  int32 // fac_backoff: a factory site search that found no site is not repeated at its request point for a while
+	Breadth     int32 // breadth: production breadth, a sum of parts (README §13.16)
+	Cloak       int32 // cloak: 1 = cloak-capable units cloak when threatened while energy pays (abil_cloak.go)
+	Gates       int32 // gates: 1 = a gate pair from the base to the front, dialed, carries the army (abil_gates.go)
+	Play        int32 // play: the play review's fixes, a sum of parts (docs/PLAN_FACTION_BALANCE.md §3.3)
 }
 
 // ParamSpec documents one parameter.
@@ -118,7 +122,7 @@ var Specs = [...]ParamSpec{
 	{"reach_mix", 1, 0, 1, "switch: reach judged over the plausible enemy starts; stranded factories make a home guard only, and no more of them"},
 	{"fleet", 1, 0, 1, "switch: against an enemy navy, assault fleets of destroyers and heavier hulls, light boats capped to a few"},
 	{"tidal_field", 1, 0, 1, "switch: tidal generators and other water economy in fields clear of the shipyards' exits"},
-	{"growth", 16, 0, 31, "human economy shape at full ambition, a sum of parts: 1 expansion, 2 tech-2 timeline, 4 constructors per extractor, 8 factories per income, 16 constructor floor"},
+	{"growth", 16, 0, 31, "human economy shape at full ambition, a sum of parts: 1 expansion, 2 tech-2 timeline, 4 constructors per extractor, 8 factories per income, 16 constructor floor (at every ambition)"},
 	{"fac_first", 0, 0, 5, "first factory family: 0 none, 1 kbot lab, 2 vehicle plant, 3 air plant, 4 shipyard, 5 drawn per game"},
 	{"w_fac_first", 300, 100, 1000, "percent by which other factories rate below the first-factory family's until one of it is owned"},
 	{"expand", 0, 0, 31, "mid-game expansion, a sum of parts: 1 extractors on the expansion pace, 2 constructors follow the expansion, 4 failed spots held until seen empty, 8 contested spots behind our army, 16 factories follow the income while metal banks (§13.10)"},
@@ -126,6 +130,10 @@ var Specs = [...]ParamSpec{
 	{"army", 21, 0, 127, "income into army and towers that pay, a sum of parts: 1 towers yield to production while metal banks, 2 factories follow banked income and replace a walled-in one, 4 tower types by the square law and direct fire where ground attacks came, 8 towers where attacks came, 16 a tower value ceiling, 32 the commander's zone covered, 64 towers from surplus (§13.12)"},
 	{"metal", 7, 0, 7, "metal use at every ambition, a sum of parts: 1 no metal maker while a free safe extractor spot stands open, 2 no energy building or energy storage while the energy store is nine tenths full and not draining, 4 spots near home stay in the plan when the ambition extractor cap binds (README §13.14)"},
 	{"fac_backoff", 2, 0, 2, "factory site back-off: after a factory's placement search finds no site, for 20 s 1 = that factory is not asked for at that request point again, 2 = no factory is (docs/MODERN_AI_RESEARCH.md §5.1)"},
+	{"breadth", 15, 0, 15, "production breadth, a sum of parts: 1 combat variety (shares within each factory, a per-game preference, an efficiency floor), 2 cheap fast combat units in the mix beyond the scout allowance, 4 mobile radar and jammers kept with the army, 8 mobile assist builders for the factories (README §13.16)"},
+	{"cloak", 1, 0, 1, "switch: cloak-capable units, the commander included, cloak while threatened (or authored to start cloaked) and the energy store can pay (DESIGN_SESSIONS_AI_SAVE \"Modern AI commands\")"},
+	{"gates", 1, 0, 1, "switch: a gate in the base and one toward the front once the army travels and income pays for both, the base gate dialed to the front one, ground units sent through it when that shortens their trip (DESIGN_SESSIONS_AI_SAVE \"Modern AI gates\")"},
+	{"play", 7, 0, 15, "the play review's changes, each measured in mirrors against the brain without it, a sum of parts: 1 a factory whose army cannot reach the enemy is not the land constructor source while a land or hover factory that reaches is on offer, 2 the first constructor goes ahead of combat units at a shipyard or air plant, 4 an extractor waits for energy coverage while the energy store is below half, 8 the launch value's army curve scaled by our income (docs/PLAN_FACTION_BALANCE.md §3.3)"},
 }
 
 const numParams = len(Specs)
@@ -139,6 +147,8 @@ func (p *Params) slots() [numParams]*int32 {
 		&p.EcoRamp, &p.AttackMin, &p.AttackGrow, &p.AttackRatio, &p.ComRadius,
 		&p.SpotsPerCon, &p.FacTime, &p.WAir, &p.Naval, &p.Air, &p.Tech, &p.TechTime, &p.TechIncome, &p.WUpgrade, &p.Layout, &p.WReclaim,
 		&p.ReachMix, &p.Fleet, &p.TidalField, &p.Growth, &p.FacFirst, &p.WFacFirst, &p.Expand, &p.ExpandFrom, &p.Army, &p.Metal, &p.FacBackoff,
+		&p.Breadth,
+		&p.Cloak, &p.Gates, &p.Play,
 	}
 }
 

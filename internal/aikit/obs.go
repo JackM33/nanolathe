@@ -120,6 +120,22 @@ type OwnUnit struct {
 	// the unit is not building.
 	Target *UnitInfo
 	Tag    int32 // brain-owned label (squad id), preserved across observations
+	// GoalX, GoalZ is the goal position of the order Order classifies (the
+	// first primary order that is not a standing state), world units; 0, 0
+	// when the unit is idle. A player sees it on the selected unit.
+	GoalX, GoalZ int32
+	// Active is the on/off switch's state (Kit.Activate): true while the unit
+	// is switched on, and for every finished unit that has no switch.
+	Active bool
+	// Cloaked is the cloak request (Kit.Cloak); Hidden is whether the last
+	// settlement pass paid for it and hid the unit [05 "Cloak debit"].
+	Cloaked, Hidden bool
+	// Carrier is the unit this one is attached to as cargo (a transport, or a
+	// structure whose script holds it, as a gate holds its passenger), 0
+	// when it is free; Cargo is how many units are attached to this one
+	// [04 §4.4].
+	Carrier pool.Handle
+	Cargo   int32
 }
 
 // Contact is an enemy the observer currently detects: in sight, or a radar
@@ -295,13 +311,17 @@ func (b *observer) identify(u *units.Unit) uint32 {
 	return b.gen[h]
 }
 
-func queueState(u *units.Unit, classes []OrderClass) (OrderClass, int32, string) {
+// queueState classifies a unit's primary queue: the class of its first order
+// that is not a standing state, that order's goal position (world units), the
+// queue length, and the product of its first build order.
+func queueState(u *units.Unit, classes []OrderClass) (OrderClass, int32, int32, int32, string) {
 	q := orders.QueueOfUnit(u)
 	if q == nil {
-		return OrderIdle, 0, ""
+		return OrderIdle, 0, 0, 0, ""
 	}
 	target := ""
 	class := OrderIdle
+	var gx, gz int32
 	var n int32
 	for i, count := 0, q.PrimaryLen(); i < count; i++ {
 		node := q.PrimaryAt(i)
@@ -327,9 +347,10 @@ func queueState(u *units.Unit, classes []OrderClass) (OrderClass, int32, string)
 		}
 		if class == OrderIdle {
 			class = c
+			gx, gz = fixedToWorld(int64(node.GoalX)), fixedToWorld(int64(node.GoalZ))
 		}
 	}
-	return class, n, target
+	return class, gx, gz, n, target
 }
 
 // capQueued adds u's queued build requests for capped definitions that have

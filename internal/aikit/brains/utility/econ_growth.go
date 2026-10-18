@@ -52,7 +52,7 @@ import (
 //   - 16 constructor floor: at least one constructor from minute 5 and two
 //     from minute 8, on any map (consFloor). Not an investment gated by
 //     growSafe: without it the commander built alone all game on The
-//     Pass.
+//     Pass. It acts at every ambition, unlike the other parts.
 //
 // Parts 1–8 move their measures toward the humans' and cost points in
 // 20-minute games against the brain without them (README §13.4); the
@@ -215,5 +215,14 @@ func (s *shared) surplus() bool {
 	return s.covM >= surplusCov || (s.mCap > 0 && s.mStock*100 >= s.mCap*bankPercent && s.mInc >= s.mExp)
 }
 
-// part reports whether one part of growth acts.
-func (s *shared) part(bit int32) bool { return s.growth() && s.p.Growth&bit != 0 }
+// part reports whether one part of growth acts. The constructor floor is
+// not an investment but the least economy any plan needs, so it acts at
+// every ambition: below full ambition the commander otherwise built alone
+// for most of a game whose map left no free safe spot (the play review,
+// docs/PLAN_FACTION_BALANCE.md §3.3).
+func (s *shared) part(bit int32) bool {
+	if bit == gConsFloor {
+		return s.p.Growth&bit != 0
+	}
+	return s.growth() && s.p.Growth&bit != 0
+}

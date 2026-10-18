@@ -139,6 +139,13 @@ func TestDefenseClassify(t *testing.T) {
 			t.Errorf("classify(%s) = %d, want %d", c.u.Key, got, c.want)
 		}
 	}
+	// A flak tower whose only damage is damage-table anti-air has AirDPS
+	// and no DPS (Talon's): an air defense, not unarmed.
+	dt := *d.flak
+	dt.DPS = 0
+	if got := classify(&dt, &s.info[dt.Index]); got != dcAir {
+		t.Errorf("classify(damage-table flak) = %d, want %d", got, dcAir)
+	}
 }
 
 // Ground fire is DPS less the to-air weapons' fire: the missile tower

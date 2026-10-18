@@ -110,6 +110,34 @@ adds `tac_first_member_tick`, `tac_first_zone_tick`,
 `tac_small_thinks` / `tac_blind_thinks` (thinks the main squad had a target
 but was too small to launch, or waited with none known).
 
+## Support units and scouts (A3, 2026-10-17, `support.go`)
+
+The utility brain's production breadth (utility README §13.16;
+docs/DESIGN_SESSIONS_AI_SAVE.md "Modern AI production variety") makes
+units the army had never been given, and the army had two gaps for them.
+
+* **Scouts.** Every cheap fast combat unit (the scout role on an armed
+  unit) was made a scout (tag 20). That was right while production made
+  them only as scouts, three a game. With breadth they also come in the
+  combat mix, so only the first three of a game (`scoutsMax`, production's
+  own allowance) are made scouts. Later ones are assigned like any new
+  unit, and a fast one joins the raid squad when it is active.
+* **Support units.** Mobile radar (radar reaching past the unit's sight)
+  and radar jammers carry no weapon. They are in no squad (`b.Combat`
+  holds armed units only) and nothing ordered them, so they stood at their
+  factory. `support` tags them 23 and has each guard (follow) the main
+  squad's ground member nearest its centre; an unarmed guard never joins
+  its ward's fight. It keeps that ward while the ward is still a main
+  member within 900 wu of the centre, and sends at most one order per unit
+  per 5 s. With no main squad it waits at the gather point. `SupportUnit`
+  is the utility brain's support test (`TestSupportKindsAgree`).
+
+Neither needs a switch here. With `breadth=0` the utility brain makes no
+support unit and at most three cheap fast units in a game, so the army
+plays as before (identical result JSON on Painted Desert, seed 1, with all
+seven faction packages). The report adds `tac_support_orders` and
+`tac_scouts_fast` (cheap fast units made scouts).
+
 ## Headline (the ground army, before the air and naval forces)
 
 * With a working army on both sides (both players ARM, start positions
@@ -387,8 +415,10 @@ above the engage margin (they avoid even fights).
 ### Squads (`army.go`, `squad.go`)
 
 Membership is the unit tag (`Kit.SetTag`): 1 main, 2 raid, 3 defend,
-4 escort, 5 fighter, 6 strike, 7 naval, 8 amph; 20 scouts, 21 withdrawn,
-22 air scouts. With the switches on, fighters, other combat aircraft and
+4 escort, 5 fighter, 6 strike, 7 naval, 8 amph; 20 scouts (the first three
+cheap fast units of a game), 21 withdrawn, 22 air scouts, 23 support units
+(unarmed, never members; *Support units and scouts*). With the switches on,
+fighters, other combat aircraft and
 ships go to their own squads at any attention (they have nothing else to
 do); withdrawn aircraft go to the air rally and ships to the fleet's gather
 point, and rejoin their own squad there. New units (tag 0, or the tag of a squad

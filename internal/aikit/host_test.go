@@ -58,7 +58,7 @@ func TestBlipRefreshesNoMemory(t *testing.T) {
 	h := &Host{m: &ai.Manager{}}
 	h.ob.ensure(8)
 	info := &UnitInfo{Key: "com", Role: RoleMobile | RoleCommander}
-	h.obs.Enemy = []Contact{{H: 5, Gen: 1, Info: info, Owner: 1, X: 100, Z: 100, Visible: true}}
+	h.obs.Enemy = []Contact{{H: 5, Gen: 1, Info: info, Owner: 1, X: 100, Z: 100, Visible: true, Built: true}}
 	h.updateMemory(30)
 	h.obs.Enemy = []Contact{{Owner: 1, X: 900, Z: 900, HPPct: 100}}
 	h.updateMemory(60)

@@ -68,7 +68,7 @@ func (pl *defPlan) setupFront(s *shared, b *core.Board) {
 			continue
 		}
 		pl.dual[i] = true
-		if u.Side != k.Side || u.Depth < 0 {
+		if !k.Owns(u) || u.Depth < 0 {
 			continue
 		}
 		pl.haveDual = true
@@ -188,7 +188,7 @@ func analyzeChokes(k *aikit.Kit) *aikit.ChokeMap {
 		return mc
 	}
 	for _, f := range k.Table.Units {
-		if f.Side != k.Side || f.Depth != 1 || !f.Role.Has(aikit.RoleFactory) {
+		if !k.Owns(f) || f.Depth != 1 || !f.Role.Has(aikit.RoleFactory) {
 			continue
 		}
 		first := true

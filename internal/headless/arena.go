@@ -80,7 +80,18 @@ type ArenaRequest struct {
 	Level       ArenaLevel
 	StartMetal  int
 	StartEnergy int
-	Log         io.Writer
+	// Mutators are the battle's global multipliers, applied to the battle's
+	// catalog clone at entry as in any skirmish
+	// (docs/DESIGN_MODS_MUTATORS.md §6).
+	Mutators content.Mutators
+	// Values, when set, prices units for every score and value count by
+	// canonical unit key instead of the battle catalog's costs. A balance
+	// sweep scores every cost variant on one ruler: priced at its own costs,
+	// a discounted army would score less for the same strength
+	// (docs/PLAN_FACTION_BALANCE.md §5.7). Units it does not name keep their
+	// catalog value.
+	Values map[string]int32
+	Log    io.Writer
 	// PaceTPS > 0 paces the match to that many ticks per wall second (30 is
 	// real time), so asynchronous thinking is measured with real reaction
 	// windows. Host-side sleep only; the simulation never reads a clock.
@@ -251,16 +262,20 @@ type ArenaSample struct {
 	MetalStock   int32  `json:"ms"`
 	EnergyStock  int32  `json:"es"`
 	MetalWaste   int32  `json:"mw"` // cumulative overflow
-	ArmyValue    int32  `json:"av"`
-	EcoValue     int32  `json:"ev"`
-	Units        int32  `json:"u"`
-	Builders     int32  `json:"b"`
-	IdleBuilders int32  `json:"ib"`
-	Factories    int32  `json:"f"`
-	IdleFactory  int32  `json:"if"`
-	ValueLost    int64  `json:"vl"`
-	ValueKilled  int64  `json:"vk"`
-	Extractors   int32  `json:"mx"`
+	// MetalUse and EnergyUse are what the player's consumers asked for this
+	// pass: above income with an empty store, the economy is stalled.
+	MetalUse     int32 `json:"mu"`
+	EnergyUse    int32 `json:"eu"`
+	ArmyValue    int32 `json:"av"`
+	EcoValue     int32 `json:"ev"`
+	Units        int32 `json:"u"`
+	Builders     int32 `json:"b"`
+	IdleBuilders int32 `json:"ib"`
+	Factories    int32 `json:"f"`
+	IdleFactory  int32 `json:"if"`
+	ValueLost    int64 `json:"vl"`
+	ValueKilled  int64 `json:"vk"`
+	Extractors   int32 `json:"mx"`
 	// BuilderValue is the value of finished builders other than the
 	// commander; FrameValue is the built fraction of every nanoframe's value.
 	// Only ScoreInvested counts them.
@@ -576,7 +591,9 @@ type ArenaResult struct {
 	ScoreKind   ArenaScore          `json:"score_kind"`
 	Gameplay    string              `json:"gameplay"`
 	Level       ArenaLevel          `json:"level,omitempty"`
-	RuleSet     string              `json:"rule_set,omitempty"` // the registered set the request named
+	RuleSet     string              `json:"rule_set,omitempty"`     // the registered set the request named
+	Mutators    string              `json:"mutators,omitempty"`     // the canonical mutator set the battle bound
+	ValuesFixed int                 `json:"values_fixed,omitempty"` // units priced by ArenaRequest.Values
 	Ticks       uint32              `json:"ticks"`
 	Winner      int                 `json:"winner"` // player index in Players, -1 draw
 	Reason      string              `json:"reason"` // decisive, points, timeout or adjudicated
@@ -604,6 +621,25 @@ type ArenaTrace struct {
 	Starts   [][2]int32      `json:"starts"`
 	Events   []ArenaEvent    `json:"events"`
 	Series   [][]ArenaSample `json:"series"`
+	// Log is every unit finished and every finished unit lost, in tick
+	// order, for the play review (docs/PLAN_FACTION_BALANCE.md §3.3).
+	Log []ArenaLogEntry `json:"log"`
+}
+
+// ArenaLogEntry is one unit finished ("done") or one finished unit lost
+// ("lost"). By is the side that damaged a lost unit last, or -1.
+type ArenaLogEntry struct {
+	Tick   uint32 `json:"t"`
+	Player int    `json:"p"`
+	Kind   string `json:"k"`
+	Unit   string `json:"u"`
+	// Role is the unit's class (logClass) and Value its metal-equivalent
+	// cost, as the AI's table has them.
+	Role  string `json:"r"`
+	Value int32  `json:"v"`
+	X     int32  `json:"x"`
+	Z     int32  `json:"z"`
+	By    int    `json:"by"`
 }
 
 // ArenaFrame packs every live unit as [player, role, x, z, hp%, built].
@@ -953,7 +989,7 @@ func RunArenaMatch(req ArenaRequest) (ArenaResult, error) {
 		Kind:     ScenarioDirectOTA, Map: req.Map, LocalOwner: -1,
 		Difficulty: difficulty, Skirmish: cfg,
 		SimulationSeed: seed, CRTSeed: crtSeed,
-		FS: view, Catalog: catalog, AutomatedPlayers: true,
+		FS: view, Catalog: catalog, AutomatedPlayers: true, Mutators: req.Mutators,
 	})
 	if err != nil {
 		return ArenaResult{}, err
@@ -991,6 +1027,11 @@ type arenaTracker struct {
 	reach     []*movement.LabReach
 	reachKeys []string
 	reachTick uint32
+	// logOn keeps the trace's build and loss log; done holds the units
+	// already logged as finished.
+	logOn bool
+	log   []ArenaLogEntry
+	done  map[pool.Handle]bool
 }
 
 // trapAnchor is where a ground combat unit was first seen, and whether it
@@ -1034,7 +1075,19 @@ func playArena(req ArenaRequest, sess *session.Session) (ArenaResult, error) {
 	probe := newArenaProbe(req.MeasureAllocs)
 	var drained []frame.EventView
 	table := aikit.BuildTable(sess.Catalog, sess.Rules.Construction)
+	// The arena's table is its own, so repricing it changes the scores and
+	// nothing a brain decides.
+	fixed := 0
+	for key, v := range req.Values {
+		if info := table.Lookup(key); info != nil {
+			info.Value = v
+			fixed++
+		}
+	}
 	tr := &arenaTracker{table: table, anchors: map[pool.Handle]trapAnchor{}, holds: map[pool.Handle]trapAnchor{}, follow: orders.Lookup("Follow_Ground")}
+	if req.TraceEvery > 0 {
+		tr.logOn, tr.done = true, map[pool.Handle]bool{}
+	}
 	tr.refused = func(u *units.Unit) bool {
 		mv := sess.Movement
 		return mv != nil && int(u.Handle) < len(mv.Collisions) && mv.Collisions[u.Handle] != nil && mv.Collisions[u.Handle].Blocked
@@ -1083,6 +1136,16 @@ func playArena(req ArenaRequest, sess *session.Session) (ArenaResult, error) {
 	sess.Units.SetDeathHook(func(handle pool.Handle, cause units.DeathCause, u *units.Unit) {
 		if u != nil && int(u.Owner) < n && u.Def != nil {
 			info := table.Of(u.Def)
+			if tr.logOn && u.Remaining == 0 && sess.Clock != nil {
+				by := int(u.LastDamageSide)
+				if by >= n || by == int(u.Owner) {
+					by = -1
+				}
+				tr.log = append(tr.log, logEntry(table, u, sess.Clock.GlobalTick, "lost", by))
+			}
+			if tr.logOn {
+				delete(tr.done, handle)
+			}
 			if info != nil && u.Remaining == 0 {
 				tr.valueLost[u.Owner] += int64(info.Value)
 				tr.lostClass[u.Owner][traceRole(info)] += int64(info.Value)
@@ -1113,7 +1176,7 @@ func playArena(req ArenaRequest, sess *session.Session) (ArenaResult, error) {
 		}
 	})
 
-	result := ArenaResult{Map: req.Map, Seed: req.Seed, BattleSeed: sess.RNGSimSeed, CRTSeed: sess.RNGCrtSeed, Starts: req.Starts, ScoreKind: req.Score, Gameplay: string(sess.Gameplay), Level: req.Level, RuleSet: string(req.Gameplay), Winner: -1}
+	result := ArenaResult{Map: req.Map, Seed: req.Seed, BattleSeed: sess.RNGSimSeed, CRTSeed: sess.RNGCrtSeed, Starts: req.Starts, ScoreKind: req.Score, Gameplay: string(sess.Gameplay), Level: req.Level, RuleSet: string(req.Gameplay), Mutators: sess.Mutators.String(), ValuesFixed: fixed, Winner: -1}
 	var adj *adjudicator
 	var adjScores []int64
 	var adjAlive []bool
@@ -1156,6 +1219,17 @@ func playArena(req ArenaRequest, sess *session.Session) (ArenaResult, error) {
 		tick := sess.Clock.GlobalTick
 		walk = sess.Units.AppendLiveSliced(walk[:0])
 		tr.walked(walk)
+		if tr.logOn {
+			for _, u := range walk {
+				if u.Def == nil || int(u.Owner) >= n || u.Remaining != 0 || tr.done[u.Handle] {
+					continue
+				}
+				tr.done[u.Handle] = true
+				if tick > 1 {
+					tr.log = append(tr.log, logEntry(table, u, tick, "done", -1))
+				}
+			}
+		}
 		if len(req.Watch) > 0 && tick >= req.WatchFrom && sess.Movement != nil {
 			mv := sess.Movement
 			for _, id := range req.Watch {
@@ -1384,6 +1458,7 @@ func playArena(req ArenaRequest, sess *session.Session) (ArenaResult, error) {
 	if trace != nil {
 		trace.Events = tr.events
 		trace.Series = series
+		trace.Log = tr.log
 		if hosts[0] != nil || len(hosts) > 1 {
 			for _, h := range hosts {
 				if h != nil && h.Kit().Map != nil {
@@ -1477,6 +1552,8 @@ func sampleArena(sess *session.Session, walk []*units.Unit, table *aikit.Table, 
 		s.MetalStock = int32(p.Stock[economy.Metal])
 		s.EnergyStock = int32(p.Stock[economy.Energy])
 		s.MetalWaste = int32(p.Waste[economy.Metal])
+		s.MetalUse = int32(p.AIConsumption[economy.Metal])
+		s.EnergyUse = int32(p.AIConsumption[economy.Energy])
 	}
 	for _, u := range walk {
 		if int(u.Owner) != player || u.Def == nil || u.Dying {
@@ -1547,6 +1624,85 @@ func sampleArena(sess *session.Session, walk []*units.Unit, table *aikit.Table, 
 	s.ValueLost = tr.valueLost[player]
 	s.ValueKilled = tr.valueKilled[player]
 	return s
+}
+
+// logEntry is u's line in the trace log.
+func logEntry(table *aikit.Table, u *units.Unit, tick uint32, kind string, by int) ArenaLogEntry {
+	e := ArenaLogEntry{Tick: tick, Player: int(u.Owner), Kind: kind, Unit: u.Def.UnitName, X: int32(int64(u.X) >> 16), Z: int32(int64(u.Z) >> 16), By: by}
+	info := table.Of(u.Def)
+	e.Role = logClass(info)
+	if info != nil {
+		e.Value = info.Value
+	}
+	return e
+}
+
+// logClass names a unit's class for the play review, finer than the trace
+// role: the kind of economy building, defence or combat unit it is.
+func logClass(info *aikit.UnitInfo) string {
+	if info == nil {
+		return "other"
+	}
+	r := info.Role
+	air, naval := r.Has(aikit.RoleAir), r.Has(aikit.RoleNaval)
+	switch {
+	case r.Has(aikit.RoleCommander):
+		return "commander"
+	case r.Has(aikit.RoleBuilder) && air:
+		return "builder-air"
+	case r.Has(aikit.RoleBuilder) && naval:
+		return "builder-naval"
+	case r.Has(aikit.RoleBuilder):
+		return "builder"
+	case r.Has(aikit.RoleFactory):
+		return "factory"
+	case r.Has(aikit.RoleAssist):
+		return "assist"
+	case r.Has(aikit.RoleExtractor):
+		return "extractor"
+	case r.Has(aikit.RoleEnergy):
+		return "energy"
+	case r.Has(aikit.RoleMetalMaker):
+		return "metal-maker"
+	case r.Has(aikit.RoleStorage):
+		return "storage"
+	case r.Has(aikit.RoleDefense) && r.Has(aikit.RoleAntiAir):
+		return "defense-aa"
+	case r.Has(aikit.RoleDefense) && r.Has(aikit.RoleArtillery):
+		return "defense-artillery"
+	case r.Has(aikit.RoleDefense):
+		return "defense"
+	case r.Any(aikit.RoleRadar|aikit.RoleSonar|aikit.RoleJammer) && !r.Has(aikit.RoleCombat):
+		// An armed ship or aircraft that also carries sonar or radar is
+		// classed by its fight, below.
+		if r.Has(aikit.RoleMobile) {
+			return "sensor-mobile"
+		}
+		return "sensor"
+	case r.Has(aikit.RoleTransport):
+		return "transport"
+	case air && r.Has(aikit.RoleFighter):
+		return "air-fighter"
+	case air && r.Has(aikit.RoleBomber):
+		return "air-bomber"
+	case air && r.Has(aikit.RoleScout):
+		return "air-scout"
+	case air:
+		return "air"
+	case naval:
+		return "naval"
+	case r.Has(aikit.RoleCombat) && r.Has(aikit.RoleScout):
+		return "ground-scout"
+	case r.Has(aikit.RoleCombat) && r.Has(aikit.RoleAntiAir):
+		return "ground-aa"
+	case r.Has(aikit.RoleCombat) && r.Has(aikit.RoleArtillery):
+		return "ground-artillery"
+	case r.Has(aikit.RoleCombat) && r.Any(aikit.RoleHover|aikit.RoleAmphibious):
+		return "ground-amphibious"
+	case r.Has(aikit.RoleCombat):
+		return "ground"
+	}
+	return "other"
 }
 
 // walked adds this tick's step to the way every unit with a hold has gone.

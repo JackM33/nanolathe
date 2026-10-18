@@ -1,0 +1,259 @@
+#!/usr/bin/env python3
+"""Write a text report of one ai-arena match for the AI play review.
+
+    tools/ai-review RESULT.json TRACE.json [-units units.json] [-o REPORT.txt]
+
+RESULT is `ai-arena match -out`, TRACE is its `-trace` (with -explain-every),
+units.json is `balance-lab stats` output for unit roles and values. The
+report gives each player's opening, economy and stalls by minute,
+production, defence, squads and fights, and what its commander did
+(docs/PLAN_FACTION_BALANCE.md §3.3).
+"""
+import argparse
+import collections
+import json
+import math
+
+ROLES = ["commander", "builder", "factory", "eco", "defense", "ground", "air", "naval", "other"]
+KEEP_NOTES = ("income ", "army value", "posture", "supply ", "coverage ", "enemy:", "builders ",
+              "tech:", "defense plan", "defense ground", "defense water", "defense anti-air",
+              "tactics: posture", "tactics: launched", "eco share")
+DROP_NOTES = ("factory option",)
+ECON = ("commander", "builder", "builder-air", "builder-naval", "factory", "assist", "extractor", "energy",
+        "metal-maker", "storage", "sensor", "other")
+
+
+def mmss(tick):
+    s = tick // 30
+    return f"{s // 60:02d}:{s % 60:02d}"
+
+
+def load(path):
+    with open(path) as f:
+        return json.load(f)
+
+
+def axis(starts, i, j):
+    """Unit vector and length from player i's start to player j's."""
+    (x0, z0), (x1, z1) = starts[i], starts[j]
+    dx, dz = x1 - x0, z1 - z0
+    d = math.hypot(dx, dz) or 1.0
+    return (x0, z0, dx / d, dz / d, d)
+
+
+def along(ax, x, z):
+    x0, z0, ux, uz, d = ax
+    return ((x - x0) * ux + (z - z0) * uz) / d
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("result")
+    ap.add_argument("trace")
+    ap.add_argument("-units", default="")
+    ap.add_argument("-o", default="")
+    ap.add_argument("-notes-every", type=int, default=5, help="minutes between AI note excerpts")
+    a = ap.parse_args()
+    res, tr = load(a.result), load(a.trace)
+    units = {}
+    if a.units:
+        for row in load(a.units):
+            units[row["unit"].upper()] = row
+    out = []
+    w = out.append
+    players = res["players"]
+    n = len(players)
+    labels = [p["label"] for p in players]
+    starts = [None] * n
+    # The commander's first frame position is its start.
+    for fr in tr["frames"]:
+        for u in fr["u"]:
+            p, role, x, z = u[0], u[1], u[2], u[3]
+            if role == 0 and p < n and starts[p] is None:
+                starts[p] = (x, z)
+        if all(starts):
+            break
+    for i in range(n):
+        if starts[i] is None:
+            starts[i] = (0, 0)
+    mut = res.get("mutators") or "none"
+    w(f"GAME {labels[0]} vs {' vs '.join(labels[1:])} on {res['map']} "
+      f"({tr['world_w']}x{tr['world_h']} world units, {len(tr.get('spots') or [])} metal spots), "
+      f"seed {res['seed']}, personas {'/'.join(pl.get('persona') or '?' for pl in players)}, mutators {mut}")
+    win = res["winner"]
+    wl = labels[win] if 0 <= win < n else "nobody (draw)"
+    w(f"RESULT {wl} wins at {mmss(res['ticks'])} ({res['reason']}); limit was the match's tick cap")
+    for i, p in enumerate(players):
+        d = math.hypot(starts[i][0] - starts[1 - i][0], starts[i][1] - starts[1 - i][1]) if n == 2 else 0
+        w(f"  {labels[i]}: side {p['side']}, start {starts[i]}, alive {p['alive']}"
+          + (f", commander died {mmss(p['died_tick'])}" if p.get("died_tick") else "")
+          + f"; killed {p['value_killed']} value, lost {p['value_lost']}")
+    if n == 2:
+        w(f"  start distance {int(d)}")
+    w("")
+
+    log = tr.get("log") or []
+    series = tr.get("series") or [[] for _ in range(n)]
+    explains = collections.defaultdict(list)
+    for e in tr.get("explains") or []:
+        explains[e["p"]].append(e)
+    frames = tr.get("frames") or []
+
+    for i in range(n):
+        other = 1 - i if n == 2 else None
+        ax = axis(starts, i, other) if other is not None else None
+        w("=" * 78)
+        w(f"PLAYER {labels[i]} (side {players[i]['side']})")
+        mine = [e for e in log if e["p"] == i]
+        done = [e for e in mine if e["k"] == "done"]
+        lost = [e for e in mine if e["k"] == "lost"]
+        # Opening.
+        w("Opening (first 30 units finished):")
+        w("  " + ", ".join(f"{mmss(e['t'])} {e['u']}" for e in done[:30]))
+        # Milestones.
+        def first(pred):
+            for e in done:
+                if pred(e["r"]):
+                    return mmss(e["t"]) + " " + e["u"]
+            return "never"
+        w("Milestones: first extractor " + first(lambda r: r == "extractor")
+          + "; first energy " + first(lambda r: r == "energy")
+          + "; first factory " + first(lambda r: r == "factory")
+          + "; first constructor " + first(lambda r: r.startswith("builder"))
+          + "; first combat unit " + first(lambda r: r.startswith(("ground", "air", "naval")))
+          + "; first defence " + first(lambda r: r.startswith("defense")))
+        ext = lambda m: sum(1 for e in done if e["r"] == "extractor" and e["t"] <= m * 1800) - sum(1 for e in lost if e["r"] == "extractor" and e["t"] <= m * 1800)
+        w(f"Extractors standing at 3/5/10/15/20 min: {ext(3)}/{ext(5)}/{ext(10)}/{ext(15)}/{ext(20)}")
+        # Economy by minute.
+        w("Economy and forces by minute (inc/use per second, stock/cap; STALL = store near empty with use above income;"
+          " FULL = store full and wasting):")
+        w("  min  M inc/use  M stock  E inc/use   E stock  flags        mex bld(idle) fac(idle)  army   def/eco   killed   lost")
+        srs = series[i] if i < len(series) else []
+        bym = {}
+        for s in srs:
+            bym.setdefault(s["t"] // 1800, s)
+        stall_m = stall_e = full_m = full_e = 0
+        for s in srs:
+            if s["t"] == 0:
+                continue
+            if s["es"] < 50 and s["eu"] > s["ei"]:
+                stall_e += 1
+            if s["ms"] < 10 and s["mu"] > s["mi"]:
+                stall_m += 1
+        last_t = res["ticks"]
+        for m in sorted(bym):
+            s = bym[m]
+            if m == 0:
+                continue
+            if m > 20 and m % 2 and s["t"] < last_t - 1800:
+                continue
+            flags = []
+            if s["es"] < 50 and s["eu"] > s["ei"]:
+                flags.append("E-STALL")
+            if s["ms"] < 10 and s["mu"] > s["mi"]:
+                flags.append("M-STALL")
+            w(f"  {m:>3}  {s['mi']:>4}/{s['mu']:<4} {s['ms']:>7}  {s['ei']:>5}/{s['eu']:<5} {s['es']:>7}  {' '.join(flags):<12} {s['mx']:>3} {s['b']:>3}({s['ib']})  {s['f']:>3}({s['if']})   {s['av']:>6} {s['ev']:>9} {s['vk']:>8} {s['vl']:>6}")
+        nsamp = max(1, len([s for s in srs if s['t'] > 0]))
+        w(f"  samples stalled: energy {100 * stall_e // nsamp}%, metal {100 * stall_m // nsamp}% (of {nsamp} samples, every {srs[1]['t'] - srs[0]['t'] if len(srs) > 1 else 0} ticks)")
+        # Production.
+        cnt = collections.Counter(e["u"] for e in done)
+        val = {e["u"]: e.get("v", 0) for e in done}
+        cls = {e["u"]: e["r"] for e in done}
+        byrole = collections.defaultdict(list)
+        for u, c in cnt.items():
+            byrole[cls[u]].append((u, c, val[u]))
+        w("Finished units by class (name x count (value each); class total value):")
+        for rl in sorted(byrole, key=lambda r: -sum(c * v for _, c, v in byrole[r])):
+            items = sorted(byrole[rl], key=lambda t: -t[1] * t[2])
+            w(f"  {rl} ({sum(c * v for _, c, v in items)}): " + ", ".join(f"{u} x{c} ({v})" for u, c, v in items))
+        # Unbuilt roster.
+        side = None
+        for e in done:
+            r = units.get(e["u"].upper())
+            if r:
+                side = r["side"]
+                break
+        if side and units:
+            built = {u.upper() for u in cnt}
+            miss = collections.defaultdict(list)
+            for row in units.values():
+                if row["side"] == side and row["unit"].upper() not in built:
+                    miss[row["role"]].append(row["unit"])
+            w(f"Never built (side {side} roster, by role):")
+            for rl in sorted(miss):
+                if rl in ("commander", "other", "transport"):
+                    continue
+                w(f"  {rl} ({len(miss[rl])}): {', '.join(sorted(miss[rl])[:14])}{' ...' if len(miss[rl]) > 14 else ''}")
+        # Production by 5-minute window.
+        w("Combat and defence units finished by 5-minute window:")
+        win5 = collections.defaultdict(collections.Counter)
+        for e in done:
+            if e["r"] in ECON:
+                continue
+            win5[e["t"] // 9000][e["u"]] += 1
+        for k in sorted(win5):
+            w(f"  {k * 5:>2}-{k * 5 + 5:<2} min: " + ", ".join(f"{u} x{c}" for u, c in win5[k].most_common()))
+        # Forces on the map: ground/air/naval positions along the axis to the enemy.
+        if ax:
+            w("Army position by minute (along own start -> enemy start: 0 = home, 1 = enemy base;"
+              " units: ground/air/naval; 'fwd' = combat units past 0.5):")
+            line = []
+            for fr in frames:
+                if fr["t"] % 1800:
+                    continue
+                pos = [along(ax, u[2], u[3]) for u in fr["u"] if u[0] == i and u[1] in (5, 6, 7) and u[5]]
+                cmd = [u for u in fr["u"] if u[0] == i and u[1] == 0]
+                kinds = collections.Counter(u[1] for u in fr["u"] if u[0] == i and u[1] in (5, 6, 7) and u[5])
+                fwd = sum(1 for v in pos if v > 0.5)
+                med = sorted(pos)[len(pos) // 2] if pos else 0
+                cpos = f"cmdr {along(ax, cmd[0][2], cmd[0][3]):.2f} hp{cmd[0][4]}%" if cmd else "cmdr -"
+                line.append(f"  {fr['t'] // 1800:>3}: {kinds[5]}/{kinds[6]}/{kinds[7]} median {med:.2f} fwd {fwd}  {cpos}")
+            out.extend(line)
+        # Fights: losses and kills by minute with where they happened.
+        w("Losses by minute (value; where along the axis; killer):")
+        lm = collections.defaultdict(list)
+        for e in lost:
+            lm[e["t"] // 1800].append(e)
+        for m in sorted(lm):
+            es = lm[m]
+            val = sum(e.get("v", 0) for e in es)
+            if val < 300:
+                continue
+            where = sorted(along(ax, e["x"], e["z"]) for e in es) if ax else []
+            names = collections.Counter(e["u"] for e in es)
+            w(f"  {m:>3}: {len(es)} units, value {val}, at {where[len(where) // 2]:.2f} (median)  " if where else f"  {m:>3}: {len(es)} units, value {val}  ")
+            out[-1] += ", ".join(f"{u} x{c}" for u, c in names.most_common(4))
+        # Squads and AI notes.
+        w(f"AI self-report (brain explain), every {a.notes_every} min:")
+        lastm = -99
+        for e in explains.get(i, []):
+            m = e["t"] // 1800
+            if e["t"] == 0 or m - lastm < a.notes_every:
+                continue
+            lastm = m
+            x = e["x"]
+            w(f"  -- {mmss(e['t'])} mode {x.get('Mode')}")
+            for note in x.get("Notes") or []:
+                if note.startswith(KEEP_NOTES) and not note.startswith(DROP_NOTES) and not (
+                        note.startswith("defense ") and "have 0 (" in note and "deficit 0" in note):
+                    w("     " + note[:220])
+            facs = [nt[len("factory "):] for nt in x.get("Notes") or [] if nt.startswith("factory ") and not nt.startswith("factory option")]
+            if facs:
+                w("     factories: " + "; ".join(f.split(" at ")[0] + (" " + f.split("building ")[1] if "building " in f else " idle") for f in facs))
+            for q in x.get("Squads") or []:
+                w(f"     squad {q['Task'][:90]} units {q['Units']} strength {q['Strength']} vs enemy {q['Enemy']}")
+            chosen = [g["Label"] for g in (x.get("Goals") or []) if g.get("Chosen")]
+            if chosen:
+                # One per builder or factory: the label's "→ what" part.
+                w("     chosen: " + "; ".join(c.split(" [")[0][:70] for c in chosen[:8]))
+        w("")
+    text = "\n".join(out) + "\n"
+    if a.o:
+        with open(a.o, "w") as f:
+            f.write(text)
+    else:
+        print(text, end="")
+
+
+if __name__ == "__main__":
+    main()

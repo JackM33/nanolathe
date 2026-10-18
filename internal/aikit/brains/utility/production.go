@@ -12,6 +12,9 @@ const (
 	pCombat
 	pScout
 	pInterceptor
+	pUpgrade // a missing upgrade at an idle module (upgrades.go)
+	pSupport // a mobile radar or jammer for the army (breadth, prod_breadth.go)
+	pAssist  // an assist builder for the factories (breadth, prod_breadth.go)
 )
 
 // queueDepth keeps each factory at most this many products deep (the one
@@ -28,9 +31,14 @@ type factoryReg struct {
 
 // Production scores every product of each factory that has room in its
 // queue: constructors for unmet economy spending or expansion room, combat
-// units by cost-efficiency with counters to what was seen, one scout.
+// units by cost-efficiency with counters to what was seen, one scout, and
+// with the breadth parts a few support units and assist builders.
 type Production struct {
-	s         *shared
+	s *shared
+	// st is the strategy whose variety (jitter) decides whether a per-game
+	// preference is drawn (brain.go wiring); nil draws none.
+	st        *Strategy
+	br        breadth // production breadth (prod_breadth.go)
 	ring      [8]decision
 	next      int
 	reg       []factoryReg
@@ -47,7 +55,12 @@ type Production struct {
 // finding anything new.
 const maxScouts = 3
 
-func (pr *Production) Init(b *core.Board) { pr.s.setup(b.K) }
+func (pr *Production) Init(b *core.Board) {
+	pr.s.setup(b.K)
+	// Core runs production's Init after the strategy's, so the preference
+	// draw follows every draw the strategy makes there.
+	pr.setupBreadth(b.K, pr.st != nil && pr.st.vr.v.Jitter)
+}
 
 func (pr *Production) regOf(u *aikit.OwnUnit) *factoryReg {
 	pr.reg = handleSlots(pr.reg, u.H, pr.s.hcap)
@@ -68,6 +81,10 @@ func (pr *Production) Plan(b *core.Board) {
 	if budget > 0 {
 		pr.produce(b, budget)
 	}
+	// Upgrade modules take what production left (upgrades.go), then assist
+	// builders without products are sent to help (prod_assist.go).
+	pr.produceUpgrades(b, int(s.budget)-k.Emitted())
+	pr.commandAssists(b, int(s.budget)-k.Emitted())
 	s.spendAPM(k.Emitted())
 }
 
@@ -111,11 +128,49 @@ func (pr *Production) clearPads(b *core.Board, budget int) int {
 	return used
 }
 
+// firstConsNeed is the least need of a constructor while we have none.
+const firstConsNeed = 2000
+
+// Parts of the play parameter (the play review's fixes).
+const (
+	playReachCons    = 1 << iota // a stranded factory is not the constructor source while one that reaches is on offer
+	playFirstConsSea             // the first constructor ahead of combat units at a shipyard or air plant
+	playMexPower                 // an extractor waits for energy coverage while the energy store is below half
+	playAttackIncome             // the launch value's army curve scaled by our income
+)
+
+// mexPowerLo and mexPowerHi (permille of energy coverage) are where an
+// extractor's score rises from 0 to full under playMexPower.
+const (
+	mexPowerLo = 400
+	mexPowerHi = 900
+)
+
+// seaOrAirFactory reports a factory whose family is the shipyard or the air
+// plant (econ_family.go). A land factory's opening makes a combat unit or
+// two before its constructor and holds off early raids; forcing the
+// constructor first there lost the mirrors (the play review,
+// docs/PLAN_FACTION_BALANCE.md §3.3).
+func seaOrAirFactory(s *shared, f *aikit.UnitInfo) bool {
+	fam := int32(famNone)
+	if int(f.Index) < len(s.facFam) {
+		fam = int32(s.facFam[f.Index])
+	} else {
+		fam = factoryFamily(s, f)
+	}
+	return fam == famShip || fam == famAir
+}
+
 func (pr *Production) produce(b *core.Board, budget int) {
 	s := pr.s
 	sp := &s.p
 	o := b.O
 	k := b.K
+	brOn := sp.Breadth != 0
+	if brOn {
+		pr.setupBreadth(k, false) // a production used without Init (tests): no preference
+		pr.observeBreadth(b)
+	}
 	// Constructors queued but not yet framed.
 	var queued int32
 	for _, fi := range b.Factories {
@@ -177,17 +232,30 @@ func (pr *Production) produce(b *core.Board, budget int) {
 		}
 		builders := int64(s.builders + pending)
 		expand := clamp(int64(s.freeSafe)*1000/max64(builders*int64(sp.SpotsPerCon), 1), 0, 1200)
-		// Normalizer: the best combat efficiency this factory offers now.
+		// Normalizer: the best combat efficiency this factory offers now;
+		// with cheap fast units in the mix (breadth), the best of the others,
+		// so a raider does not set the floor the others are measured by.
+		exclFast := s.bpart(bFast) && pr.br.hasOther(f.Info)
 		var bestEff int64 = 1
 		if ext {
-			bestEff = pr.bestEffN(f.Info)
+			bestEff = pr.bestEffN(f.Info, exclFast)
 		} else {
 			for _, q := range f.Info.Builds {
-				if s.info[q.Index].combat {
+				if s.info[q.Index].combat && !(exclFast && pr.br.kind[q.Index]&kFast != 0) {
 					if ef := s.eff(q, s.aaNeed); ef > bestEff {
 						bestEff = ef
 					}
 				}
+			}
+		}
+		// breadth: this factory's combat units, and its cheap fast ones;
+		// facMix -1 counts a product's share of the whole army as before.
+		var facN, fastN int64
+		facMix := int64(-1)
+		if brOn {
+			facN, fastN = pr.facCount(f.Info)
+			if s.bpart(bVariety) {
+				facMix = facN
 			}
 		}
 		// How far this factory's army reaches the enemy: a factory whose
@@ -241,6 +309,17 @@ func (pr *Production) produce(b *core.Board, budget int) {
 				} else if steep {
 					dim = half(one-short, 500)
 				}
+				if sp.Play&playFirstConsSea != 0 && s.cons+pending == 0 && !threatened && seaOrAirFactory(s, f.Info) {
+					// At a shipyard or air plant the first constructor
+					// goes ahead of combat units while the commander is
+					// the only builder: a shipyard first queued two
+					// 930-value warships ahead of its naval constructor
+					// and an air plant two fighters, leaving the commander
+					// alone for five minutes (the play review,
+					// docs/PLAN_FACTION_BALANCE.md §3.3). A land factory
+					// keeps its opening (seaOrAirFactory).
+					need = max64(need, firstConsNeed)
+				}
 				c.kind = pCons
 				c.score = mul(mul(mul(int64(sp.WCons)*10, need), dim), consGate)
 				if armyFirst && !threatened {
@@ -271,6 +350,18 @@ func (pr *Production) produce(b *core.Board, budget int) {
 				c.f = [4]int64{need, 0, 0, 0}
 			case q.Role.Has(aikit.RoleScout) && q.Role.Has(aikit.RoleCombat):
 				if scoutWait || s.scouts > 0 || s.minutes < 1 || pr.scouts >= maxScouts || (b.EnemyKnown && s.minutes >= 10) {
+					// breadth: beyond the scout allowance it is a combat
+					// candidate, up to a share of the factory's combat units.
+					if !s.bpart(bFast) || pr.br.kind[q.Index]&kCombat == 0 || (ext && noArmy) {
+						break
+					}
+					c.kind = pCombat
+					if ext {
+						c.score, c.f = pr.combatScoreN(q, bestEff, armyF, gate, freach, facMix)
+					} else {
+						c.score, c.f = pr.combatScore(q, bestEff, armyF, gate, facMix)
+					}
+					c.score = mul(c.score, lin(fastN*1000/(facN+1), fastHi, fastLo))
 					break
 				}
 				need := int64(one)
@@ -285,13 +376,35 @@ func (pr *Production) produce(b *core.Board, budget int) {
 					break
 				}
 				c.kind = pCombat
-				c.score, c.f = pr.combatScoreN(q, bestEff, armyF, gate, freach)
+				c.score, c.f = pr.combatScoreN(q, bestEff, armyF, gate, freach, facMix)
 			case !ext && si.combat:
 				c.kind = pCombat
-				c.score, c.f = pr.combatScore(q, bestEff, armyF, gate)
+				c.score, c.f = pr.combatScore(q, bestEff, armyF, gate, facMix)
 			}
 			if c.score > 0 {
 				d.offer(&c)
+			}
+		}
+		if brOn && !threatened && !armyFirst {
+			// breadth: the factory's cheapest radar and jammer while the army
+			// wants one, and its best assist builder while there are fewer
+			// than one per two factories (prod_breadth.go).
+			fb := &pr.br.fac[f.Info.Index]
+			if s.bpart(bSupport) && !noArmy {
+				for _, sk := range [...]uint8{kRadar, kJam} {
+					q := fb.radar
+					if sk == kJam {
+						q = fb.jam
+					}
+					if c := pr.supportCand(b, q, sk, armyF, gate, freach); c.score > 0 {
+						d.offer(&c)
+					}
+				}
+			}
+			if s.bpart(bAssist) {
+				if c := pr.assistCand(b, fb.assist, consGate); c.score > 0 {
+					d.offer(&c)
+				}
 			}
 		}
 		if d.n == 0 || d.top[0].score < minScore {
@@ -303,6 +416,9 @@ func (pr *Production) produce(b *core.Board, budget int) {
 		r := pr.regOf(f)
 		r.prod, r.tick = best.prod, s.tick
 		s.count[best.prod.Index]++
+		if brOn {
+			pr.br.noteQueued(best.prod, best.kind)
+		}
 		switch best.kind {
 		case pInterceptor:
 			s.interceptorQueued = true
@@ -331,8 +447,11 @@ func (pr *Production) produce(b *core.Board, budget int) {
 }
 
 // combatScore: army share × efficiency (normalized to the factory's best)
-// × anti-air counter × range counter × variety × energy gate.
-func (pr *Production) combatScore(q *aikit.UnitInfo, bestEff, armyF, gate int64) (int64, [4]int64) {
+// × anti-air counter × range counter × variety × energy gate. facMix is the
+// factory's own combat units for breadth's variety (its share is counted
+// among them, then the floor and the preference apply: vary), or -1 for a
+// share of the whole army.
+func (pr *Production) combatScore(q *aikit.UnitInfo, bestEff, armyF, gate, facMix int64) (int64, [4]int64) {
 	s := pr.s
 	sp := &s.p
 	eff := s.eff(q, s.aaNeed) * 1000 / bestEff
@@ -344,20 +463,23 @@ func (pr *Production) combatScore(q *aikit.UnitInfo, bestEff, armyF, gate int64)
 	if s.defShare > 0 {
 		counter += mul(mul(s.defShare, lin(int64(q.Range), 300, 800)), int64(sp.WRange)*20)
 	}
-	share := int64(s.count[q.Index]) * 1000 / int64(s.armyCount+1)
-	mix := half(share*int64(sp.WMix)/100, 300)
+	mix := pr.mixOf(q, facMix)
 	sc := mul(mul(mul(mul(mul(int64(sp.WArmy)*10, armyF), eff), counter), mix), gate)
+	if facMix >= 0 {
+		sc = pr.vary(sc, q, eff, counter)
+	}
 	return sc, [4]int64{armyF, eff, counter, mix}
 }
 
 // bestEffN is the best reach-weighted efficiency among a factory's combat
-// products (the switches' normalizer).
-func (pr *Production) bestEffN(f *aikit.UnitInfo) int64 {
+// products (the switches' normalizer), leaving cheap fast units out when
+// exclFast.
+func (pr *Production) bestEffN(f *aikit.UnitInfo, exclFast bool) int64 {
 	s := pr.s
 	var best int64 = 1
 	for _, q := range f.Builds {
 		si := &s.info[q.Index]
-		if !si.combatN || (s.p.Naval == 0 && !si.combat) {
+		if !si.combatN || (s.p.Naval == 0 && !si.combat) || (exclFast && pr.br.kind[q.Index]&kFast != 0) {
 			continue
 		}
 		if ef := s.effFleet(q, s.aaNeed) * max64(s.reachOf(q), 150) / one; ef > best {
@@ -372,7 +494,7 @@ func (pr *Production) bestEffN(f *aikit.UnitInfo) int64 {
 // reaches the enemy (normalized to the factory's best), and the whole score
 // by how far the factory's army reaches (a factory whose units cannot get
 // there makes combat units only to defend).
-func (pr *Production) combatScoreN(q *aikit.UnitInfo, bestEff, armyF, gate, freach int64) (int64, [4]int64) {
+func (pr *Production) combatScoreN(q *aikit.UnitInfo, bestEff, armyF, gate, freach, facMix int64) (int64, [4]int64) {
 	s := pr.s
 	sp := &s.p
 	if sp.Naval != 0 && s.navalIdle >= navalIdleMax && (q.Role.Has(aikit.RoleNaval) || s.info[q.Index].water) {
@@ -392,8 +514,32 @@ func (pr *Production) combatScoreN(q *aikit.UnitInfo, bestEff, armyF, gate, frea
 	if s.defShare > 0 {
 		counter += mul(mul(s.defShare, lin(int64(q.Range), 300, 800)), int64(sp.WRange)*20)
 	}
-	share := int64(s.count[q.Index]) * 1000 / int64(s.armyCount+1)
-	mix := half(share*int64(sp.WMix)/100, 300)
+	mix := pr.mixOf(q, facMix)
 	sc := mul(mul(mul(mul(mul(mul(int64(sp.WArmy)*10, armyF), eff), counter), mix), gate), freach)
+	if facMix >= 0 {
+		sc = pr.vary(sc, q, eff, counter)
+	}
 	return sc, [4]int64{armyF, eff, counter, mix}
+}
+
+// mixOf is the variety consideration, half(share × w_mix/100, 300) with
+// the product's share of the whole army, permille; with breadth's variety
+// half(share × w_mix/100, mixHalf) with its share of the factory's own
+// combat units (facMix).
+func (pr *Production) mixOf(q *aikit.UnitInfo, facMix int64) int64 {
+	s := pr.s
+	w := int64(s.p.WMix)
+	if facMix >= 0 {
+		return half(int64(s.count[q.Index])*1000/(facMix+1)*w/100, mixHalf)
+	}
+	return half(int64(s.count[q.Index])*1000/int64(s.armyCount+1)*w/100, 300)
+}
+
+// vary applies breadth's efficiency floor and the product's per-game
+// preference to a combat score: the floor reads the efficiency with
+// counters (normalized to the factory's best), so a unit far below the best
+// stays out whatever its preference, and an anti-air or long-range unit
+// the counters call for stays in.
+func (pr *Production) vary(sc int64, q *aikit.UnitInfo, eff, counter int64) int64 {
+	return mul(mul(sc, lin(mul(eff, counter), effFloorLo, effFloorHi)), pr.br.prefOf(q))
 }

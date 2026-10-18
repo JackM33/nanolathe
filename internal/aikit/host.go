@@ -114,9 +114,13 @@ type PartProbe interface {
 // only the kit's tables, map and persona and draw from Rand. Commands are
 // applied only from a think; one issued during Init is dropped.
 type Kit struct {
-	Me      uint8
-	Side    string
-	Table   *Table
+	Me    uint8
+	Side  string
+	Table *Table
+	// Com is the player's commander's table row, nil when the player has
+	// none. own marks every row its build tree reaches (Owns).
+	Com     *UnitInfo
+	own     []bool
 	Map     *MapInfo
 	Persona Persona
 	Tick    uint32
@@ -143,6 +147,44 @@ type Kit struct {
 	// capUsed counts, per Obs.Capped record, the requests this think has
 	// emitted for the definition; buildObs clears it for each think.
 	capUsed []int32
+}
+
+// Owns reports a definition in the player's build tree: its commander's and
+// everything the commander's builders' lists reach. A faction's units belong
+// to it whatever side spelling they author (Talon's TALON, TAL1 and
+// AIDONTBUILD, docs/DESIGN_MODS_MUTATORS.md §5.8), and a definition of the
+// player's side that no builder offers does not. A kit made without a
+// commander falls back to the side spelling.
+func (k *Kit) Owns(u *UnitInfo) bool {
+	if u == nil {
+		return false
+	}
+	if k.own == nil || u.Index < 0 || int(u.Index) >= len(k.own) {
+		return u.Side == k.Side
+	}
+	return k.own[u.Index]
+}
+
+// buildTree marks every table row reachable from com through build lists,
+// breadth first in list order; nil when there is no commander.
+func buildTree(t *Table, com *UnitInfo) []bool {
+	if t == nil || com == nil || com.Index < 0 || int(com.Index) >= len(t.Units) {
+		return nil
+	}
+	own := make([]bool, len(t.Units))
+	own[com.Index] = true
+	queue := []*UnitInfo{com}
+	for len(queue) > 0 {
+		u := queue[0]
+		queue = queue[1:]
+		for _, p := range u.Builds {
+			if p != nil && p.Index >= 0 && int(p.Index) < len(own) && !own[p.Index] {
+				own[p.Index] = true
+				queue = append(queue, p)
+			}
+		}
+	}
+	return own
 }
 
 // Uncapped is Allowance's answer for a product without a cap.
@@ -263,6 +305,50 @@ func (k *Kit) Reclaim(actors []pool.Handle, target pool.Handle, queued bool) {
 // Stop clears actors' unprotected orders.
 func (k *Kit) Stop(actors []pool.Handle) {
 	k.push(Command{Kind: CmdStop, Spot: -1}, actors)
+}
+
+// Load orders a transport to pick up a unit the observation contains: the
+// pickup order code 6 resolves for the carrier and target pair, so the
+// session's transport admission decides whether it can be carried
+// [04 R-ORD-02 §1].
+func (k *Kit) Load(transport, cargo pool.Handle, queued bool) {
+	var one [1]pool.Handle
+	one[0] = transport
+	k.push(Command{Kind: CmdLoad, Target: cargo, Queued: queued, Spot: -1}, one[:])
+}
+
+// Unload orders a transport to unload at (x, z): code 5, a ground unload or
+// its air twin [04 R-ORD-02 §1].
+func (k *Kit) Unload(transport pool.Handle, x, z int32, queued bool) {
+	var one [1]pool.Handle
+	one[0] = transport
+	k.push(Command{Kind: CmdUnload, X: x, Z: z, Queued: queued, Spot: -1}, one[:])
+}
+
+// Activate switches on/off units on or off, as the side panel's ON/OFF
+// gadget does: the Activate or Deactivate state order, which keeps each
+// unit's queue. Units whose definition is not on/off-able are skipped when
+// the command is applied. OwnUnit.Active is the switch's state.
+func (k *Kit) Activate(actors []pool.Handle, on bool) {
+	kind := CmdDeactivate
+	if on {
+		kind = CmdActivate
+	}
+	k.push(Command{Kind: kind, Spot: -1}, actors)
+}
+
+// Cloak requests cloak for actors, or clears the request, as the side
+// panel's CLOAK gadget does: the Cloak_On or Cloak_Off state order, which
+// keeps each unit's queue. A request is paid from the owner's energy at each
+// settlement pass, and the unit is hidden only on a pass that paid
+// [05 "Cloak debit"]; OwnUnit.Cloaked is the request and OwnUnit.Hidden the
+// outcome. Units that cannot cloak are skipped when the command is applied.
+func (k *Kit) Cloak(actors []pool.Handle, on bool) {
+	kind := CmdDecloak
+	if on {
+		kind = CmdCloak
+	}
+	k.push(Command{Kind: kind, Spot: -1}, actors)
 }
 
 // Build orders a mobile builder to construct product. With spot >= 0 the
@@ -418,6 +504,7 @@ func (h *Host) begin(tick uint32, w *units.World) {
 	// side and roots its build tree at another side's commander.
 	var ownX, ownZ int32
 	var side string
+	var com *UnitInfo
 	var fx, fz int32 = 2, 2
 	for _, u := range w.AppendLiveSliced(nil) {
 		if u.Owner != m.Player || u.Def == nil {
@@ -432,6 +519,7 @@ func (h *Host) begin(tick uint32, w *units.World) {
 			continue
 		}
 		side = info.Side
+		com = info
 		var best *UnitInfo
 		for _, p := range info.Builds {
 			if p.Role.Has(RoleExtractor) && (best == nil || p.Metal < best.Metal) {
@@ -446,7 +534,7 @@ func (h *Host) begin(tick uint32, w *units.World) {
 	h.ex = executor{m: m, table: table, obs: &h.obs}
 	h.checkpointExecutor = checkpointHostExecutor{&h.ex, m, table, m.Catalog, m.Terrain}
 	h.rand = PlayerRand(m.BattleSeed, m.Player)
-	h.kit = Kit{Me: m.Player, Side: side, Table: table, Persona: h.persona, Rand: &h.rand}
+	h.kit = Kit{Me: m.Player, Side: side, Table: table, Com: com, own: buildTree(table, com), Persona: h.persona, Rand: &h.rand}
 	h.kit.obs = &h.obs
 	h.nextThink = h.onPhase(tick)
 	// The feature word is the one part of a plot cell the analysis needs
@@ -746,7 +834,7 @@ func (h *Host) buildObs(tick uint32, w *units.World, econ *economy.Service) {
 			ob.tagGen[hd] = gen
 		}
 		built, progress := buildProgress(u)
-		class, qlen, targetKey := queueState(u, classes)
+		class, gx, gz, qlen, targetKey := queueState(u, classes)
 		ammo, queued := stockpileState(u)
 		if capped {
 			capQueued(u, table, o.Capped)
@@ -762,6 +850,9 @@ func (h *Host) buildObs(tick uint32, w *units.World, econ *economy.Service) {
 			HP: u.Health, MaxHP: u.MaxHealth, Built: built, Progress: progress,
 			Order: class, QueueLen: qlen, Tag: ob.tags[hd], Target: target,
 			Ammo: ammo, StockpileQueued: queued,
+			GoalX: gx, GoalZ: gz,
+			Active: u.Activated, Cloaked: u.IsCloaked, Hidden: u.Hidden,
+			Carrier: u.Attachment.Carrier, Cargo: int32(len(u.Attachment.Cargo)),
 		})
 		ob.addSensor(u)
 	}
@@ -828,6 +919,13 @@ func (h *Host) updateMemory(tick uint32) {
 		c := &o.Enemy[i]
 		if c.Info == nil {
 			continue // a blip is not remembered and refreshes no record
+		}
+		if !c.Built && c.Info.Role.Has(RoleMobile) {
+			// A mobile unit's nanoframe neither moves nor fires: counted
+			// whole, one bomber frame in an air plant read as an air force
+			// (the play review, docs/PLAN_FACTION_BALANCE.md §3.3). It is
+			// remembered once it is finished.
+			continue
 		}
 		idx := ob.memIndex[c.H]
 		if idx >= 0 && int(idx) < len(o.Memory) && o.Memory[idx].H == c.H {

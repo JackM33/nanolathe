@@ -161,7 +161,7 @@ func TestApplicationIntentStructuralRefusals(t *testing.T) {
 	for _, kind := range []uint8{0, 4, 255} {
 		writers = append(writers, (ClassicApplicationIntent{Kind: kind}).WriteCheckpoint)
 	}
-	for _, kind := range []uint8{0, 15, 255} {
+	for _, kind := range []uint8{0, ModernIntentKinds + 1, 255} {
 		writers = append(writers, (ModernApplicationIntent{Kind: kind}).WriteCheckpoint)
 	}
 	for i, write := range writers {
@@ -180,7 +180,7 @@ func TestApplicationIntentStructuralRefusals(t *testing.T) {
 	// The ordinary typed callback boundary makes codec failures sticky too.
 	h := historyFixture(t, 2)
 	before := h.digest
-	a := h.BeginAttempt(17, h.NextSerial(), 0, (ModernApplicationIntent{Kind: 15}).WriteCheckpoint)
+	a := h.BeginAttempt(17, h.NextSerial(), 0, (ModernApplicationIntent{Kind: ModernIntentKinds + 1}).WriteCheckpoint)
 	a.Finish(2, 3)
 	if _, err := h.Snapshot(); err == nil || h.digest != before || h.count != 0 {
 		t.Fatal("invalid typed intent advanced its history")

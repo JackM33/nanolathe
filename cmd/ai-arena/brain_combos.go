@@ -22,23 +22,32 @@ func init() {
 		if err != nil {
 			panic(err)
 		}
-		return reportingBrain{b.Brain, b.Strategy, b.Army}
+		return reportingBrain{b.Brain, b.Strategy, b.Economy, b.Production, b.Army}
 	})
 }
 
 // reportingBrain publishes the utility strategy's style, opening and first
-// push and the tactics army's engagement counters to the arena result
+// push, the economy's ability counters (gates, cloak), production's breadth
+// counters and the tactics army's engagement counters to the arena result
 // (aikit.Reporter); everything else, Explain included, is the composed
-// brain's own. Either part may be nil.
+// brain's own. Any part may be nil.
 type reportingBrain struct {
 	*core.Brain
 	st   *utility.Strategy
+	ec   *utility.Economy
+	pr   *utility.Production
 	army *tactics.Army
 }
 
 func (b reportingBrain) Report(add func(name string, value int64)) {
 	if b.st != nil {
 		b.st.Report(add)
+	}
+	if b.ec != nil {
+		b.ec.Report(add)
+	}
+	if b.pr != nil {
+		b.pr.Report(add)
 	}
 	if b.army != nil {
 		b.army.Report(add)

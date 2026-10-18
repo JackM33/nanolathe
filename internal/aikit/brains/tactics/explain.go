@@ -143,6 +143,8 @@ func (a *Army) Report(add func(name string, v int64)) {
 	add("tac_strike_aborts", st.strikeAborts)
 	add("tac_intercepts", st.intercepts)
 	add("tac_recalled", a.stranded)
+	add("tac_support_orders", a.supportOrders)
+	add("tac_scouts_fast", int64(a.scoutsEver))
 	add("tac_passage_moved", st.passage)
 	add("tac_wait_thinks", st.waits)
 	add("tac_wait_passage", st.waitPassage)

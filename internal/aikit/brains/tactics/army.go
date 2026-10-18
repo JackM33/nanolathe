@@ -362,8 +362,13 @@ type Army struct {
 	passW, passH int32
 
 	scoutNext int32
-	startSeen []uint32  // per start position: last tick an own unit looked at it
-	coms      []sideCom // commander definition by side (commanderOf)
+	// scoutsEver counts cheap fast units made scouts (support.go); sup and
+	// supportOrders are the support units' orders.
+	scoutsEver    int32
+	sup           []supportMem
+	supportOrders int64
+	startSeen     []uint32  // per start position: last tick an own unit looked at it
+	coms          []sideCom // commander definition by side (commanderOf)
 
 	// Defense sizing.
 	threatMemory int64 // decaying peak of enemy value seen threatening assets
@@ -669,6 +674,7 @@ func (a *Army) Plan(b *core.Board) {
 	if a.P.Air {
 		a.airScouts(b)
 	}
+	a.support(b)
 }
 
 // activate turns squad slots on by attention and by army size: one squad
@@ -779,9 +785,12 @@ func (a *Army) membership(b *core.Board) {
 		u := &o.Own[i]
 		info := u.Info
 		tag := u.Tag
-		if info.Role.Has(aikit.RoleScout) && (tag == 0 || tag == tagScout) {
+		// A cheap fast unit scouts, up to scoutsMax over the game; one
+		// beyond them falls through to an ordinary assignment (support.go).
+		if info.Role.Has(aikit.RoleScout) && (tag == tagScout || tag == 0 && a.scoutsEver < scoutsMax) {
 			if tag == 0 {
 				k.SetTag(u.H, tagScout)
+				a.scoutsEver++
 			}
 			continue
 		}

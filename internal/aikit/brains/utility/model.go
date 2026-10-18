@@ -65,11 +65,13 @@ const (
 	cRetreat
 	cUnblock // reclaiming what seals a factory's exit
 	cClear   // reclaiming wrecks and street features
+	cModule  // an upgrade module (upgrades.go)
+	cGate    // a gate of the gate network (abil_gates.go)
 )
 
-var commitNames = [...]string{"none", "mex", "energy", "maker", "storage", "factory", "defense", "radar", "strategic", "upgrade", "assist", "guard", "retreat", "unblock", "clear"}
+var commitNames = [...]string{"none", "mex", "energy", "maker", "storage", "factory", "defense", "radar", "strategic", "upgrade", "assist", "guard", "retreat", "unblock", "clear", "module", "gate"}
 
-func (c commitKind) build() bool { return c >= cMex && c <= cUpgrade }
+func (c commitKind) build() bool { return c >= cMex && c <= cUpgrade || c == cModule || c == cGate }
 
 // commitment is a builder's standing assignment, indexed by handle. def
 // and gen say which unit it belongs to: the pool recycles slots without a
@@ -288,6 +290,7 @@ type shared struct {
 	arm         armyState         // production against income (army, army.go)
 	mt          metalState        // metal use: rules and audit (metal, econ_metal.go)
 	open        openState         // the opening policy (open_*, opening.go)
+	upg         upgradeState      // upgrade modules and the upgrades they keep (upgrades.go)
 
 	interceptorQueued bool // factory work reserves the strategic defense budget
 }
@@ -347,8 +350,13 @@ func (s *shared) setup(k *aikit.Kit) {
 	// Typical spend rates per work unit for this side's buildings and the
 	// mobile products of its factories: medians, so one odd definition
 	// cannot skew them.
-	var com *aikit.UnitInfo
+	// The tree is rooted at the player's own commander; a kit without one
+	// (a test's) takes the first commander of its side, else the first.
+	com := k.Com
 	for _, u := range t.Units {
+		if k.Com != nil {
+			break
+		}
 		if !u.Role.Has(aikit.RoleCommander) {
 			continue
 		}
@@ -448,14 +456,18 @@ func (s *shared) eff(q *aikit.UnitInfo, aaNeed int64) int64 {
 // 48). Each to-air weapon's DPS is subtracted as aikit's summarize added
 // it (the same terms, so the two must change together; aikit.UnitInfo
 // could carry the split instead); without a definition (a hand-built
-// table) all of DPS counts.
+// table) all of DPS counts. Water-only fire (WaterDPS: torpedoes) never
+// reaches a ground target either: TLL's shore torpedo launcher, a tower
+// that stands on land, was bought as ground defence on land maps without
+// this (the play review, docs/PLAN_FACTION_BALANCE.md §3.3).
 func groundDPS(u *aikit.UnitInfo) int64 {
 	g := int64(u.DPS)
 	if u.Def == nil {
 		return g
 	}
+	g -= int64(u.WaterDPS)
 	for _, w := range [...]*content.WeaponDef{u.Def.Weapon1Def, u.Def.Weapon2Def, u.Def.Weapon3Def} {
-		if w == nil || content.IsWeaponInactive(w) || !w.ToAirWeapon {
+		if w == nil || content.IsWeaponInactive(w) || !w.ToAirWeapon || w.WaterWeapon {
 			continue
 		}
 		dmg := int64(w.DamageDefault)
