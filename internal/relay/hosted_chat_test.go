@@ -286,6 +286,12 @@ func TestHostedChatMixedVersionRoom(t *testing.T) {
 			t.Fatal(err)
 		}
 		t.Cleanup(func() { _ = l.Close() })
+		// Welcome reserves a seat before the room processes its join. Wait
+		// for presence before opening the next connection, so the colours
+		// below follow this test's join order (DESIGN_MULTIPLAYER §16.6.1).
+		awaitLobby(t, l, "its own seat present", func(st HostedLobbyState, err error) bool {
+			return err == nil && st.Seats[l.Seat()].Present
+		})
 		return l
 	}
 	host := open(8, "", "Host", []byte{1}, 4)
