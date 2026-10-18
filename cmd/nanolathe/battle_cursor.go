@@ -23,6 +23,15 @@ func (b *battleSession) updateCursor(cl *client.Client) {
 	if cursors == nil || b.sess == nil {
 		return
 	}
+	if b.radial.open {
+		// The open build radial owns the pointer (DESIGN_INTERFACE_HUD_INPUT
+		// §3.18): nothing under its glass is hovered, and the cursor is the
+		// plain arrow rather than an order the menu would never issue.
+		b.footerHoverUnit, b.footerHoverFeature = 0, ""
+		cl.SetStrategicHover(0)
+		cursors.SetIndex(render.CursorNormal)
+		return
+	}
 	mouse, _ := cl.Input().PointerSample()
 	mx, my := int32(mouse.X), int32(mouse.Y)
 	// The footer's pointer record is written by the same per-frame pointer

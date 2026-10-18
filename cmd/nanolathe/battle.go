@@ -224,6 +224,12 @@ type battleSession struct {
 	// megamap is the optional megamap overview's host state
 	// (DESIGN_INTERFACE_HUD_INPUT §3.15).
 	megamap battleMegamap
+	// radial is the optional build radial's host state
+	// (DESIGN_INTERFACE_HUD_INPUT §3.18).
+	radial buildRadialState
+	// radialPointerOwned retains the menu's input verdict through its closing
+	// frame, so the later camera pass cannot reuse that frame's gesture (§3.18).
+	radialPointerOwned bool
 	// iconRoots is where an empty strategicIconConfig preference looks for
 	// the running content's icon configuration (DESIGN_GPU_RENDERER §18.7).
 	iconRoots []string
@@ -1173,6 +1179,7 @@ func (b *battleSession) viewerStep(delta float64, cl *client.Client) {
 	if b == nil || cl == nil {
 		return
 	}
+	b.radialPointerOwned = false
 	b.pumpLocalMultiplayer(cl)
 	b.pumpReplayPlayback(cl)
 	b.followExecutor(cl.Enhanced())
@@ -1188,6 +1195,7 @@ func (b *battleSession) viewerStep(delta float64, cl *client.Client) {
 		b.modernDrag = nil
 		b.resourceClick = nil
 		b.resourceQueueFeedback = nil
+		b.radial.close()
 	}
 	resourceInputServiced := false
 	defer func() {
@@ -1396,7 +1404,8 @@ func (b *battleSession) viewerStep(delta float64, cl *client.Client) {
 		in = &residual
 		shortcutKeyboard = battleShortcutKeyboard(in)
 	}
-	if !talkOwned && in.Mouse != nil && !b.economyPanelCovers(int32(in.Mouse.X), int32(in.Mouse.Y)) {
+	// An open build radial pages with the wheel instead (§3.18).
+	if !talkOwned && in.Mouse != nil && !b.radial.open && !b.economyPanelCovers(int32(in.Mouse.X), int32(in.Mouse.Y)) {
 		b.serviceMegamapWheel(in.Mouse, cl)
 	}
 	shiftHeld := shortcutKeyboard != nil && shortcutKeyboard.HasShift()
@@ -1433,6 +1442,18 @@ func (b *battleSession) viewerStep(delta float64, cl *client.Client) {
 	// returns to idle, and an idle latch deselects everything. It does not open
 	// the options window — that is F2's and Tab's row [07 R-CAM-01 §2].
 	if !talkOwned && keyDown(input.KeyEscape) {
+		// An open build radial takes the edge first: Escape closes the
+		// menu and keeps the selection and any armed placement (§3.18).
+		if b.radial.open {
+			b.radial.close()
+			// Escape skips the camera pass. Retire this frame's motion here
+			// so the next middle pan cannot replay it (§3.18).
+			if mouse := cl.Input().Mouse; mouse != nil {
+				state.Input.PrevMouseX, state.Input.PrevMouseY = mouse.X, mouse.Y
+			}
+			cl.Cursors().SetIndex(render.CursorNormal)
+			return
+		}
 		if cl.Enhanced() && b.economyPanel.open {
 			b.economyPanel = economyPanelState{}
 			cl.Cursors().SetIndex(render.CursorNormal)
@@ -1510,10 +1531,11 @@ func (b *battleSession) viewerStep(delta float64, cl *client.Client) {
 		talkActive := b.isTalkGUIActive()
 		overMinimap := b.isOverMinimap(mx, my)
 		modalActive := state.Modal() != ui.BattleModalClosed
+		radialOwnsPointer := b.radial.open || b.radialPointerOwned
 		// Every scroll-pass write is a jump by delta, and a jump by the scroll
 		// pass cancels the follow triple [07 R-CAM-01 §12].
 		scroll := func(dir camera.Direction) {
-			if b.preview || b.megamapShown() {
+			if b.preview || b.megamapShown() || radialOwnsPointer {
 				// Settings previews own their scripted camera (§3.17); their
 				// default pointer at (0,0) must not act as player edge input.
 				// The camera the megamap hides also holds still, so leaving
@@ -1563,7 +1585,10 @@ func (b *battleSession) viewerStep(delta float64, cl *client.Client) {
 			scroll(camera.DirDown)
 		}
 		// Middle-drag camera pan [F-P1-008]: presentation-only, uses mouse delta / scale.
-		if !talkActive && !b.megamapShown() && mouse.Held(input.MouseButtonMiddle) && mouse.Moved() {
+		// An open build radial owns the gesture instead (§3.18); the
+		// previous-position words below still advance, so closing the
+		// menu cannot jump the camera.
+		if !talkActive && !b.megamapShown() && !radialOwnsPointer && mouse.Held(input.MouseButtonMiddle) && mouse.Moved() {
 			dx := int32(mouse.X - b.battleState().Input.PrevMouseX)
 			dy := int32(mouse.Y - b.battleState().Input.PrevMouseY)
 			if dx != 0 || dy != 0 {
@@ -1578,7 +1603,7 @@ func (b *battleSession) viewerStep(delta float64, cl *client.Client) {
 		// over the world, only outside TALK, and only in the executor that can
 		// present a free factor.
 		cameraInput := cl.Enhanced() && focused && !talkActive && !talkOwned && !modalActive &&
-			!overMinimap && !b.megamapShown() && !b.palettePointerOwned && !unitInfoOpen() && b.overBattleViewport(mx, my)
+			!overMinimap && !b.megamapShown() && !b.palettePointerOwned && !radialOwnsPointer && !unitInfoOpen() && b.overBattleViewport(mx, my)
 		wheelInput := cameraInput && !b.megamapTakesWheel() && !b.communityPlacementWheelOwned(in)
 		if wheelInput && mouse.ZoomScrollY != 0 {
 			b.wheelZoom(mx, my, float64(mouse.ZoomScrollY))
