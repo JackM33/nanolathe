@@ -428,6 +428,11 @@ func TestHostedLobbyColours(t *testing.T) {
 	options := HostedDialOptions{InsecureLoopback: true}
 	host := openSizedLobby(t, s.Addr(), 4, []byte{1}, options)
 	a := openLobbyTest(t, s.Addr(), host.Code(), 1, nil, options)
+	// Welcome alone does not mean the room assigned a's colour yet. Finish
+	// that join before b can take the next free colour (§16.6.1).
+	awaitLobby(t, a, "its own seat present", func(st HostedLobbyState, err error) bool {
+		return err == nil && st.Seats[a.Seat()].Present
+	})
 	b := openLobbyTest(t, s.Addr(), host.Code(), 1, nil, options)
 	colours := func(want ...uint8) func(HostedLobbyState, error) bool {
 		return func(st HostedLobbyState, err error) bool {
