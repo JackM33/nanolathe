@@ -243,6 +243,36 @@ type MatchConfigRequest struct {
 	ReplayView    MatchView
 
 	Policies MatchPolicies // 15
+
+	// Version 2.
+	AlliedSight MatchAlliedSight // 17; field 16 is MatchSeat.Start
+}
+
+// MatchAlliedSight is field 17: whether a skirmish's teams share sight and
+// radar (docs/DESIGN_SESSIONS_AI_SAVE.md "Allied shared sight",
+// DESIGN_MULTIPLAYER §6.7 "Allied sight"). Its zero value is version 1's
+// rule, which differs by how the battle is played, so every configuration
+// version 1 describes keeps its meaning: an online skirmish's teams share
+// and a single-player battle's do not. The adapters write zero for that rule
+// and an explicit value only for the other choice.
+type MatchAlliedSight uint8
+
+const (
+	MatchAlliedSightVersion1 MatchAlliedSight = 0
+	MatchAlliedSightSeparate MatchAlliedSight = 1
+	MatchAlliedSightShared   MatchAlliedSight = 2
+)
+
+// Shared reports whether teams share sight in a battle played online or
+// single-player.
+func (a MatchAlliedSight) Shared(online bool) bool {
+	switch a {
+	case MatchAlliedSightSeparate:
+		return false
+	case MatchAlliedSightShared:
+		return true
+	}
+	return online
 }
 
 // EffectiveMatchConfig is a resolved, validated and frozen configuration.
@@ -506,6 +536,14 @@ func (r *MatchConfigRequest) validate() (RuleSet, error) {
 	if p.Revision != MatchPolicyRevision || p.Scheduling != MatchPolicyScheduling || p.Pacing != MatchPolicyPacing || p.Drop != MatchPolicyDrop || p.Audience != MatchPolicyAudience {
 		return RuleSet{}, matchFieldError("policies", "revision 1 with scheduling, pacing, drop and audience policy 1")
 	}
+	// 16 is checked with the seats. 17. Allied sight: Survival's survivors
+	// always share (DESIGN_SURVIVAL §4.3), so only a skirmish chooses.
+	if r.AlliedSight > MatchAlliedSightShared {
+		return RuleSet{}, matchFieldError("alliedSight", "0 version 1's rule, 1 separate or 2 shared")
+	}
+	if r.SessionKind != MatchOnlineSkirmish && r.AlliedSight != MatchAlliedSightVersion1 {
+		return RuleSet{}, matchFieldError("alliedSight", "0 for Survival, whose survivors always share")
+	}
 	return set, nil
 }
 
@@ -639,6 +677,9 @@ func (r *MatchConfigRequest) validateSeatStarts() error {
 // holds a version-2 field other than its default, 1 otherwise, so every
 // configuration version 1 can describe keeps its bytes and identity (§8.6).
 func (r *MatchConfigRequest) version() int {
+	if r.AlliedSight != MatchAlliedSightVersion1 {
+		return 2
+	}
 	for i := range r.Seats {
 		if r.Seats[i].Start != 0 {
 			return 2

@@ -211,6 +211,15 @@ type SkirmishConfig struct {
 	// the profile file, not the lobby screen [08 R-SKIR-01 §6].
 	UnitLimit int
 
+	// AlliedSight makes each team of a single-player skirmish — the players
+	// sharing an ally group other than 5 — one side for line of sight, the
+	// explored map and radar. It is a Nanolathe lobby choice with no retail
+	// counterpart, offered in every gameplay mode; false is retail, which
+	// never merges an ally's sight [03 §3.2]. An online battle takes its
+	// room's choice from the configuration instead, and Survival's survivors
+	// always share (docs/DESIGN_SESSIONS_AI_SAVE.md "Allied shared sight").
+	AlliedSight bool
+
 	// Explicit battle RNG seeds [R-CORE-02] DET-01. Retail derives the sim
 	// seed from the QPC sum XOR a fixed constant (forced odd) and the CRT seed
 	// from the time-of-day helper, both AT BATTLE ENTRY, wiping every
@@ -608,6 +617,11 @@ func (c SkirmishConfig) NormalizedBytes() []byte {
 		for i := 0; i < 10; i++ {
 			b = append(b, byte(c.Players[i].Difficulty))
 		}
+	}
+	// Allied sight only when chosen, so a setup without it keeps its
+	// existing bytes.
+	if c.AlliedSight {
+		b = append(b, 'V')
 	}
 	// Chosen start positions only when one is chosen, so a setup that leaves
 	// every start to Location keeps its existing bytes.
@@ -1123,6 +1137,8 @@ func composeSkirmish(entry skirmishEntry, options SkirmishEntryOptions, audio vf
 	}
 	if entry.online != nil {
 		s.setOnlineVisionTeams(&entry.online.request)
+	} else if cfg.AlliedSight && !cfg.Survival.Enabled {
+		s.setAlliedVisionTeams()
 	}
 	if err := applyAIOverrides(s, options.AIOverrides); err != nil {
 		return nil, err

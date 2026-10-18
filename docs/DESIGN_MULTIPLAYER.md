@@ -814,8 +814,12 @@ history stays one grid per player (Q24); what a teammate sees also explores
 each member's own grid, as it does for Survival's survivors, so a teammate's
 view never draws as unexplored. Retail's sharing commands and alliance
 declarations add to it (§7.1). This is Nanolathe's online policy;
-retail never merges allies' sight by default `[03 §3.2]`. Single-player
-battles are unchanged.
+retail never merges allies' sight by default `[03 §3.2]`. Since 2026-10-18
+(user-authorized) the room's host may keep a skirmish room's teams' sight
+separate with the lobby's Allied Sight button, configuration field 17
+(§8.6); the default shares it, as every earlier online skirmish did. A
+single-player skirmish shares a team's sight only with its own Allied Sight
+option (DESIGN_SESSIONS_AI_SAVE "Allied shared sight").
 
 **Sharing time (Q25).** Periodic explored-map shares run at their existing
 due site on the request tick, humans in canonical seat order, each copying
@@ -1359,6 +1363,7 @@ payload as trailing bytes, which is the "different release" refusal.
 | Order / effective field | Representation and normalization |
 |---|---|
 | 16. Seat starts | One `u8` per seat in slot order: 0 automatic, 1..10 the chosen `StartPos<n>` (DESIGN_SESSIONS_AI_SAVE "Chosen start positions"). Nonzero only on an online skirmish's human or computer row, and no two rows choose the same start. Battle entry refuses a start the map's selected schema lacks. |
+| 17. AlliedSight | `u8`: 0 version 1's rule — an online skirmish's teams share sight and radar (§6.7), a single-player battle's do not — 1 separate, 2 shared (DESIGN_SESSIONS_AI_SAVE "Allied shared sight"). Zero for Survival, whose survivors always share. The adapters write 0 for a battle's version-1 rule and an explicit value only for the other choice: 2 for a shared single-player setup, 1 for a separate online room. |
 
 | Order / effective field | Representation and normalization |
 |---|---|

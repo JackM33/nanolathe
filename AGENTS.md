@@ -171,15 +171,21 @@ DESIGN_MULTIPLAYER §16.6). It is owned by
 [DESIGN_MODS_MUTATORS](docs/DESIGN_MODS_MUTATORS.md) §15.
 
 **Skirmish setup choices are the sixth mode-independent exception
-(user-authorized 2026-10-18).** A player may choose the start position its
-commander begins on, offered for skirmish in every gameplay mode, Strict 3.1
-included, from a Start button on each setup-screen row. Chosen starts are
-taken first; the others share what is left by the Location setting, a random
-deal using only the disposable loading CRT. It adds no seam, no simulation
-draw and no per-tick state. Strict 3.1 *with no chosen start* is the retail
-baseline, and every fingerprint lock runs with none. Replays carry the choice
-as configuration version 2, which a configuration without it never uses. It is
-owned by [DESIGN_SESSIONS_AI_SAVE](docs/DESIGN_SESSIONS_AI_SAVE.md#chosen-start-positions).
+(user-authorized 2026-10-18).** Two lobby choices, offered in every gameplay
+mode, Strict 3.1 included. A player may choose the start position its
+commander begins on, from a Start button on each setup-screen row: chosen
+starts are taken first, and the others share what is left by the Location
+setting, a random deal using only the disposable loading CRT. And allies may
+share line of sight, radar and the explored map (Allied Sight): an option on
+the single-player setup screen, off by default, and an online skirmish room
+host's option, on by default as online teams always shared; Survival's
+survivors always share. Neither adds a seam, a simulation draw or per-tick
+state. Strict 3.1 *with no chosen start and without Allied Sight* is the
+retail baseline, and every fingerprint lock runs with neither. Replays carry
+both as configuration version 2, which a configuration with neither never
+uses. They are owned by
+[DESIGN_SESSIONS_AI_SAVE](docs/DESIGN_SESSIONS_AI_SAVE.md#chosen-start-positions)
+("Chosen start positions", "Allied shared sight").
 
 Current policies: [terrain admission](docs/DESIGN_WEAPONS_PROJECTILES.md#231-modern-terrain-admission),
 [Hold Fire](docs/DESIGN_UNITS_ORDERS_COB.md#modern-hold-fire), and

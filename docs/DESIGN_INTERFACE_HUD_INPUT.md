@@ -1058,6 +1058,22 @@ DESIGN_MULTIPLAYER §6.6) have no Players control. Tests:
 which composes a one-human, seven-computer battle under Strict 3.1 and
 Modern and, with `NANOLATHE_SHOT_DIR` set, writes the eight-row screen.
 
+**Allied sight (Nanolathe setup policy, user-authorized 2026-10-18).** An
+`Allied Sight` heading cloned from the Location label at (175, 290) and a
+two-stage button cloned from Mapping at (175, 306), `Separate` or `Shared`,
+sit beside Players under the player box; a click flips it. Shared makes each
+team's players share line of sight, radar and the explored map
+([DESIGN_SESSIONS_AI_SAVE "Allied shared sight"](DESIGN_SESSIONS_AI_SAVE.md#allied-shared-sight)).
+It defaults to Separate, retail's sight, persists as `alliedSight` in the
+settings file, and is carried to battle as `SkirmishConfig.AlliedSight`. The
+Survival screen, whose survivors always share, has none. The online lobby
+gives the host the same button in a skirmish room, in the Air Waves slot that
+only a Survival room shows; it defaults to Shared there, as online skirmishes
+always shared, and guests see it greyed (DESIGN_MULTIPLAYER §6.7). Tests:
+`TestTheSettingsFileKeepsAlliedSight`, `TestOnlineLobbyHostChoosesAlliedSight`
+and `TestSkirmishScreenSharesAlliedSightRetail`, which with
+`NANOLATHE_SHOT_DIR` set writes the screen as a PNG.
+
 **Start positions (Nanolathe setup policy, user-authorized 2026-10-18).**
 Each live row has a Start button, a copy of the row's Metal button moved to
 x 400, in the empty strip between the player box and the option column,

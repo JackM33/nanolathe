@@ -79,6 +79,12 @@ type RetailLoadDeps struct {
 	// save, and every sidecar that does not carry the record — seeds them
 	// from the load's entry seed and leaves every computer player Classic.
 	AIControllers *AIControllers
+	// AlliedSight is a skirmish save's sidecar choice that the teams share
+	// sight and radar (docs/DESIGN_SESSIONS_AI_SAVE.md "Allied shared
+	// sight"). The restored battle rebuilds its teams from the restored
+	// alliance table before any unit publishes coverage. A campaign bank
+	// takes none.
+	AlliedSight bool
 }
 
 // RetailBattleStage is an unreachable, fully detached staging result. The
@@ -313,6 +319,12 @@ func StageRetailBattle(bank *save.Bank, deps RetailLoadDeps) (*RetailBattleStage
 	}
 	if err := createAndBindServices(s); err != nil {
 		return nil, fmt.Errorf("session: retail shell composition: %w", err)
+	}
+	// The saved battle's vision teams, from the alliance rows the player
+	// records just restored, before the restored units publish coverage.
+	if deps.AlliedSight && sessionKind == sessionKindSkirmish {
+		s.Skirmish.AlliedSight = true
+		s.setAlliedVisionTeams()
 	}
 	if err := s.initializeBuilderOptions(deps.BuilderOptions); err != nil {
 		return nil, err

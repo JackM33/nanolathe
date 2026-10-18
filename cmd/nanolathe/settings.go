@@ -134,6 +134,7 @@ func (g *gameShell) applySettings(s settings.Settings) {
 	g.setup.Mapping = sk.Mapping
 	g.setup.LineOfSight = sk.LineOfSight
 	g.setup.LOSType = sk.LOSType
+	g.setup.AlliedSight = sk.AlliedSight
 
 	for i := 0; i < session.SkirmishMaxPlayers && i < len(sk.Players); i++ {
 		p := sk.Players[i]
@@ -265,6 +266,7 @@ func (g *gameShell) liveSettings() settings.Settings {
 		Mapping:        setup.Mapping,
 		LineOfSight:    setup.LineOfSight,
 		LOSType:        setup.LOSType,
+		AlliedSight:    setup.AlliedSight,
 		Players:        make([]settings.Player, session.SkirmishMaxPlayers),
 	}
 	for i := 0; i < session.SkirmishMaxPlayers; i++ {

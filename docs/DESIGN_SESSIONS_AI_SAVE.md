@@ -2565,6 +2565,53 @@ definition), `TestChosenStartsRefuseWhatTheMapCannotSeat`,
 `TestSkirmishScreenChoosesStartPositionsRetail`, which composes the screen's
 battle under Strict 3.1 and Modern and checks every commander's start.
 
+### Allied shared sight
+
+**Nanolathe setup policy (user-authorized 2026-10-18).** Allies may share
+line of sight, radar and the explored map, chosen per battle in every game:
+the skirmish setup screen's Allied Sight option for a single-player skirmish,
+the online lobby host's for an online skirmish (DESIGN_MULTIPLAYER §6.7
+"Allied sight"). It is offered in every gameplay mode, Strict 3.1 included,
+and adds no rule seam, random draw or per-tick state of its own. A
+single-player skirmish without it plays exactly as retail, which never
+merges an ally's current sight `[03 §3.2]` `[03 R-VIS-01 §7]`; Strict 3.1
+*without Allied Sight* is the retail baseline, and every fingerprint lock
+runs without it. Survival's survivors always share (DESIGN_SURVIVAL §4.3).
+
+**Policy.** `SkirmishConfig.AlliedSight` makes each team one side through
+the vision-team mechanism Survival and online teams already use
+(`visibility.Service.SetVisionTeam`): a member's coverage reaches every
+member's grids, its explored-map bit every member's history, radar and sonar
+from any member's units reveal contacts for all, members' units are friendly
+and members' jammers do not blind each other. `setAlliedVisionTeams` reads
+each team from the alliance table — the mutual allies of each existing,
+non-observer player, which in a skirmish are exactly the players sharing an
+ally group other than 5 `[08 R-SKIR-01 §2]` — once at battle entry, before
+any coverage is published. A player alone in its group joins no team.
+Single-player alliances cannot change in battle, so the teams and the
+coverage reference counts stay balanced. The computer players' sight
+predicates read the same grids, so a Classic or Modern ally sees what its
+team sees.
+
+**Where the choice travels.** The setup screen's button (DESIGN_INTERFACE_HUD_INPUT
+§2.6 "Allied sight") and the settings file (`alliedSight`, omitted when off)
+carry it to the setup. Replays carry it as field 17 of configuration version
+2 (DESIGN_MULTIPLAYER §8.6), whose zero value keeps version 1's rule, so a
+battle without it keeps its version-1 bytes. A save records it in the
+sidecar (`alliedSight`, DESIGN_MODS_MUTATORS §7.2): the bank keeps the
+alliance rows but not the ally groups `[08 R-SKIR-01 §2]` "Save
+persistence", so the load rebuilds the teams from the restored rows before
+the restored units publish coverage. A campaign takes none.
+
+**Tests:** `TestAlliedSightTeamsFollowTheAllianceTable`,
+`TestAlliedSightIsConfigurationField17`,
+`TestAlliedSightSharesATeamsSightRetail` (a three-player battle on Ashap
+Plateau under Strict 3.1 and Modern: the human sees its teammate's commander
+only with the option and never the opponent's, also after a save and a load
+with and without the sidecar flag), `TestTheSettingsFileKeepsAlliedSight`,
+`TestOnlineLobbyHostChoosesAlliedSight` and, on the retail art,
+`TestSkirmishScreenSharesAlliedSightRetail`.
+
 ## 6. Research map
 
 | Behaviour | Owning research |

@@ -167,8 +167,9 @@ func TestChosenStartPlacesTheCommander(t *testing.T) {
 
 // Version 2 of the configuration: a request with no chosen start keeps its
 // version-1 bytes and identity (TestMatchConfigEncodingIsUnchangedBySharedPrimitives
-// holds them), one with a chosen start appends one byte per seat and hashes
-// under the version-2 domain, and a version-2 tail of defaults is refused.
+// holds them), one with a chosen start appends one byte per seat and field
+// 17 and hashes under the version-2 domain, and a version-2 tail of defaults
+// is refused.
 func TestChosenStartsEncodeAsConfigurationVersion2(t *testing.T) {
 	r := validMatchRequest(t)
 	v1 := encodeMatchForTest(t, resolveMatch(t, r))
@@ -176,8 +177,8 @@ func TestChosenStartsEncodeAsConfigurationVersion2(t *testing.T) {
 	r.Seats[2].Start = 1
 	c := resolveMatch(t, r)
 	v2 := encodeMatchForTest(t, c)
-	if !bytes.Equal(v2[:len(v1)], v1) || !bytes.Equal(v2[len(v1):], []byte{3, 0, 1}) {
-		t.Fatalf("version 2 is not version 1 then one start byte per seat:\nv1 %x\nv2 %x", v1, v2)
+	if !bytes.Equal(v2[:len(v1)], v1) || !bytes.Equal(v2[len(v1):], []byte{3, 0, 1, 0}) {
+		t.Fatalf("version 2 is not version 1, one start byte per seat and field 17:\nv1 %x\nv2 %x", v1, v2)
 	}
 	h := sha256.New()
 	h.Write([]byte(matchConfigDomainV2))
@@ -192,7 +193,7 @@ func TestChosenStartsEncodeAsConfigurationVersion2(t *testing.T) {
 	if got := decoded.Request().Seats; got[0].Start != 3 || got[1].Start != 0 || got[2].Start != 1 {
 		t.Fatalf("decoded starts %d %d %d, want 3 0 1", got[0].Start, got[1].Start, got[2].Start)
 	}
-	if checkMatchDecode(t, append(append([]byte(nil), v1...), 0, 0, 0)) {
+	if checkMatchDecode(t, append(append([]byte(nil), v1...), 0, 0, 0, 0)) {
 		t.Fatal("a version-2 tail of defaults decoded")
 	}
 	r.Seats[1].Start = 3

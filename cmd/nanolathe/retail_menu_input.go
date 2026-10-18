@@ -476,6 +476,8 @@ func (g *gameShell) activateSkirmishGadget(name string) {
 	case skirmishPlayersButton:
 		g.stepSkirmishPlayerCount(1)
 		return
+	case alliedSightButton:
+		g.setup.AlliedSight = !g.setup.AlliedSight
 	case "StartLocation":
 		g.setup.Location ^= 1
 	case "CommanderDeath":

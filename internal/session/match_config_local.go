@@ -142,6 +142,11 @@ func newMatchConfigRequest(cfg SkirmishConfig, options SkirmishEntryOptions, roo
 		return MatchConfigRequest{}, matchFieldError("unitLimit", fmt.Sprintf("%d..%d", matchMinUnitLimit, matchMaxUnitLimit))
 	}
 	r.UnitLimit = uint16(cfg.UnitLimit)
+	// A single-player setup's allied sight; an online room writes its own
+	// choice over this (onlineConfig).
+	if cfg.AlliedSight && !cfg.Survival.Enabled {
+		r.AlliedSight = MatchAlliedSightShared
+	}
 	if cfg.Survival.Enabled {
 		r.SessionKind = MatchOnlineSurvival
 		r.SurvivalPace = cfg.Survival.Pace

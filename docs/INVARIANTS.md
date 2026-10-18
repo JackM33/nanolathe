@@ -512,13 +512,17 @@ fingerprint lock runs with none. It is owned by
 implemented.
 
 **Skirmish setup choices are the sixth mode-independent exception
-(user-authorized 2026-10-18).** A skirmish player may choose its commander's
-start position in every gameplay mode, Strict 3.1 included. Chosen starts are
+(user-authorized 2026-10-18).** In every gameplay mode, Strict 3.1 included, a
+skirmish player may choose its commander's start position, and allies may
+share line of sight, radar and the explored map (Allied Sight; off by default
+single-player, on by default in an online skirmish room). Chosen starts are
 taken first and the rest are shared by the Location word, a random deal
-drawing only the disposable loading CRT; there is no seam, simulation draw or
-per-tick state. Strict 3.1 *with no chosen start* is the retail baseline, and
-every fingerprint lock runs with none. It is owned by
-[DESIGN_SESSIONS_AI_SAVE](DESIGN_SESSIONS_AI_SAVE.md#chosen-start-positions).
+drawing only the disposable loading CRT; Allied Sight uses the existing vision
+teams. Neither adds a seam, simulation draw or per-tick state. Strict 3.1
+*with no chosen start and without Allied Sight* is the retail baseline, and
+every fingerprint lock runs with neither. They are owned by
+[DESIGN_SESSIONS_AI_SAVE](DESIGN_SESSIONS_AI_SAVE.md#chosen-start-positions)
+("Chosen start positions", "Allied shared sight").
 
 The mode word also selects a **registered** set by name: a third-party set is
 compiled in through `mods/`, which only a command may import, and it composes

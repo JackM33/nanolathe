@@ -371,15 +371,20 @@ const PlayerAIClassic = "classic"
 // Skirmish is the SKIRMISH.GUI setup: everything retail stores under the
 // Skirmish* value names plus the per-slot rows.
 type Skirmish struct {
-	Map            string   `json:"map"` // SkirmishMap, basename without extension
-	NumPlayers     int      `json:"numPlayers"`
-	Difficulty     int      `json:"difficulty"`
-	Location       int      `json:"location"`
-	CommanderDeath int      `json:"commanderDeath"`
-	Mapping        int      `json:"mapping"`
-	LineOfSight    int      `json:"lineOfSight"`
-	LOSType        int      `json:"losType"`
-	Players        []Player `json:"players"`
+	Map            string `json:"map"` // SkirmishMap, basename without extension
+	NumPlayers     int    `json:"numPlayers"`
+	Difficulty     int    `json:"difficulty"`
+	Location       int    `json:"location"`
+	CommanderDeath int    `json:"commanderDeath"`
+	Mapping        int    `json:"mapping"`
+	LineOfSight    int    `json:"lineOfSight"`
+	LOSType        int    `json:"losType"`
+	// AlliedSight is the Allied Sight option, a Nanolathe lobby choice with
+	// no retail registry value: teammates share sight and radar. Absent is
+	// false, retail's separate sight (docs/DESIGN_SESSIONS_AI_SAVE.md
+	// "Allied shared sight").
+	AlliedSight bool     `json:"alliedSight,omitempty"`
+	Players     []Player `json:"players"`
 }
 
 // ModSelection is the settings key `mod`: one mod's id and, optionally, its

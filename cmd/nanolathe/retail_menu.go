@@ -599,6 +599,7 @@ func (g *gameShell) refreshSkirmishPanel() {
 	}
 	g.refreshSkirmishStarts(p)
 	g.refreshSkirmishPlayerCount(p)
+	g.refreshSkirmishAlliedSight(p)
 }
 
 // computerAICaption is a computer row's Player%d caption: the row's AI,

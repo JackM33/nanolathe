@@ -171,6 +171,7 @@ func encodeMatchRequest(r *MatchConfigRequest) ([]byte, error) {
 		for i := range r.Seats { // 16
 			w.U8(r.Seats[i].Start)
 		}
+		w.U8(uint8(r.AlliedSight)) // 17
 	}
 	return w.Bytes(), nil
 }
@@ -303,6 +304,7 @@ func readMatchRequest(r *netproto.Reader, size int) MatchConfigRequest {
 		for i := range q.Seats { // 16
 			q.Seats[i].Start = r.U8()
 		}
+		q.AlliedSight = MatchAlliedSight(r.U8()) // 17
 	}
 	if r.Err() != nil {
 		return MatchConfigRequest{}

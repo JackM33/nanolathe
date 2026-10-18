@@ -905,6 +905,7 @@ func (g *gameShell) openMenuWithTokenFlush(mode shellMode, flushTokens bool) {
 				} else {
 					installSkirmishStartColumn(window)
 					installSkirmishPlayerCount(window)
+					installSkirmishAlliedSight(window)
 				}
 			}
 			if mode == modeMenuMap {
