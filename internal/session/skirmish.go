@@ -1802,7 +1802,11 @@ func skirmishReconstructUnits(s *Session, cfg SkirmishConfig, m *mission.Mission
 	crt := rng.NewCRT(cfg.RNGCrtSeed)
 	// Map logical slot → stored start number, or → its chosen point.
 	seats := seatRulesOf(s.Rules)
-	permMap, points, extra, err := skirmishStartAssignment(cfg, eligible, starts, &crt, seats.ChosenStarts(), seats.ExtraStarts())
+	// An online battle keeps kind 3's own answer to a missing start, the
+	// jittered point it drew below, and its lobby seats no more players than
+	// the map has starts, so generated starts are single-player only.
+	extraAllowed := seats.ExtraStarts() && s.onlineResults == nil
+	permMap, points, extra, err := skirmishStartAssignment(cfg, eligible, starts, &crt, seats.ChosenStarts(), extraAllowed)
 	if err != nil {
 		return err
 	}

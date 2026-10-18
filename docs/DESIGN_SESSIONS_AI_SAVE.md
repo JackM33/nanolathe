@@ -2624,9 +2624,11 @@ included, so a setup within the map's starts is unchanged. Then:
 The simulation stream is not read, and the same seed generates the same
 starts. A battle with a generated start publishes no start owners to the
 Modern AI, as one with a chosen point does not. The setup screen's Start
-preflight drops its too-many-players refusal under these rules; the online
-lobby keeps its own capacity, the map's start positions
-(DESIGN_MULTIPLAYER §6.6).
+preflight drops its too-many-players refusal under these rules. The policy
+is single-player only: an online battle keeps kind 3's retail answer to a
+missing start, the jittered point it draws for every commander
+`[08 R-ENTRY-01 §5]`, and its lobby keeps its own capacity, the map's start
+positions (DESIGN_MULTIPLAYER §6.6).
 
 **Tests:** `TestExtraStartsReuseUnusedStartsThenGenerate` (unused authored
 starts first, then generation, and retail's assignment without the policy),
