@@ -535,7 +535,16 @@ new production-unreachable function fails, and so does a baseline row that has
 become reachable or disappeared — wire it, move it into a `_test.go` /
 `export_test.go` file, or add the row with its reason in the commit message.
 Regenerate with `tools/lint --update-baseline` (or `NANOLATHE_UPDATE_BASELINE=1
-tools/lint`). The companion guard,
+tools/lint`). The set differs by platform — some code is reached only from
+darwin, js or unix files — so this run always analyses darwin/arm64 without
+cgo, the platform the list was written on, with a `deadcode` built for the
+host; every host then reproduces the same list. Linux- and Windows-only code is
+outside this ratchet; the `-test` run still covers the host's own files.
+`tools/lint` builds and runs both analyzers with exactly the module's Go
+release (`go env GOVERSION`), because `go run pkg@version` would otherwise
+build a tool with the older release its own go.mod names on a host whose
+system Go predates the module's, and that build cannot type-check this
+module. The companion guard,
 `internal/architecture.TestNoUnreferencedExported`, covers what deadcode cannot
 see at all: an exported const, var, type, func or struct field whose name
 occurs nowhere in the module but its own declaration. It runs in the fast tier,
