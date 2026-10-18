@@ -1446,6 +1446,11 @@ func (b *battleSession) viewerStep(delta float64, cl *client.Client) {
 		// menu and keeps the selection and any armed placement (§3.18).
 		if b.radial.open {
 			b.radial.close()
+			// Escape skips the camera pass. Retire this frame's motion here
+			// so the next middle pan cannot replay it (§3.18).
+			if mouse := cl.Input().Mouse; mouse != nil {
+				state.Input.PrevMouseX, state.Input.PrevMouseY = mouse.X, mouse.Y
+			}
 			cl.Cursors().SetIndex(render.CursorNormal)
 			return
 		}

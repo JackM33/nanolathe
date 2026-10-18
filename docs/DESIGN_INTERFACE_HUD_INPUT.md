@@ -5402,7 +5402,8 @@ placement products — `hud.AllowedBuildProducts` filtered to building
 class — grouped by authored definition fields, never by unit name, so
 mods classify by what their structures do. Each offered product lands in
 exactly one bucket, in authored order: a structure builder whose menu
-names a mobile product is a **Factory**, and any other structure builder
+names a mobile product in its complete authored membership, before the
+retail download cutoff, is a **Factory**, and any other structure builder
 — the air repair pad, which also authors a small energy make — is
 **Radar & Utility**; else metal extraction or making
 is **Metal**; else positive net energy production in the economy's own
@@ -5446,7 +5447,9 @@ where a held release would pick without any flick, so such a menu opens
 sticky and waits for a click. Escape and right-click cancel at either
 level. `viewerStep` takes Escape ahead of every battle path, so its first
 claim is the open menu's: Escape closes the menu and never also deselects
-or disarms. The opening, each category change and each page cue
+or disarms. It also refreshes the pan's previous pointer coordinates even
+though Escape skips the camera pass, so that motion cannot replay on the
+next frame. The opening, each category change and each page cue
 `nextbuildmenu` once, as a sidebar page switch does.
 
 **Presentation.** The menu is laid out on the rail's virtual surface
@@ -5527,6 +5530,11 @@ drag and in a viewport too small for the menu;
 ownership and the following frame's return to normal input;
 `TestRadialDiscsUseTransientLifetime` holds the derived pictures' bounded
 renderer lifetime across builder changes;
+`TestBuildRadialEscapeRetiresPanMotion` holds pan history across Escape,
+`TestBuildRadialRetiresSidebarCapture` checks the real retained gadget
+capture and the preference-off bypass, and
+`TestRadialFactoryUsesCompleteAuthoredMenu` checks factory classification
+past the retail download cutoff;
 `TestRadialSectorSpansCoverOnce` holds the glass rasterizer against a
 per-pixel definition, so no pixel is faded twice;
 `TestBuildRadialPersistence` locks the opt-in default and its

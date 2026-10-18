@@ -372,9 +372,27 @@ func (b *battleSession) openBuildRadial(f *frame.Frame, mx, my int32) bool {
 	// panel, which paints above it, closes.
 	state := &b.battleState().Input
 	state.DragActive, state.HUDCaptured = false, false
+	if b.hud != nil {
+		b.hud.commandWindowInput.retireCapture(b)
+	}
 	b.modernDrag, b.resourceClick = nil, nil
 	b.economyPanel = economyPanelState{}
 	return true
+}
+
+// canOpenBuildRadial also serves the palette's earlier input pass: only an
+// admitted radial press may retire a retained sidebar drag (§3.18).
+func (b *battleSession) canOpenBuildRadial(f *frame.Frame, mouse input.MouseState, mx, my int32) bool {
+	if b == nil || b.radial.open || !mouse.Pressed(input.MouseButtonMiddle) ||
+		b.hostPreferences().BuildRadial == 0 || b.megamapShown() || b.isTalkGUIActive() ||
+		f == nil || f.CommandPage.Builder == 0 || b.replayPlayback() != nil ||
+		b.minimapCameraCaptured || b.dragScrollActive ||
+		b.cl != nil && !b.cl.IsFocused() ||
+		!b.overBattleViewport(mx, my) || b.isOverMinimap(mx, my) || b.economyPanelCovers(mx, my) {
+		return false
+	}
+	_, _, fits := b.radialCentre(mx, my)
+	return fits && len(hud.RadialGroups(b.cat, hud.AllowedBuildProducts(b.cat, f))) != 0
 }
 
 // serviceBuildRadial opens the menu on an admitted middle press and
@@ -406,10 +424,7 @@ func (b *battleSession) serviceBuildRadial(mouse input.MouseState, mx, my int32)
 	}
 	opened := false
 	if !b.radial.open {
-		if !mouse.Pressed(input.MouseButtonMiddle) || f.CommandPage.Builder == 0 || b.replayPlayback() != nil ||
-			b.minimapCameraCaptured || b.dragScrollActive ||
-			!b.overBattleViewport(mx, my) || b.isOverMinimap(mx, my) || b.economyPanelCovers(mx, my) ||
-			!b.openBuildRadial(f, mx, my) {
+		if !b.canOpenBuildRadial(f, mouse, mx, my) || !b.openBuildRadial(f, mx, my) {
 			return false
 		}
 		opened = true

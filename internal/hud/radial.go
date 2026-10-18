@@ -93,7 +93,11 @@ func radialBuildsMobile(cat *content.Catalog, def *content.UnitDef) bool {
 		return false
 	}
 	if menu := cat.BuildMenus[content.CanonicalKey(def.UnitName)]; menu != nil {
-		for _, button := range menu.Buttons {
+		products := menu.AuthoredButtons
+		if products == nil {
+			products = menu.Buttons
+		}
+		for _, button := range products {
 			if product, ok := cat.Unit(button); ok && product != nil && product.BMCode != 0 {
 				return true
 			}

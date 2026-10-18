@@ -1,10 +1,12 @@
 package main
 
 import (
+	"fmt"
 	"math"
 	"testing"
 
 	"github.com/nanolathe-gg/nanolathe/formats"
+	"github.com/nanolathe-gg/nanolathe/internal/gui"
 	"github.com/nanolathe-gg/nanolathe/internal/hud"
 	"github.com/nanolathe-gg/nanolathe/internal/input"
 	"github.com/nanolathe-gg/nanolathe/internal/palette"
@@ -452,5 +454,83 @@ func TestRadialDiscsUseTransientLifetime(t *testing.T) {
 		if h.radialDisc(pic, 2, 0) != disc {
 			t.Fatal("the current builder did not reuse its derived picture")
 		}
+	}
+}
+
+func TestBuildRadialEscapeRetiresPanMotion(t *testing.T) {
+	b, cl, _, _ := resourceFixture(t, false)
+	p := b.hostPreferences()
+	p.BuildRadial = 1
+	b.hostPresentation = &p
+	b.cam.MapW, b.cam.MapH = 4096, 4096
+	b.cam.JumpTo(1000, 1000)
+	mouse := cl.Input().Mouse
+	mouse.SetPosition(384, 240)
+	mouse.SetButton(input.MouseButtonMiddle, true)
+	b.viewerStep(0, cl)
+	if !b.radial.open {
+		t.Fatal("menu did not open")
+	}
+	mouse.ResetEdges()
+	mouse.SetPosition(484, 240)
+	cl.Input().EnqueueToken(input.Token{Kind: input.TokenEdit, Key: input.KeyEscape})
+	b.viewerStep(0, cl)
+	if b.radial.open {
+		t.Fatal("Escape did not close the menu")
+	}
+	before := b.cam.X
+	mouse.ResetEdges()
+	mouse.SetPosition(485, 240)
+	b.viewerStep(0, cl)
+	if delta := b.cam.X - before; delta != -1 {
+		t.Fatalf("next frame panned %d pixels, want only its one-pixel motion", delta)
+	}
+}
+
+// Use the retained generic widget capture, rather than only HUDCaptured:
+// it runs before handleInput and must retire for an admitted radial press
+// (DESIGN_INTERFACE_HUD_INPUT §3.18). Off, the sidebar keeps its capture.
+func TestBuildRadialRetiresSidebarCapture(t *testing.T) {
+	for _, enabled := range []bool{false, true} {
+		t.Run(fmt.Sprint(enabled), func(t *testing.T) {
+			b, cl, _, builder := resourceFixture(t, false)
+			cl.SetEnhanced(false)
+			b.applyLocalBuildPage(session.HumanBuildPageCommand{Builder: builder, Page: 1})
+			b.finishLocalInterfaceStep()
+			p := b.hostPreferences()
+			if enabled {
+				p.BuildRadial = 1
+			}
+			b.hostPresentation = &p
+			w := &gui.Window{Rect: gui.Rect{Y: 128, W: 128, H: 352}, OriginY: 128, Gadgets: []gui.Gadget{
+				{Kind: gui.KindPanel},
+				{Kind: gui.KindButton, Name: "armsolar", Active: 1, CommonAttribs: 4, Rect: gui.Rect{X: 5, Y: 5, W: 64, H: 64}},
+			}}
+			b.hud.windows["armcons1"] = w
+			i := 1
+			r := w.PlacedRect(i)
+			mouse := cl.Input().Mouse
+			mouse.SetPosition(float32(r.X+1), float32(r.Y+1))
+			mouse.SetButton(input.MouseButtonLeft, true)
+			b.viewerStep(0, cl)
+			panel := b.hud.palettePanels[w]
+			if panel == nil || panel.CaptureIndex() != i {
+				t.Fatal("sidebar press did not capture its gadget")
+			}
+			mouse.ResetEdges()
+			mouse.SetPosition(384, 240)
+			b.viewerStep(0, cl)
+			mouse.ResetEdges()
+			mouse.SetButton(input.MouseButtonMiddle, true)
+			f, _ := b.currentSnapshot()
+			_, _, fits := b.radialCentre(384, 240)
+			if enabled && (!fits || len(hud.RadialGroups(b.cat, hud.AllowedBuildProducts(b.cat, f))) == 0) {
+				t.Fatal("captured builder no longer offers an admitted radial")
+			}
+			b.viewerStep(0, cl)
+			if b.radial.open != enabled || (panel.CaptureIndex() < 0) != enabled {
+				t.Fatalf("enabled=%v: radial open=%v, sidebar capture=%d", enabled, b.radial.open, panel.CaptureIndex())
+			}
+		})
 	}
 }

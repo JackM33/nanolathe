@@ -114,3 +114,17 @@ func TestRadialGroupsEmptyAndNilSafe(t *testing.T) {
 		t.Fatalf("nil def bucket = %v, want Misc", got)
 	}
 }
+
+// Factory classification uses the complete authored membership, including
+// mobile products beyond the retail download cutoff (§3.18). The trimmed
+// list still admits no mobile product in this fixture.
+func TestRadialFactoryUsesCompleteAuthoredMenu(t *testing.T) {
+	cat := radialFixture()
+	menu := cat.BuildMenus["armlab"]
+	menu.Buttons = []string{"ARMASP"}
+	menu.AuthoredButtons = []string{"ARMASP", "ARMPW"}
+	def, _ := cat.Unit("ARMLAB")
+	if got := RadialCategoryOf(cat, def); got != RadialFactory {
+		t.Fatalf("complete authored menu: category = %v, want Factories", got)
+	}
+}
