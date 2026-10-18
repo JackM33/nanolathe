@@ -1038,6 +1038,26 @@ The controller cycle and the row build's all-Open fallback (row 0 Player,
 row 1 Computer, applied when the rows are built, not at settings load) also
 read only the shown rows `[08 R-SKIR-01 §1]`.
 
+**Player count (Nanolathe presentation policy, user-authorized
+2026-10-18).** A visible Players control sets the same row count the typed
+selector does: a `Players` heading cloned from the Location label at
+(45, 290) and a copy of row 0's Metal button at (45, 306), the slot under the
+player box that the Survival screen gives its first wave control, showing the
+count. A left click adds a row and a right click removes one, wrapping
+within 2..8 (the user's chosen ceiling; the typed `*IX` and `*X` still reach
+nine and ten, and a click from there steps to the nearer end of the range).
+Each change saves the count and rebuilds the window, exactly as the typed
+selector does, and rows keep their choices while hidden. When the count
+first shows a row that no settings file described, that row's zero metal and
+energy are shown as the default 1000 that battle entry would read them as;
+both paths do this. Nothing else changes: the start preflight, the shown-rows
+rule and battle entry are retail's, and the engine already seats ten. The
+Survival screen and the online lobby (which seats up to ten by the map,
+DESIGN_MULTIPLAYER §6.6) have no Players control. Tests:
+`TestSkirmishPlayerCountSteps` and `TestSkirmishScreenSetsEightPlayersRetail`,
+which composes a one-human, seven-computer battle under Strict 3.1 and
+Modern and, with `NANOLATHE_SHOT_DIR` set, writes the eight-row screen.
+
 **Start positions (Nanolathe setup policy, user-authorized 2026-10-18).**
 Each live row has a Start button, a copy of the row's Metal button moved to
 x 400, in the empty strip between the player box and the option column,

@@ -904,6 +904,7 @@ func (g *gameShell) openMenuWithTokenFlush(mode shellMode, flushTokens bool) {
 					applySurvivalLayout(window)
 				} else {
 					installSkirmishStartColumn(window)
+					installSkirmishPlayerCount(window)
 				}
 			}
 			if mode == modeMenuMap {

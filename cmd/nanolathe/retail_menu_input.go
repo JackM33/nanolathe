@@ -146,6 +146,10 @@ func (g *gameShell) serviceMenuWidgets(p *ui.Panel, in *input.State) bool {
 		}
 	}
 	if result.FiredButton == 2 && g.frontend.Mode == modeMenuSkirmish && !g.onlineLobbyActive() {
+		if gui.CallbackName(gad.Name) == skirmishPlayersButton && !g.survivalMenu {
+			g.stepSkirmishPlayerCount(-1)
+			return true
+		}
 		if slot, kind, ok := dynamicSlot(gad.Name); ok {
 			if kind == "Metal" {
 				g.setup.Players[slot].Metal = decreaseResource(g.setup.Players[slot].Metal)
@@ -469,6 +473,9 @@ func (g *gameShell) activateSkirmishGadget(name string) {
 		return
 	}
 	switch name {
+	case skirmishPlayersButton:
+		g.stepSkirmishPlayerCount(1)
+		return
 	case "StartLocation":
 		g.setup.Location ^= 1
 	case "CommanderDeath":

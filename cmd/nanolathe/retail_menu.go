@@ -598,6 +598,7 @@ func (g *gameShell) refreshSkirmishPanel() {
 		p.SetHelp("Energy"+prefix, "Left click to increase energy. Right click to decrease energy.")
 	}
 	g.refreshSkirmishStarts(p)
+	g.refreshSkirmishPlayerCount(p)
 }
 
 // computerAICaption is a computer row's Player%d caption: the row's AI,
