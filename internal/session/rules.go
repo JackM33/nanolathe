@@ -112,9 +112,11 @@ type RuleSet struct {
 //
 // It also answers the skirmish setup's seat questions, which battle entry
 // and the lobby ask before any tick: whether a player may choose where its
-// commander starts, and whether the lobby may choose a team's shared sight
-// (docs/DESIGN_SESSIONS_AI_SAVE.md "Modern chosen start positions", "Modern
-// allied sight"). Strict 3.1 answers as retail, which offers neither.
+// commander starts, whether players beyond the map's start positions begin
+// at generated starts, and whether the lobby may choose a team's shared
+// sight (docs/DESIGN_SESSIONS_AI_SAVE.md "Modern chosen start positions",
+// "Modern extra start positions", "Modern allied sight"). Strict 3.1 answers
+// as retail, which offers none of them.
 type SeatRules interface {
 	// ComputerSeatsPerHuman is the most computer seats one human seat may
 	// add, within the lobby's available seats.
@@ -142,6 +144,12 @@ type SeatRules interface {
 	// it in every mode (docs/DESIGN_MULTIPLAYER.md §6.7), which a refused
 	// choice leaves as it is.
 	AlliedSightChoice() bool
+	// ExtraStarts reports whether a skirmish may seat more players than the
+	// map has start positions, the players without one beginning at
+	// generated starts. Retail's Start preflight refuses such a setup
+	// ("There are too many players enabled for this map") and its battle
+	// entry treats a missing start as fatal [08 R-ENTRY-01 §5].
+	ExtraStarts() bool
 }
 
 // StrictSeats is retail's answer: one computer per human machine, hosted by
@@ -164,6 +172,9 @@ func (StrictSeats) ChosenStarts() bool { return false }
 // AlliedSightChoice is retail's: no choice, so a single-player team keeps
 // separate sight and an online room's teams share it.
 func (StrictSeats) AlliedSightChoice() bool { return false }
+
+// ExtraStarts is retail's: a player without a start position is refused.
+func (StrictSeats) ExtraStarts() bool { return false }
 
 // ModernSeats is the approved Nanolathe online policy for Modern and
 // Community 3.9 (docs/DESIGN_MULTIPLAYER.md §6.6, §15 Q23): a human may add
@@ -189,6 +200,10 @@ func (ModernSeats) ChosenStarts() bool { return true }
 // AlliedSightChoice is the Nanolathe Modern policy approved on 2026-10-18
 // (docs/DESIGN_SESSIONS_AI_SAVE.md "Modern allied sight").
 func (ModernSeats) AlliedSightChoice() bool { return true }
+
+// ExtraStarts is the Nanolathe Modern policy approved on 2026-10-18
+// (docs/DESIGN_SESSIONS_AI_SAVE.md "Modern extra start positions").
+func (ModernSeats) ExtraStarts() bool { return true }
 
 // UnitLimitRules is the save/restore unit-limit policy seam
 // (DESIGN_SESSIONS_AI_SAVE "Modern save unit limits"). It is the one gameplay

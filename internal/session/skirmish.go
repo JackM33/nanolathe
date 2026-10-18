@@ -1429,7 +1429,16 @@ func shuffleEligibleStarts(crt *rng.CRT, order []int) {
 // CRT is the disposable loading stream, so the simulation stream is
 // untouched either way. Too few free starts is this build's error
 // (docs/DESIGN_SESSIONS_AI_SAVE.md "Modern chosen start positions").
-func skirmishStartAssignment(cfg SkirmishConfig, eligible []int, starts []mission.Special, crt *rng.CRT, chosenAllowed bool) (assignment map[int]int, points map[int][2]int32, err error) {
+//
+// **Nanolathe Modern policy (user-authorized 2026-10-18).** extraAllowed
+// (SeatRules.ExtraStarts) seats more players than the map has starts.
+// Whatever retail can place is placed as retail places it. A slot whose
+// retail start the map lacks — retail's missing-start fatal — takes the
+// lowest unused authored start instead; one with none left, like a slot the
+// chosen points left without a free start, is returned in extra, in slot
+// order, for battle entry to generate a start for
+// (docs/DESIGN_SESSIONS_AI_SAVE.md "Modern extra start positions").
+func skirmishStartAssignment(cfg SkirmishConfig, eligible []int, starts []mission.Special, crt *rng.CRT, chosenAllowed, extraAllowed bool) (assignment map[int]int, points map[int][2]int32, extra []int, err error) {
 	assignment = make(map[int]int, len(eligible))
 	points = make(map[int][2]int32)
 	var rest []int
@@ -1460,7 +1469,10 @@ func skirmishStartAssignment(cfg SkirmishConfig, eligible []int, starts []missio
 		for idx, logical := range eligible {
 			assignment[logical] = order[idx]
 		}
-		return assignment, points, nil
+		if extraAllowed {
+			extra = reassignMissingStarts(eligible, starts, assignment)
+		}
+		return assignment, points, extra, nil
 	}
 	// The map's authored starts no chosen point claims, ascending and once
 	// each; a duplicated record resolves to its first authored copy at
@@ -1474,12 +1486,13 @@ func skirmishStartAssignment(cfg SkirmishConfig, eligible []int, starts []missio
 		free = append(free, id)
 	}
 	slices.Sort(free)
-	if len(free) < len(rest) {
-		return nil, nil, fmt.Errorf("nanolathe: skirmish start positions: map %q has %d starts left after the chosen points, expected one for each of %d other players", cfg.MapName, len(free), len(rest))
+	if len(free) < len(rest) && !extraAllowed {
+		return nil, nil, nil, fmt.Errorf("nanolathe: skirmish start positions: map %q has %d starts left after the chosen points, expected one for each of %d other players", cfg.MapName, len(free), len(rest))
 	}
 	if cfg.Location != 0 {
 		// Each remaining slot keeps its own number when free, then the
-		// others take the lowest free starts in slot order.
+		// others take the lowest free starts in slot order, and any left
+		// over get generated starts.
 		var unplaced []int
 		for _, slot := range rest {
 			if at := slices.Index(free, slot); at >= 0 {
@@ -1490,19 +1503,190 @@ func skirmishStartAssignment(cfg SkirmishConfig, eligible []int, starts []missio
 			}
 		}
 		for i, slot := range unplaced {
-			assignment[slot] = free[i]
+			if i < len(free) {
+				assignment[slot] = free[i]
+			} else {
+				extra = append(extra, slot)
+			}
 		}
-		return assignment, points, nil
+		return assignment, points, extra, nil
 	}
-	pool := slices.Clone(free[:len(rest)])
+	// The lowest free starts, and one generated start (-1) for each player
+	// they do not cover, dealt together.
+	pool := slices.Clone(free[:min(len(free), len(rest))])
+	for len(pool) < len(rest) {
+		pool = append(pool, -1)
+	}
 	for k := len(pool) - 1; k > 0; k-- {
 		r := int(crt.Uint32n(uint32(k + 1)))
 		pool[k], pool[r] = pool[r], pool[k]
 	}
 	for i, slot := range rest {
-		assignment[slot] = pool[i]
+		if pool[i] < 0 {
+			extra = append(extra, slot)
+		} else {
+			assignment[slot] = pool[i]
+		}
 	}
-	return assignment, points, nil
+	return assignment, points, extra, nil
+}
+
+// reassignMissingStarts applies the extra-starts policy to retail's
+// assignment: each slot, in slot order, whose stored start the map lacks
+// takes the lowest authored start no slot holds, and the slots left without
+// one are returned for generated starts. A setup retail can place is
+// unchanged.
+func reassignMissingStarts(eligible []int, starts []mission.Special, assignment map[int]int) []int {
+	authored := func(id int) bool {
+		for _, sp := range starts {
+			if int(sp.ID) == id {
+				return true
+			}
+		}
+		return false
+	}
+	var missing []int
+	for _, slot := range eligible {
+		if !authored(assignment[slot]) {
+			missing = append(missing, slot)
+			delete(assignment, slot)
+		}
+	}
+	if len(missing) == 0 {
+		return nil
+	}
+	var unused []int
+	for _, sp := range starts {
+		id := int(sp.ID)
+		if !slices.Contains(unused, id) && !startTaken(assignment, id) {
+			unused = append(unused, id)
+		}
+	}
+	slices.Sort(unused)
+	var extra []int
+	for i, slot := range missing {
+		if i < len(unused) {
+			assignment[slot] = unused[i]
+		} else {
+			extra = append(extra, slot)
+		}
+	}
+	return extra
+}
+
+// startTaken reports whether a slot already took the stored start number.
+// The assignment is read by lookup only, never ranged, so its order is not
+// observable.
+func startTaken(assignment map[int]int, stored int) bool {
+	for slot := 0; slot < SkirmishMaxPlayers; slot++ {
+		if got, ok := assignment[slot]; ok && got == stored {
+			return true
+		}
+	}
+	return false
+}
+
+// extraStartCandidates is how many random cells battle entry weighs for each
+// generated start; extraStartMargin keeps them that many cells inside the
+// usable terrain.
+const (
+	extraStartCandidates = 32
+	extraStartMargin     = 4
+)
+
+// generateExtraStarts gives each slot in extra a start of its own, in slot
+// order (docs/DESIGN_SESSIONS_AI_SAVE.md "Modern extra start positions"). For
+// each it draws extraStartCandidates cells of the usable terrain from the
+// disposable loading CRT, keeps those in the largest connected region of the
+// commander's movement class, so the start is not cut off from the rest of
+// the map, and tries them farthest first from every start already decided —
+// authored, chosen or generated — taking the first whose nearest cell in that
+// region passes the spawn checks. With no candidate in the region it tries
+// the region's cell nearest the map centre. The simulation stream is not
+// read.
+func (s *Session) generateExtraStarts(cfg SkirmishConfig, eligible, extra []int, assignment map[int]int, points map[int][2]int32, starts []mission.Special, crt *rng.CRT) error {
+	if s.World == nil || len(extra) == 0 {
+		return nil
+	}
+	var taken [][2]int32
+	for _, slot := range eligible {
+		if id, ok := assignment[slot]; ok {
+			for _, sp := range starts {
+				if int(sp.ID) == id {
+					taken = append(taken, [2]int32{int32(sp.X), int32(sp.Z)})
+					break
+				}
+			}
+		} else if p, ok := points[slot]; ok {
+			taken = append(taken, p)
+		}
+	}
+	w := max(s.World.CellW-2-2*extraStartMargin, 1)
+	h := max(s.World.CellH-8-2*extraStartMargin, 1)
+	var classes []*survivalClass
+	for _, slot := range extra {
+		def, err := skirmishCommander(s.Catalog, cfg.Players[slot].Side, slot)
+		if err != nil {
+			return err
+		}
+		key, profile := s.movementClassProfile(def)
+		var cls *survivalClass
+		for _, c := range classes {
+			if c.key == key {
+				cls = c
+			}
+		}
+		if cls == nil {
+			cls = s.labelMovementClass(key, profile)
+			classes = append(classes, cls)
+		}
+		region := cls.regions.Largest()
+		type candidate struct {
+			x, z  int32
+			score int64
+		}
+		var found []candidate
+		for k := 0; k < extraStartCandidates; k++ {
+			x := int32(crt.Uint32n(uint32(w))) + extraStartMargin
+			z := int32(crt.Uint32n(uint32(h))) + extraStartMargin
+			if region == 0 || cls.regions.At(x, z) != region {
+				continue
+			}
+			score := int64(1) << 62
+			for _, t := range taken {
+				dx, dz := int64(x*16+8-t[0]), int64(z*16+8-t[1])
+				score = min(score, dx*dx+dz*dz)
+			}
+			found = append(found, candidate{x, z, score})
+		}
+		// Farthest first; ties keep draw order.
+		slices.SortStableFunc(found, func(a, b candidate) int {
+			switch {
+			case a.score > b.score:
+				return -1
+			case a.score < b.score:
+				return 1
+			}
+			return 0
+		})
+		if cx, cz, ok := cls.regions.Nearest(region, s.World.CellW/2, s.World.CellH/2); ok && region != 0 {
+			found = append(found, candidate{cx, cz, 0})
+		}
+		placed := false
+		for _, c := range found {
+			if px, _, pz, ok := s.survivalFindCell(def, cls, region, c.x, c.z, chosenStartReach); ok {
+				p := [2]int32{int32(px >> 16), int32(pz >> 16)}
+				points[slot] = p
+				taken = append(taken, p)
+				placed = true
+				break
+			}
+		}
+		if !placed {
+			return fmt.Errorf("nanolathe: skirmish has no room for a generated start: logical path %s, providers searched [terrain], expected a cell slot %d's commander can stand on in its largest region", cfg.MapName, slot)
+		}
+	}
+	return nil
 }
 
 // chosenStartClaim is how near, in world pixels, an authored start must be
@@ -1617,8 +1801,15 @@ func skirmishReconstructUnits(s *Session, cfg SkirmishConfig, m *mission.Mission
 	// read [01 R-CORE-02][01 R-PLAT-01 §7][08 R-ENTRY-01 §5] [I4] DET-01.
 	crt := rng.NewCRT(cfg.RNGCrtSeed)
 	// Map logical slot → stored start number, or → its chosen point.
-	permMap, points, err := skirmishStartAssignment(cfg, eligible, starts, &crt, seatRulesOf(s.Rules).ChosenStarts())
+	seats := seatRulesOf(s.Rules)
+	permMap, points, extra, err := skirmishStartAssignment(cfg, eligible, starts, &crt, seats.ChosenStarts(), seats.ExtraStarts())
 	if err != nil {
+		return err
+	}
+	// Players the map has no start for begin at generated starts (Nanolathe
+	// Modern policy); they join the chosen points, which the commander loop
+	// places on the nearest standable cell.
+	if err := s.generateExtraStarts(cfg, eligible, extra, permMap, points, starts, &crt); err != nil {
 		return err
 	}
 	// Community schema units target authored START POSITIONS rather than player

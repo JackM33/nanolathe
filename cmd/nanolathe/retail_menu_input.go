@@ -771,8 +771,11 @@ func (g *gameShell) retailSkirmishStartError() string {
 		return "There must be at least one player and one computer opponent"
 	}
 	playersForStart := computers + 1
+	// Modern and Community seat players the map has no start for at
+	// generated starts (SeatRules.ExtraStarts); Strict 3.1 refuses them as
+	// retail does.
 	schema, err := mission.SelectNetworkSchema(d.ota, playersForStart)
-	if err != nil || schema.StartPositions < playersForStart {
+	if err != nil || (schema.StartPositions < playersForStart && !g.setupSeatRules().ExtraStarts()) {
 		return "There are too many players enabled for this map"
 	}
 	if g.retailAllPlayersSameAlliedGroup(n) {

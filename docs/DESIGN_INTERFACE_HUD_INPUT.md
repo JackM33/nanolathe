@@ -1050,8 +1050,12 @@ Each change saves the count and rebuilds the window, exactly as the typed
 selector does, and rows keep their choices while hidden. When the count
 first shows a row that no settings file described, that row's zero metal and
 energy are shown as the default 1000 that battle entry would read them as;
-both paths do this. Nothing else changes: the start preflight, the shown-rows
-rule and battle entry are retail's, and the engine already seats ten. The
+both paths do this. The shown-rows rule is retail's, and the engine already
+seats ten. Under Modern and Community rules the start preflight no longer
+refuses more players than the map has start positions; the extra players
+begin at generated starts
+([DESIGN_SESSIONS_AI_SAVE "Modern extra start positions"](DESIGN_SESSIONS_AI_SAVE.md#modern-extra-start-positions)).
+Strict 3.1 keeps retail's `There are too many players enabled for this map`. The
 Survival screen and the online lobby (which seats up to ten by the map,
 DESIGN_MULTIPLAYER §6.6) have no Players control. Tests:
 `TestSkirmishPlayerCountSteps` and `TestSkirmishScreenSetsEightPlayersRetail`,

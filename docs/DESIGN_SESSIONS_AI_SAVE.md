@@ -2587,6 +2587,56 @@ places a player through the window's own clicks and composes the screen's
 battle under Strict 3.1 (retail's starts) and Modern (the chosen commander
 within a few cells of the click).
 
+### Modern extra start positions
+
+**Nanolathe Modern policy (user-authorized 2026-10-18).** A skirmish may
+seat more players than its map has start positions. Retail refuses such a
+setup at Start with `There are too many players enabled for this map`, and
+its battle entry treats a missing start as fatal `[08 R-ENTRY-01 §5]`;
+Strict 3.1 keeps both. Modern and Community 3.9 seat the extra players at
+generated starts (`SeatRules.ExtraStarts`: `StrictSeats` false,
+`ModernSeats` true). Of the 99 stock multiplayer maps, 97 author ten start
+positions, Luschinfloggen six and one thirteen, so the policy matters mostly
+for eight players on Luschinfloggen and for downloaded maps with few starts.
+
+**Policy.** Whatever retail can place is placed as retail places it, draws
+included, so a setup within the map's starts is unchanged. Then:
+
+1. A slot whose retail start the map lacks takes the lowest authored start
+   no slot holds, in slot order (`reassignMissingStarts`). With chosen
+   points (DESIGN_SESSIONS_AI_SAVE "Modern chosen start positions"), the
+   players the free authored starts do not cover are the extra ones: under
+   fixed starts the last in slot order, under random starts dealt together
+   with the free starts by the same Fisher–Yates shuffle.
+2. Each slot still without a start gets a generated one, in slot order
+   (`generateExtraStarts`): 32 cells drawn from the disposable loading CRT
+   over the usable terrain, four cells in from its edges, are kept when they
+   lie in the largest connected region of the commander's movement class,
+   so no player begins cut off from the rest of the map, and are tried
+   farthest first from every start already decided — authored, chosen or
+   generated — taking the first whose nearest cell in that region passes the
+   spawn command's placement checks. With no candidate in the region the
+   region's cell nearest the map centre is tried; no cell at all is this
+   build's error.
+3. The generated start joins the chosen points, and battle entry creates
+   the commander on the nearest standable cell as it does for those.
+
+The simulation stream is not read, and the same seed generates the same
+starts. A battle with a generated start publishes no start owners to the
+Modern AI, as one with a chosen point does not. The setup screen's Start
+preflight drops its too-many-players refusal under these rules; the online
+lobby keeps its own capacity, the map's start positions
+(DESIGN_MULTIPLAYER §6.6).
+
+**Tests:** `TestExtraStartsReuseUnusedStartsThenGenerate` (unused authored
+starts first, then generation, and retail's assignment without the policy),
+`TestExtraPlayersBeginAtGeneratedStarts` (four players on a two-start
+synthetic map: the generated starts are apart from every other, repeat with
+the seed, and Strict 3.1 keeps the missing-start fatal) and, on the retail
+corpus, `TestEightPlayersOnASmallMapRetail` (eight players on Luschinfloggen:
+Strict's preflight refuses, Modern composes eight commanders at least 128
+pixels apart, the same with the same seed).
+
 ### Modern allied sight
 
 **Nanolathe Modern policy (user-authorized 2026-10-18).** Allies may share

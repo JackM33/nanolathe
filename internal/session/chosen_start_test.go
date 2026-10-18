@@ -55,7 +55,7 @@ func TestUnchosenStartsKeepRetailPlacement(t *testing.T) {
 	for _, location := range []int{1, 0} {
 		cfg := chosenStartConfig(location, nil, nil, nil, nil)
 		crt := rng.NewCRT(cfg.RNGCrtSeed)
-		got, points, err := skirmishStartAssignment(cfg, eligibleSlots(4), chosenStarts(), &crt, true)
+		got, points, _, err := skirmishStartAssignment(cfg, eligibleSlots(4), chosenStarts(), &crt, true, false)
 		if err != nil || len(points) != 0 {
 			t.Fatalf("location %d: %v, points %v", location, err, points)
 		}
@@ -84,7 +84,7 @@ func TestUnchosenStartsKeepRetailPlacement(t *testing.T) {
 func TestChosenPointsUnderFixedLocation(t *testing.T) {
 	cfg := chosenStartConfig(1, nil, nil, &[2]int32{520, 760}, nil)
 	crt := rng.NewCRT(cfg.RNGCrtSeed)
-	got, points, err := skirmishStartAssignment(cfg, eligibleSlots(4), chosenStarts(), &crt, true)
+	got, points, _, err := skirmishStartAssignment(cfg, eligibleSlots(4), chosenStarts(), &crt, true, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -111,7 +111,7 @@ func TestChosenPointsUnderFixedLocation(t *testing.T) {
 func TestChosenPointsUnderRandomLocation(t *testing.T) {
 	cfg := chosenStartConfig(0, &[2]int32{9000, 9000}, nil, nil, nil)
 	crt := rng.NewCRT(cfg.RNGCrtSeed)
-	got, _, err := skirmishStartAssignment(cfg, eligibleSlots(4), chosenStarts(), &crt, true)
+	got, _, _, err := skirmishStartAssignment(cfg, eligibleSlots(4), chosenStarts(), &crt, true, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -138,7 +138,7 @@ func TestChosenPointsRefuseWhatTheMapCannotSeat(t *testing.T) {
 	starts := chosenStarts()[:4] // stored 3, 0, 5, 1
 	crt := rng.NewCRT(1)
 	cfg := chosenStartConfig(1, &[2]int32{500, 700}, nil, nil, nil, nil)
-	if _, _, err := skirmishStartAssignment(cfg, eligibleSlots(5), starts, &crt, true); err == nil || !strings.Contains(err.Error(), "starts left after the chosen points") {
+	if _, _, _, err := skirmishStartAssignment(cfg, eligibleSlots(5), starts, &crt, true, false); err == nil || !strings.Contains(err.Error(), "starts left after the chosen points") {
 		t.Fatalf("four players on three free starts: %v", err)
 	}
 	if err := validateChosenStarts(chosenStartConfig(1, &[2]int32{StartPointLimit, 0}, nil)); err == nil {
@@ -180,7 +180,7 @@ func TestStrictIgnoresChosenStarts(t *testing.T) {
 	for _, location := range []int{1, 0} {
 		cfg := chosenStartConfig(location, &[2]int32{520, 700}, nil, nil, nil)
 		crt := rng.NewCRT(cfg.RNGCrtSeed)
-		got, points, err := skirmishStartAssignment(cfg, eligibleSlots(4), chosenStarts(), &crt, false)
+		got, points, _, err := skirmishStartAssignment(cfg, eligibleSlots(4), chosenStarts(), &crt, false, false)
 		if err != nil || len(points) != 0 {
 			t.Fatalf("location %d: %v, points %v", location, err, points)
 		}
