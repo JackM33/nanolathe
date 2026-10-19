@@ -1038,6 +1038,84 @@ The controller cycle and the row build's all-Open fallback (row 0 Player,
 row 1 Computer, applied when the rows are built, not at settings load) also
 read only the shown rows `[08 R-SKIR-01 §1]`.
 
+**Player count (Nanolathe presentation policy, user-authorized
+2026-10-18).** A visible Players control sets the same row count the typed
+selector does: a `Players` heading cloned from the Location label at
+(45, 290) and a copy of row 0's Metal button at (45, 306), the slot under the
+player box that the Survival screen gives its first wave control, showing the
+count. A left click adds a row and a right click removes one, wrapping
+within 2..8 (the user's chosen ceiling; the typed `*IX` and `*X` still reach
+nine and ten, and a click from there steps to the nearer end of the range).
+Each change saves the count and rebuilds the window, exactly as the typed
+selector does, and rows keep their choices while hidden. When the count
+first shows a row that no settings file described, that row's zero metal and
+energy are shown as the default 1000 that battle entry would read them as;
+both paths do this. The shown-rows rule is retail's, and the engine already
+seats ten. Under Modern and Community rules the start preflight no longer
+refuses more players than the map has start positions; the extra players
+begin at generated starts
+([DESIGN_SESSIONS_AI_SAVE "Modern extra start positions"](DESIGN_SESSIONS_AI_SAVE.md#modern-extra-start-positions)).
+Strict 3.1 keeps retail's `There are too many players enabled for this map`. The
+Survival screen and the online lobby (which seats up to ten by the map,
+DESIGN_MULTIPLAYER §6.6) have no Players control. Tests:
+`TestSkirmishPlayerCountSteps` and `TestSkirmishScreenSetsEightPlayersRetail`,
+which composes a one-human, seven-computer battle under Strict 3.1 and
+Modern and, with `NANOLATHE_SHOT_DIR` set, writes the eight-row screen.
+
+**Allied sight (Nanolathe Modern policy, user-authorized 2026-10-18).** Under
+Modern and Community 3.9 rules (`SeatRules.AlliedSightChoice`; Strict 3.1
+shows neither control, below), an
+`Allied Sight` heading cloned from the Location label at (175, 290) and a
+two-stage button cloned from Mapping at (175, 306), `Separate` or `Shared`,
+sit beside Players under the player box; a click flips it. Shared makes each
+team's players share line of sight, radar and the explored map
+([DESIGN_SESSIONS_AI_SAVE "Modern allied sight"](DESIGN_SESSIONS_AI_SAVE.md#modern-allied-sight)).
+It defaults to Separate, retail's sight, persists as `alliedSight` in the
+settings file, and is carried to battle as `SkirmishConfig.AlliedSight`. The
+Survival screen, whose survivors always share, has none. The online lobby
+gives the host the same button in a skirmish room, in the Air Waves slot that
+only a Survival room shows; it defaults to Shared there, as online skirmishes
+always shared, and guests see it greyed; a Strict 3.1 room shows none and
+keeps its teams' shared sight (DESIGN_MULTIPLAYER §6.7). Tests:
+`TestTheSettingsFileKeepsAlliedSight`, `TestOnlineLobbyHostChoosesAlliedSight`
+and `TestSkirmishScreenSharesAlliedSightRetail`, which with
+`NANOLATHE_SHOT_DIR` set writes the screen as a PNG.
+
+**Start positions (Nanolathe Modern policy, user-authorized 2026-10-18).**
+Under Modern and Community 3.9 rules (`SeatRules.ChosenStarts`; a Strict 3.1
+screen and the Survival screen show none), a `Start Positions` heading
+cloned from the Location label at (305, 290) and a Place Starts button
+cloned from Select Map at (305, 306) sit beside Players and Allied Sight
+under the player box. The button reads `Auto`, or how many players are
+placed (`2 Placed`), and opens the Place Starts window over the dimmed
+setup screen: a panel (30, 24, 580×432) tiled with the original common GUI
+`BackTile` artwork, with the live players on
+the left, each with its colour logo, its row caption (`Player`, `Modern AI`,
+`Classic AI`) and `Auto` or `Placed`, and the map on the right, the usable
+terrain fitted into a 360-pixel box in the map picker's projection
+(`retailMapPreviewCanvas`), with the map's own start positions as grey dots
+and each placed player's logo at its point. A left click on a player selects
+it (its row sunken, its marker outlined); a left click on the map places the
+selected player there and moves to the next player without a point; a right
+click on a player or its marker puts it back on Auto; Clear All clears every
+point and Done, Escape or Enter closes the window and saves the points.
+Player rows and action buttons use the common `BUTTONS0` artwork and its
+released/pressed frames. Rows are widened to fit their captions; the two
+action buttons keep the native 80×20 size. The 20-pixel rows are spaced 28
+pixels apart so both instruction lines remain above the action buttons
+with all ten players shown.
+While open the window takes every pointer and key event, so nothing beneath
+reacts. Choosing another map clears the points, since a point belongs to its
+map. The map picker's preview marks the selected map's start positions for
+the current rows with small bevelled squares. The points persist with the
+rows (`start`, with `startMap`), are restored only for the selected installed
+map (a missing saved map drops its points), and travel to battle as `SkirmishPlayer.Start`
+([DESIGN_SESSIONS_AI_SAVE "Modern chosen start positions"](DESIGN_SESSIONS_AI_SAVE.md#modern-chosen-start-positions)).
+Tests: `TestTheSettingsFileKeepsEachRowsStartPoint`,
+`TestMissingSavedMapDropsChosenStarts`, `TestPlaceStartsFollowsTheRules`
+and `TestSkirmishScreenPlacesStartsOnTheMapRetail`, which with
+`NANOLATHE_SHOT_DIR` set writes the open window and the map picker as PNGs.
+
 **Computer AI (Nanolathe divergence, user decision 2026-09-25).** Each
 computer row plays the Classic or the Modern AI
 ([DESIGN_SESSIONS_AI_SAVE](DESIGN_SESSIONS_AI_SAVE.md#modern-ai-computer-player)
