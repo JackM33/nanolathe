@@ -52,6 +52,40 @@ func TestMapCatalogTrustDownloadAndOfflineCache(t *testing.T) {
 	}
 }
 
+// Presentation metadata is display-only: it round-trips through the catalogue
+// and never changes validation or the stored archive identity (§5.6).
+func TestMapManifestCarriesPresentationMetadata(t *testing.T) {
+	m := mapManifest(t)
+	m.Maps[0].Author = "Quintin Stone"
+	m.Maps[0].Players = 8
+	m.Maps[0].SizeMap = "12x12"
+	m.Maps[0].Year = 1998
+	m.Maps[0].Kind = "metal"
+	m.Maps[0].AI = "Default"
+	m.Maps[0].Legend = []LegendEntry{{Color: "#ffdc00", Label: "metal"}, {Color: "#40c840", Label: "reclaim"}}
+	raw, err := json.Marshal(m)
+	if err != nil {
+		t.Fatal(err)
+	}
+	base, _ := url.Parse(DefaultMapCatalogURL)
+	got, err := parseManifest(raw, base, originOf(base))
+	if err != nil {
+		t.Fatal(err)
+	}
+	entry := got.Maps[0]
+	if entry.Author != "Quintin Stone" || entry.Players != 8 || entry.SizeMap != "12x12" || entry.Year != 1998 || entry.Kind != "metal" || entry.AI != "Default" {
+		t.Fatalf("presentation metadata lost: %+v", entry)
+	}
+	if entry.Legend == nil || len(entry.Legend) != 2 || entry.Legend[0].Label != "metal" || entry.Legend[0].Color != "#ffdc00" {
+		t.Fatalf("legend lost: %+v", entry)
+	}
+	// A catalogue without them keeps the zero values and still validates; the
+	// dependency entry never carries them.
+	if got.Dependencies[0].Author != "" || got.Dependencies[0].Players != 0 {
+		t.Fatalf("dependency carries presentation metadata: %+v", got.Dependencies[0])
+	}
+}
+
 func TestMapManifestRefusals(t *testing.T) {
 	base, _ := url.Parse(DefaultMapCatalogURL)
 	for _, tc := range []struct {

@@ -408,6 +408,13 @@ func RunSession(request Request, sess *session.Session) (Report, error) {
 
 // mountContentRoots is the common host mount boundary for runs and benchmarks.
 func mountContentRoots(root string, roots []string) (*vfs.FS, error) {
+	return mountContentRootsWithAddons(root, roots, nil)
+}
+
+// mountContentRootsWithAddons mounts the roots with add-on archives at the
+// first root's *.UFO tier, as the desktop command mounts enabled add-ons
+// (docs/DESIGN_MODS_MUTATORS.md §5.7, §5.8).
+func mountContentRootsWithAddons(root string, roots []string, addons []string) (*vfs.FS, error) {
 	if len(roots) == 0 && root != "" {
 		roots = []string{root}
 	}
@@ -420,8 +427,15 @@ func mountContentRoots(root string, roots []string) (*vfs.FS, error) {
 			return nil, err
 		}
 	}
+	game := make([]vfs.GameRoot, len(roots))
+	for i, dir := range roots {
+		game[i] = vfs.GameRoot{Dir: dir}
+	}
+	if len(game) > 0 {
+		game[0].Extra = addons
+	}
 	fs := vfs.New()
-	if err := fs.MountGameDirectories(roots); err != nil {
+	if err := fs.MountGameRoots(game); err != nil {
 		fs.Close()
 		return nil, diagnostic("mounting install failed: "+err.Error(), "<content roots>", roots, "readable Total Annihilation content directories")
 	}

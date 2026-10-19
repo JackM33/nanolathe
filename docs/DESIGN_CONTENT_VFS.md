@@ -784,6 +784,25 @@ content audit, or no longer validates against the current base and mod stack
 the reason and its directory, while the base game and the other packages
 mount; its map stays removable from the catalogue.
 
+**Official add-ons** (user-authorized 2026-10-16 and 2026-10-18) are
+Cavedog's bonus archives and community fixes kept in their own library
+([DESIGN_MODS_MUTATORS §5.7](DESIGN_MODS_MUTATORS.md#57-official-add-ons)).
+An enabled content add-on's archives join the base install's `*.UFO` tier
+(C1), ordered among the folder's own `*.UFO` files as if they were in it, so
+the patch and `*.CCX` archives still win over them and they still win over
+the local `*.HPI` archives `[02 §2]`; an archive of the same name in the
+folder is replaced, as copying the add-on's in would. A fix add-on's
+patch-tier archive joins the patch tier instead and replaces the folder's
+patch archive, and a faction add-on's archives mount one tier above the
+patch, after any fix (a Nanolathe layer order: content, fix, faction). The
+selected mod mounts above
+them and the map library below the base install, as before. Their provider
+IDs are their file names, as a folder copy's are, so the mount's manifest is
+the one the archives in the folder would give, while the provenance's source
+path still names the library copy. As with downloaded maps, displayless
+runs, captures, benchmarks and tests discover no add-on implicitly; they
+mount one only when `--addon` names it.
+
 Each is a place where the code deliberately departs from the written contract,
 with the reason and the resolution. None is a compatibility flag: there is one
 behaviour.
@@ -1079,11 +1098,11 @@ catalog's hash is bit-for-bit what it was. Two ceilings stand above any
 profile. The runtime definition identity a unit carries to the pool and to the
 committed frame is a 16-bit field, so `content.MaxDefinitionDomain` refuses a
 domain past 65536 rather than truncating an identity (I13: retail record sizes
-do not dictate Go layout, but a field that must survive publication does). And
-the authored CTRL_F type filter is a retail record — a 512-bit bitset indexed
-by definition ID [07 §9] — which cannot be widened; a definition above 511 is
-therefore absent from a CTRL_F-filtered group recall, a presentation-only
-consequence already diagnosed by `hud.TypeFilterPasses`. Retail's own save and
+do not dictate Go layout, but a field that must survive publication does).
+The authored CTRL_F type filter is the registry's `CTRL_F` entry [07 §9], so
+it is one of these membership sets and widens with them:
+`hud.TypeFilterPasses` tests a definition's own bit at any ID. No producer
+supplies one, and recall without it applies no filter. Retail's own save and
 mission records are not a constraint: a mission trigger's resolved definition
 index is 16 bits, the saved restriction list writes a `u32` per definition, and
 the build-order side channel carries the definition *name* through the

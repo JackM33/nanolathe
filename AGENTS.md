@@ -147,7 +147,13 @@ as Modern, chosen by the host (Q31); display names and chat in the lobby and
 in battle (Q32); and retail's in-battle sharing and alliances online —
 share toggles and thresholds, SHARE-screen gifts of resources, units and
 map information, Allies-window declarations and shared victory — as seat
-commands in every mode (Q33).
+commands in every mode (Q33). On 2026-10-16 the maintainer approved room
+content agreement: a room names the archives and packages its battle uses,
+every seat plays exactly that content, joining fetches the room's mod,
+official add-ons and map package without asking, and the host may turn
+optional content off (Q34, §16.8); and Nanolathe-hosted official Cavedog
+add-ons, mounted with the base game apart from the mod slot in every mode
+([DESIGN_MODS_MUTATORS §5.7](docs/DESIGN_MODS_MUTATORS.md#57-official-add-ons)).
 
 **Unit restrictions are the fifth mode-independent exception (user-authorized
 2026-10-05).** A restriction is retail's multiplayer unit-restriction count,

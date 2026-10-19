@@ -46,15 +46,45 @@ type Archive struct {
 // Entry is one downloadable mod version's identity, display text and archive.
 // The archive's own nanolathe-mod.json supplies its config (§5.1).
 type Entry struct {
-	ID       string   `json:"id"`
-	Name     string   `json:"name"`
-	Version  string   `json:"version"`
-	Summary  string   `json:"summary,omitempty"`
-	Homepage string   `json:"homepage,omitempty"`
-	Archive  Archive  `json:"archive"`
-	Preview  *Archive `json:"preview,omitempty"`
-	Map      string   `json:"map,omitempty"`
-	Requires []string `json:"requires,omitempty"`
+	ID       string    `json:"id"`
+	Name     string    `json:"name"`
+	Version  string    `json:"version"`
+	Summary  string    `json:"summary,omitempty"`
+	Homepage string    `json:"homepage,omitempty"`
+	Archive  Archive   `json:"archive"`
+	Preview  *Archive  `json:"preview,omitempty"`
+	Map      string    `json:"map,omitempty"`
+	Requires []string  `json:"requires,omitempty"`
+	Contents []Content `json:"contents,omitempty"`
+
+	// Optional presentation metadata for the map catalogue's browser: the
+	// author credit, the player count, the map's dimensions and year, a short
+	// world-kind label (a tileset family such as "space" or "metal") and an AI
+	// profile marker. They select, sort and label the list and change nothing
+	// about the bytes or how they are installed (§5.6). Legend is the key to
+	// an annotated preview, drawn beside it as coloured dots and names.
+	Author  string        `json:"author,omitempty"`
+	Players int           `json:"players,omitempty"`
+	SizeMap string        `json:"sizemap,omitempty"`
+	Year    int           `json:"year,omitempty"`
+	Kind    string        `json:"kind,omitempty"`
+	AI      string        `json:"ai,omitempty"`
+	Legend  []LegendEntry `json:"legend,omitempty"`
+}
+
+// LegendEntry is one annotation of an annotated preview: the colour it draws
+// in (as "#rrggbb") and the name shown beside it.
+type LegendEntry struct {
+	Color string `json:"color"`
+	Label string `json:"label"`
+}
+
+// Content is one archive an official add-on holds, by file name, byte size
+// and SHA-256 (§5.7). Only the add-on catalogue lists them.
+type Content struct {
+	Name   string `json:"name"`
+	Size   int64  `json:"size"`
+	SHA256 string `json:"sha256"`
 }
 
 // Manifest is the catalogue document. The entries' order is the display
@@ -64,6 +94,7 @@ type Manifest struct {
 	Mods         []Entry `json:"mods,omitempty"`
 	Maps         []Entry `json:"maps,omitempty"`
 	Dependencies []Entry `json:"dependencies,omitempty"`
+	Addons       []Entry `json:"addons,omitempty"`
 }
 
 // DefaultCatalogURL is the hosted catalogue (§5.1, P12).
@@ -73,6 +104,20 @@ const DefaultCatalogURL = "https://nanolathe.gg/mods/manifest.json"
 const DefaultMapCatalogURL = "https://nanolathe.gg/maps/manifest.json"
 
 const mapCatalogEnv = "NANOLATHE_MAP_CATALOG"
+
+// DefaultAddonCatalogURL is the official add-on catalogue (§5.7).
+const DefaultAddonCatalogURL = "https://nanolathe.gg/addons/manifest.json"
+
+const addonCatalogEnv = "NANOLATHE_ADDON_CATALOG"
+
+// AddonCatalogURL returns the add-on catalogue, with the same development
+// override policy.
+func AddonCatalogURL() string {
+	if override := strings.TrimSpace(os.Getenv(addonCatalogEnv)); override != "" {
+		return override
+	}
+	return DefaultAddonCatalogURL
+}
 
 // MapCatalogURL returns the map catalogue, with the same development override policy.
 func MapCatalogURL() string {
@@ -160,7 +205,7 @@ func (o origin) String() string { return o.scheme + "://" + o.host }
 // loopback names.
 func catalogOrigin(raw string) (*url.URL, origin, error) {
 	refuse := func(reason string) error {
-		return &diagError{what: "content catalogue URL refused: " + reason, logical: raw, providers: []string{catalogEnv, mapCatalogEnv, DefaultCatalogURL, DefaultMapCatalogURL}, expected: "an https URL on " + catalogHost + ", or an http override on 127.0.0.1 or localhost", wrapped: ErrOriginRefused}
+		return &diagError{what: "content catalogue URL refused: " + reason, logical: raw, providers: []string{catalogEnv, mapCatalogEnv, addonCatalogEnv, DefaultCatalogURL, DefaultMapCatalogURL, DefaultAddonCatalogURL}, expected: "an https URL on " + catalogHost + ", or an http override on 127.0.0.1 or localhost", wrapped: ErrOriginRefused}
 	}
 	u, err := url.Parse(raw)
 	if err != nil || !u.IsAbs() || u.Hostname() == "" {
@@ -174,7 +219,7 @@ func catalogOrigin(raw string) (*url.URL, origin, error) {
 	if o.scheme == "https" && host == catalogHost {
 		return u, o, nil
 	}
-	for _, env := range []string{catalogEnv, mapCatalogEnv} {
+	for _, env := range []string{catalogEnv, mapCatalogEnv, addonCatalogEnv} {
 		if override := strings.TrimSpace(os.Getenv(env)); override != "" && raw == override {
 			if o.scheme == "https" || (o.scheme == "http" && (host == "127.0.0.1" || host == "localhost")) {
 				return u, o, nil
@@ -330,7 +375,16 @@ func (c *Client) CachedManifest() (Manifest, time.Time, bool) {
 
 // Offers reports the entry that lists a mod id and version, if any.
 func (m Manifest) Offers(id, version string) (Entry, bool) {
-	for _, e := range m.Mods {
+	return offers(m.Mods, id, version)
+}
+
+// OffersAddon reports the entry that lists an add-on id and version, if any.
+func (m Manifest) OffersAddon(id, version string) (Entry, bool) {
+	return offers(m.Addons, id, version)
+}
+
+func offers(entries []Entry, id, version string) (Entry, bool) {
+	for _, e := range entries {
 		if e.ID == id && e.Version == version {
 			return e, true
 		}
@@ -385,11 +439,20 @@ func parseManifest(raw []byte, base *url.URL, allowed origin) (Manifest, error) 
 		Mods         []json.RawMessage `json:"mods"`
 		Maps         []Entry           `json:"maps"`
 		Dependencies []Entry           `json:"dependencies"`
+		Addons       []Entry           `json:"addons"`
+		// Factions are add-ons with a faction declaration, listed apart so
+		// that a build without faction support, which ignores unknown
+		// fields, never offers one (§5.8 "Catalogue").
+		Factions []Entry `json:"factions"`
+		// Fixes are add-ons that replace the base install's patch archive,
+		// listed apart so that a build without fix support, which ignores
+		// unknown fields, never offers one (§5.7).
+		Fixes []Entry `json:"fixes"`
 	}
 	if err := json.Unmarshal(raw, &wire); err != nil {
 		return Manifest{}, fail("reading the content catalogue failed: " + err.Error())
 	}
-	manifest := Manifest{Schema: wire.Schema, Maps: wire.Maps, Dependencies: wire.Dependencies}
+	manifest := Manifest{Schema: wire.Schema, Maps: wire.Maps, Dependencies: wire.Dependencies, Addons: append(append(wire.Addons, wire.Factions...), wire.Fixes...)}
 	for _, rawEntry := range wire.Mods {
 		// These fields used to be ignored regardless of JSON type in the mod
 		// catalogue, and remain configuration-free there (§5.1).
@@ -398,7 +461,7 @@ func parseManifest(raw []byte, base *url.URL, allowed origin) (Manifest, error) 
 			return Manifest{}, fail(err.Error())
 		}
 		for key := range fields {
-			if strings.EqualFold(key, "map") || strings.EqualFold(key, "requires") || strings.EqualFold(key, "preview") {
+			if strings.EqualFold(key, "map") || strings.EqualFold(key, "requires") || strings.EqualFold(key, "preview") || strings.EqualFold(key, "contents") {
 				delete(fields, key)
 			}
 		}
@@ -447,7 +510,33 @@ func parseManifest(raw []byte, base *url.URL, allowed origin) (Manifest, error) 
 	if len(manifest.Mods) > 0 && (len(manifest.Maps) > 0 || len(manifest.Dependencies) > 0) {
 		return Manifest{}, fail("a catalogue cannot mix mods and maps")
 	}
+	if len(manifest.Addons) > 0 && (len(manifest.Mods) > 0 || len(manifest.Maps) > 0 || len(manifest.Dependencies) > 0) {
+		return Manifest{}, fail("a catalogue cannot mix add-ons with mods or maps")
+	}
+	for _, entries := range [][]Entry{manifest.Maps, manifest.Dependencies} {
+		for i := range entries {
+			entries[i].Contents = nil
+		}
+	}
 	seen := make(map[string]bool)
+	for i := range manifest.Addons {
+		entry := &manifest.Addons[i]
+		if err := validate(entry); err != nil {
+			return Manifest{}, err
+		}
+		key := entry.ID + "@" + entry.Version
+		if seen[key] {
+			return Manifest{}, fail("content catalogue lists " + key + " twice")
+		}
+		seen[key] = true
+		if entry.Map != "" || len(entry.Requires) != 0 || entry.Preview != nil {
+			return Manifest{}, fail("add-on cannot name a map, preview or dependencies: " + key)
+		}
+		if err := validateContents(entry.Contents); err != nil {
+			return Manifest{}, fail(fmt.Sprintf("add-on %s has invalid contents: %v", key, err))
+		}
+	}
+	seen = make(map[string]bool)
 	for i := range manifest.Mods {
 		entry := &manifest.Mods[i]
 		if err := validate(entry); err != nil {
@@ -506,6 +595,66 @@ func parseManifest(raw []byte, base *url.URL, allowed origin) (Manifest, error) 
 	}
 
 	return manifest, nil
+}
+
+// MaxAddonContents bounds the archives one add-on may hold.
+const MaxAddonContents = 32
+
+// validateContents admits an add-on's archive list: at least one and at most
+// MaxAddonContents flat archive file names — *.UFO content archives or
+// patch-tier revision archives — unique without regard to case, each
+// with a positive size and a SHA-256, which it lowercases (§5.7).
+func validateContents(contents []Content) error {
+	if len(contents) == 0 || len(contents) > MaxAddonContents {
+		return fmt.Errorf("%d archives, expected 1 to %d", len(contents), MaxAddonContents)
+	}
+	names := make(map[string]bool, len(contents))
+	for i := range contents {
+		c := &contents[i]
+		if !AddonArchiveName(c.Name) {
+			return fmt.Errorf("archive name %q is not a flat *.UFO or rev*.GP3 file name", c.Name)
+		}
+		if names[strings.ToLower(c.Name)] {
+			return fmt.Errorf("archive %s is listed twice", c.Name)
+		}
+		names[strings.ToLower(c.Name)] = true
+		if c.Size <= 0 {
+			return fmt.Errorf("archive %s has no size", c.Name)
+		}
+		if !sha256Pattern.MatchString(c.SHA256) {
+			return fmt.Errorf("archive %s has no valid SHA-256", c.Name)
+		}
+		c.SHA256 = strings.ToLower(c.SHA256)
+	}
+	return nil
+}
+
+// AddonArchiveName reports whether name is a file name an add-on's archive
+// may have: flat, at most 255 bytes, and either a *.UFO content archive or a
+// patch-tier revision archive (rev*.GP3 and the like), so that it mounts at
+// that tier (§5.7). It mirrors addonlibrary.ArchiveName; this package must
+// not import the library.
+func AddonArchiveName(name string) bool {
+	if name == "" || len(name) > 255 || path.Base(name) != name || name == "." || name == ".." ||
+		strings.ContainsAny(name, "/\\:\x00\r\n") {
+		return false
+	}
+	if strings.EqualFold(path.Ext(name), ".ufo") {
+		return len(name) > len(".ufo")
+	}
+	return addonRevision(name)
+}
+
+// addonRevision reports the patch-tier revision naming addonlibrary.Revision
+// admits: rev* with a patch-tier extension.
+func addonRevision(name string) bool {
+	switch strings.ToLower(path.Ext(name)) {
+	case ".gp3", ".gp4", ".gpf", ".swx":
+	default:
+		return false
+	}
+	stem := name[:len(name)-len(path.Ext(name))]
+	return len(stem) > len("rev") && strings.EqualFold(stem[:len("rev")], "rev")
 }
 
 // safeMapPath restricts hosted maps to the flat map-discovery directory.

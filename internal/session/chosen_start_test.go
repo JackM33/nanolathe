@@ -336,29 +336,37 @@ func TestStrictIgnoresChosenStarts(t *testing.T) {
 	if _, err := ResolveMatchConfig(r); err != nil {
 		t.Fatalf("the fixture is not a Strict configuration: %v", err)
 	}
+	strictBase := encodeMatchForTest(t, resolveMatch(t, r))
+	for _, record := range [][]byte{
+		extensionRecordForTest(17, 1, []byte{1, 3, 4, 0, 0}),
+		extensionRecordForTest(18, 1, []byte{2}),
+	} {
+		if _, err := DecodeMatchConfig(withMatchTailForTest(strictBase, append(record, 0))); err == nil {
+			t.Fatal("a Strict 3.1 configuration decoded a gameplay-choice extension")
+		}
+	}
 	r.Seats[0].Start = StartPoint{Set: true, X: 100, Z: 100}
 	if _, err := ResolveMatchConfig(r); err == nil {
 		t.Fatal("a Strict 3.1 configuration carried a chosen start")
 	}
 }
 
-// Version 2 of the configuration: a request with no chosen point keeps its
-// version-1 bytes and identity (TestMatchConfigEncodingIsUnchangedBySharedPrimitives
-// holds them); one with a chosen point appends each seat's flag, the set
-// seats' coordinates and field 17, and hashes under the version-2 domain;
-// and a version-2 tail of defaults is refused.
+// Chosen starts are a required record after the frozen version-2 fields,
+// including nonempty room content. The default keeps main's current bytes;
+// historical v1 configurations are tested by the replay compatibility suite.
 func TestChosenStartsEncodeAsConfigurationVersion2(t *testing.T) {
 	r := validMatchRequest(t)
+	r.RoomContent = []MatchContentEntry{{Kind: MatchContentBaseArchive, Name: "totala1.hpi", Size: 42}}
 	v1 := encodeMatchForTest(t, resolveMatch(t, r))
 	r.Seats[0].Start = StartPoint{Set: true, X: 3, Z: 4}
 	r.Seats[2].Start = StartPoint{Set: true, X: 1, Z: 2}
 	c := resolveMatch(t, r)
 	v2 := encodeMatchForTest(t, c)
-	if tail := []byte{1, 3, 4, 0, 1, 1, 2, 0}; !bytes.Equal(v2[:len(v1)], v1) || !bytes.Equal(v2[len(v1):], tail) {
-		t.Fatalf("version 2 is not version 1, each seat's start and field 17:\nv1 %x\nv2 %x", v1, v2)
+	if tail := append(extensionRecordForTest(17, 1, []byte{1, 3, 4, 0, 1, 1, 2}), 0); !bytes.Equal(v2[:len(v1)], v1) || !bytes.Equal(v2[len(v1):], tail) {
+		t.Fatalf("chosen starts did not follow frozen fields as required extension 17:\nv1 %x\nv2 %x", v1, v2)
 	}
 	h := sha256.New()
-	h.Write([]byte(matchConfigDomainV2))
+	h.Write([]byte(matchConfigDomain))
 	h.Write(v2)
 	if digest := c.Digest(); !bytes.Equal(digest[:], h.Sum(nil)) {
 		t.Fatalf("version 2 identity %x does not hash the version-2 domain", digest)

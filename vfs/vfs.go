@@ -427,11 +427,52 @@ func (f *FS) MountGameDirectory(root string) error {
 // for multiple roots (docs/DESIGN_CONTENT_VFS.md §5). Repeated paths retain
 // the existing first-mount deduplication policy [02 §2].
 func (f *FS) MountGameDirectories(roots []string) error {
+	game := make([]GameRoot, len(roots))
+	for i, root := range roots {
+		game[i] = GameRoot{Dir: root}
+	}
+	return f.MountGameRoots(game)
+}
+
+// GameRoot is one root of MountGameRoots. Archives, when set, admits only the
+// archives whose file names it accepts; NoLoose leaves the directory's loose
+// files unmounted. An online battle mounts the base install this way, with
+// exactly the archives its room names and none of the install's loose files
+// (docs/DESIGN_MULTIPLAYER.md §16.8).
+//
+// Extra names archive files kept elsewhere that mount as if they sat in Dir:
+// each joins its extension's tier and the tier's lexical order by file name,
+// and replaces a same-named archive of Dir, as copying it into the folder
+// would. Archives does not filter them. Official add-ons mount this way
+// (docs/DESIGN_MODS_MUTATORS.md §5.7). ExtraLayout, when set, gives the
+// content layout an Extra archive is presented under: its files in a
+// directory the layout renames answer under the layout's name, beside the
+// files of content authored that way. Faction add-ons mount so under a mod
+// that renames the retail directories (§5.8 "With a mod").
+//
+// ExtraTier, when set, gives an Extra archive a tier other than its
+// extension's, so an add-on layer mounts above the retail tiers; the tier
+// must be one below Loose, and the mount refuses one that is not (§5.7
+// "Mounting", §5.8).
+type GameRoot struct {
+	Dir         string
+	Archives    func(name string) bool
+	NoLoose     bool
+	Extra       []string
+	ExtraLayout func(full string) Layout
+	ExtraTier   func(full string) (tier MountTier, ok bool)
+}
+
+// MountGameRoots is MountGameDirectories for roots that may admit only some
+// of their archives or none of their loose files. Every root keeps the
+// priority span its position gives it, so leaving providers out never
+// reorders the ones that remain.
+func (f *FS) MountGameRoots(roots []GameRoot) error {
 	plan := DefaultRetailMountPlan()
 	span := int(max(plan.HPI, plan.UFO, plan.CCX, plan.GP3, plan.Loose)) * 10
 	for i, root := range roots {
-		if err := f.mountGameDirectory(root, plan, i*span); err != nil {
-			return fmt.Errorf("mounting root %q: %w", root, err)
+		if err := f.mountGameDirectoryFiltered(root.Dir, plan, i*span, root.Archives, !root.NoLoose, root.Extra, root.ExtraLayout, root.ExtraTier); err != nil {
+			return fmt.Errorf("mounting root %q: %w", root.Dir, err)
 		}
 	}
 	return nil
@@ -473,6 +514,21 @@ func (f *FS) MountGameDirectoryWithPlan(root string, plan MountPlan) error {
 }
 
 func (f *FS) mountGameDirectory(root string, plan MountPlan, basePriority int) error {
+	return f.mountGameDirectoryFiltered(root, plan, basePriority, nil, true, nil, nil, nil)
+}
+
+// gameArchive is one archive a game directory mount plans: its file name,
+// which orders it, and where it is.
+type gameArchive struct {
+	name, full string
+	layout     Layout
+	// tier and tierSet carry an Extra archive's tier override
+	// (GameRoot.ExtraTier); a set tier replaces its extension's.
+	tier    MountTier
+	tierSet bool
+}
+
+func (f *FS) mountGameDirectoryFiltered(root string, plan MountPlan, basePriority int, admit func(string) bool, loose bool, extra []string, extraLayout func(string) Layout, extraTier func(string) (MountTier, bool)) error {
 	if err := plan.Validate(); err != nil {
 		return err
 	}
@@ -480,14 +536,29 @@ func (f *FS) mountGameDirectory(root string, plan MountPlan, basePriority int) e
 	if err != nil {
 		return err
 	}
-	archives := make([]os.DirEntry, 0)
+	replaced := make(map[string]bool, len(extra))
+	for _, full := range extra {
+		replaced[strings.ToLower(filepath.Base(full))] = true
+	}
+	archives := make([]gameArchive, 0)
 	for _, entry := range entries {
-		if entry.IsDir() {
+		if entry.IsDir() || !IsArchiveName(entry.Name()) || replaced[strings.ToLower(entry.Name())] {
 			continue
 		}
-		switch strings.ToLower(filepath.Ext(entry.Name())) {
-		case ".hpi", ".ufo", ".ccx", ".gp3", ".gp4", ".gpf", ".swx":
-			archives = append(archives, entry)
+		if admit == nil || admit(entry.Name()) {
+			archives = append(archives, gameArchive{name: entry.Name(), full: filepath.Join(root, entry.Name())})
+		}
+	}
+	for _, full := range extra {
+		if IsArchiveName(full) {
+			archive := gameArchive{name: filepath.Base(full), full: full}
+			if extraLayout != nil {
+				archive.layout = extraLayout(full)
+			}
+			if extraTier != nil {
+				archive.tier, archive.tierSet = extraTier(full)
+			}
+			archives = append(archives, archive)
 		}
 	}
 	sort.Slice(archives, func(i, j int) bool {
@@ -495,29 +566,39 @@ func (f *FS) mountGameDirectory(root string, plan MountPlan, basePriority int) e
 		// explicitly so the equal-tier winner is stable across filesystems.
 		// Equal-priority mounts added later win, so lexically later archive
 		// names take precedence within one tier.
-		li, lj := strings.ToLower(archives[i].Name()), strings.ToLower(archives[j].Name())
+		li, lj := strings.ToLower(archives[i].name), strings.ToLower(archives[j].name)
 		if li != lj {
 			return li < lj
 		}
-		return archives[i].Name() < archives[j].Name()
+		if archives[i].name != archives[j].name {
+			return archives[i].name < archives[j].name
+		}
+		return archives[i].full < archives[j].full
 	})
 	// Retail's ten-new-archive budget restarts on each mount pass; repeated
 	// passes mount every valid local HPI [02 §2]. Mount that converged set here.
 	for _, entry := range archives {
-		extension := strings.ToLower(filepath.Ext(entry.Name()))
 		tier := plan.HPI
-		switch extension {
-		case ".hpi":
-			tier = plan.HPI
-		case ".ccx":
-			tier = plan.CCX
-		case ".gp3", ".gp4", ".gpf", ".swx":
-			tier = plan.GP3
-		case ".ufo":
-			tier = plan.UFO
+		if entry.tierSet {
+			// An add-on layer must stay below the loose host files, which
+			// keep the last word (GameRoot.ExtraTier).
+			if entry.tier == 0 || entry.tier >= plan.Loose {
+				return fmt.Errorf("archive %s: extra tier %d is not below the loose tier %d", entry.full, entry.tier, plan.Loose)
+			}
+			tier = entry.tier
+		} else {
+			switch strings.ToLower(filepath.Ext(entry.name)) {
+			case ".hpi":
+				tier = plan.HPI
+			case ".ccx":
+				tier = plan.CCX
+			case ".gp3", ".gp4", ".gpf", ".swx":
+				tier = plan.GP3
+			case ".ufo":
+				tier = plan.UFO
+			}
 		}
-		full := filepath.Join(root, entry.Name())
-		_, err := f.MountArchive(full, basePriority+int(tier)*10)
+		_, err := f.mountArchiveRehomed(entry.full, basePriority+int(tier)*10, entry.layout)
 		if err != nil {
 			// Only the container gate and an unavailable candidate open are
 			// discovery rejection [02 §2]. Indexing and later payload errors
@@ -529,13 +610,27 @@ func (f *FS) mountGameDirectory(root string, plan MountPlan, basePriority int) e
 				reason = pathErr.Err // provider identity below replaces the host path
 			}
 			if errors.Is(err, ErrRejectedArchive) || openFailed {
-				f.notes = append(f.notes, fmt.Sprintf("nanolathe: archive rejected: logical path %s, providers searched [%s], expected HPI container: %v", entry.Name(), entry.Name(), reason))
+				f.notes = append(f.notes, fmt.Sprintf("nanolathe: archive rejected: logical path %s, providers searched [%s], expected HPI container: %v", entry.name, entry.name, reason))
 				continue
 			}
 			return err
 		}
 	}
+	if !loose {
+		return nil
+	}
 	return f.MountDirectory(root, basePriority+int(plan.Loose)*10)
+}
+
+// IsArchiveName reports whether a game directory's file is one the mount
+// discovers as an archive: an HPI, UFO or CCX, or a patch-tier GP3, GP4, GPF
+// or SWX (C4).
+func IsArchiveName(name string) bool {
+	switch strings.ToLower(filepath.Ext(name)) {
+	case ".hpi", ".ufo", ".ccx", ".gp3", ".gp4", ".gpf", ".swx":
+		return true
+	}
+	return false
 }
 
 // insertMount places one mount in final lookup order and takes the next order

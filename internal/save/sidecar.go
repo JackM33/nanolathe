@@ -35,6 +35,12 @@ const SidecarSchema = 1
 // half-read (§7.3).
 const SidecarSchemaRestrictions = 2
 
+// SidecarSchemaAddons is the layout of a sidecar that records official
+// add-ons, with or without unit restrictions (DESIGN_MODS_MUTATORS §5.7). A
+// build that cannot restore them refuses it rather than loading the bank
+// without the definitions it was written with.
+const SidecarSchemaAddons = 3
+
 // sidecarMaxBytes bounds a read: a sidecar is a few kilobytes at most.
 const sidecarMaxBytes = 1 << 20
 
@@ -43,6 +49,15 @@ type SidecarMod struct {
 	ID      string `json:"id"`
 	Version string `json:"version"`
 	SHA256  string `json:"sha256,omitempty"`
+}
+
+// SidecarAddon names an official add-on a save was written with: its id,
+// version and content identity, the hex SHA-256 that addonlibrary.Digest
+// gives its archives.
+type SidecarAddon struct {
+	ID      string `json:"id"`
+	Version string `json:"version"`
+	SHA256  string `json:"sha256"`
 }
 
 // SidecarModRef is the sidecar's `mod` value: null for no mod, an object
@@ -125,6 +140,10 @@ type Sidecar struct {
 	// count, e.g. {"armkrog": 0, "armpw": 20} (§15.5); absent when it had
 	// none. Their presence alone makes the file schema 2.
 	Restrictions map[string]int `json:"restrictions,omitempty"`
+	// Addons are the official add-ons the battle's content mounted from the
+	// add-on library (§5.7); absent when it had none. Their presence alone
+	// makes the file schema 3.
+	Addons []SidecarAddon `json:"addons,omitempty"`
 	// AI is the Modern AI controllers' record (session.AIControllers),
 	// kept as raw JSON so this package stays ignorant of its shape; absent
 	// when the battle had no computer player.
@@ -142,14 +161,19 @@ func SidecarPath(bankPath string) string { return bankPath + SidecarSuffix }
 
 // WriteSidecar writes the sidecar of the bank at bankPath through a
 // temporary file and a rename, so a reader never sees half a file (§7.1).
-// It is schema 2 when it records unit restrictions and schema 1 otherwise
-// (§15.5).
+// It is schema 3 when it records official add-ons, else schema 2 when it
+// records unit restrictions, and schema 1 otherwise (§15.5, §5.7).
 func WriteSidecar(bankPath string, s Sidecar) error {
 	s.Schema = SidecarSchema
 	if len(s.Restrictions) != 0 {
 		s.Schema = SidecarSchemaRestrictions
 	} else {
 		s.Restrictions = nil
+	}
+	if len(s.Addons) != 0 {
+		s.Schema = SidecarSchemaAddons
+	} else {
+		s.Addons = nil
 	}
 	if s.Mutators == nil {
 		s.Mutators = map[string]string{}
@@ -185,8 +209,9 @@ func WriteSidecar(bankPath string, s Sidecar) error {
 // and no error (§7.3 step 1). A sidecar that exists but cannot be read, or
 // that another schema wrote, is an error: loading it as if it were absent
 // would silently drop the selection it records. So is a schema 1 sidecar
-// that names unit restrictions, or a schema 2 one without a non-empty set
-// (§15.5).
+// that names unit restrictions, a schema 2 one without a non-empty set
+// (§15.5), and one that names add-ons in any schema but 3, or schema 3
+// without them (§5.7).
 func ReadSidecar(bankPath string) (Sidecar, bool, error) {
 	path := SidecarPath(bankPath)
 	file, err := os.Open(path)
@@ -210,6 +235,7 @@ func ReadSidecar(bankPath string) (Sidecar, bool, error) {
 	}
 	var present struct {
 		Restrictions json.RawMessage `json:"restrictions"`
+		Addons       json.RawMessage `json:"addons"`
 	}
 	if err := json.Unmarshal(data, &present); err != nil {
 		return Sidecar{}, false, sidecarError(path, err.Error())
@@ -219,8 +245,17 @@ func ReadSidecar(bankPath string) (Sidecar, bool, error) {
 		return Sidecar{}, false, sidecarError(path, "schema 1 with unit restrictions")
 	case s.Schema == SidecarSchemaRestrictions && len(s.Restrictions) == 0:
 		return Sidecar{}, false, sidecarError(path, "schema 2 without unit restrictions")
-	case s.Schema != SidecarSchema && s.Schema != SidecarSchemaRestrictions:
+	case s.Schema != SidecarSchemaAddons && present.Addons != nil:
+		return Sidecar{}, false, sidecarError(path, fmt.Sprintf("schema %d with official add-ons", s.Schema))
+	case s.Schema == SidecarSchemaAddons && len(s.Addons) == 0:
+		return Sidecar{}, false, sidecarError(path, "schema 3 without official add-ons")
+	case s.Schema != SidecarSchema && s.Schema != SidecarSchemaRestrictions && s.Schema != SidecarSchemaAddons:
 		return Sidecar{}, false, sidecarError(path, fmt.Sprintf("schema %d", s.Schema))
+	}
+	for _, a := range s.Addons {
+		if a.ID == "" || a.Version == "" || len(a.SHA256) != 64 {
+			return Sidecar{}, false, sidecarError(path, "an official add-on without an id, version and SHA-256")
+		}
 	}
 	return s, true, nil
 }
@@ -236,5 +271,5 @@ func RemoveSidecar(bankPath string) error {
 }
 
 func sidecarError(path, what string) error {
-	return fmt.Errorf("nanolathe: save sidecar unreadable: %s: logical path %s, providers searched [save directory], expected a schema %d Nanolathe sidecar, or schema %d with unit restrictions", what, path, SidecarSchema, SidecarSchemaRestrictions)
+	return fmt.Errorf("nanolathe: save sidecar unreadable: %s: logical path %s, providers searched [save directory], expected a schema %d Nanolathe sidecar, schema %d with unit restrictions, or schema %d with official add-ons", what, path, SidecarSchema, SidecarSchemaRestrictions, SidecarSchemaAddons)
 }

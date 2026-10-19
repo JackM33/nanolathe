@@ -27,6 +27,24 @@ func testHeader(kind Kind) Header {
 		Seats: []Seat{{Name: "Player", Side: "ARM", Color: 0, Role: session.MatchRoleHuman},
 			{Name: "Computer", Side: "CORE", Color: 1, Role: session.MatchRoleComputer}},
 		Started: 1760000000000,
+		Addons:  []Addon{{ID: "cavedog-bonus-units", Version: "original", Size: 236, Digest: [32]byte{8}}},
+	}
+}
+
+// A header's add-ons are named and in ascending id order, so a reader finds
+// one listing for each (DESIGN_MODS_MUTATORS §5.7).
+func TestHeaderAddonsAreOrderedAndNamed(t *testing.T) {
+	for name, addons := range map[string][]Addon{
+		"no id":      {{Version: "1"}},
+		"no version": {{ID: "a"}},
+		"repeated":   {{ID: "a", Version: "1"}, {ID: "a", Version: "2"}},
+		"unsorted":   {{ID: "b", Version: "1"}, {ID: "a", Version: "1"}},
+	} {
+		h := testHeader(KindSkirmish)
+		h.Addons = addons
+		if _, err := NewWriter(&bytes.Buffer{}, h); err == nil {
+			t.Errorf("%s: a header with add-ons %+v was written", name, addons)
+		}
 	}
 }
 
@@ -493,8 +511,8 @@ func TestReaderRefusals(t *testing.T) {
 	}
 
 	future := append([]byte(nil), valid...)
-	future[len(Magic)] = 2
-	if _, err := NewReader(future); !errors.Is(err, ErrUnsupportedVersion) || !strings.Contains(err.Error(), "replay format version 2") || !strings.Contains(err.Error(), "replay format version 1") {
+	future[len(Magic)] = 3
+	if _, err := NewReader(future); !errors.Is(err, ErrUnsupportedVersion) || !strings.Contains(err.Error(), "replay format version 3") || !strings.Contains(err.Error(), "replay format version 2") {
 		t.Fatalf("future version: %v", err)
 	}
 	if _, err := NewReader([]byte("NOTAREPLAY")); !errors.Is(err, ErrCorrupt) {

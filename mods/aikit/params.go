@@ -34,9 +34,11 @@ import (
 // UtilTac is the util+tac brain — utility strategy, economy and production,
 // tactics army — and the two layers that report to the arena.
 type UtilTac struct {
-	Brain    *core.Brain
-	Strategy *utility.Strategy
-	Army     *tactics.Army
+	Brain      *core.Brain
+	Strategy   *utility.Strategy
+	Economy    *utility.Economy
+	Production *utility.Production
+	Army       *tactics.Army
 }
 
 // NewUtilTac builds the util+tac brain from player-spec parameters. Keys no
@@ -61,7 +63,7 @@ func NewUtilTac(params map[string]string) (UtilTac, error) {
 	tp := tactics.ParamsFrom(params)
 	tp.Temper = armyTemper{st}
 	army := tactics.New(tp)
-	return UtilTac{Brain: core.New("util+tac", st, ec, army, pr), Strategy: st, Army: army}, nil
+	return UtilTac{Brain: core.New("util+tac", st, ec, army, pr), Strategy: st, Economy: ec, Production: pr, Army: army}, nil
 }
 
 // armyTemper hands the tactics army the utility strategy's drawn

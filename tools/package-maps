@@ -4,9 +4,13 @@
 Usage: tools/package-maps --root /path/to/roots --recipe recipe.json --out output
 Recipe: {schema:1, release_base:HTTPS_URL, maps:[...], dependencies:[...]}; each
 entry supplies id, name, version, summary, homepage and optional provenance.
-Map entries also supply map and requires. Each root is ROOT/ID. HPI archives
-must already have been inspected and expanded; preserve their authored bytes.
-The engine's maplibrary.Validator remains the acceptance gate before publishing.
+Map entries also supply map and requires, and may carry the optional
+presentation fields author, players, sizemap, year, kind and ai, which the
+catalogue's map browser displays and filters on (docs/DESIGN_MODS_MUTATORS.md
+§5.6). They never change package bytes or validation.
+Each root is ROOT/ID. HPI archives must already have been inspected and
+expanded (tools/map-expand); preserve their authored bytes. The engine's
+maplibrary.Validator remains the acceptance gate before publishing.
 """
 import argparse
 import hashlib
@@ -15,6 +19,17 @@ import pathlib
 import re
 import stat
 import zipfile
+
+# Optional map-record fields the browser labels, sorts and filters on. Each
+# keeps its declared JSON type; a bool is never an int.
+PRESENTATION_FIELDS = {
+    "author": str,
+    "players": int,
+    "sizemap": str,
+    "year": int,
+    "kind": str,
+    "ai": str,
+}
 
 
 def fail(message):
@@ -105,6 +120,13 @@ def main():
             catalog = dict(identity)
             if kind == "maps":
                 catalog.update(map=entry["map"].lower(), requires=entry.get("requires", []))
+                for key, fieldtype in PRESENTATION_FIELDS.items():
+                    if key not in entry:
+                        continue
+                    value = entry[key]
+                    if isinstance(value, bool) or not isinstance(value, fieldtype):
+                        fail("bad presentation field %s on %s" % (key, ident))
+                    catalog[key] = value
             catalog["archive"] = archive
             manifest[kind].append(catalog)
             inventory.append({**entry, "archive": archive, "filename": filename,

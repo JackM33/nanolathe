@@ -23,7 +23,9 @@ func Policies(p Params) (*Strategy, *Economy, *Production) {
 	p.clampAll()
 	s := &shared{p: p}
 	pr := &Production{s: s}
-	return &Strategy{s: s, pr: pr, vr: variety{v: DefaultVariety()}}, &Economy{s: s}, pr
+	st := &Strategy{s: s, pr: pr, vr: variety{v: DefaultVariety()}}
+	pr.st = st // production breadth's preference follows the strategy's jitter
+	return st, &Economy{s: s}, pr
 }
 
 // New composes the standalone utility brain: the three utility layers and

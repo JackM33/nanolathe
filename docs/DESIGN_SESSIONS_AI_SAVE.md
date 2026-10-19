@@ -2508,6 +2508,392 @@ teammate holds as many of that type); the Classic control,
 ([DESIGN_MODS_MUTATORS §15.11](DESIGN_MODS_MUTATORS.md#1511-verification));
 and the existing synchronous/asynchronous arena comparison.
 
+#### Modern AI damage hints
+
+**Nanolathe Modern AI policy** (made for the faction add-ons,
+[DESIGN_MODS_MUTATORS §5.8](DESIGN_MODS_MUTATORS.md#58-faction-add-ons)).
+
+**The problem.** The Modern AI's unit table rates a unit's firepower from
+its weapon records: damage × burst ÷ reload. A unit script can hold fire
+between shots. Talon's Salamander sleeps two and a half seconds after every
+pair of shells against a 0.2-second reload, so in match-ups it delivers
+about a twenty-fifth of its record rate, and the brain built it ahead of
+better units.
+
+**The hint.** Content may author the unit key `nl_ai_dpspermille`: an
+integer from 0 to 1000, the share of the record rate the unit delivers.
+- The table scales the unit's credited damage rates (all, anti-air, water
+  and stun) by it.
+- A value outside that range is ignored.
+- The key is a Nanolathe extension that only the Modern AI reads. The
+  simulation never does, and Classic players and the engine ignore it.
+- Stock content authors none, so stock tables and every fingerprint lock
+  are unchanged.
+- The faction add-ons as released author none either; a measured value
+  would be content the faction's package carries.
+
+**Every credited rate is scaled.** The hint applies after every rate is
+known, including the anti-air credited from damage tables. A flak weapon
+that authors no default damage and names the aircraft it hits is anti-air
+only: its unit takes the combat or defense role, keeps no ground DPS, and is
+worth its anti-air where that is wanted. A tower with only such fire is an
+air defense, rated by its anti-air; every stock defense has ground DPS.
+
+#### Modern AI production variety
+
+**Nanolathe Modern AI policy** (made for the faction add-ons,
+[DESIGN_MODS_MUTATORS §5.8](DESIGN_MODS_MUTATORS.md#58-faction-add-ons)). The
+Modern computer player spreads its factory production over more of each
+roster, in every gameplay mode, including Strict 3.1. Like the other Modern
+AI policies it extends the per-player controller exception, not the rule
+registry. Classic players are unchanged: their planner, its production and
+its random stream are untouched.
+
+**The problem.** Production rated each combat product by its
+cost-efficiency, normalized to the factory's best, with a variety term on
+the product's share of the whole army. A second factory diluted every
+share, so each factory settled on one or two units. Cheap fast armed units
+were made only as scouts, three a game. Mobile radar, jammers and assist
+builders were never made.
+
+**The policy.** The utility brain's `breadth` parameter is a sum of four
+parts, all on by default (15). At 0 the brain plays as before, game for
+game.
+
+- *Variety (1).*
+  - A combat product's share is counted among its own factory's combat
+    units, and its variety term halves at a share of 200‰.
+  - An efficiency floor uses the product's efficiency with its counters
+    (anti-air, range), relative to the factory's best. At a fifth or less
+    the product is cut; its weight ramps up to full at two fifths. Units far
+    below the best stay out, and an anti-air or long-range unit the counters
+    call for stays in.
+  - With jitter, each combat product carries a per-game preference of
+    1000 ± up to 250 permille: two uniform terms, so most products sit near
+    neutral. It comes from one draw from the player's private generator, in
+    production's `Init`, which core runs after the strategy's. That draw is
+    hashed with the definition's index through the SplitMix64 output
+    function. Without jitter there is no preference and nothing is drawn.
+- *Cheap fast combat (2).*
+  - An armed unit with the scout role (at most 70 metal, at least 60 world
+    units a second) that is not wanted as a scout is a combat candidate.
+    Its weight ramps out as cheap fast units go from 15% to 30% of their
+    factory's combat units.
+  - The factory's normalizer is then its best other combat product, so a
+    raider does not set the floor the others are measured by.
+  - The army makes the first three cheap fast units of a game scouts, the
+    old scout allowance, and assigns later ones like any combat unit (a
+    fast one joins the raiders).
+- *Support (4).*
+  - A support unit is a mobile radar whose radar reaches past its sight,
+    or a radar jammer. It is a ground, hover or amphibious unit, unarmed,
+    without build power, with no other role a layer uses (builder,
+    transport, kamikaze, stockpile, interceptor). A definition that costs
+    no metal or has a single hit point is a scripted helper and is left
+    out. Sonar and sonar jammers serve at sea and are left out.
+  - Each factory offers its cheapest support unit of each kind while the
+    army wants more of it. One of each is wanted from an army value of
+    1500, one more per further 3000, two at most.
+  - It is scored at the army share's weight, times the combat energy gate
+    and the factory's reach to the enemy. It is not offered while the base
+    is threatened, from a stranded factory, or in the opening's army-first
+    window.
+  - The tactics army has each support unit guard (follow) the main squad's
+    ground member nearest its centre; an unarmed guard never joins its
+    ward's fight. It keeps that ward while the ward stays a main member
+    within 900 world units of the centre, with at least five seconds
+    between orders. With no main squad the unit waits at the gather point.
+- *Assist builders (8).*
+  - An assist builder is a mobile unit with build power that cannot build
+    an extractor or energy producer. It is unarmed and not a ship, and it
+    gives at least a third of the best constructor's build power per
+    metal-equivalent.
+  - A unit whose purpose is another mechanic is left out: one that authors
+    resurrection or capture; a builder whose products are all buildings the
+    economy never places (a minelayer's mines); and one that makes a
+    factory, which it deploys into.
+  - One is wanted per two live factories, at most four, while metal
+    outruns what build power spends: the economy's guard gate on metal
+    coverage (0.9 to 2.5) times the army share, at twice the guard weight,
+    times the constructors' energy gate. None is wanted while the ambition
+    cap holds constructors, while the base is threatened, or in the
+    army-first window.
+  - Production sends one without products to guard a producing factory —
+    the one the fewest of them guard, the nearest of those — or else to help
+    the nearest frame of a building within 1500 world units, and
+    reconsiders every ten seconds. A builder with products is the
+    economy's, as every builder is.
+
+**Boundaries and verification.**
+- The policy changes no rule and adds no observation field, resource
+  charge or saved state.
+- It draws nothing from either simulation stream. Its one draw is from the
+  player's private generator, at `Init`, which a load repeats from the seed
+  before restoring the generator's position (Saves above).
+- A content set without support units or assist builders skips those
+  parts, and every cost is integer arithmetic over the observation and the
+  table.
+- Classic players and every Classic fingerprint lock are unchanged; the
+  Modern AI's online lock (`lockModernAIRun`) moved with this policy.
+- Tests:
+  - `utility.TestBreadthClasses`: the classes from authored keys, with
+    resurrection units and minelayers left out.
+  - `utility.TestSupportKindsAgree`: production's support test is the
+    army's.
+  - `utility.TestPreferenceIsOneDraw`: one draw with jitter, none without.
+  - `utility.TestVarietyFloorAndPreference`, `TestFastUnitsJoinTheMix`,
+    `TestSupportWithTheArmy` and `TestAssistBuilders`.
+  - `tactics.TestSupportFollowsMainSquad` and `TestScoutsAreCapped`.
+
+#### Modern AI upgrade modules
+
+**Nanolathe Modern AI policy** (made for the faction add-ons,
+[DESIGN_MODS_MUTATORS §5.8](DESIGN_MODS_MUTATORS.md#58-faction-add-ons)). The
+Modern computer player builds upgrade modules and keeps one of each upgrade
+they make, in every gameplay mode, including Strict 3.1. Like the other
+Modern AI policies it extends the per-player controller exception, not the
+rule registry. Classic players are unchanged. Production, construction,
+attachment and every upgrade's effect stay the engine's and the content
+scripts': Talon's module keeps each product it completes and then makes no
+other, and the commander's script reads every completed upgrade of its
+owner, at any distance, as its shield, drone, missile pack or uplink
+(research/extensions/talon-engine.md "Commander upgrades").
+
+**Recognition.** From authored keys alone, never a unit name (`aikit`
+`classifyModules`):
+
+- A *fixture* is a definition whose selected footprint is empty, either
+  extent zero: it occupies no cell `[04 R-P0-08-C]`.
+- An *upgrade module* (`RoleModule`) is an immobile builder with worker time
+  whose every product is a fixture and which has no purpose of its own: no
+  role from its definition (weapon, economy, storage, sensor, transport,
+  commander), no active weapon (a superweapon's is left out of DPS), and no
+  air base or teleporter. It makes nothing that leaves it, so it is not a
+  factory.
+- Its products take `RoleUpgrade` in place of a mobile unit's roles
+  (mobile, scout, combat, fighter, bomber): the module keeps them.
+
+With every faction package mounted this finds `TALCOMUPSH` and its five
+products, nothing else; stock content has no fixture. Structures that make
+fixtures to upgrade themselves are not modules, and their helpers stay
+unplanned: the Talon unit pack's Armageddon (armed) and its shells, the
+zero-worker sensor plants, and the B.F.G.'s storage, whose production
+needs assistance.
+
+**Decision.** Each think rebuilds the picture from the observation:
+
+- A built module of ours is *spent* when a completed upgrade of ours stands
+  on its pad (the factory starts its product at its build piece, and a kept
+  unit follows the piece it is attached to `[04 §10.2]`), *busy* when an
+  upgrade frame stands there or its queue is not empty, and *free*
+  otherwise. A spent module's queue counts for nothing: Talon's closes its
+  build gate once it holds an upgrade.
+- An upgrade the player's build tree reaches is *had* while any own unit of
+  it exists, built or framed, or it is queued at a module that is not
+  spent. Restriction caps apply (`Kit.Allowance`).
+- *Production.* After ordinary factory production, each free module is
+  given the first missing upgrade among its products, one action each.
+- *Construction.* An idle builder that can make a module scores one among
+  its other buildings while the module's missing upgrades outnumber the
+  modules that are free, framed or ordered: a nominal weight of 100
+  (1000 as the economy scales its weights) times the affordability,
+  travel and site-threat considerations every building takes, and nothing
+  during an energy stall (the store under a twentieth of its capacity and
+  falling, the stall that also pauses combat production). The module goes
+  where the economy's default field puts a building, behind the base.
+- *Assistance.* A module works on its upgrade at its own worker time
+  (Talon's 30: the uplink's 45,001 work units take 25 minutes alone), so a
+  builder weighs helping an upgrade's frame as it weighs helping a
+  factory's (priority 1500 of the nominal 1000) in the economy's ordinary
+  assist choice.
+- *Order.* No fixture's definition authors an effect — no weapon, armour,
+  sensor, storage or income — and Talon's are script-only, so the brain
+  cannot rate them. It takes the least metal-equivalent value first, then
+  table order: the least spent on an effect it cannot judge. This is a
+  planning choice, not a measure of worth. For Talon: drone and uplink
+  (184 each, the drone first by table order), shield (301), missile pack
+  (534), emergency teleport (651). The teleport device only acts when its
+  module is activated, which the Modern AI does not do yet (stream A, A7);
+  it is built last.
+
+**Boundaries and verification.** No random draw, observation field,
+resource charge or saved state is added; the picture is rebuilt from each
+observation, so a load rebuilds it, and the think stays a pure function of
+its observation and the brain's state. A side with no module in its build
+tree — every stock side — skips the policy with one test, so ARM and CORE
+games and every fingerprint lock are unchanged. Tests:
+`aikit.TestUpgradeModulesFromAuthoredKeys` (the rule finds the module and
+leaves a mixed factory, an armed structure and a zero-worker builder as
+they were), `utility.TestOneOfEachUpgrade` (free, busy and spent modules;
+one of each; a spent module's queue ignored) and
+`utility.TestModuleWantedForAMissingUpgrade` (modules framed or ordered
+this think count; none during an energy stall).
+
+#### Modern AI commands
+
+**Nanolathe Modern AI policy** (made for the faction add-ons,
+[DESIGN_MODS_MUTATORS §5.8](DESIGN_MODS_MUTATORS.md#58-faction-add-ons)). The
+Modern computer player can switch, cloak and carry units, and cloaks its
+units when that helps, in every gameplay mode, including Strict 3.1. Like
+the other Modern AI policies it extends the per-player controller
+exception, not the rule registry. Classic players are unchanged.
+
+**Vocabulary.** The kit sends what a human's side panel and clicks send,
+applied after the persona's reaction window through the ordinary queue
+binding, each actor revalidated as for every command; a group command is
+one action.
+
+| Kit command | What each unit receives |
+|---|---|
+| `Load(transport, cargo)` | order code 6 on the cargo: a pickup, or its air twin, when the session's transport admission accepts the pair `[04 R-ORD-02 §1]` |
+| `Unload(transport, x, z)` | order code 5 at the point: a ground unload or its air twin |
+| `Activate(units, on)` | the `Activate` or `Deactivate` state order, as the ON/OFF gadget sends it; only an on/off-able definition receives it |
+| `Cloak(units, on)` | the `Cloak_On` or `Cloak_Off` state order, as the CLOAK gadget sends it; only a definition whose cloak cost gives it the capability the handlers test receives it `[04 R-ORD-01 §2]` |
+
+The state orders keep the unit's queue and head-insert `[04 R-ORD-01 §13]`.
+Each own unit in the observation carries what these change: `Active` (the
+on/off state), `Cloaked` (the request) and `Hidden` (whether the last
+settlement pass paid for it and hid the unit `[05 "Cloak debit"]`),
+`Carrier` (the unit this one is attached to as cargo: a transport, or a gate
+holding its passenger) and `Cargo` (how many are attached to it); and
+`GoalX`, `GoalZ`, the goal of the order `Order` classifies, which a player
+sees on a selected unit. No brain loads transports yet.
+
+**Cloak.** A unit whose definition can cloak, other than a kamikaze, has
+its cloak requested while it is threatened — it stands in the board's enemy
+reach, or moves toward a point in it — and for fifteen seconds after, or at
+all times when its definition is authored to start cloaked; otherwise the
+request is cleared. The commander is served first, then the other units in
+observation order. Each request costs the unit's authored cloak cost, the
+moving cost while its order moves it, at every settlement pass, once a
+second. What may be spent is the net energy income the paid cloaks did not
+already take plus a thirtieth of the store above a fifth of its capacity
+(thirty seconds of runway); a request that does not fit is cleared or not
+made. A unit not yet cloaked needs half again its cost free, and a unit is
+not switched twice within three seconds. A stock commander's moving cost is
+1000 a second, so early in a game the budget rarely admits it. With the
+gates below the policy spends at most half the economy layer's actions in a
+think, rounded up; most thinks it spends none. These are planning choices,
+not game rules.
+
+**Boundaries and verification.** No random draw, resource charge or saved
+state is added: a request costs what the engine debits, and the memory kept
+between thinks (when each unit was last threatened and switched) only damps
+switching, so a load rebuilds it. Switch `cloak=0` turns the policy off.
+Every stock side's commander can cloak, so ARM and CORE games differ from
+before once a cloak fits the budget. The application history's intent
+vocabulary (`ai.ModernApplicationIntent`) accepts command kinds 1 to 14, and
+these commands are kinds 15 to 20: with checkpoint capture enabled, a Modern
+player's first switch or transport command fails the application history
+until that vocabulary admits them. Tests:
+`aikit.TestKitSwitchAndTransportVocabulary` (kinds, codes, state orders,
+groups and the definition filter),
+`aikit.TestKitSwitchAndTransportCommandsRetail` (a Talon commander's paid
+cloak and its clearing, an on/off radar switched off and on, and an ARM
+transport's pickup and unload, each with its observation field, in Strict
+3.1 and Modern), `utility.TestCloakWhileThreatenedAndPaid` and
+`utility.TestCloakSwitchDwell`.
+
+#### Modern AI gates
+
+**Nanolathe Modern AI policy** (faction balance stream A, unit A7). The
+Modern computer player builds a pair of Talon gates, dials one to the other
+and sends its ground army through them, in every gameplay mode, including
+Strict 3.1, where the pair is found not to carry (below). Classic players
+are unchanged. The gate's behaviour is its script's
+(research/extensions/talon-engine.md "Gate network"): an ordinary ground
+attack dials the gate nearest the aimed point, within 300 world units, and
+the aim never fires; a unit within 30 world units of a linked gate's pad is
+attached to it and handed to the peer, which drops it on its own pad and
+needs no link of its own; off unlinks; and a repeated identical aim heading
+is discarded. A move queued behind the pad does not survive the hand-off:
+the unit is released idle on the receiving pad, where it blocks the next
+release until it moves.
+
+**Recognition.** No definition authors the `teleporter` key for the gate,
+and that key has no consumer `[fmt fbi]`. A gate (`RoleGate`) is read from
+the three authored keys its mechanism uses (`aikit` `classifyGates`): an
+immobile structure that is no builder, authors a transport capacity (the
+script's attach and drop need one), carries an active weapon that fires at
+units (the dialing device) and can be switched on and off. With every
+faction package mounted this finds `TALGATE` alone; stock content has none.
+The gate keeps no damage rate, range or other role, so it is neither placed
+as a long-range defense nor counted as an enemy threat.
+
+**Decision.** The picture is rebuilt each think: the base gate is our gate
+nearest home within 1200 world units, the front gate our farthest one
+beyond that.
+
+- *Trips.* A ground combat unit of ours walking to a goal counts once per
+  goal as a trip the pair would shorten when the pair can be planned for
+  that goal and would shorten that unit's walk (*Sending* below). The front
+  gate's site is 300 world units short of the goal on the way from home, so
+  the units that gather at the goal leave its pad clear, and it must be no
+  more than halfway to the enemy base, no more in the enemy's reach than the
+  site-threat half point, and at least 1600 world units from the base gate.
+  The base gate's site is 250 world units from home toward the goal and 450
+  to the side away from the makers' and storage field. The army layer sends
+  new units to its gathering point, so the trips find the front where the
+  army goes; the latest recent trip gives the sites.
+- *Building.* The economy scores a gate among a builder's buildings once
+  three trips were counted in the last two minutes, it is past minute five,
+  ninety seconds of income pays for both gates in metal and in energy, the
+  energy store is not stalling, and a builder other than the commander can
+  make a gate, since the front gate lies beyond the commander's leash: first
+  the base gate, then, once it stands or is framed, the front gate at two
+  and a half times the base gate's weight, which completes the pair. A lost
+  front gate is not replaced for three minutes. Both take the
+  affordability, travel and site-threat considerations every building
+  takes, and the commander is never sent beyond its leash for one.
+- *Dialing.* While both stand, the base gate is given a ground attack at
+  the front gate, once per pair; each new dial aims at the next of four
+  points within 96 world units of the front gate, so a dial to a replaced
+  gate never repeats a heading the script discards.
+- *Sending.* Twenty seconds after the dial, every ground combat unit
+  walking to a goal is sent to the base gate's pad when the walk to the pad
+  plus the walk from the front gate to its goal, with 200 world units for
+  the hand-off, is at most 70% of its walk; one group command, at most
+  three sent units on their way or waiting at once (the pad carries one at
+  a time, and the army takes back a unit left waiting), and a unit is not
+  sent again within a minute. A sent unit standing idle within 200
+  world units of the base pad three seconds after it was sent (the pad was
+  taken when it arrived) is sent onto it again. Units of ours idle on the
+  front gate's pad are moved on: a sent unit to the goal it had, any other
+  200 world units toward the latest trip's goal, at most two commands a
+  think; a builder there is left to the economy. The army sends an idle
+  unit on to its own order's point, as for any unit.
+- *Failure.* A sent unit that stands free on the base pad for fifteen
+  seconds before any unit was carried marks the gates failed for the
+  battle: none is sent, dialed or built again. Under Strict 3.1 the gate's
+  script never links (Talon has bounded acceptance under Community 3.9 and
+  Modern only, [TALON_SUPPORT](TALON_SUPPORT.md)), so a Strict 3.1 Talon
+  player spends one pair and stops.
+
+These distances, times and weights are planning choices, not game rules.
+The army (`tactics`) is not told about the gates: a unit is sent only while
+it walks under an order the army gave, which the army does not repeat while
+the unit moves.
+
+**Boundaries and verification.** No random draw or resource charge is
+added; the memory kept between thinks (the dial, the trips, the units sent
+and when) is keyed by handle and instance, and after a load a standing pair
+is dialed again at the next aim point. A side with no gate in its build
+tree — every stock side — skips the policy with one test, and its tables are
+unchanged. Switch `gates=0` turns the policy off; the gate's role applies
+either way. Standing gates are expensive to simulate: the gate's authored
+script scans the whole unit-ID range several times a second, once more for
+every other gate, so a Modern Talon player's pair adds several milliseconds
+a tick and two players' pairs tens (measurements in the
+[utility README §14.3](../internal/aikit/brains/utility/README.md)). Tests: `aikit.TestGateRoleFromAuthoredKeys`,
+`aikit.TestKitDialsAGateAndSendsAUnitRetail` (a ground attack through the
+kit links a placed pair in Community 3.9 and Modern and a unit moved onto
+the pad is carried, shown held in the observation, released idle and
+moved on; under Strict 3.1 the pair never links),
+`utility.TestGatesWantedOnceTheArmyTravels`,
+`utility.TestGatesDialSendAndMoveOn`, `utility.TestGatesFailWhenNothingIsCarried`
+and `aikit.TestModernAIUsesATalonGatePairRetail` (the util+tac brain dials a
+standing pair, sends its army through and a unit is carried).
+
 ### Modern chosen start positions
 
 **Nanolathe Modern policy (user-authorized 2026-10-18).** A skirmish player
@@ -2574,9 +2960,9 @@ takes no authored start, so no schema placement replaces its commander.
 it to `skirmishConfigForStart`, which keeps it with its row through the
 compaction; a point belongs to its map, so choosing another map clears the
 points, and a settings file whose points name another map loads them as
-Auto. Replays carry it as field 16 of configuration version 2
+Auto. Replays carry it as required extension 17 of configuration version 2
 (DESIGN_MULTIPLAYER §8.6); a configuration with no choice keeps its
-version-1 bytes and identity. A save needs none: the bank already holds the
+existing version-2 bytes and identity. A save needs none: the bank already holds the
 commanders where they stand. The online lobby offers no control for it; a
 seat's choice would need a relay seat message.
 
@@ -2691,16 +3077,16 @@ team sees.
 
 **Where the choice travels.** The setup screen's button (DESIGN_INTERFACE_HUD_INPUT
 §2.6 "Allied sight") and the settings file (`alliedSight`, omitted when off)
-carry it to the setup. Replays carry it as field 17 of configuration version
+carry it to the setup. Replays carry it as required extension 18 of configuration version
 2 (DESIGN_MULTIPLAYER §8.6), whose zero value keeps version 1's rule, so a
-battle without it keeps its version-1 bytes. A save records it in the
+battle without it keeps its existing version-2 bytes. A save records it in the
 sidecar (`alliedSight`, DESIGN_MODS_MUTATORS §7.2): the bank keeps the
 alliance rows but not the ally groups `[08 R-SKIR-01 §2]` "Save
 persistence", so the load rebuilds the teams from the restored rows before
 the restored units publish coverage. A campaign takes none.
 
 **Tests:** `TestAlliedSightTeamsFollowTheAllianceTable`,
-`TestAlliedSightIsConfigurationField17`,
+`TestAlliedSightIsRequiredExtension18`,
 `TestAlliedSightSharesATeamsSightRetail` (a three-player battle on Ashap
 Plateau: under Modern the human sees its teammate's commander only with the
 option, under Strict 3.1 never, and never the opponent's; also after a

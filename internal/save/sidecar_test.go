@@ -180,3 +180,34 @@ func TestSidecarSchemaFollowsRestrictions(t *testing.T) {
 		}
 	}
 }
+
+// A sidecar with official add-ons is schema 3, with or without unit
+// restrictions, so a build that cannot restore them refuses it (§5.7).
+func TestSidecarSchemaFollowsAddons(t *testing.T) {
+	dir := t.TempDir()
+	addons := []SidecarAddon{{ID: "cavedog-bonus-units", Version: "original", SHA256: strings.Repeat("ab", 32)}}
+	for _, restrictions := range []map[string]int{nil, {"armpw": 20}} {
+		bank := filepath.Join(dir, "addons.SAV")
+		if err := WriteSidecar(bank, Sidecar{Profile: "nanolathe-1.0", Restrictions: restrictions, Addons: addons}); err != nil {
+			t.Fatal(err)
+		}
+		got, ok, err := ReadSidecar(bank)
+		if err != nil || !ok || got.Schema != SidecarSchemaAddons || !reflect.DeepEqual(got.Addons, addons) || !reflect.DeepEqual(got.Restrictions, restrictions) {
+			t.Fatalf("read back %+v (%v, %v), want schema 3 with %v", got, ok, err, addons)
+		}
+	}
+	for name, tc := range map[string]struct{ body, want string }{
+		"schema 1 with":    {`{"schema": 1, "mod": null, "addons": []}`, "schema 1 with official add-ons"},
+		"schema 2 with":    {`{"schema": 2, "mod": null, "restrictions": {"armpw": 0}, "addons": [{"id": "a", "version": "1", "sha256": "` + strings.Repeat("0", 64) + `"}]}`, "schema 2 with official add-ons"},
+		"schema 3 without": {`{"schema": 3, "mod": null}`, "schema 3 without official add-ons"},
+		"no identity":      {`{"schema": 3, "mod": null, "addons": [{"id": "a", "version": "1"}]}`, "an official add-on without an id, version and SHA-256"},
+	} {
+		bank := filepath.Join(dir, strings.ReplaceAll(name, " ", "-")+".SAV")
+		if err := os.WriteFile(SidecarPath(bank), []byte(tc.body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if _, ok, err := ReadSidecar(bank); err == nil || ok || !strings.Contains(err.Error(), "unreadable: "+tc.want) {
+			t.Fatalf("%s: ReadSidecar = (%v, %v), want a refusal for %s", name, ok, err, tc.want)
+		}
+	}
+}

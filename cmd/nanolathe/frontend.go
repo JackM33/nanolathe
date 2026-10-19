@@ -109,6 +109,10 @@ type gameShell struct {
 
 	opts Options
 	cs   *contentSet
+	// battleCommon, while a battle builds its windows, is the support bank
+	// they draw from in place of the shared one: a faction side's own
+	// (factionSupportGAF, docs/DESIGN_MODS_MUTATORS.md §5.8).
+	battleCommon *formats.GAF
 
 	// pendingDetail is the load-time remaster's art for the battle the loading
 	// screen has just finished, handed to the candidate at the one render-thread
@@ -186,6 +190,10 @@ type gameShell struct {
 	// (docs/DESIGN_MODS_MUTATORS.md §4.3, §6).
 	modSetting     settings.ModSelection
 	mutatorSetting map[string]string
+	// addonSetting is the saved add-on selection, written back unchanged
+	// unless a screen or an online join applies another, so --addon never
+	// overwrites it (docs/DESIGN_MODS_MUTATORS.md §5.7).
+	addonSetting []settings.AddonSelection
 	// restrictions is the running content's saved unit-restriction setting
 	// and what that content makes of it (mods.go,
 	// docs/DESIGN_MODS_MUTATORS.md §15.9). Like mutatorSetting it is
@@ -530,6 +538,10 @@ func runGameShell(launch, opts Options, cs *contentSet) error {
 	toolsScreenInst = &toolsScreen{}
 	defer toolsScreenInst.release()
 	options.Screen = &frontendScreens{settings: nlScreenInst, tools: toolsScreenInst}
+	// The map browser's preview is host content: while it is on screen the
+	// window lays out at the display's resolution and the preview draws above
+	// the scaled retail canvas, so the minimap keeps its full detail.
+	options.NativeOverlay = &mapsPreviewOverlay{shell: func() *gameShell { return host.shell }}
 	// A trace of menu play is the player's own session, not a benchmark: it
 	// takes no benchmark lock (a game should not wait on one) and saves
 	// settings as usual. It starts at the first battle.
@@ -739,6 +751,9 @@ func loadMenuAssets(cs *contentSet) *menuAssets {
 	}
 	if panel := a.panel[modeMenuMission]; panel != nil {
 		panel.background = a.missionBackground
+	}
+	if panel := a.panel[modeMenuSkirmish]; panel != nil && panel.art != nil {
+		spliceFactionSideButtons(cs.fs, panel.art)
 	}
 	message, err := loadRetailPanelStrict(cs, "guis/msgbox.gui", "", "", "MSGBOX authored GUI")
 	if err != nil {

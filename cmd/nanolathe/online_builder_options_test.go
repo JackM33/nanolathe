@@ -13,7 +13,7 @@ import (
 func TestOnlineRoomBuilderDefaults(t *testing.T) {
 	useOnlineSessionSeams(t, 10)
 	cs := &contentSet{profile: "retail", limits: content.RetailLimits()}
-	frozen := onlineCreationFrozen(cs, [2]uint32{1, 2}, content.Mutators{}, content.Restrictions{}, nil)
+	frozen := onlineCreationFrozen(cs, [2]uint32{1, 2}, content.Mutators{}, content.Restrictions{}, nil, nil)
 	settings := onlineSettings{mapName: "Test Map", location: 1, commanderDeath: 1}
 	seats := []session.OnlineSeat{{}, {Color: 1}}
 	for _, survival := range []bool{false, true} {

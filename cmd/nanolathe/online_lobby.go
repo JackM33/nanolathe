@@ -73,7 +73,23 @@ type onlineRoomState struct {
 	settings    onlineSettings
 	mapMissing  bool
 	capacity    int
-	state       relay.HostedLobbyState
+	// archives are this install's base archives, and content this seat's
+	// resolution of the base configuration's room content (§16.8).
+	// looseFiles marks an install folder with loose game files an online
+	// battle leaves out.
+	archives   []localArchive
+	known      []knownAddon
+	content    roomContentPlan
+	looseFiles bool
+	// contentCS is the content set content was resolved on; a remount
+	// resolves again (refreshOnlineRoomContent). fetch downloads a map
+	// package the room names and this install lacks.
+	contentCS *contentSet
+	fetch     roomPackageFetch
+	// addonFetch enables or downloads the official add-ons the room lists
+	// and this seat's content does not mount.
+	addonFetch roomAddonFetch
+	state      relay.HostedLobbyState
 	// notice is a one-off status line, such as why readiness was cleared;
 	// a later change replaces it.
 	notice      string
@@ -326,7 +342,7 @@ func lobbyBackdrop(source *formats.PCX) *formats.PCX {
 
 // openOnlineLobby shows the room a job opened: the setup screen's window in
 // the skirmish mode, replacing the online screen.
-func (g *gameShell) openOnlineLobby(lobby onlineLobby, cat *content.Catalog, base session.EffectiveMatchConfig, address string) {
+func (g *gameShell) openOnlineLobby(lobby onlineLobby, cat *content.Catalog, base session.EffectiveMatchConfig, address string, archives []localArchive, known []knownAddon) {
 	s := g.online
 	asset := g.assets.panel[modeMenuSkirmish]
 	if asset == nil || asset.window == nil {
@@ -350,13 +366,17 @@ func (g *gameShell) openOnlineLobby(lobby onlineLobby, cat *content.Catalog, bas
 		g.onlineFail(fmt.Errorf("nanolathe: online lobby: panel construction failed"))
 		return
 	}
-	room := onlineRoomState{lobby: lobby, panel: panel, address: address, cat: cat,
-		assets: &retailPanelAssets{window: window, background: lobbyBackdrop(asset.background), art: asset.art}}
+	room := onlineRoomState{lobby: lobby, panel: panel, address: address, cat: cat, archives: archives, known: known,
+		looseFiles: looseSimulationFiles(g.cs.baseRoots),
+		assets:     &retailPanelAssets{window: window, background: lobbyBackdrop(asset.background), art: asset.art}}
 	if font, err := formats.LoadFNTFile(g.cs.fs, onlineCodeFont); err == nil {
 		room.codeFont = font
 	}
 	s.room, s.phase, s.panel, s.status = room, onlineInLobby, nil, ""
 	g.adoptOnlineBase(base)
+	if room.looseFiles {
+		s.room.notice = "Loose game files in your Total Annihilation folder are not used online."
+	}
 	g.frontend.Open(modeMenuSkirmish, panel, false)
 	flushWindowTokens(clPtr)
 	g.refreshOnlineLobby()
@@ -369,6 +389,9 @@ func (g *gameShell) adoptOnlineBase(base session.EffectiveMatchConfig) {
 	r := &g.online.room
 	r.base, r.baseReq = base, base.Request()
 	r.settings = onlineSettingsOf(r.baseReq)
+	r.content = resolveRoomContent(g.cs, r.archives, installedMapPackages(), r.known, r.baseReq.RoomContent)
+	r.contentCS = g.cs
+	g.startRoomPackageFetch()
 	r.mapMissing = !g.hasSkirmishMap(r.baseReq.MapName)
 	r.capacity = 0
 	if !r.mapMissing && r.cat != nil {
@@ -385,8 +408,9 @@ func (g *gameShell) closeOnlineRoom() {
 	}
 	r := &g.online.room
 	if r.readyJob != nil {
-		r.readyJob.cancel()
+		r.readyJob.abandon()
 	}
+	r.prepared.close()
 	if r.lobby != nil {
 		_ = r.lobby.Close()
 	}
@@ -429,6 +453,19 @@ func (g *gameShell) pollOnlineLobby() {
 		g.cancelOnlineChatOnRightPress(clPtr.Input())
 	}
 	changed := g.syncOnlineChatCapture()
+	// A remount — a fetched map package, or one the host installed from
+	// the map picker — resolves the room's content again (§16.8).
+	if r.contentCS != g.cs {
+		g.refreshOnlineRoomContent()
+		changed = true
+	}
+	if g.pollRoomPackageFetch() {
+		changed = true
+	}
+	g.startRoomPackageFetch()
+	if g.pollRoomAddonFetch() {
+		changed = true
+	}
 	changed = state != r.state || changed
 	if state.ConfigVersion != r.baseVersion {
 		r.baseVersion = state.ConfigVersion
@@ -504,6 +541,12 @@ func (g *gameShell) onlineLobbyBlock() string {
 		included = ", computers included."
 	}
 	switch {
+	case r.fetch.want.Name != "" && roomEntryListed(r.content.missing, r.fetch.want):
+		return g.roomFetchText()
+	case r.addonFetch.want != nil:
+		return g.roomAddonFetchText()
+	case len(r.content.missing) > 0:
+		return strings.TrimSpace(roomMissingText(r.content.missing) + " " + g.roomFetchFailures() + " " + g.roomAddonFailures())
 	case r.mapMissing:
 		return "The host chose " + r.baseReq.MapName + ", which you don't have."
 	case len(seats) < onlineMinHumans:
@@ -895,14 +938,21 @@ func onlineTeamIcon(team uint8, teams []uint8) int {
 	return group*2 + 1
 }
 
+// onlineMismatchText is the lobby's line when every seat is ready with
+// content that resolved alike and the Ready check still differs: the
+// simulations themselves differ (§16.8).
+const onlineMismatchText = "Your games computed the test battle differently. If everyone has the same version, please report this with your logs."
+
 // onlineLobbyStatus is the status line, most pressing first.
 func (g *gameShell) onlineLobbyStatus(block string) string {
 	r := &g.online.room
 	switch {
-	case r.mapMissing:
+	case r.mapMissing || len(r.content.missing) > 0:
 		return block
+	case r.state.Mismatch && len(r.content.different) > 0:
+		return roomDifferentText(r.content.different) + " That is why your games compute differently."
 	case r.state.Mismatch:
-		return "Your games simulate differently. Every player needs the same version."
+		return onlineMismatchText
 	case r.readyErr != nil:
 		return "The check of your game failed: " + onlineRefusalText(r.readyErr)
 	case r.readyJob != nil:
@@ -911,6 +961,8 @@ func (g *gameShell) onlineLobbyStatus(block string) string {
 		return block
 	case r.notice != "":
 		return r.notice
+	case len(r.content.different) > 0:
+		return roomDifferentText(r.content.different)
 	}
 	everyone := true
 	for _, i := range r.presentSeats() {
@@ -1248,7 +1300,18 @@ func (g *gameShell) pushOnlineSettings(next onlineSettings) {
 		g.refreshOnlineLobby()
 		return
 	}
-	base, err := onlineBaseConfig(g.cs, r.cat, next, onlineFrozenOf(g.cs, r.baseReq))
+	// The room content follows the map: a downloaded map brings its
+	// package and the limits it needs (§16.8).
+	frozen := onlineFrozenOf(g.cs, r.baseReq)
+	roomContent, err := onlineRoomContent(g.cs, r.archives, r.known, next.mapName)
+	if err == nil {
+		frozen.room.RoomContent = roomContent
+		frozen.options.ContentLimits = onlineRoomLimits(g.cs, roomContent)
+	}
+	var base session.EffectiveMatchConfig
+	if err == nil {
+		base, err = onlineBaseConfig(g.cs, r.cat, next, frozen)
+	}
 	if err == nil {
 		var encoded []byte
 		if encoded, err = session.EncodeMatchConfig(base); err == nil {

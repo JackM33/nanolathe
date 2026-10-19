@@ -26,16 +26,6 @@ const (
 	PageClearPaged uint32 = 0xFFBFFFFF // clears bit 22 [07 §9]
 )
 
-// CategoryMaskBytes is the width of the authored CTRL_F type-filter bitset in
-// bytes. Retail's registry entry is sixteen 32-bit words — 512 bits — indexed
-// by the zero-extended definition id, and the recall filter tests
-// word[id>>5] & (1<<(id&31)) [07 §9]. That is the same width the catalog
-// compiler builds (content.CategoryMaskWords), so the two packages must agree
-// or a definition id above 255 falls outside the filter here while the catalog
-// still carries its bit. Byte indexing (byte id>>3, bit id&7) selects exactly
-// the same bit as the word form under the little-endian word layout.
-const CategoryMaskBytes = content.CategoryMaskWords * 4
-
 // DragRect is an inclusive presentation-space rectangle [07 §9] C9.
 // Construct via NormalizeDragRect so MinX<=MaxX, MinY<=MaxY holds.
 type DragRect struct {
@@ -146,30 +136,20 @@ func AssignGroup(units []*SelectUnit, group int, dirty *uint32) bool { // [07 §
 	return changed
 }
 
-// TypeFilterPasses reports whether a definition id passes the authored 512-bit
-// CTRL_F category mask [07 §9] C9. Definition id 0 is the catalog's null
-// sentinel and is never a member, so it is admitted unfiltered.
+// TypeFilterPasses reports whether a definition id passes the authored CTRL_F
+// type filter [07 §9] C9. Definition id 0 is the catalog's null sentinel and is
+// never a member, so it is admitted unfiltered.
 //
-// Retail has no bound test on the far side: it indexes the sixteen-word entry
-// with the zero-extended definition id and would read past the entry for an id
-// of 512 or more, so the executable defines no outcome there. This build
-// rejects instead of inventing one, because admitting would silently widen a
-// filtered recall.
-//
-// TODO(question): what a definition id of 512 or more should do. The decider is
-// the catalog's maximum definition count: internal/content's category compiler
-// refuses to compile a catalog with 512 or more definitions (the mask domain is
-// 1..511), so no id this function can be handed today reaches the branch. If a
-// future catalog raises that ceiling, retail offers no answer and the choice
-// here must be revisited rather than read as an established contract.
-func TypeFilterPasses(defID uint16, mask [CategoryMaskBytes]byte) bool { // [07 §9] C9
-	if defID == 0 {
-		return true
-	}
-	if int(defID) >= CategoryMaskBytes*8 {
-		return false
-	}
-	return mask[defID/8]&(1<<(defID%8)) != 0
+// Retail's filter is the category registry's CTRL_F entry, a sixteen-word
+// membership set tested word[id>>5] & (1<<(id&31)) [07 §9], so it spans
+// exactly the retail definition domain. The filter here is the same entry in
+// the catalog's own registry, whose sets are as wide as the catalog's domain
+// (docs/DESIGN_CONTENT_VFS.md §5): over IDs 0..511 the two select the same
+// bits, and a content profile or faction add-ons that widen the domain widen
+// the filter with every other category set, so no definition id falls outside
+// its reach.
+func TypeFilterPasses(defID uint16, mask content.CategoryMask) bool { // [07 §9] C9
+	return defID == 0 || mask.Contains(uint32(defID))
 }
 
 // RecallGroup implements digit group recall [07 §9] C9 with the preserve/toggle
@@ -178,9 +158,10 @@ func TypeFilterPasses(defID uint16, mask [CategoryMaskBytes]byte) bool { // [07 
 // definition id). When preserve is clear, nonmembers are cleared; when set,
 // nonmembers are preserved and matching members are toggled (additive toggle
 // table) [07 §9] C9. If any matching member carries CtrlFFlag, the authored
-// 512-bit mask filters which matching units remain selected [07 §9] C9.
+// CTRL_F mask filters which matching units remain selected [07 §9] C9. A nil
+// mask is absent filter state, which leaves that branch unarmed.
 // Returns whether selection changed and the post count.
-func RecallGroup(units []*SelectUnit, group int, preserve bool, mask [CategoryMaskBytes]byte, dirty *uint32) (changed bool, selectedCount int) { // [07 §9] C9
+func RecallGroup(units []*SelectUnit, group int, preserve bool, mask *content.CategoryMask, dirty *uint32) (changed bool, selectedCount int) { // [07 §9] C9
 	if group < 1 || group > 9 {
 		// Count existing selection for return value even when group invalid.
 		for i := 0; i < len(units); i++ {
@@ -194,7 +175,7 @@ func RecallGroup(units []*SelectUnit, group int, preserve bool, mask [CategoryMa
 	// Determine whether CTRL_F secondary branch is active [07 §9] C9:
 	// keys on a matching unit that also carries runtime flag 0x80000000.
 	filterActive := false
-	for i := 0; i < len(units); i++ {
+	for i := 0; mask != nil && i < len(units); i++ {
 		u := units[i]
 		if u == nil || u.DefID == 0 || u.Group != g {
 			continue
@@ -217,7 +198,7 @@ func RecallGroup(units []*SelectUnit, group int, preserve bool, mask [CategoryMa
 		}
 		isMatch := u.Group == g
 		if filterActive && isMatch {
-			if !TypeFilterPasses(u.DefID, mask) {
+			if !TypeFilterPasses(u.DefID, *mask) {
 				isMatch = false // filtered matching unit is treated as nonmember [07 §9] C9
 			}
 		}

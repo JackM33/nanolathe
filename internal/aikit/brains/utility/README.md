@@ -127,6 +127,12 @@ rotates.
 | combat | army share `(100−EcoShare)×20`, doubled while the army is below the strategy's attack size × efficiency `DPS·HP / (V·(V+v_ref))` normalized to the factory's best (anti-air damage credited by `aaNeed`) × counter (`1 + aaNeed × AirDPS share × w_aa/50 + defense share × lin(range, 300, 800) × w_range/50`) × variety `half(share of army × w_mix/100, 300)` × energy gate `lin(covE, 600, 900)` (0 when the energy store is empty and falling) |
 | scout (armed, fast) | only with no live scout, after minute 1, at most 3 per game, doubled while the enemy base is unknown |
 
+With `breadth` (§13.16, on by default) the combat row's variety is the
+share of the factory's own combat units, halving at 200‰, times an
+efficiency floor and a per-game preference; a cheap fast unit not wanted
+as a scout is a combat candidate; and support units (mobile radar and
+jammers) and assist builders are candidates too.
+
 Near-home threat lifts the army share to ≥1200 and removes the energy gates.
 A constructor target (growth's floor and ratio, §13.4, and the `expand`
 switch's builders part, §13.10) makes a constructor wanted outright
@@ -203,13 +209,17 @@ runs defaults); persona keys (`think`, `react`, `apm`, `attention`,
 | `reach_mix` | 1 | 0–1 | switch: reach over the plausible enemy starts; stranded factories make a home guard only (§13.1, §13.8) |
 | `fleet` | 1 | 0–1 | switch: against an enemy navy, heavier hulls, light boats kept to a few (§13.2, §13.8) |
 | `tidal_field` | 1 | 0–1 | switch: water economy in fields, later shipyards on a ring, clear of the yards (§13.3) |
-| `growth` | 16 | 0–31 | human economy shape at full ambition, a sum of parts: 1 expansion, 2 tech-2 timeline, 4 constructors per extractor, 8 factories per income, 16 constructor floor (§13.4) |
+| `growth` | 16 | 0–31 | human economy shape at full ambition, a sum of parts: 1 expansion, 2 tech-2 timeline, 4 constructors per extractor, 8 factories per income, 16 constructor floor, which acts at every ambition (§13.4) |
 | `fac_first` | 0 | 0–5 | first factory family: 0 none, 1 kbot lab, 2 vehicle plant, 3 air plant, 4 shipyard, 5 drawn per game (§13.5) |
 | `w_fac_first` | 300 | 100–1000 | percent by which other factories rate below the chosen family's until one of it is owned (§13.5) |
 | `expand` | 0 | 0–31 | mid-game expansion, a sum of parts: 1 extractors on the expansion pace, 2 constructors follow the expansion, 4 failed spots held until seen empty, 8 contested spots behind our army, 16 factories follow the income while metal banks (§13.10) |
 | `expand_from` | 15 | 4–30 | minute from which `expand`'s pace, builders and spend parts act (§13.10) |
 | `army` | 21 | 0–127 | income into army and towers that pay, a sum of parts: 1 towers yield to production, 2 factories follow banked income, 4 tower types, 8 towers where attacks came, 16 a tower value ceiling, 32 the commander's zone covered, 64 towers from surplus (§13.12) |
 | `metal` | 7 | 0–7 | metal use at every ambition, a sum of parts: 1 makers last, 2 energy follows metal, 4 home spots under the ambition cap (§13.14) |
+| `breadth` | 15 | 0–15 | production breadth, a sum of parts: 1 combat variety, 2 cheap fast combat units in the mix, 4 mobile radar and jammers with the army, 8 assist builders for the factories (§13.16); 0 is the brain before §13.16 game for game |
+| `cloak` | 1 | 0–1 | switch: cloak-capable units, the commander included, cloak while threatened (or authored to start cloaked) and the energy store pays (§14.1) |
+| `gates` | 1 | 0–1 | switch: a Talon gate pair from the base to the front, dialed, carries the ground army (§14.2) |
+| `play` | 7 | 0–15 | the play review's changes (§15), each measured in mirrors against the brain without it, a sum of parts: 1 a factory whose army cannot reach the enemy is not the land constructor source while a land or hover factory that reaches is on offer, 2 the first constructor goes ahead of combat units at a shipyard or air plant while the commander is the only builder, 4 an extractor waits for energy coverage while the energy store is below half, 8 the launch value's army curve scaled by our income; 0 is the brain before the review |
 
 `naval=0,air=0,tech=0,layout=0,army=0` is the brain before §11–§12
 (verified identical, result JSON for result JSON, on a land and a water
@@ -1075,7 +1085,7 @@ style.go):
 | 2 tech 2 | the tech timeline to ¾ of `tech_time` (minute 12) on a 12–24 metal/s income gate, held back by pressure on the base or an enemy army estimate of 1.5–3× ours (not from 0.9×), first tech-2 factory rated at least nominal |
 | 4 constructors | while metal is a surplus (coverage ≥ 1.1 or the store banking), constructors to 0.55 per finished extractor at minute 12 rising to 0.75 by 20 (ramped in from minute 8), plus one per `spots_per_con` claimable free spots (at most two); below it wanted outright, beyond it at a third, a fifth... |
 | 8 factories | another factory only while fewer than one per 14 metal/s of income, or two from minute 8 (the first tech-2 factory exempt; a store 80% full lifts the cap; walled-in factories do not count) |
-| 16 constructor floor | one constructor from minute 5, two from minute 8, on any map |
+| 16 constructor floor | one constructor from minute 5, two from minute 8, on any map and at every ambition |
 
 The investments of parts 1, 4 and 8 (the helper rule aside) wait for
 `growSafe`: from minute 8 (the opening and the first push are the
@@ -2337,3 +2347,240 @@ third pairs; a trait "leans" at |t| ≥ 30): no lean's points share is
 beyond noise — aggression ≥ 30 43.9% (74 player-games), towers ≤ −30
 43.6% (94), expansion ≥ 30 45.8% (96), scouting ≤ −30 59.1% (88), the
 others 44.9–54.6%.
+
+### 13.16 Production breadth (A3: `breadth`)
+
+Made for the faction add-ons (DESIGN_MODS_MUTATORS §5.8), 2026-10-17.
+Nanolathe Modern AI policy; the contract is
+docs/DESIGN_SESSIONS_AI_SAVE.md "Modern AI production variety". A
+coverage census found the brain building 15–38 distinct units per side
+although its filters allowed 70–90% of each roster: the combat score picks
+the few most efficient units per factory, cheap fast units were only
+scouts, and nothing made mobile radar, jammers or assist builders.
+
+`breadth` is a sum of parts, all on by default (15); `breadth=0` is the
+brain before this section, result JSON for result JSON (checked against
+the commit before it on Painted Desert, seed 1, every faction package
+mounted, and on The Pass, seed 7, stock). Code: `prod_breadth.go`,
+`prod_assist.go`, `production.go`, and the army's `support.go` (with its
+scout cap in `army.go`).
+
+| part | what | constants |
+|---|---|---|
+| 1 variety | a combat product's share is counted among its factory's combat units, not the whole army (a second factory diluted every share); an efficiency floor on efficiency × counters relative to the factory's best; a per-game preference | variety halves at 200‰ (`mixHalf`); floor `lin(eff × counter, 200, 400)`; preference 1000 ± 2×125, one `Kit.Rand` draw in production's `Init` hashed per definition, only with jitter |
+| 2 cheap fast | an armed unit with the scout role not wanted as a scout is a combat candidate; the factory's normalizer is its best other product; the army makes the first three a game scouts | weight `lin(cheap fast share of the factory's combat units, 300, 150)` |
+| 4 support | the factory's cheapest mobile radar (radar past its sight) and radar jammer, ground, hover or amphibious, unarmed, while the army wants one; the army has them guard the main squad's centre member | wanted from army value 1500, one more per 3000, two of each; score = army share × combat energy gate × factory reach |
+| 8 assist | the factory's best assist builder (build power, no extractor or energy product, not armed, naval, resurrecting or capturing, at least a third of the best constructor's build power per cost; a builder needs a product the economy places and none a factory) while metal outruns build power; production sends those without products to guard the least-guarded producing factory, else a frame | one per two live factories, at most four; score = `w_assist`×20 × `lin(covM, 900, 2500)` × army share (≤1500) × constructor energy gate; nothing under the ambition constructor cap |
+
+Support and assist candidates are not offered while the base is
+threatened or in the opening's army-first window, and support not from a
+stranded factory. In the stock and faction rosters (all seven packages)
+support units are at the second-tier factories (ARM, CORE, Rhyoss, TLL;
+Talon's jammer; Mynn's at tier three), and the assist builders are
+`armfark` and `tllarchnano`; `cornecro` (resurrection), `rhycapturemech`
+(capture), the minelayers and Talon's `talmedic` (under a third of a
+constructor's build power per cost) are left out. With `breadth=0` there
+is no draw and the army sees no new unit kind.
+
+#### Results
+
+**Census** (`tools/balance-census`: each side against ARM and against CORE,
+Painted Desert and Ashap Plateau, seeds 1–3, 30 minutes, hard, all seven
+faction packages of round 5; 84 games each, the same maps, seeds and
+packages before and after). Distinct units built at least once per side
+(buildings included), of them combat units, and the new kinds:
+
+| side | distinct before → after | combat before → after | new kinds after (units built) |
+|---|---|---|---|
+| ARM | 32 → 47 | 10 → 18 | radar/jammer 43 (`armseer` 17, `armjam` 14, `armmark` 6, `armaser` 6); assist `armfark` 5 |
+| CORE | 32 → 39 | 9 → 12 | radar/jammer 40 (`corvrad` 17, `coreter` 11, `corspec` 7, `corvoyr` 5); cheap fast `sprint` 152 (1 before) |
+| Argon | 32 → 35 | 10 → 14 | — (no land support unit in its tree) |
+| Mynn | 30 → 36 | 10 → 15 | — (its jammer is at tier three) |
+| Rhyoss | 32 → 37 | 11 → 13 | radar/jammer 30 (`rhymradar` 14, `rhymjammer` 10, `rhyecm` 6) |
+| Talon | 34 → 32 | 12 → 12 | jammer `taljam` 5 |
+| TLL | 35 → 36 | 12 → 10 | radar/jammer 29 (`tllobserver` 18, `tllconfuser` 11); assist `tllarchnano` 10 |
+
+Combat units new to the census include `armrock` (52), `armcroc`,
+`armlatnk` and `armfast`, `corgol`, `corsumo` and `corseal`,
+`argenforcer` (68) and `rhyriot`. Talon and TLL gain no combat variety:
+their factories hold one or two units well above the rest (gaps below),
+and their tier-two products appear in few games. Across the census 157 support units, 15
+assist builders and 330 cheap fast units (172 before, the scouts) were
+built; combat units built fell from 10,665 to 10,431.
+
+**Strength** (protocol v3 shape, fixed sample, 20 minutes, hard, stock
+content; eight land maps — great divide, the pass, red planet, sherwood,
+metal heck, comet catcher, ashap plateau, painted desert — seeds 301–304,
+both slot orders, random starts; `util+tac:hard` against
+`util+tac:hard:breadth=0`, 64 games per mirror):
+
+| mirror | W-D-L (commander kills) | points | t90 over map means | margins 1.1 / 1.5 / 2.0 |
+|---|---|---|---|---|
+| ARM | 21-23-20 (10 / 12) | 50.8% | [42.6, 59.0] | 48.4 / 51.6 / 51.6% |
+| CORE | 18-28-18 (3 / 3) | 50.0% | [43.7, 56.3] | 48.4 / 50.0 / 53.9% |
+
+No difference: neither interval excludes 50%. Think cost is unchanged
+(35.9 / 35.3 µs mean against 35.1 / 34.5, p99 119–126 µs, 0 B allocated
+per think).
+
+**Lock.** Of the four parts only variety reaches the Modern AI's online
+fingerprint scene (six minutes): with `breadth=14` (variety off) the old
+`lockModernAIRun` digest is reproduced, with variety alone the new one.
+
+Gaps:
+- The terrain model rates reach for armed products only, so a support
+  unit is scored with its factory's reach, not its own.
+- Production Explain shows support and assist decisions as `?`
+  (explain.go's `kindName` names production kinds; not this unit's file).
+- The variety floor leaves a factory whose rating is dominated by one unit
+  with one or two products: TLL's advanced lab rates `tllbind` 17 times
+  its next unit, Talon's advanced plant `talsubtank` twice its next. That
+  is a balance or rating signal (a damage hint or a stat change), not a
+  production rule.
+## 14. Abilities after building (A7a: `cloak`, `gates`)
+
+The economy layer also uses what units can do beyond moving and shooting
+(`abil*.go`; policy and boundaries in DESIGN_SESSIONS_AI_SAVE "Modern AI
+commands" and "Modern AI gates"). It runs after the builders' retreats with
+at most half of the layer's actions, rounded up, and emits only when
+something changes. `cloak=0,gates=0` is the brain before §14: verified
+identical, result for result, against the build before it (Comet Catcher,
+Talon against ARM, seed 3: same winner, tick, scores and command counts).
+
+The kit's vocabulary grew for it: `Kit.Load`/`Unload` (order codes 6 and 5),
+`Kit.Activate` and `Kit.Cloak` (the ON/OFF and CLOAK gadgets' state
+orders), and own units' `Active`, `Cloaked`, `Hidden`, `Carrier`, `Cargo`,
+`GoalX`/`GoalZ` in the observation. No layer loads transports or switches
+on/off units yet.
+
+### 14.1 Cloak (`cloak`, abil_cloak.go)
+
+A unit that can cloak (a positive cloak cost), other than a kamikaze, wants
+its cloak while threatened (board threat at its position, or at the goal it
+moves to) and for 15 s after, or always when authored `init_cloaked`. The
+commander first, then the rest in observation order, take from a budget of
+the net energy income the paid cloaks did not already take plus a
+thirtieth of the store above a fifth of capacity; a request needs half
+again its cost to start, and a unit is not switched twice within 3 s. One
+group command on, one off. A stock commander moves at 1000 E/s cloaked, so
+the budget admits it only late. The economy layer reports `cloak_on`,
+`cloak_off` and `cloak_peak` (`Economy.Report`; the arena's
+`reportingBrain` in cmd/ai-arena asks only the strategy and the army, so it
+does not print them yet).
+
+### 14.2 Gates (`gates`, abil_gates.go)
+
+Talon's Astria Porta is read as `aikit.RoleGate` from its authored keys
+(immobile, no builder, a transport capacity, an aimable weapon, on/off);
+its weapon is the dialing device, so it is no longer a long-range defense
+or an enemy threat. The brain counts *trips*: a ground combat unit walking
+to a goal for which the pair can be planned (front site 300 short of the
+goal, at most halfway to the enemy base, outside the enemy's reach above
+`threat_half`, at least 1600 from the base gate) and whose walk the pair
+would shorten to at most 70% (walk to the base pad, plus the front gate to
+the goal, plus 200 for the hand-off). With three trips in two minutes, past
+minute 5, income paying for both gates in 90 s and no energy stall, and a
+builder other than the commander able to make a gate, the economy scores
+the base gate (weight 1000, beside home toward the goal and away from the
+side field), then the front gate (weight 2500). While both stand the base
+gate is dialed by a ground attack at the next of four points within 96 of
+the front gate; 20 s later travellers are sent to the base pad in one
+command, at most three on their way or waiting at once, a sent unit idle
+beside the taken pad is sent onto it again, and idle units on the front
+pad are moved on. A sent unit that stands free at
+the base pad for 15 s before anything was carried marks the gates failed
+(Strict 3.1, where the script never links). Reported counters (as for
+cloak): `gates_built` (most standing at once), `gate_dials`, `gate_sent`,
+`gate_carried`, `gate_failed`, and why gates were not offered
+(`gate_eval_*`) or trips not counted (`gate_front_*`).
+
+Talon's gate builders are its commander and its advanced constructors, so
+a pair needs tech 2 and is a late-game investment.
+
+### 14.3 Results (A7a strength check, 2026-10-17)
+
+Talon (the package revision 5, every faction package mounted) against ARM
+and against CORE, painted desert, ashap plateau, comet catcher and great
+divide, seeds 1–2, both slot orders, random starts, 30-minute games, hard:
+the new brain on both sides against `cloak=0,gates=0` on both sides, 64
+games (`ai-arena tournament`, two processes).
+
+| matchup | Talon's points share, new | old | games that differ (of 16) |
+|---|---|---|---|
+| Talon vs ARM | 34.4% | 40.6% | 2, both draws that had been wins |
+| Talon vs CORE | 43.8% | 46.9% | 1, a points loss that had been a draw |
+
+Neither difference is significant (t90 over four map means spans about
+±35 points). Talon built a full pair in 4 of 32 games, dialed it in all 4,
+sent 64 units through and 28 were carried; one pair was never used. Cloak
+was requested in 6 of Talon's 32 games, 4 of ARM's 16 and 3 of CORE's 16.
+
+**Cost.** The gate's authored script scans the whole unit-ID range every
+0.6–0.7 s, and its exit routine scans it again for every other gate it
+finds, so standing gates cost the simulation more than linearly in their
+number. Talon on comet catcher with script brains and no army: 0.5 ms a
+tick with no gate, 3.0 ms with one, 9.9 ms with two and 33.7 ms with four
+(a loaded host). Arena games with a pair took 160–230 s of wall time
+against 30–70 s without, at 2.9–4.3 ms a tick against about 0.7.
+
+
+## 15. Play review (`play`, 2026-10-18)
+
+The faction add-ons (DESIGN_MODS_MUTATORS §5.8) asked whether the brain
+plays a side *well*, not only whether it can build its units. A traced
+arena match logs every unit finished and every finished unit lost with its
+class and value; `tools/ai-review` turns a game's result and trace into a
+text report (build order, income, stock and stalls by minute, army and
+defence by kind, idle builders and factories, squads and tasks from the
+brain's own explanation, fights, losses, the commander, the unbuilt
+roster), and `tools/ai-review-summary` compares the sides over a round. An
+LLM read the reports against a checklist of reasonable play — power before
+a stall, a factory early, an economy that grows, a sensible mix, defence in
+proportion, grouped attacks, a safe commander — with ARM against CORE as
+the reference for what this brain does with the stock sides.
+
+**Rounds.** Round 1: 40 full-length games at hard, The Lost Legacy and
+Rhyoss against ARM and CORE on 8 maps at ×0.5, ×1 and ×2 income, plus 8
+ARM-against-CORE references. Round 2: the same seeds plus 16 medium
+games. The reviews found symptoms well; their remedies were kept only when
+they won mirror games, and two that read well game by game lost theirs.
+
+**Latent bugs fixed, for every side:**
+- Water-only fire counted as ground fire, so a shore torpedo launcher was
+  bought as ground defence on land maps (model.go, defense_plan.go).
+- Enemy memory kept a mobile nanoframe at full strength: one bomber frame
+  read as an air force (aikit host.go).
+- The constructor floor acted at full ambition only, so a medium computer
+  could build with its commander alone (econ_growth.go).
+
+**Mirror results.** The same side against itself, the change on one
+player only, both slot orders, sides ARM, CORE, The Lost Legacy and Rhyoss
+in equal parts; the variant's points share with its 90% interval, 32
+games each:
+
+| Change | Result | Kept |
+|---|---|---|
+| Growth rules on (`growth=31`) | 45% ±10 | No |
+| First constructor ahead of combat units everywhere | 44% ±14 | No (removed) |
+| Extractors priced on income, not on the store | 20% ±12 | No (removed) |
+| First constructor ahead of combat units at a shipyard or air plant | 59% ±14 | Yes, part 2 |
+| Extractor waits for energy while the energy store is below half | 61% ±14 hard, 50% ±15 medium; opening stalls about halved | Yes, part 4 |
+| A factory whose army cannot reach the enemy is not the land constructor source while a land or hover factory that reaches is on offer | 56% ±14 | Yes, part 1 |
+| Launch value's army curve scaled by our income | 53% ±15 | No (part 8, off) |
+| Factories follow banked income (`army=23`) | 52% ±15 | No |
+
+`play` defaults to 7 (parts 1, 2 and 4); `play=0` is the brain before the
+review. Part 1 first counted an air plant as the factory that reaches; on
+Sail Away the commander chose one again and again, could never place it,
+and was left the only land builder, so air plants no longer count.
+
+**Left as found:** missile towers as the default tower (human data);
+clearing rocks and wrecks scores like an extractor because reclaim is
+income; The Pass stalemates (armies jam in the pass); a land factory chosen
+before the enemy start is known (reach averages over the possible starts);
+Argon's first factory about half a minute after ARM's (bigger footprints, a
+slower commander).
+
+**Open, general to every side:** armies that trickle or never push;
+anti-air counted over the whole army rather than near the base; constructors
+lost to raids not replaced at medium.

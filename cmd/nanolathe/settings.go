@@ -75,6 +75,7 @@ func (g *gameShell) applySettings(s settings.Settings) {
 	g.setGameplay(startupGameplay(g.opts, s.Gameplay))
 	g.gameplayFeatures = s.GameplayFeatures
 	g.modSetting, g.mutatorSetting = s.Mod, s.Mutators
+	g.addonSetting = s.Addons
 	// The unit restrictions are the running content's layer's, resolved
 	// against that content: entries it cannot take are left out of its
 	// battles with a notice and kept in the file
@@ -243,6 +244,7 @@ func (g *gameShell) liveSettings() settings.Settings {
 		// (DESIGN_MODS_MUTATORS §4.3).
 		ContentProfile:   g.baseSettings.ContentProfile,
 		Mod:              g.modSetting,
+		Addons:           g.addonSetting,
 		Mutators:         g.mutatorSetting,
 		Restrictions:     g.restrictions.saved,
 		ModernAI:         g.modernAISetting,

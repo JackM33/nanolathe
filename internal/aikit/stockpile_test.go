@@ -30,7 +30,7 @@ func TestStockpileRolesUseAuthoredWeapons(t *testing.T) {
 				weapon.RestoreActiveByte(0)
 			}
 			def := &content.UnitDef{UnitName: tc.name, Weapon2Def: weapon, BMCode: 1, CanMove: true, MaxVelocity: 3 << 16}
-			got := summarize(tc.name, def)
+			got := summarize(tc.name, def, def.Commander)
 			if got.Role&(RoleStockpile|RoleInterceptor) != tc.want {
 				t.Fatalf("roles %b, want %b", got.Role, tc.want)
 			}
@@ -44,7 +44,7 @@ func TestStockpileRolesUseAuthoredWeapons(t *testing.T) {
 	}
 	// A conventional second weapon retains its own ordinary combat role.
 	d := &content.UnitDef{Weapon1Def: &content.WeaponDef{ID: 1, Stockpile: true, DamageDefault: 1000}, Weapon2Def: &content.WeaponDef{ID: 2, DamageDefault: 20, ReloadTime: 30, Range: 400}}
-	if got := summarize("mixed", d); got.DPS != 20 || got.Range != 400 || !got.Role.Has(RoleDefense|RoleStockpile) {
+	if got := summarize("mixed", d, d.Commander); got.DPS != 20 || got.Range != 400 || !got.Role.Has(RoleDefense|RoleStockpile) {
 		t.Fatalf("mixed carrier %+v", got)
 	}
 }

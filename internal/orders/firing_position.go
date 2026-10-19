@@ -11,9 +11,14 @@ const firingPositionRetryTicks uint32 = 30
 const firingPositionTravelTicks uint32 = 180
 
 type firingPositionState struct {
-	node                 *Node
-	owner, target        *units.Unit
-	active               bool
+	node          *Node
+	owner, target *units.Unit
+	active        bool
+	// exhausted records that the search for this node and target found no
+	// clear candidate. Until nextAttempt Modern combat may fire into a
+	// destructible feature instead (DESIGN_WEAPONS_PROJECTILES §2.3.2
+	// "No room").
+	exhausted            bool
 	nextAttempt, started uint32
 }
 
@@ -155,7 +160,32 @@ func (*ModernRules) StepFiringPosition(u *units.Unit, tick uint32) bool {
 			return true
 		}
 	}
+	f.exhausted = true
 	return false
+}
+
+// NoFiringPosition projects the search's answer through the unit's opaque
+// queue link: whether u has no clear place to step to for its shot at target.
+// Modern combat then fires into a destructible feature instead of waiting
+// (DESIGN_WEAPONS_PROJECTILES §2.3.2 "No room"). A unit that may not move for
+// the shot has none: an explicit stationary attack, or its own fire under
+// Hold Position. Otherwise only a search that found no candidate answers yes,
+// until its retry is due, so the next search still looks for room. It is
+// read-only.
+func (q *Queue) NoFiringPosition(u, target *units.Unit, tick uint32) bool {
+	if q == nil || u == nil || target == nil {
+		return false
+	}
+	n := q.Head()
+	automatic := n != nil && (n.automaticAttack || q.danger.response == n)
+	if n != nil && !automatic && n.ID == Lookup("Attack_NoMove") && n.Owner == u.Handle && n.Target == target.Handle {
+		return true
+	}
+	if u.Flags>>stanceMoveShift&stanceFieldMask == 0 && (n == nil || automatic) {
+		return true
+	}
+	f := &q.firingPosition
+	return f.exhausted && !f.active && f.node != nil && f.node == n && f.owner == u && f.target == target && int32(tick-f.nextAttempt) < 0
 }
 
 // A stationary danger response has no chase parameter leash. Its existing

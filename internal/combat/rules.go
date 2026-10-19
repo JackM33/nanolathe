@@ -195,6 +195,9 @@ type ShotQuery struct {
 
 	// Obstruction preview scratch shares this query's nested-attempt lifetime.
 	obstructionPreview Projectile
+	// passFeatures lets the obstruction sweep cross destructible features, for
+	// the "No room" clause of DESIGN_WEAPONS_PROJECTILES §2.3.2.
+	passFeatures bool
 }
 
 // StrictRules is the retail rule set: every question answers as the executable

@@ -86,10 +86,39 @@ func CompileBuildMenus(fs vfs.FSOps) (map[string]*BuildMenuPage, error) {
 	if err != nil {
 		return nil, formats.WithTDFContext(fs, err, "gamedata/sidedata.tdf")
 	}
-	canbuild := doc.Root.Section("CANBUILD")
 	pages := make(map[string]*BuildMenuPage)
+	compileCanBuild(doc.Root.Section("CANBUILD"), prov, pages)
+	// Faction declarations add their own builders' pages beside the base
+	// game's (docs/DESIGN_MODS_MUTATORS.md §5.8).
+	factions, err := DiscoverFactions(fs)
+	if err != nil {
+		return nil, err
+	}
+	for _, f := range factions {
+		fdoc, fprov, ok, err := factionFragment(fs, f, factionSides, 1<<20)
+		if err != nil {
+			return nil, err
+		}
+		if !ok {
+			continue
+		}
+		own := make(map[string]*BuildMenuPage)
+		compileCanBuild(fdoc.Root.Section("CANBUILD"), fprov, own)
+		for _, key := range sortedBuildMenuKeys(own) {
+			if prior, exists := pages[key]; exists {
+				return nil, factionDuplicate("build menu", own[key].Builder, fprov.LogicalPath, prior.Provenance)
+			}
+			pages[key] = own[key]
+		}
+	}
+	return pages, nil
+}
+
+// compileCanBuild compiles the builder pages of one [CANBUILD] section into
+// pages; a nil section adds none.
+func compileCanBuild(canbuild *formats.Section, prov Provenance, pages map[string]*BuildMenuPage) {
 	if canbuild == nil {
-		return pages, nil
+		return
 	}
 	for _, builder := range canbuild.Sections() {
 		name := trimTDFSemantic(builder.OriginalName)
@@ -120,7 +149,6 @@ func CompileBuildMenus(fs vfs.FSOps) (map[string]*BuildMenuPage, error) {
 		hashBuildMenu(page)
 		pages[page.CanonicalKey] = page
 	}
-	return pages, nil
 }
 
 func hashBuildMenu(page *BuildMenuPage) {

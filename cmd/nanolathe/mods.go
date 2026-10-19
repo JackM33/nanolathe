@@ -479,6 +479,9 @@ type contentReloadRequest struct {
 	mod      settings.ModSelection // the saved choice the switch writes
 	mutators content.Mutators
 	gameplay gameplay.Mode // the gameplay selection raised to the mod's minimum, "" to keep it
+	// addons, when set, is the add-on selection to mount and save; nil
+	// keeps the running one (§5.7).
+	addons *[]settings.AddonSelection
 	// loadSave is a save to load once the new content is bound: a game saved
 	// under another mod switches to it first (§7.3 step 2).
 	loadSave string
@@ -550,6 +553,9 @@ func (h *shellHost) reload(request contentReloadRequest, cl *client.Client) {
 	}
 	opts := old.opts
 	opts.Roots, opts.Mod, opts.ModSet, opts.modBaseRoots = old.cs.baseRoots, request.selector, true, true
+	if request.addons != nil {
+		opts.Addons, opts.AddonsSet = append([]settings.AddonSelection{}, (*request.addons)...), true
+	}
 	if len(opts.Roots) > 0 {
 		opts.Root = opts.Roots[0]
 	}
@@ -585,6 +591,9 @@ func (h *shellHost) reload(request contentReloadRequest, cl *client.Client) {
 	// polls through the host from the next update.
 	shell.fullscreen, shell.windowSize, shell.fpsVisible = old.fullscreen, old.windowSize, old.fpsVisible
 	shell.modSetting = request.mod
+	if request.addons != nil {
+		shell.addonSetting = settings.NormalizeAddons(*request.addons)
+	}
 	shell.opts.Mutators, shell.mutatorSetting = request.mutators, request.mutators.Map()
 	if request.gameplay != "" {
 		shell.setGameplay(request.gameplay)

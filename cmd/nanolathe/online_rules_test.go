@@ -107,7 +107,7 @@ func TestOnlineRulesResolveTheCommunityTablePerMode(t *testing.T) {
 		}
 		return base.Request()
 	}
-	modern := compose(session.ModernRuleSetName, onlineCreationFrozen(cs, [2]uint32{1, 2}, content.Mutators{}, content.Restrictions{}, nil))
+	modern := compose(session.ModernRuleSetName, onlineCreationFrozen(cs, [2]uint32{1, 2}, content.Mutators{}, content.Restrictions{}, nil, nil))
 	if modern.Community.UnitLimit != limit || modern.UnitLimit != uint16(limit) {
 		t.Fatalf("Modern table limit %d, configuration limit %d, want the content's %d", modern.Community.UnitLimit, modern.UnitLimit, limit)
 	}

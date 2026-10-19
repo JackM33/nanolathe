@@ -38,6 +38,13 @@ import (
 //     internal/session's own rehearsal tests compute with a stand-in for the
 //     Modern AI.
 //
+// The Modern AI work from the faction add-ons moves the run digest: the
+// production breadth parts (utility README §13.16), the cloak switch
+// (§14.1), and the play review's changes (§15): the constructor floor at
+// every ambition, water-only fire left out of ground defence, enemy memory
+// without mobile nanoframes, and the play parameter's parts. The rehearsal
+// does not move.
+//
 // HOW TO UPDATE. A change to the Modern AI's decisions, to a Modern rule or to
 // anything else this battle reaches moves these values; take the reported
 // ones and say in the commit message which behaviour changed and why. A value
@@ -45,7 +52,7 @@ import (
 // build is a lockstep defect, never a reason to update.
 const (
 	lockModernAITicks     = onlineModernSpan
-	lockModernAIRun       = "59c7ecbbcdcab276158a6aeb77674e292ca573ba40621d2872465d56676e8a95"
+	lockModernAIRun       = "bf19958f529eb5763a8af42237d54f032827929a74dd3f23b5844b5049b7f872"
 	lockModernAIRehearsal = "15b9dfe98d242faf6a8811e701d35b1d1478a78a284f51f7d6ad7d565edc2dbc"
 )
 

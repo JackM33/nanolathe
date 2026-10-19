@@ -748,11 +748,15 @@ node, preserving its target, anchor and successors. While that movement is
 active the helper suspends only primary dispatch; secondary orders continue.
 Arrival, movement failure or a 180-tick timeout returns control to the attack
 handler. No candidate or a failed attempt waits 30 ticks before another local
-search. These distances and deadlines are Modern tuning, not retail constants.
+search. A search that finds no candidate also records that the unit has no
+room for this attack and target until that retry. Combat reads the answer
+through the queue's opaque link and may then fire into a destructible feature
+(DESIGN_WEAPONS_PROJECTILES §2.3.2 "No room"). An explicit stationary attack,
+and automatic fire under Hold Position, have no room without a search. These distances and deadlines are Modern tuning, not retail constants.
 An enclosed unit may still wait when no reachable clear position exists; this
 is a bounded local search, not a promise of a global flanking route.
 
-Queue state owns the temporary goal and retry state. Cleanup destroys only
+Queue state owns the temporary goal, retry and no-room state. Cleanup destroys only
 that node's movement payload; replacing the head must never unbind its
 successor. Switching away from Modern removes a live helper goal and resumes
 the ordinary attack. Save projection writes an active helper as an ordinary

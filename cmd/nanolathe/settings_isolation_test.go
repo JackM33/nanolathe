@@ -20,7 +20,11 @@ func TestMain(m *testing.M) {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
-	for name, value := range map[string]string{settings.EnvPath: filepath.Join(dir, "settings.json"), "XDG_DATA_HOME": filepath.Join(dir, "data")} {
+	// An online room on an install with *.UFO archives asks the add-on
+	// catalogue to name them (online_addons.go); a test never reaches the
+	// network, so the catalogue is a loopback address nothing serves unless
+	// the test sets its own.
+	for name, value := range map[string]string{settings.EnvPath: filepath.Join(dir, "settings.json"), "XDG_DATA_HOME": filepath.Join(dir, "data"), "NANOLATHE_ADDON_CATALOG": "http://127.0.0.1:9/addons/manifest.json"} {
 		if err := os.Setenv(name, value); err != nil {
 			os.RemoveAll(dir)
 			fmt.Fprintln(os.Stderr, err)

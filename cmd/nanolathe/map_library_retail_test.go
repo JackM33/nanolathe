@@ -81,7 +81,9 @@ func TestMapCatalogueDownloadSelectAndOffline(t *testing.T) {
 	archive := func(name string, b []byte) modfetch.Archive {
 		return modfetch.Archive{URL: "/" + name, Size: int64(len(b)), SHA256: fmt.Sprintf("%x", sha256.Sum256(b))}
 	}
-	entry := modfetch.Entry{ID: "fixture-islands", Name: "Fixture Islands", Version: "1", Map: "maps/Fixture Islands.ota", Requires: []string{"map-trees"}, Summary: "An authored community map fixture.", Archive: archive("islands.zip", terrain)}
+	entry := modfetch.Entry{ID: "fixture-islands", Name: "Fixture Islands", Version: "1", Map: "maps/Fixture Islands.ota", Requires: []string{"map-trees"}, Summary: "An authored community map fixture.", Archive: archive("islands.zip", terrain),
+		Author: "Fixture Author", Players: 4, SizeMap: "16x16", Year: 2001, Kind: "green",
+		Legend: []modfetch.LegendEntry{{Color: "#ffdc00", Label: "metal"}, {Color: "#40c840", Label: "reclaim"}}}
 	var preview bytes.Buffer
 	previewImage := image.NewRGBA(image.Rect(0, 0, 32, 24))
 	for y := 0; y < 24; y++ {

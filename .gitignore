@@ -12,6 +12,8 @@ HANDOFF*
 # Obsolete model-authoring workspace and local tool binaries.
 /remastered/
 /remaster
+/factionpack
+/ai-arena
 
 # headless -report f output when run from the repo root
 /f
@@ -35,3 +37,4 @@ __pycache__/
 # Build outputs: tools/build.cmd and the static browser distribution
 # (which may contain local demo content).
 /build/
+/map-previews

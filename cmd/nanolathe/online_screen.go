@@ -39,6 +39,7 @@ const (
 	onlineDescribing             // join: reading the room's configuration
 	onlineConnecting             // opening the room
 	onlineInLobby
+	onlineFetching // join: downloading the room's mod (§16.8, Q14)
 )
 
 // onlineView is which popup of the entry is showing.
@@ -62,6 +63,8 @@ type onlineScreen struct {
 	phase          onlinePhase
 	status, detail string
 	job            *onlineJob
+	// modFetch is the room's mod downloading for a join, nil otherwise.
+	modFetch *onlineModFetch
 	// name is the player's display name, "" for none: the settings key
 	// `nickname`, read when the screen opens and written when the player
 	// changes it (settings.StoreNickname).
@@ -157,6 +160,8 @@ func onlineRefusalText(err error) string {
 		return "Online games need a mod installed from its archive, which identifies it to the other players. Reinstall this mod from its zip."
 	case has("logical path mounted content,"):
 		return "Online games need the base game or an installed mod. Restart without extra --root or --mod-config content."
+	case has("logical path online map,"):
+		return "That map comes from loose files in your Total Annihilation folder, which online games do not use. Choose another map."
 	case errors.As(err, &restricted):
 		return "The unit restrictions cannot be applied: " + onlineRestrictionIssues(restricted) + "."
 	case has("logical path relay address,"), has("logical path relay URL,"), has("logical path WebSocket transport,"), has("logical path plaintext relay,"):
@@ -593,6 +598,7 @@ func (g *gameShell) activateOnlineScreenGadget(name string) bool {
 			g.startOnlineJoin()
 		case "PREV":
 			s.cancelJob()
+			s.cancelOnlineModFetch()
 			s.phase, s.status = onlineIdle, ""
 			g.showOnlineViewReporting(onlineChooser)
 		}

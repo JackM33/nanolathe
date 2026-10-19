@@ -35,7 +35,7 @@ and the retail save bank
 
 ## 1. Purpose and boundary
 
-Four features share one idea — the **match selection** (§3), the complete
+Five features share one idea — the **match selection** (§3), the complete
 set of choices that decides what a battle is:
 
 1. **The mod library.** Mods live in a Nanolathe data directory, one extracted
@@ -53,10 +53,13 @@ set of choices that decides what a battle is:
    a unit from the battle, or cap how many of it each player may have —
    applied to the per-battle catalog clone of a skirmish or Survival battle
    and fixed for that battle.
+5. **Official add-ons** (§5.7). Cavedog's bonus units, hosted by Nanolathe
+   and mounted with the base game as if they were in its folder, so a
+   player can enable them and still select any mod.
 
-**Out of scope.** Multiplayer and lobby handshakes (the match selection is
-designed to be the future handshake, not implemented as one). Stacked or
-layered mods (D6). Per-player mutators and handicaps (D7). Running anything a
+**Out of scope.** Multiplayer and lobby handshakes, which DESIGN_MULTIPLAYER
+owns. Stacked or layered mods (D6); an official add-on is base content, not
+a second mod. Per-player mutators and handicaps (D7). Running anything a
 mod ships other than authored data and COB bytecode in Nanolathe's own VM.
 Rule-level variations that data cannot express; those are Community
 feature-table parameters under DESIGN_COMMUNITY_PATCH and remain ignored by
@@ -76,7 +79,7 @@ To keep the two apart, code for this feature never uses the bare identifier
 | D2 | Every save gets a sidecar recording the mod, content profile, rule set, Community table, unit limit and mutators active when it was written. Loading the save restores that selection, including switching mod. The loading screen shows it. |
 | D3 | Redistribution permission is assumed. Nanolathe hosts the manifest **and** every download, so availability does not depend on the original sites and the hosted zips can be cleaned (§5.5). The manifest is on nanolathe.gg; the zips are assets of one GitHub release (`mods`) on the website repository, so the site's history does not carry them (revised 2026-09-23). |
 | D4 | Trust is HTTPS to nanolathe.gg. Manifest signatures are a follow-up, not a v1 requirement (§5.4). |
-| D5 | The client may use the network to fetch mod and community-map catalogues and their downloads (maps authorized 2026-10-05, §5.6) and, since DESIGN_MULTIPLAYER was adopted (2026-10-01, its §15 Q1), to connect to a multiplayer relay — and for nothing else. |
+| D5 | The client may use the network to fetch the mod, community-map and official add-on catalogues and their downloads (maps authorized 2026-10-05, §5.6; add-ons 2026-10-16, §5.7), including the downloads an online room needs, which joining fetches without asking (DESIGN_MULTIPLAYER §16.8, Q34), and, since DESIGN_MULTIPLAYER was adopted (2026-10-01, its §15 Q1), to connect to a multiplayer relay — and for nothing else. |
 | D6 | One zip per mod version, containing the complete content root. No layers. |
 | D7 | Mutators are global: every player, human and computer, plays the same catalog. |
 | D8 | Gameplay mode and renderer stay orthogonal to the mod. A mod may declare a minimum gameplay mode, which the selector enforces visibly; nothing switches silently. |
@@ -92,6 +95,9 @@ To keep the two apart, code for this feature never uses the bare identifier
 | D17 | (2026-10-05) Retail restrictions, every mode: retail's multiplayer unit-restriction rules are implemented once and offered in skirmish and Survival beside the mutators, in every gameplay mode, Strict 3.1 included, edited in the unit viewer; the multiplayer lobby reuses them later. Strict 3.1 with no restrictions remains the retail baseline and every fingerprint lock runs with none (§15). |
 | D18 | (2026-10-05) In Survival everyone obeys the restrictions, the wave attacker included, as retail binds computer players exactly as it binds humans (§15.6). |
 | D19 | (2026-10-05) Classic computer players keep retail's behaviour — a capped product stalls with the allocator's 300-tick retry — while the Modern AI does not choose a unit once it has reached that unit's cap (§15.7). |
+| D20 | (2026-10-16) Nanolathe hosts Cavedog's official bonus units and maps. The units are an add-on the player enables apart from the mod slot, so any mod can still be selected beside them; the maps join the community map catalogue (§5.7). |
+| D21 | (2026-10-16) Third-party factions are add-ons the player enables in any combination beside ARM and CORE, each independent of the others and of the mod slot, never replacing another's content or identities (§5.8). |
+| D22 | (2026-10-18) Nanolathe hosts Switeck's TA Bugfix 1.7b6 as the fix add-on `switecks-bugfix`, listed under the add-on catalogue's `fixes` key. A fix add-on replaces the base patch archive and mounts after the content add-ons and before faction add-ons; it may repair the Cavedog content it replaces (§5.7). |
 
 D9–D13 were proposed in review and accepted with the rest of the design
 direction. D14 is the maintainer's layout for the screen. D13's offer was
@@ -99,7 +105,8 @@ extended on 2026-09-24: a mod that starts by any other route is offered its
 preset once on the main menu, and the preset became the mod's full recommended
 settings (§4.3). D15 supersedes D12's content profile: a mod's config is its
 own, so no preference can apply one mod's table to another. D17–D19 are the
-user's decisions for unit restrictions, recorded in §15.
+user's decisions for unit restrictions, recorded in §15. D22 is the user's
+decision to host the fix add-on, recorded in §5.7.
 
 ## 3. The match selection
 
@@ -112,6 +119,7 @@ user's decisions for unit restrictions, recorded in §15.
 | Unit limit | settings `unitLimit`, `--unit-limit` | battle entry | sidecar |
 | Mutators | Mods & Mutators screen, `--mutator`, settings `mutators` | battle entry, for the whole battle | sidecar, catalog hash, reports |
 | Unit restrictions (skirmish and Survival only) | the unit viewer's editor and the Nanolathe screen card, `--restrict`, settings `restrictions` per mod (§15.9) | battle entry, for the whole battle | sidecar, catalog hash, reports (§15.5) |
+| Official add-ons (id, version, archive SHA-256) | Mods & Mutators screen, `--addon`, settings `addons` (§5.7) | process start (mount) | sidecar |
 
 Renderer, audio, display and other host preferences are not part of the
 selection and are never recorded.
@@ -200,10 +208,11 @@ diagnostic, so a misspelling is reported rather than ignored.
   (DESIGN_INTERFACE_HUD_INPUT §3.3 "Build page lock"; every explicit player choice, including Free flow,
   overrides it; omitted player preferences inherit the recommendation). `detect` selects nothing: the install check (§5.3
   step 4) refuses a package whose content lacks a directory it names, so a
-  config paired with other content is caught. Omitted, the mod is
-  retail-shaped. The section is kept apart from `rules` in code
-  (`profiles.Profile`), because load-time content facts are not gameplay
-  selection.
+  config paired with other content is caught. `addons`, true when omitted,
+  set to `false` keeps every official add-on (§5.7) unmounted while the mod
+  runs. Omitted, the mod is retail-shaped. The section is kept apart from
+  `rules` in code (`profiles.Profile`), because load-time content facts are
+  not gameplay selection.
 - **`rules`** are gameplay declarations. `minimumGameplay` and `gameplay`
   are reserved words only — a mod chooses Strict 3.1, Community 3.9 or
   Modern as a whole — and the recommendation is never below the minimum.
@@ -643,10 +652,13 @@ release). Add `minimumEngine` once releases are stamped.
 ### 5.2 When the client talks to the network
 
 - For mods, only when the player opens the *Get more mods* dialog (§8.2) or
-  starts a download. Never at start-up, never in battle, never in the
-  displayless command (D5). A multiplayer relay connection is the one other
-  use of the network and belongs to DESIGN_MULTIPLAYER §12; nothing of it is
-  implemented yet.
+  starts a download; for maps, the *More maps* dialog; for official add-ons,
+  when the Nanolathe screen first shows its *Add-ons* card. Never at
+  start-up, never in battle, never in the displayless command (D5). An online
+  room is the other use: its relay connection (DESIGN_MULTIPLAYER §16.5), and
+  the catalogue reads and downloads its room content needs — a host naming
+  add-on copies in its folder, a seat fetching the room's mod, add-ons or map
+  package (DESIGN_MULTIPLAYER §16.8).
 - The manifest only from `https://nanolathe.gg`. An archive from the same
   origin, where a redirect to another origin is refused, or from a
   `nanolathe-gg` GitHub release asset (§5.1). GitHub answers a release asset
@@ -785,7 +797,8 @@ User-authorized 2026-10-05. The map picker offers **More maps** above the minima
 preview to browse and install curated community maps individually. The download
 list sorts by map name alphanumerically, ignoring capitalization, for both live
 and cached catalogues. Retail maps are supplied by
-the player's install and do not appear in the hosted collection. This is
+the player's install and do not appear in the hosted collection, except
+Cavedog's bonus maps, which many installs lack (§5.7). This is
 host content management in every gameplay mode, not a gameplay rule or a mod
 selection. Installing a map does not change the selected mod, rules, settings
 or mutators.
@@ -802,6 +815,24 @@ Map catalogue development uses `NANOLATHE_MAP_CATALOG` under the same origin
 rules as the mod override. The shared `modfetch.Client` fetches, caches and
 verifies both catalogues; a separate cache directory keeps them independent.
 
+**Optional presentation metadata (user-authorized 2026-10-17).** A map record
+may also carry `author`, `players`, `sizemap`, `year`, `kind` and `ai`. They
+label the browser — the author credit, the player count, the map dimensions and
+year, a short world-kind word (a tileset family such as `space` or `metal`) and
+an authored AI-profile marker — and the browser's search, sort and filter
+controls order and select on them. They are display-only: validation, identity,
+mounts and installs ignore them, and catalogues without them (including the
+current live one) keep working unchanged.
+
+**Curated community set (user-authorized 2026-10-17).** Beyond Cavedog's bonus
+maps, the catalogue may ingest a curated subset of the community archive
+(TA Archive / the r2010 collection), hosted as `maps`-release assets like any
+other package: *we host the maps and credit the authors*, keeping each map's
+credits and homepage; the catalogue carries no takedown path. The selection is
+a reviewable recipe (priority pools: author-curated packs, ladder staples,
+classics, AI-ready maps and unusual tilesets), never a bulk crawler: entire
+archives are not mirrored.
+
 A map may also carry `preview: {url, size, sha256}`. This optional PNG uses the
 same trusted origins as map archives, is at most 1 MiB, and has positive
 dimensions no larger than 1024 × 1024. Its hash identifies a separate persistent
@@ -811,7 +842,13 @@ requests. An old response cannot replace the current picture. Verified cached
 pictures work offline. Missing or failed previews leave map downloads available.
 `tools/map-previews` exports authored TNT minimaps through the reference palette,
 using the chooser's source crop to omit padding, and adds their identities to
-the manifest. These are presentation assets, not newly generated terrain.
+the manifest. With `--annotate` it also draws the map's own features over the
+picture — indestructible metal-bearing features as the extractor's deposits
+[05 R-FEAT-01 §7] in yellow, and other placed features as reclaimable ground
+in green — and records the browser's `legend` key: a list of `{color, label}`
+entries the browser draws above the preview as a coloured dot and its name.
+The picture is still the authored minimap: annotations are presentation, not
+newly generated terrain.
 
 The installed map library is `$XDG_DATA_HOME/nanolathe/maps`, falling back
 to `~/.local/share/nanolathe/maps`. It reuses the mod library's atomic
@@ -861,9 +898,9 @@ republishes an installed id and version, or a dependency it requires, with
 other bytes, the row offers an update. The verified archives install on the
 frontend between remounts: mount without the old package, replace it through
 the library's same-version replacement, and mount the result. A failed
-replacement keeps the old package, which the final mount restores. The first release does
-not promise multiplayer map synchronization or automatic save dependency
-recovery; those remain with their owning workflows.
+replacement keeps the old package, which the final mount restores. An
+online room fetches its map's package for every seat that lacks it
+(DESIGN_MULTIPLAYER §16.8); a save does not recover a missing map package.
 
 Each map row in the ordinary picker and community catalogue exposes an **X**
 only when its winning provider belongs to a receipt-backed map package in the downloaded map library. Retail, manually
@@ -881,6 +918,439 @@ source and package identities, verifies feature dependencies and map loading,
 and publishes only inspected payloads. Package findings and unresolved
 compatibility questions belong in
 [community map packages](../research/extensions/community-map-packages.md).
+
+### 5.7 Official add-ons
+
+User-authorized 2026-10-16 (D20). After release Cavedog published bonus
+content that players installed by dropping archives into their Total
+Annihilation folder, where retail mounts every `*.UFO` at its own tier,
+below the patch and `*.CCX` archives and above the local `*.HPI` ones
+`[02 §2]`. Many installs lack it; a GOG Commander Pack install compared
+with the reference install held none of the bonus units. Nanolathe hosts the content and mounts it with the
+base game, apart from the mod slot, so a player can enable it and still
+select any mod.
+
+**What is hosted.** Two add-ons. `cavedog-bonus-units` version `original`
+holds six original archives byte for byte:
+
+| Archive | Unit | Side | Role |
+|---|---|---|---|
+| `AFark.ufo` | FARK (`armfark`) | ARM | Fast assist-repair Kbot |
+| `AFlea.ufo` | Flea (`armflea`) | ARM | Fast light scout Kbot |
+| `AScarab.ufo` | Scarab (`armscab`) | ARM | Mobile missile defence |
+| `Cormabm.ufo` | Hedgehog (`cormabm`) | CORE | Mobile missile defence |
+| `CorNecro.ufo` | Necro (`cornecro`) | CORE | Resurrection Kbot |
+| `corplas.ufo` | Immolator (`corplas`) | CORE | Plasma tower |
+
+Each archive adds its unit's definition, model, script, animations,
+build-menu entry (`download/*.tdf`) and unit picture, with the weapon,
+feature, interface and sound files it needs. The four bonus maps are community-catalogue map
+packages instead (§5.6), each holding its original archive's map files: Luschinfloggen
+(`floggen.ufo`), Mounds of Mars (`Mndsmars.ufo`), PC Games' Evad River
+Delta (`Evadrivd.ufo`) and Comet Catcher (`Cometctr.ufo`). The Core
+Contingency already supplies Comet Catcher, so an install with it sees that
+package as already in the install. `Example.ufo` is not bonus content: it
+ships with the install, beside its loose campaign files.
+
+`switecks-bugfix` version `1.7b6` (user-authorized 2026-10-18, D22) holds one
+archive, `rev31.gp3`, 3,009,142 bytes, SHA-256
+`ff05c360172c88ec02253a371c1d4c4515c75fc586de4029b55fab324ea537f3`:
+Switeck's (David Sellick's) data-only repair of the 3.1c and Core
+Contingency content, renamed from the release's `][BF17b6.ORG` exactly as its
+own installer renames it. The archive is the pack's repaired content — unit
+definitions, weapons, scripts, features, models, textures, sounds and tables,
+with its own copies of the six bonus units — and it is a **fix add-on**: its
+patch-tier archive replaces the base install's patch archive, so the fix
+mounts over the base game and the Cavedog add-ons, while faction add-ons and
+the selected mod still mount over it (§5.8). The pack's own installer lowers
+or disables the base archives it runs against; this mount leaves them in
+place, and the reference install compiles with the Core Contingency, Battle
+Tactics and bonus archives mounted below the fix.
+
+**Identity.** An add-on is named by its id, its version and its content
+digest: the SHA-256 over its archives' file names folded to lower case, their
+byte sizes and their own SHA-256s, in name order. The catalogue's contents
+list, an installed copy and byte-identical copies in the base folder all give
+the same digest, so a save, a replay or an online room names the add-on the
+same way whichever of them a machine holds.
+
+**Provenance.** The hosted archives are byte-identical to the reference
+install's copies, and the manifest records each one's size and SHA-256.
+Every unit definition carries Cavedog's 1997 copyright line, the
+Immolator's 1999. That these six are the units Cavedog released for
+download after patch 3.1 is a supported inference: published accounts
+report six units released after 3.1 and name the FARK and the Scarab among
+them. Cavedog's authorship of the four maps is unknown; a mirror of
+Cavedog's own download pages would settle both. Package preparation keeps
+any readme the archives carry and records these identities in the
+website's packaging notes.
+
+The fix archive is the release's own payload: `TA_Bugfix_v1-7b6.zip` from the
+TA Archive's preservation mirror (the ModDB copy is byte-identical, MD5
+`190c96c16904b8fe2408e910ef9ac161`) holds `][BF17b6.ORG`, byte-identical and
+renamed `rev31.gp3`. Its readme dates from September 2008 and the payload
+from 1 April 2010; the author's last finished release was 1.6, and 1.7b6 is a
+later build. The readme's Legalese grants distribution ("You may distribute
+this file in any way that is legal … I relenquish all ownership of this
+file"), and the maintainer authorized hosting on 2026-10-18 (D22); the
+Cavedog bytes it carries remain Cavedog's.
+
+**Catalogue and library.** The catalogue is
+`https://nanolathe.gg/addons/manifest.json`: schema 1, an `addons` array of
+the mod catalogue's record fields (§5.1) and a `fixes` array beside it for
+fix add-ons, each entry with a `contents`
+array naming every archive it holds with its byte size and SHA-256. A build
+without fix support ignores the key, so it never offers one.
+Archives are assets of the website repository's `addons` release, one
+`<id>-<version>.zip` per add-on holding the archives, root
+documentation and an identity-only schema-1 `nanolathe-mod.json`.
+`NANOLATHE_ADDON_CATALOG` overrides the catalogue for development under the
+mod override's origin rules. The library is `$XDG_DATA_HOME/nanolathe/addons`,
+falling back to `~/.local/share/nanolathe/addons`, with the mod library's
+atomic install, receipts, resume and hash policy (§5.1, §5.3). An add-on's
+payload is one to 32 archives at its root — `*.UFO` content archives or a
+patch-tier revision archive — each passing the container
+gate (DESIGN_CONTENT_VFS C5) and matching the catalogue's contents list by
+name, size and SHA-256, beside root documentation; anything else refuses the
+install.
+
+**Enabling.** The settings key `addons` lists the enabled `{id, version}`.
+`--addon <id>[@<version>]`, repeatable, and `--addon none` replace it for
+one run; an id without a version selects the installed one. A saved add-on
+that is no longer installed is left out with a startup notice; one `--addon`
+names fails the start, as `--mod` does. `--shot`, `--film`, `--battle-benchmark`, `--headless` and the
+displayless command never read the setting, and tests never discover the
+library, so a capture reproduces from its command line. Installing an
+add-on enables it. Enabling, disabling or installing one reloads content in
+process, as a mod switch does (§4.4). An add-on whose archives all sit
+byte-identical in the base install's folder is shown as already in the
+install, with no switch.
+
+**Layers and mounting.** An add-on's archives mount as if they sat in the
+base install's folder: a content archive joins its extension's tier, in the
+folder of its first content root, ordered among the folder's own archives of
+that tier by file name `[02 §2]` (DESIGN_CONTENT_VFS C1); a patch-tier
+revision archive (`rev*.GP3` and the like) joins the patch tier and replaces
+the folder archive of the same name, as copying the add-on's in would. The
+add-on layers mount in one order whatever the selection says: content
+add-ons, then a fix add-on, then faction add-ons, which mount one tier above
+the patch (§5.8). The selected mod still mounts last and wins every
+path it supplies, and the map library still mounts below the base install.
+On the reference GOG Commander Pack install no hosted content archive supplies a
+logical path the base game also supplies, except Comet Catcher's map, which The Core
+Contingency's archive wins from its higher tier, as retail's folder gives.
+
+Add-ons keep apart as §5.8's isolation contract says: in layer then selection
+order, a later add-on that supplies a logical path, or defines a unit or
+feature name, an earlier one also does is left off with a notice — except
+that a fix add-on may replace the content add-ons mounted before it, because
+it repairs them. A fix add-on is also exempt from the name-at-another-path
+check against the base and the mod: it repairs the base content wholesale, so
+it may keep a definition in a differently named file, as Switeck's merged
+corpse files do.
+
+**With a mod.** Add-ons mount under every mod unless the mod's config sets
+`content.addons` to `false` (§4.2). A content or faction add-on is also left
+unmounted, with
+a startup notice naming it, when the base or the mod defines one of its
+unit or feature names at another path, as §5.6 refuses differing same-name
+features; a fix add-on is not, because it repairs the base content
+wholesale. The Mods & Mutators screen says when the running mod leaves an
+add-on off.
+
+**Every gameplay mode.** An add-on is content, as it is in retail's folder,
+so it applies under Strict 3.1, Community 3.9 and Modern alike. Strict 3.1
+with no add-ons is the retail baseline, and every fingerprint lock runs
+without them.
+
+**Saves, replays and online play.** The enabled add-ons are part of the
+match selection (§3). The sidecar records the add-ons mounted from the
+library (§7.2), and a load restores exactly them through the content reload;
+one the base folder holds needs no switch, and a recorded add-on this install
+has nowhere refuses the load, naming it and where to get it. A replay plays
+with the add-ons its battle had: a single-player replay's header lists them
+(DESIGN_MULTIPLAYER §10, replay format version 2) and the Replays screen
+reloads onto them first, and an online replay's room content names them. An
+online room lists them as room content, and a seat that lacks one fetches it
+in the lobby (DESIGN_MULTIPLAYER §16.8).
+
+### 5.8 Faction add-ons
+
+User-authorized 2026-10-16 (D21). Third-party sides — Talon, Rhyoss, Mynn,
+The Lost Legacy, Argon and later ones — are add-ons a player enables beside
+ARM and CORE, in any combination: none, one or several. Each is independent
+of the others and of the mod slot. A *unit pack* is the same kind of add-on
+adding units to the sides that exist, such as the units a release added to
+ARM and CORE.
+
+**What a faction add-on is.** An ordinary add-on (§5.7): the same library,
+catalogue record, content digest, `addons` setting, `--addon` flag, Add-ons
+card, save sidecar, replay header and online room content. What makes it a
+faction is its archive's *declaration* directory, `factions/<id>/`. Nothing
+else selects it; the declaration is authored data that the catalog compiler
+reads wherever it is mounted.
+
+**The isolation contract.** These hold for every combination of enabled
+faction add-ons, so enabling one can never change another or the base game:
+
+1. *No shared paths.* A faction add-on supplies no logical path that the base
+   install, the mod or another enabled add-on also supplies. The mount checks
+   this and leaves the add-on off with a startup notice naming the path. A
+   faction therefore never replaces a base file — not `sidedata.tdf`,
+   `moveinfo.tdf`, `sound.tdf`, `logos.gaf`, a model, a texture bank or a
+   sound.
+2. *No shared names.* Every name the faction defines in a global namespace —
+   unit, feature, weapon, side, build-menu builder, movement class, sound
+   category, team logo — is new. The mount refuses an add-on whose unit or
+   feature names collide (§5.7's check); the compiler refuses any other
+   collision with a diagnostic naming both definitions, rather than letting
+   one replace the other.
+3. *Composed tables, not replaced ones.* The base game's singleton tables are
+   extended from the declaration (below). Base definitions keep their
+   positions: base sides keep ordinals 0 and 1, base sound categories keep
+   their fallback ordinals, base weapons keep their authored record slots.
+4. *Allocated weapon slots.* A faction weapon never uses its authored `id`.
+   Retail chooses a weapon's record by that id and a later section with the
+   same id replaces the earlier record whole `[02 §5 R-CONTENT-02]`; the five
+   packages above collide with base ids and with each other's. The compiler
+   gives faction weapons the slots from the first one past both the retail
+   table and every base-authored slot, in declaration then section order,
+   skipping slots whose low byte is zero (that byte is the active gate and
+   the byte saves copy).
+5. *Composed entries name the add-on's own units.* Two base tables gain
+   entries, and only for units the declaring archive defines: a base
+   weapon's damage table gains entries for those units, never replacing one,
+   and a builder's menu gains them on pages after every page it already has
+   (below). Entries from different add-ons therefore never meet, and the
+   base units' own damage and menus are unchanged.
+6. *Widened tables.* When declarations are present the weapon table grows to
+   the highest assigned slot and the unit-definition domain to the composed
+   record count, in whole category words. The widening depends only on the
+   content and the requested limits and is idempotent. The catalog reports
+   the limits it was asked for (`Catalog.Limits`) and keeps the widened ones
+   as `CompiledLimits`, so a save, a recompile or an online room that passes
+   the limits back reproduces the same catalog.
+
+**The declaration.** `factions/<id>/` holds:
+
+| File | Read as | Composition |
+|---|---|---|
+| `sidedata.tdf` (required) | `SIDE0..N` to the first gap, and `[CANBUILD]` | Sides follow the base sides, taking the next ordinals and the base `[GENERAL]` interface height; builder pages join the base pages. At most 10 sides in all, as skirmish reserves ordinal 10. A unit pack declares no side. |
+| `moveinfo.tdf` | every top-level section with a `Name` | Classes join the base classes by name. A class is a named parameter record with no slot identity, so declarations are not held to `CLASS0..CLASS31`. |
+| `sound.tdf` | every top-level section | Categories follow the base categories. |
+| `weapons.tdf` | every top-level section | Weapons take allocated slots (rule 4). |
+| `damage.tdf` | a section per base weapon, named as the weapon is; each assignment `unit=damage`, read as a `DAMAGE` entry [02 "Weapon record"] | Each entry joins that weapon's damage table at its case-insensitive place [06 R-DMG-01 §1]. The unit must be the archive's own, the weapon the base's, and the table must not name the unit already. The weapon's `Hash` stays its authored record's, as under a mutator's damage rewrite; the catalog lists the entries (`Catalog.FactionDamage`) and hashes them. |
+| `download.tdf` | sections of `UNITMENU` (a builder) and `UNITNAME` (a unit the archive defines), no `MENU` or `BUTTON` | Each declaration's products for a builder fill new pages after every page the builder already has — its authored page windows and every placement before them — six to a page in entry order, and the next declaration starts on the page after, so two add-ons never claim a button. An entry naming a builder this content lacks places nothing. The entries are no download record, so retail's first-item `downloadable` enforcement [02 R-CAT-01 §8] does not read them. |
+| `logos.gaf` | every entry, typed as the logo bank's | Team (10-frame) and other model textures beside the logo bank's, never replacing a bank name. |
+| `commongui.gaf` | every entry | The release's replacement of the shared interface support bank, layered over `anims/commongui.gaf` for the faction's own sides' interface only. |
+| `skirmish.gaf` | `SIDEx`, one frame per declared side | The skirmish menu's side button: the frames join the authored `SIDEx` after the base sides' frames, so frame n stays side n's. |
+
+Faction add-ons install like any add-on: from the catalogue with *Get*,
+or from a local package with `--install-addon <zip|dir>`, which, like
+`--install-mod`, installs without enabling; `--addon` or the Add-ons card
+enables it. The card names a faction row's sides and unit count. Faction
+archives mount one tier above the patch, after any fix add-on (§5.7
+"Layers and mounting"), so a fix never shadows one; the base install's loose
+files and the selected mod still mount above them. Besides
+§5.7's checks against the base and the mod, the mount keeps enabled add-ons
+apart from each other — in layer then selection order, a later add-on that
+supplies a path, or defines a unit or feature name, an earlier one does is
+left off with a notice, except that a fix add-on may replace the content
+add-ons mounted before it — refuses a faction add-on that supplies any path the base
+or the mod supplies, and leaves off a faction add-on whose sides would take
+the battle past 10, rather than let the compile fail. When faction add-ons
+are enabled the mount compiles the catalog with them once, and if that
+fails, leaves off, in selection order, each faction add-on the compiler
+refuses, with a notice naming its error; a broken package therefore never
+stops the start. The compile costs about 0.4 s on the reference install and
+runs only with faction add-ons enabled. `--sides <a,b>` chooses a `--map` skirmish's two sides
+by name or ordinal, for captures and trials.
+
+Declarations compose in folded `<id>` order. Units, features, models,
+scripts, unit pictures, build pages, download menus, animations, texture
+banks and sounds use their ordinary directories under names the faction
+owns. A unit belongs to a side through its `side` key, as retail's do.
+
+**Packaging.** The original faction releases are mods, not add-ons: they
+replace `sidedata.tdf`, `moveinfo.tdf`, `sound.tdf` and `logos.gaf` whole,
+four of the five ship changed copies of ARM and CORE (a bug-fix pass in
+Argon and Rhyoss, Talon's own artillery and rocket pass, small tweaks in
+The Lost Legacy), and Talon renames the retail directories. `cmd/factionpack` converts one release into an
+add-on from a recipe, `factionconfigs/<id>-<version>.json`, which pins the
+release's SHA-256, names the sides to keep and the release's directory
+layout, gives the faction its *tag*, the short prefix it owns, and may name
+units to omit. It
+mounts the base install without its `*.UFO` add-on archives, which a
+player's install may lack, and the release over those archives, as its
+authors saw it, and keeps only what the kept sides need:
+
+- the units whose `side` is a kept side, and everything they reach: weapons,
+  corpses and their successors, movement classes, sound categories, models
+  and the textures those models name, scripts, pictures, build pages and
+  download entries between kept units, animation banks and sounds named by
+  its weapons and features, and the side's interface art and fonts;
+- each reached item the release supplies byte-identically to the base
+  install is dropped and resolved from the base, except weapons and
+  features: the package always carries its own copy of each weapon its units
+  fire and each feature they leave, so a mod that changes or drops a base
+  weapon or wreck changes no faction unit (below). An item reached only
+  through an add-on archive, such as a bonus unit's wreck, is copied under
+  the tag, so a faction never depends on another add-on;
+- each carried copy of a base definition, each reached item the release
+  supplies differently — a rebalanced base weapon, a repainted base
+  texture — and each new name the faction does not own is renamed
+  `<tag>_<name>` (shortened with a hash where a format bounds its length or
+  the release already gives that name to another definition), and every
+  reference to it is rewritten. The faction owns a
+  name that starts with its tag or with one of its kept units' names; unit
+  names themselves are kept, and the mount refuses an add-on whose unit
+  names collide;
+- the `DAMAGE` values the release's weapons of base-weapon names give the
+  kept units become `damage.tdf`, as the release authored them against its
+  own version of the weapon; an entry the base's table already holds stays
+  the base's;
+- every other file — the changed ARM and CORE, the replaced singleton
+  tables, front-end art, campaigns — is left out, as are the units the
+  recipe omits and the units no player of the package can reach. A
+  faction's players start from its kept sides' commanders and a unit pack's
+  from the base builders; either then builds what the release's build lists
+  and download entries give each reached unit. Unfinished, retired and
+  computer-only units fall out this way (Argon's five unlisted units,
+  Talon's Pylon, Automaton and Requiem, TLL's `TLLSILOAI`), and a unit the
+  release hides behind a side spelling stays when a player reaches it
+  (Talon's Zenith shell, `side=aidontbuild`, which the recipe's unit sides
+  name). Talon's recipes omit the units its readme credits as made
+  for its computer players: the AI Galactic Gates (AAIGATE, CAIGATE and
+  Talon's TAIGATE), which cost 1 and make 31,337 metal and energy, and the
+  AI nukes (AAISILO, CAISILO), base-silo copies with a tenth of the build
+  time. The Modern AI uses every unit a player may build.
+
+A recipe of kind `units` converts a release into a unit pack instead: the
+units of the named unit sides that neither the base install nor its own
+add-on archives define, with no side records. The release's additions of
+those units to base builders' lists — in its `sidedata.tdf` or download
+entries — become `download.tdf` entries. Retail draws such a button only
+from `anims/<unit>_gadget.GAF` and leaves it art-less without one
+[07 R-WGT-01 §3], so for each placed product the
+release gives no such file, the converter writes one from the release's own
+entry of that name in its page banks, else from the unit's `unitpics`
+picture mapped into the game palette, else from a render of the unit's own
+model the packager supplies (`-art`, made with `--shot-model`; The Lost
+Legacy's ARMSPEED has no picture of any kind). `talon-units-1.03` holds Talon's 47
+ARM and CORE units, `the-lost-legacy-units-1.0` The Lost Legacy's 35 and
+`chaos-space-units-0.8` TA: Chaos Space's 45. They share no name, and
+`factionpack verify` checks the factions and packs together: no base
+definition changes but by rule 5, and each add-on composes the same entries
+alone as alongside the others.
+
+Names fold as the overlay folds them, ASCII letters only
+[02 §2], so a release's Latin-1 names keep their bytes (Chaos Space's
+Ketzer fires `KETZER-GAUß` from `objects3d/Ketzer-Gauß.3do`). A recipe's
+`source.root` names the folder a release sits in inside its download, as
+`Chaos Space/` does.
+
+The result is one `<id>.ufo` written by the archive writer, an identity-only
+`nanolathe-mod.json`, a `FACTION-NANOLATHE.txt` naming the recipe, the
+release's SHA-256 and every rename, and the release's own readmes the recipe
+names, as `RELEASE-<name>`, so its authors' credits travel with it. The converter never invents content: an
+authored reference that resolves nowhere stays as authored, and the support
+documents for each faction keep their recorded gaps.
+
+**With a mod.** Faction add-ons and unit packs mount under a mod as §5.7's
+add-ons do, unless the mod's config sets `content.addons` to `false`. The
+isolation contract holds against the mod as against the base game: the
+mount leaves off, with a startup notice, an add-on that supplies a path the
+mod supplies or defines a unit or feature name the mod defines, and its
+trial compile, which mounts the mod, leaves off one whose other names
+collide with the mod's. Faction weapons take slots past every slot the mod
+authored.
+
+- *Layouts.* A mod whose config renames retail directories — ProTA, TA:
+  Escalation and TA Zero all do — reads `units` from `unitsE` and so would
+  hide every file a faction keeps under `units`. A declaring add-on's
+  archives are therefore presented under the running layout's directory
+  names (`vfs.GameRoot` `ExtraLayout`): the faction's `units/x.fbi` answers
+  as `unitsE/x.fbi`, beside the mod's own units, and is read through the
+  layout like them. Other add-ons mount as §5.7 says.
+- *What the mod changes.* A faction's units fire their own weapons and
+  leave their own wrecks (Packaging), so the mod changes none of them. The
+  models, textures, scripts, sounds, animations, movement classes and sound
+  categories a faction shares with the base game resolve by name, from the
+  mod where it replaces them.
+- *Composed entries.* Damage entries join the mod's weapons of those names.
+  An entry for a weapon the mod lacks, or for a unit the mod's table already
+  names, places nothing and the table's own entry stays. A menu entry
+  naming a builder the mod lacks places nothing, as everywhere.
+
+Checked with ProTA 4.8, TA: Escalation 10.2.0 and TA Zero alpha 5: Argon,
+Rhyoss, The Lost Legacy and its unit pack all mount, and a Modern computer
+plays The Lost Legacy under each.
+
+**Catalogue.** Hosted faction add-ons and unit packs are listed under the
+add-on catalogue's `factions` key, beside `addons`, with the same record
+fields. A build without faction support ignores the key, so it never offers
+one; this build reads both lists as one, and an id and version may appear in
+only one of them. The hosted set, converted from the releases as their
+authors published them:
+
+- Argon 2.6 beta;
+- Rhyoss as TA: Chaos Space 0.8 carries it (`rhyoss` `tacs-0.8`), with Chaos
+  Space's 45 ARM and CORE units as their own pack (`chaos-space-units`);
+- The Lost Legacy 1.0, with its 35 ARM and CORE units as their own pack.
+
+Chaos Space (BlueBurst, 2005) carries Monolithic Inc.'s Rhyoss with its
+units unchanged and the BugFix 1.7 versions of the base weapons they fire.
+The `rhyoss-1.0` recipe converts the 2003 release, preserved by Core Prime,
+and is not hosted; the two share every unit name, so the mount keeps one.
+Talon and Mynn have recipes but
+are not hosted: Talon's version-6 scripts need the COB support of the
+faction-ports work, and Mynn is incomplete (it has no underwater extractor,
+no hover or amphibious units and no naval anti-air).
+
+**Every gameplay mode.** A faction add-on is content, like §5.7's, and
+applies under Strict 3.1, Community 3.9 and Modern alike. Strict 3.1 with no
+add-ons is the retail baseline; every fingerprint lock runs without them,
+and content with no declaration compiles byte-for-byte as before.
+
+**Wide definition IDs.** Unit definition IDs are positions in name order,
+and with several factions many faction units take IDs of 512 and above
+(403 of 914 with all five releases). Category selects such as Ctrl+F read
+the catalog's widened membership sets and reach them, and so does the
+CTRL_F filter digit recall may apply, which is one of those sets
+(`internal/hud` `TypeFilterPasses`). Without a filter, recall selects every
+member whatever its ID.
+
+**Balance (to do).** The factions are as their releases made them, against
+retail ARM and CORE. They are not balanced against each other or against ARM
+and CORE, and under the Modern AI they differ widely by map: Rhyoss leads on
+water-crossing maps and trails on open land. The measurement tools and
+balance patches made so far are on branch `faction-balance`, not on main.
+
+**Limits.** Factions play with retail ARM and CORE, not
+the changed copies their releases tuned against. A unit pack's units keep
+the stats their release gave them. Under Strict 3.1 a builder's list keeps
+retail's download cutoff, so ARMCSA and CORCSA offer 31 of their 32
+products with both packs; Modern offers every authored product
+([Modern authored build membership](DESIGN_ECONOMY_CONSTRUCTION.md#modern-authored-build-membership)).
+Release-specific Classic
+AI profiles are not composed; Classic computer players build faction units
+at the profile defaults. Faction campaigns are not converted. Online rooms
+carry faction add-ons as room content but have not been exercised.
+Faction-specific gaps stay with each release's own research: Talon's
+version-6 scripts need the COB support of the faction-ports work; 13 Talon
+units author `side=TALON` or `TAL1`, not their side record's `TAL`, so the
+Classic planner, which matches a product's side to its builder's, never
+chooses them.
+
+**Commanders without the flag.** Mynn's commander, RACCOM, does not author
+`Commander=1`, in the release as in the add-on; every other side's commander
+does. A player's commander is the unit its side record names, not the flag
+[08 R-TRIG-01 §3], so the Modern AI takes the role from either
+(`internal/aikit` `sideCommanders`), and the arena reports such a commander's
+start and death. Before this the Modern AI playing Mynn found no commander of
+its own, rooted its build tree at another side's commander and built no
+factory. The add-on keeps RACCOM as authored; the retail readers of the flag,
+such as unit sharing [05 R-SHARE-01], see what the release wrote.
 
 ## 6. Mutators
 
@@ -1159,7 +1629,11 @@ as absent, which would silently drop the selection it records. A battle with
 unit restrictions adds `"restrictions": {"armkrog": 0, "armpw": 20}` and is
 written as schema 2, so that a build reading only schema 1 refuses it rather
 than restoring the bank without them; every other sidecar stays schema 1
-(§15.5). `contentProfile`
+(§15.5). A battle with official add-ons adds
+`"addons": [{"id": "cavedog-bonus-units", "version": "original", "sha256": "…"}]`,
+each with its content digest (§5.7), and is written as schema 3, with or
+without restrictions, so that a build that cannot restore them refuses the
+load. `contentProfile`
 is the mounted content's report name: the running config's id, or `retail`
 for content without one. `community` records the session's Community sources and its
 battle-entry table (`Session.CommunitySources`, `Session.EntryCommunity`), so
@@ -1295,9 +1769,21 @@ in two columns, so that no list competes with another for space (D14):
 - **Mutators (right).** A summary, not the editor, so the column never grows
   with the catalogue: up to four active mutators (then *and N more*),
   *Change...* and *Reset*.
-- *Apply* writes the settings for both columns. When the mod changed it
-  reloads (§4.4), and the settings are written only once the new content is
-  bound. *Cancel* discards both.
+- **Add-ons.** On the Nanolathe screen, the Game page's *Add-ons* card
+  after *Content* ([DESIGN_INTERFACE_HUD_INPUT §3.17](DESIGN_INTERFACE_HUD_INPUT.md#317-the-nanolathe-screen)):
+  one row per official add-on the library holds or the catalogue offers
+  (§5.7). Each row has its switch; *Get* while it is not installed, with the
+  download's size and then its progress; or *Already in your install*, with
+  no switch, when the base folder holds its archives. A row whose archives
+  are at hand names their units and shows their build pictures. The card's
+  note says when the drafted mod leaves add-ons off. The card asks the
+  catalogue only when first shown (§5.2) and, with no catalogue and nothing
+  installed, says the catalogue is unavailable. The switches belong to the
+  screen's *Apply*, and a *Get* that installs switches its add-on on. The
+  Mods & Mutators window has no add-on rows.
+- *Apply* writes the settings for both columns. When the mod or the add-ons
+  changed it reloads (§4.4), and the settings are written only once the new
+  content is bound. *Cancel* discards both.
 
 The screen and both dialogs are built on the map-select window (`SELMAP`)
 read from the **base install alone**, never through the running mod's
@@ -1380,12 +1866,13 @@ leaves the line empty (DESIGN_INTERFACE_HUD_INPUT §2.6).
 |---|---|---|
 | `internal/modlibrary` | data directory layout, metadata and the mod's config (§4.2), installed listing, selection resolution (mod → root, config, minimum, preset), extraction and validation, receipts. No network. | both commands |
 | `internal/maplibrary` | separate installed-map root and map-only payload validation, reusing modlibrary extraction and receipts. No network. | desktop command |
-| `internal/modfetch` | mod and map manifest fetch and cache, downloads with resume and progress. The content-download package that imports `net/http`; multiplayer WebSocket HTTP is isolated in `internal/relay` (DESIGN_MULTIPLAYER §16.5.6). | `cmd/nanolathe` only |
+| `internal/addonlibrary` | the official add-on root, archive-only payload validation against the catalogue's contents, the installed listing, an add-on's content digest, recognizing a copy already in the base folder, and the unit and feature names an add-on defines (§5.7), reusing modlibrary extraction and receipts. No network. The desktop command mounts the add-ons through `vfs.GameRoot.Extra`. | desktop command |
+| `internal/modfetch` | mod, map and add-on manifest fetch and cache, downloads with resume and progress. The content-download package that imports `net/http`; multiplayer WebSocket HTTP is isolated in `internal/relay` (DESIGN_MULTIPLAYER §16.5.6). | `cmd/nanolathe` only |
 | `internal/content` | `Factor`, `Mutators`, `ApplyMutators`, the mutated catalog identity; `Restrictions`, `CheckRestrictions`, `ApplyRestrictions` and the restricted identity (§15.2) | session, commands |
 | `internal/save` | the sidecar type and its read/write, separate from the bank's bytes | session, commands |
 | `internal/session` | mutators, unit restrictions and recorded Community sources in battle-entry and restore requests; building the sidecar value; reports | commands |
-| `internal/settings` | the `mod`, `mutators` and mod-scoped `restrictions` keys | commands |
-| `cmd/nanolathe` | chip, screen, in-process reload, loading-screen lines, drop-to-install, `--mod`, `--mutator`, `--restrict`, the restriction card and the unit viewer's restriction editor (§15.9) | — |
+| `internal/settings` | the `mod`, `mutators`, `addons` and mod-scoped `restrictions` keys | commands |
+| `cmd/nanolathe` | chip, screen, in-process reload, loading-screen lines, drop-to-install, `--mod`, `--addon`, `--mutator`, `--restrict`, the restriction card and the unit viewer's restriction editor (§15.9) | — |
 | `cmd/nanolathe-headless` | `--mutator`, `--restrict` and `--mod` (flags only, never the settings file). `--mod` mounts an installed mod from the library as the last root with its own config, through `modlibrary`'s command-line selection; it is refused beside several `--root` flags, and the command never fetches. `--mod-config` names a config file for a manual stack or in place of the mod's own | — |
 
 **Guards.** Architecture tests: only `internal/modfetch` and the multiplayer

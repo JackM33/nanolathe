@@ -109,20 +109,90 @@ type replayPlayback struct {
 	menuHeld, menuWasPaused bool
 	// overlay is the playback overlay's host state (replay_overlay.go).
 	overlay replayOverlayState
+	// roomFS is the room content's overlay a recorded online battle was
+	// composed from (DESIGN_MULTIPLAYER §16.8), nil otherwise; release
+	// closes it once the playback is done.
+	roomFS io.Closer
+}
+
+// release closes what the playback holds beyond its session.
+func (p *replayPlayback) release() {
+	if p != nil && p.roomFS != nil {
+		_ = p.roomFS.Close()
+		p.roomFS = nil
+	}
 }
 
 // errReplayPlaybackCommand refuses a command the interface would submit in a
 // playback, which applies only the recorded ones.
 var errReplayPlaybackCommand = errors.New("nanolathe: command refused: logical path <battle>, providers searched [replay playback], expected a battle that takes orders; a replay plays its recorded commands")
 
-// replayContent is the installed content a playback composes from.
-func replayContent(cs *contentSet, progress content.Progress) replay.Content {
+// replayContent is the installed content a playback of h composes from: a
+// recorded online room's own content, mounted from this install as the room
+// named it (DESIGN_MULTIPLAYER §16.8), or cs's content otherwise. The closer,
+// when there is one, releases the room's mount after the playback.
+func replayContent(cs *contentSet, h replay.Header, progress content.Progress) (replay.Content, io.Closer, error) {
 	c := replay.Content{Progress: progress}
-	if cs != nil {
-		c.FS, c.Mod = cs.fs, matchModOf(cs.mod)
+	if cs == nil {
+		return c, nil, nil
 	}
-	return c
+	c.FS, c.Mod = cs.fs, matchModOf(cs.mod)
+	if !h.Kind.Online() && !addonsSatisfied(cs, replayAddonIdentities(h.Addons), libraryAddonsOf()) {
+		return c, nil, &replayAddonsError{recorded: h.Addons}
+	}
+	config, err := h.Configuration()
+	if err != nil || len(config.Request().RoomContent) == 0 {
+		// An undecodable configuration is replay.Compose's refusal to name.
+		return c, nil, nil
+	}
+	entries := config.Request().RoomContent
+	archives, err := baseArchives(cs)
+	if err != nil {
+		return c, nil, err
+	}
+	plan := resolveRoomContent(cs, archives, installedMapPackages(), libraryAddonsOf(), entries)
+	if len(plan.missing) > 0 {
+		return c, nil, &roomContentMissingError{missing: plan.missing}
+	}
+	mounted, view, err := roomContentFS(cs, plan)
+	if err != nil {
+		return c, nil, err
+	}
+	c.FS = view
+	return c, mounted, nil
 }
+
+// roomContentMissingError is a recorded room's content this install lacks.
+// It is an incompatible replay, named for the player.
+type roomContentMissingError struct {
+	missing []session.MatchContentEntry
+}
+
+func (e *roomContentMissingError) Error() string {
+	return fmt.Sprintf("%v: logical path <room content>, providers searched [installed content], expected %s", replay.ErrIncompatible, joinNames(roomContentNames(e.missing)))
+}
+
+func (e *roomContentMissingError) Unwrap() error { return replay.ErrIncompatible }
+
+// replayAddonsError refuses a single-player replay whose recorded official
+// add-ons the content does not mount exactly (DESIGN_MODS_MUTATORS §5.7).
+type replayAddonsError struct {
+	recorded []replay.Addon
+}
+
+func (e *replayAddonsError) Error() string {
+	names := make([]string, len(e.recorded))
+	for i, a := range e.recorded {
+		names[i] = modSelectorOf(a.ID, a.Version)
+	}
+	expected := "no official add-ons"
+	if len(names) > 0 {
+		expected = "the official add-ons " + joinNames(names) + " and no others (--addon)"
+	}
+	return fmt.Sprintf("%v: logical path <official add-ons>, providers searched [installed content], expected %s", replay.ErrIncompatible, expected)
+}
+
+func (e *replayAddonsError) Unwrap() error { return replay.ErrIncompatible }
 
 // prepareReplayPlayback reads the replay at path and composes its battle from
 // cs, prepared for its first recorded pump. It may run on a loader goroutine;
@@ -142,15 +212,25 @@ func newReplayPlayback(path string, data []byte, cs *contentSet, progress conten
 		return nil, err
 	}
 	h := r.Header()
-	sess, err := replay.Compose(h, replayContent(cs, progress))
+	c, roomFS, err := replayContent(cs, h, progress)
 	if err != nil {
 		return nil, err
+	}
+	fail := func(err error) (*replayPlayback, error) {
+		if roomFS != nil {
+			_ = roomFS.Close()
+		}
+		return nil, err
+	}
+	sess, err := replay.Compose(h, c)
+	if err != nil {
+		return fail(err)
 	}
 	player, err := replay.NewPlayer(sess, r)
 	if err != nil {
-		return nil, err
+		return fail(err)
 	}
-	p := &replayPlayback{path: path, header: h, sess: sess, player: player, speed: replayNormalSpeed}
+	p := &replayPlayback{path: path, header: h, sess: sess, player: player, speed: replayNormalSpeed, roomFS: roomFS}
 	for i, seat := range h.Seats {
 		if seat.Role != session.MatchRoleHuman {
 			continue
@@ -465,6 +545,7 @@ func (g *gameShell) enterReplayPlayback(p *replayPlayback) error {
 	g.applyDisplayMode(clPtr)
 	battle, err := composeBattleEntryDetached(sess, sess.Catalog, g.cs, g, nil)
 	if err != nil {
+		p.release()
 		return err
 	}
 	battle.attachReplayPlayback(p)

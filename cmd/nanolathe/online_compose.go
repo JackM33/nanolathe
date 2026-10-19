@@ -18,6 +18,7 @@ import (
 	"github.com/nanolathe-gg/nanolathe/internal/netproto"
 	"github.com/nanolathe-gg/nanolathe/internal/session"
 	"github.com/nanolathe-gg/nanolathe/internal/version"
+	"github.com/nanolathe-gg/nanolathe/vfs"
 )
 
 // onlineMatchSpec is everything the host freezes into a configuration beyond
@@ -120,6 +121,23 @@ func drawOnlineSeeds() (sim, crt uint32, err error) {
 // build is advisory: the rehearsal, not a stamp, shows whether two seats
 // simulate alike (DESIGN_MULTIPLAYER §16.7).
 func composeOnlineMatch(cs *contentSet, cat *content.Catalog, config session.EffectiveMatchConfig, seat uint8) (*session.Session, *content.SimulationInputs, netproto.Identity, error) {
+	if cat == nil && cs != nil {
+		var err error
+		if cat, err = cs.compileCatalog(nil); err != nil {
+			return nil, nil, netproto.Identity{}, err
+		}
+	}
+	var fs vfs.FSOps
+	if cs != nil {
+		fs = cs.fs
+	}
+	return composeOnlineMatchOn(cs, fs, cat, config, seat)
+}
+
+// composeOnlineMatchOn is composeOnlineMatch with the battle's simulation
+// read from fs: a room content's mount (§16.8), or cs's own view. A nil cat
+// is compiled from fs's capture under the configuration's limits.
+func composeOnlineMatchOn(cs *contentSet, fs vfs.FSOps, cat *content.Catalog, config session.EffectiveMatchConfig, seat uint8) (*session.Session, *content.SimulationInputs, netproto.Identity, error) {
 	var identity netproto.Identity
 	if err := onlineContentRefusal(cs); err != nil {
 		return nil, nil, identity, err
@@ -127,13 +145,7 @@ func composeOnlineMatch(cs *contentSet, cat *content.Catalog, config session.Eff
 	// An unreadable stamp still names the running toolchain, which is all
 	// an advisory build identity needs.
 	build, _ := version.CurrentBuildManifest()
-	var err error
-	if cat == nil {
-		if cat, err = cs.compileCatalog(nil); err != nil {
-			return nil, nil, identity, err
-		}
-	}
-	inputs, err := session.FreezeMatchInputs(cs.fs, cat, config, nil)
+	inputs, err := session.FreezeMatchInputs(fs, cat, config, nil)
 	if err != nil {
 		return nil, nil, identity, err
 	}

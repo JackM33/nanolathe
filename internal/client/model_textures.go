@@ -821,26 +821,67 @@ func (r *ModelTextureRegistry) buildTextureIndex() {
 			if len(entry.Frames) == 0 || entry.Frames[0].Frame == nil {
 				continue
 			}
-			ref := texRef{frame: entry.Frames[0].Frame, entry: entry, key: p + "|" + strings.ToLower(entry.Name)}
-			switch {
-			case isLogos && len(entry.Frames) == 10:
-				ref.kind = texTeam // frame n = player n, never animated
-			case len(entry.Frames) > 1:
-				ref.kind = texAnimated
-				total := 0
-				for _, fr := range entry.Frames {
-					d := int(fr.Value)
-					total += d
-					ref.cum = append(ref.cum, total)
-				}
-				ref.total = total
-			}
+			ref := bankTextureRef(entry, p+"|"+strings.ToLower(entry.Name), isLogos)
 			key := strings.ToLower(entry.Name)
 			if isLogos {
 				r.logos[key] = ref
 			} else {
 				r.primary[key] = ref
 			}
+		}
+	}
+	r.indexFactionLogos()
+}
+
+// bankTextureRef types one texture entry: in a logo bank a 10-frame entry is a team
+// texture, frame n player n's; elsewhere, and for other counts, several frames
+// animate.
+func bankTextureRef(entry *formats.GAFEntry, key string, bank bool) texRef {
+	ref := texRef{frame: entry.Frames[0].Frame, entry: entry, key: key}
+	switch {
+	case bank && len(entry.Frames) == 10:
+		ref.kind = texTeam // frame n = player n, never animated
+	case len(entry.Frames) > 1:
+		ref.kind = texAnimated
+		total := 0
+		for _, fr := range entry.Frames {
+			d := int(fr.Value)
+			total += d
+			ref.cum = append(ref.cum, total)
+		}
+		ref.total = total
+	}
+	return ref
+}
+
+// indexFactionLogos adds the logo bank a faction declaration carries in
+// factions/<id>/logos.gaf: its entries join the bank's, typed as the bank's
+// are (10 frames are a team texture), without replacing any bank name
+// (docs/DESIGN_MODS_MUTATORS.md §5.8).
+func (r *ModelTextureRegistry) indexFactionLogos() {
+	factions, err := content.DiscoverFactions(r.fs)
+	if err != nil {
+		return
+	}
+	for _, f := range factions {
+		logical := f.Dir + "/logos.gaf"
+		if _, err := r.fs.Stat(logical); err != nil {
+			continue
+		}
+		g, err := formats.LoadGAFFile(r.fs, logical)
+		if err != nil {
+			continue
+		}
+		for i := range g.Entries {
+			entry := &g.Entries[i]
+			if len(entry.Frames) == 0 || entry.Frames[0].Frame == nil {
+				continue
+			}
+			key := strings.ToLower(entry.Name)
+			if _, taken := r.logos[key]; taken {
+				continue
+			}
+			r.logos[key] = bankTextureRef(entry, logical+"|"+key, true)
 		}
 	}
 }

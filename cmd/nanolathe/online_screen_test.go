@@ -5,7 +5,11 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"encoding/json"
 	"errors"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -19,6 +23,7 @@ import (
 	"github.com/nanolathe-gg/nanolathe/internal/gui"
 	"github.com/nanolathe-gg/nanolathe/internal/input"
 	"github.com/nanolathe-gg/nanolathe/internal/lockstep"
+	"github.com/nanolathe-gg/nanolathe/internal/modfetch"
 	"github.com/nanolathe-gg/nanolathe/internal/modlibrary"
 	"github.com/nanolathe-gg/nanolathe/internal/relay"
 	"github.com/nanolathe-gg/nanolathe/internal/session"
@@ -138,7 +143,7 @@ func onlineTestCatalog() *content.Catalog {
 func onlineTestBase(t *testing.T, mapName string, mod session.MatchMod, mutators content.Mutators) session.EffectiveMatchConfig {
 	t.Helper()
 	cs := &contentSet{profile: "retail", limits: content.RetailLimits()}
-	frozen := onlineCreationFrozen(cs, [2]uint32{1, 2}, mutators, content.Restrictions{}, nil)
+	frozen := onlineCreationFrozen(cs, [2]uint32{1, 2}, mutators, content.Restrictions{}, nil, nil)
 	frozen.room.Mod = mod
 	base, err := onlineConfig(cs, onlineTestCatalog(), onlineSettings{mapName: mapName, location: 1, commanderDeath: 1}, onlinePlaceholderSeats(nil), frozen)
 	if err != nil {
@@ -482,6 +487,7 @@ func TestOnlineJoinChecksTheRoomBeforeJoining(t *testing.T) {
 	fake := &fakeOnlineRelay{}
 	useOnlineTestRelay(t, fake)
 	useOnlineSessionSeams(t, 0)
+	useOnlineTestModCatalogue(t, nil)
 	g := onlineTestShell(t)
 	g.onlineServer = "relay.example.test"
 	if err := g.openOnlineScreen(); err != nil {
@@ -522,8 +528,9 @@ func TestOnlineJoinChecksTheRoomBeforeJoining(t *testing.T) {
 	if len(fake.describes) != 1 || fake.describes[0] != "wss://relay.example.test/relay CFH234" {
 		t.Fatalf("describe calls %v", fake.describes)
 	}
-	// The room's mod is fixed: a missing one is named, nothing is joined,
-	// and the popup stays open to try another code.
+	// The room's mod is fixed: one the mod catalogue does not offer is
+	// named, nothing is joined, and the popup stays open to try another
+	// code.
 	if len(fake.opens) != 0 || pendingContentReload != nil || g.online.view != onlineCodeEntry || !strings.Contains(p.TextOf("STATUS"), "absentmod 1.0") || greyed(p, "OK") {
 		t.Fatalf("missing mod: opens %d, reload %v, status %q", len(fake.opens), pendingContentReload, p.TextOf("STATUS"))
 	}
@@ -681,5 +688,87 @@ func TestOnlineCodeFieldTakesAPastedCode(t *testing.T) {
 	}
 	if g.online.view != onlineCodeEntry || !g.online.panel.EditorCaptured() {
 		t.Fatal("pasting left the code entry")
+	}
+}
+
+// useOnlineTestModCatalogue serves a local mod catalogue offering archives,
+// keyed by entry, so a join's catalogue lookup never reaches the network.
+func useOnlineTestModCatalogue(t *testing.T, archives map[*modfetch.Entry][]byte) {
+	t.Helper()
+	var entries []modfetch.Entry
+	files := map[string][]byte{}
+	for e, data := range archives {
+		files[e.Archive.URL] = data
+		entries = append(entries, *e)
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/manifest.json" {
+			_ = json.NewEncoder(w).Encode(modfetch.Manifest{Schema: 1, Mods: entries})
+			return
+		}
+		if data, ok := files[r.URL.Path]; ok {
+			_, _ = w.Write(data)
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	t.Cleanup(server.Close)
+	t.Setenv("NANOLATHE_MOD_CATALOG", server.URL+"/manifest.json")
+}
+
+// A join whose room plays a mod this install lacks downloads it from the
+// mod catalogue without asking, verified against the room's archive digest,
+// and joins again, which mounts it through the ordinary content reload
+// (DESIGN_MULTIPLAYER §16.8, Q14).
+func TestOnlineJoinFetchesTheRoomsMod(t *testing.T) {
+	fake := &fakeOnlineRelay{}
+	useOnlineTestRelay(t, fake)
+	useOnlineSessionSeams(t, 0)
+	g := onlineTestShell(t)
+	base := t.TempDir()
+	for _, name := range []string{"gamedata/moveinfo.tdf", "gamedata/sidedata.tdf"} {
+		writeModFixtureFile(t, base, name, "// authored startup fixture\n")
+	}
+	g.cs.baseRoots = []string{base}
+	zipped, err := os.ReadFile(writeDropZip(t, modlibrary.Metadata{Schema: 1, ID: "fixture-mod", Name: "Fixture Mod", Version: "1"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	digest := sha256.Sum256(zipped)
+	entry := &modfetch.Entry{ID: "fixture-mod", Name: "Fixture Mod", Version: "1", Archive: modfetch.Archive{URL: "/fixture-mod-1.zip", Size: int64(len(zipped)), SHA256: fmt.Sprintf("%x", digest)}}
+	useOnlineTestModCatalogue(t, map[*modfetch.Entry][]byte{entry: zipped})
+	room := onlineTestBase(t, "Test Map", session.MatchMod{ID: "fixture-mod", Version: "1", Archive: digest}, content.Mutators{})
+	encoded, err := session.EncodeMatchConfig(room)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fake.describe = func(string) (relay.HostedRoomDescription, error) {
+		return relay.HostedRoomDescription{Config: encoded, Size: relay.HostedMaxSeats}, nil
+	}
+	t.Cleanup(func() { pendingContentReload = nil })
+	g.onlineServer = "relay.example.test"
+	if err := g.openOnlineScreen(); err != nil {
+		t.Fatal(err)
+	}
+	g.activateGadget("JOIN")
+	g.online.panel.SetText("ADDRESS", "cfh-234")
+	g.activateGadget("OK")
+	deadline := time.Now().Add(10 * time.Second)
+	for pendingContentReload == nil {
+		if time.Now().After(deadline) || g.online.phase == onlineIdle {
+			t.Fatalf("the join stopped: phase %d, status %q", g.online.phase, g.online.status)
+		}
+		g.pollOnline()
+		time.Sleep(time.Millisecond)
+	}
+	if pendingContentReload.selector != "fixture-mod@1" || pendingContentReload.online == nil {
+		t.Fatalf("reload %+v", pendingContentReload)
+	}
+	lib, err := openModLibrary()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if mod, ok, err := lib.Lookup("fixture-mod", "1"); err != nil || !ok || matchModOf(&mod).Archive != digest {
+		t.Fatalf("the room's mod is not installed: %+v, %v, %v", mod, ok, err)
 	}
 }

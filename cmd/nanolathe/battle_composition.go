@@ -2,6 +2,10 @@ package main
 
 import (
 	"fmt"
+	"slices"
+	"strconv"
+	"strings"
+
 	"github.com/nanolathe-gg/nanolathe/internal/survival"
 
 	"github.com/nanolathe-gg/nanolathe/internal/content"
@@ -40,7 +44,66 @@ func directMapBattleRequest(opts Options, cs *contentSet, source BattleSeedSourc
 	if err := applyCommandLineComputerAI(&cfg, opts.ComputerAI); err != nil {
 		return freshBattleRequest{}, err
 	}
+	if err := applyCommandLineSides(&cfg, cs, opts.Sides); err != nil {
+		return freshBattleRequest{}, err
+	}
 	return skirmishBattleRequest(opts, cs, cfg, headless.ScenarioDirectOTA, nil, source)
+}
+
+// applyCommandLineSides sets the --map skirmish's two rows to the --sides
+// choices, row 0 the local player's and row 1 the computer's, each a side
+// name matched as the compiler folds side names, or an ordinal, against the
+// mounted content's sides — ARM and CORE and any enabled faction add-on's
+// (docs/DESIGN_MODS_MUTATORS.md §5.8). DirectSkirmishConfig has already
+// installed the setup's one-time defaults, so an explicit ordinal, 0
+// included, is what the battle plays.
+func applyCommandLineSides(cfg *session.SkirmishConfig, cs *contentSet, choices []string) error {
+	if len(choices) == 0 {
+		return nil
+	}
+	if cs == nil || cs.fs == nil {
+		return unavailableBattleContentError()
+	}
+	sides, err := content.CompileSides(cs.fs)
+	if err != nil {
+		return fmt.Errorf("nanolathe: skirmish sides did not compile: logical path gamedata/sidedata.tdf, providers searched [sides], expected the mounted content's side table: %w", err)
+	}
+	for row, choice := range choices {
+		ordinal, ok := sideOrdinal(sides, choice)
+		if !ok {
+			return unknownSideError(sides, choice)
+		}
+		cfg.Players[row].Side = ordinal
+	}
+	return nil
+}
+
+// sideOrdinal resolves one --sides choice: a side's name, compared without
+// regard to case, else its ordinal.
+func sideOrdinal(sides []*content.SideDef, choice string) (int, bool) {
+	for i, side := range sides {
+		if side != nil && content.CanonicalKey(side.Name) != "" && content.CanonicalKey(side.Name) == content.CanonicalKey(choice) {
+			return i, true
+		}
+	}
+	if n, err := strconv.Atoi(strings.TrimSpace(choice)); err == nil && n >= 0 && n < len(sides) && sides[n] != nil {
+		return n, true
+	}
+	return 0, false
+}
+
+func unknownSideError(sides []*content.SideDef, choice string) error {
+	var files, offered []string
+	for i, side := range sides {
+		if side == nil {
+			continue
+		}
+		if file := side.Provenance.LogicalPath; file != "" && !slices.Contains(files, file) {
+			files = append(files, file)
+		}
+		offered = append(offered, fmt.Sprintf("%d %s", i, side.Name))
+	}
+	return &missingProductError{what: "skirmish side is not defined", logical: "--sides " + choice, providers: files, expected: "a side name or ordinal the mounted content defines: " + strings.Join(offered, ", ")}
 }
 
 // applyCommandLineComputerAI marks the --ai-player rows of a battle the

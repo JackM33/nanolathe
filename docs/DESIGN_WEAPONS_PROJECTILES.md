@@ -432,7 +432,8 @@ Automatic targeting may choose a clear alternative through the physical-ranking
 boundary below. Eligible mobile
 attackers also seek a nearby clear firing position through the order-owned
 [Modern firing positions](DESIGN_UNITS_ORDERS_COB.md#modern-firing-positions)
-policy. The launch gate itself never installs movement.
+policy. The launch gate itself never installs movement. A shooter with no room
+may fire into features that can be destroyed ("No room" below).
 
 **Strict baseline.** Retail admission does not inspect these intervening
 objects. Projectile contact samples only each post-motion point, ignores the
@@ -487,6 +488,35 @@ and Strict-produced attacks have no transient producer tag and retain the
 existing explicit fallback. Terrain admission, aiming, resources, projectile
 collision and damage keep their existing rules.
 
+**No room — user-authorized 2026-10-17.** A shooter with nowhere to step to
+may fire into features instead of waiting on them. It has no room when:
+- it cannot move;
+- its active attack may not reposition: an explicit stationary attack, or its
+  own fire under Hold Position;
+- or the [Modern firing positions](DESIGN_UNITS_ORDERS_COB.md#modern-firing-positions)
+  search for this attack and target found no candidate. The answer lasts until
+  that search's retry is due, so the next search still looks for room.
+
+The order queue projects the answer through the unit's existing opaque queue
+link; combat asks only for a shot the sweep has held. The held shot is then
+previewed again with destructible features passable:
+- An own or allied unit, or an indestructible feature, in any swept cell still
+  holds it.
+- The flight's first feature contact at a post-motion sample, tested as the
+  live contact ladder tests it (unit slots first, then the feature's floor plus
+  height) [06 §8.1], ends the preview. The shot fires only if a blast centred
+  there reaches that feature's area candidate within the weapon's blast radius,
+  which is what damages or ignites it [06 §9.3][06 §13.1].
+- A flight whose samples pass every feature fires.
+
+A shot that would stop in a feature it cannot damage keeps waiting. A laser or
+EMG blast (radius 4) seldom reaches a wreck's centre, so such weapons fire only
+where they pass a wreck between samples; cannons and rockets can shoot small
+wrecks down to their heaps, which no longer block. The preview ignores the
+record's last-feature-cell cache [R-DMG-01 §13], which can suppress a real
+feature contact, and it does not consider splash on units near the feature.
+Strict 3.1 and Community admission are unchanged.
+
 **Bursts.** The slot gate checks the initial trajectory even for a burst.
 Each due pellet is checked again after the ordinary muzzle refresh, using its
 inherited template velocity (including the preceding spray), and the first
@@ -529,8 +559,13 @@ in all eight directions, clear artillery arcs, guided shots at mobile targets,
 blocked/recovered firing, stockpile ammunition, RNG/resources, burst
 cancellation, manual ground/friendly targeting, intervening-friend protection
 for ordered unit attacks, automatic orders on newly friendly targets, burst
-intent after order replacement/mode changes,
-and Strict and Community bypass. Order tests lock original ground intent and
+intent after order replacement/mode changes, the "No room" clause (room,
+immobile shooters, indestructible features, friends before and behind a
+feature, a blast that falls short, samples that pass a feature),
+and Strict and Community bypass. `TestFiringPositionNoRoom` locks the
+queue's answer and its lifetime, and the retail
+`TestModernNoRoomTowerFiresPastWreck` a laser tower behind a Stumpy wreck, a
+vehicle plant's wreck and a lava spire. Order tests lock original ground intent and
 lost special-attack targets; movement tests exercise enemy-target bomber point
 conversion with a friendly blocker and a burst-capable weapon. Run the affected
 combat/session and citation checks, both repository gates and the displayless

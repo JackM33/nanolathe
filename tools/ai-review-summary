@@ -1,0 +1,125 @@
+#!/usr/bin/env python3
+"""Play-review metrics per side over a round of traced ai-arena matches.
+
+    tools/ai-review-summary ROUND_DIR [...]
+
+Each ROUND_DIR/<game>/ holds result.json and trace.json (tools/ai-review).
+Prints, per side label, the median opening milestones, extractors and
+metal income by minute, the share of the first ten minutes spent stalled,
+army and defence value, production mix and results
+(internal/aikit/brains/utility/README.md §15).
+"""
+import collections
+import glob
+import json
+import os
+import statistics
+import sys
+
+ECON = {"commander", "builder", "builder-air", "builder-naval", "factory", "assist", "extractor", "energy",
+        "metal-maker", "storage", "sensor", "other"}
+
+
+def med(v):
+    v = [x for x in v if x is not None]
+    return statistics.median(v) if v else None
+
+
+def fmt(v, unit=""):
+    if v is None:
+        return "-"
+    if unit == "min":
+        return f"{v / 1800:.1f}"
+    return f"{v:.0f}" if isinstance(v, float) else str(v)
+
+
+def at(series, tick, key):
+    best = None
+    for s in series:
+        if s["t"] <= tick:
+            best = s
+    return best[key] if best else None
+
+
+def main():
+    rows = collections.defaultdict(list)
+    for d in sys.argv[1:]:
+        for g in sorted(glob.glob(os.path.join(d, "*", "result.json"))):
+            gd = os.path.dirname(g)
+            tp = os.path.join(gd, "trace.json")
+            if not os.path.exists(tp):
+                continue
+            res = json.load(open(g))
+            tr = json.load(open(tp))
+            log = tr.get("log") or []
+            for i, p in enumerate(res["players"]):
+                srs = tr["series"][i]
+                done = [e for e in log if e["p"] == i and e["k"] == "done"]
+                lost = [e for e in log if e["p"] == i and e["k"] == "lost"]
+
+                def first(pred):
+                    for e in done:
+                        if pred(e["r"]):
+                            return e["t"]
+                    return None
+
+                early = [s for s in srs if 0 < s["t"] <= 18000]
+                estall = sum(1 for s in early if s["es"] < 50 and s["eu"] > s["ei"])
+                mstall = sum(1 for s in early if s["ms"] < 10 and s["mu"] > s["mi"])
+                end = res["ticks"]
+
+                def ext(m):
+                    if m * 1800 > end:
+                        return None
+                    return sum(1 for e in done if e["r"] == "extractor" and e["t"] <= m * 1800) - \
+                        sum(1 for e in lost if e["r"] == "extractor" and e["t"] <= m * 1800)
+
+                def inc(m):
+                    if m * 1800 > end:
+                        return None
+                    # Mean of the samples in the minute before, since a single sample jumps.
+                    v = [s["mi"] for s in srs if (m - 1) * 1800 < s["t"] <= m * 1800]
+                    return sum(v) / len(v) if v else None
+
+                mix = collections.Counter()
+                for e in done:
+                    if e["r"] not in ECON:
+                        mix[e["r"]] += e.get("v", 0)
+                tot = sum(mix.values()) or 1
+                peak_army = max((s["av"] for s in srs), default=0)
+                won = 1.0 if res["winner"] == i else (0.5 if res["winner"] < 0 else 0.0)
+                rows[p["label"]].append({
+                    "fac": first(lambda r: r == "factory"),
+                    "con": first(lambda r: r.startswith("builder")),
+                    "cbt": first(lambda r: r.startswith(("ground", "air", "naval"))),
+                    "def": first(lambda r: r.startswith("defense")),
+                    "x5": ext(5), "x10": ext(10), "x20": ext(20),
+                    "m5": inc(5), "m10": inc(10), "m15": inc(15), "m20": inc(20),
+                    "es": 100 * estall // max(1, len(early)), "ms": 100 * mstall // max(1, len(early)),
+                    "army": peak_army, "won": won, "decisive": res["reason"] == "decisive", "len": end,
+                    "mix": {k: 100 * v // tot for k, v in mix.items()},
+                    "dval10": at(srs, 18000, "ev"),
+                    "game": os.path.basename(gd),
+                })
+    hdr = "side      games  won  fac  con  cbt  def | mex5 mex10 mex20 | M/s 5   10   15   20 | Estall% Mstall% (0-10m) | peak army  len"
+    print(hdr)
+    for side in sorted(rows):
+        r = rows[side]
+        m = lambda k: med([x[k] for x in r])
+        print(f"{side:<9} {len(r):>5} {sum(x['won'] for x in r) / len(r):>4.2f} {fmt(m('fac'), 'min'):>4} {fmt(m('con'), 'min'):>4} {fmt(m('cbt'), 'min'):>4} {fmt(m('def'), 'min'):>4} |"
+              f" {fmt(m('x5')):>4} {fmt(m('x10')):>5} {fmt(m('x20')):>5} | {fmt(m('m5')):>6} {fmt(m('m10')):>4} {fmt(m('m15')):>4} {fmt(m('m20')):>4} |"
+              f" {fmt(m('es')):>7} {fmt(m('ms')):>7}           | {fmt(m('army')):>9} {fmt(m('len'), 'min'):>4}")
+    print()
+    print("Production mix by value (median share %, non-economy units):")
+    for side in sorted(rows):
+        keys = sorted({k for x in rows[side] for k in x["mix"]})
+        print(f"  {side:<8} " + ", ".join(f"{k} {med([x['mix'].get(k, 0) for x in rows[side]]):.0f}" for k in keys))
+    print()
+    print("Per game (side: won, first factory/constructor min, mex10, M/s at 10, E-stall%, peak army):")
+    for side in sorted(rows):
+        for x in rows[side]:
+            print(f"  {side:<8} {x['game']:<34} won {x['won']:.1f} fac {fmt(x['fac'], 'min')} con {fmt(x['con'], 'min')} mex10 {fmt(x['x10'])} M10 {fmt(x['m10'])} Es {x['es']}% army {x['army']} len {fmt(x['len'], 'min')}")
+
+
+if __name__ == "__main__":
+    main()

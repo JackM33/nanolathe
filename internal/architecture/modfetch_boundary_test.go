@@ -10,6 +10,7 @@ const (
 	nanolatheModule   = "github.com/nanolathe-gg/nanolathe"
 	modFetchPackage   = nanolatheModule + "/internal/modfetch"
 	mapLibraryPackage = nanolatheModule + "/internal/maplibrary"
+	addonLibrary      = nanolatheModule + "/internal/addonlibrary"
 	modLibraryPackage = nanolatheModule + "/internal/modlibrary"
 	desktopCommand    = nanolatheModule + "/cmd/nanolathe"
 	relayCommand      = nanolatheModule + "/cmd/nanolathe-server"
@@ -26,9 +27,9 @@ const (
 //     adapter and the desktop command, so a closure check could not hold.
 //  2. Only cmd/nanolathe may depend on internal/modfetch, so the displayless
 //     command and every internal package stay off the network (D5).
-//  3. No authoritative package depends on internal/modlibrary or
-//     internal/modfetch: mod selection happens before a session exists and
-//     never reaches a tick.
+//  3. No authoritative package depends on internal/modlibrary,
+//     internal/maplibrary, internal/addonlibrary or internal/modfetch: content
+//     selection happens before a session exists and never reaches a tick.
 //
 // Like the platform guard, it runs `go list -test` over the whole module.
 // Desktop download integration tests may serve loopback fixtures through
@@ -83,7 +84,7 @@ func TestNetworkStaysInTheModFetcher(t *testing.T) {
 		}
 		if isAuthoritativePackage(owner) {
 			for _, dep := range deps {
-				if dep == modFetchPackage || dep == modLibraryPackage || dep == mapLibraryPackage || dep == relayPackage || dep == lockstepPackage {
+				if dep == modFetchPackage || dep == modLibraryPackage || dep == mapLibraryPackage || dep == addonLibrary || dep == relayPackage || dep == lockstepPackage {
 					t.Errorf("authoritative package %s depends on %s", name, dep)
 					break
 				}

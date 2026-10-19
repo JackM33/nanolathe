@@ -22,10 +22,18 @@ type techState struct {
 
 }
 
-// setupTech labels advanced constructors (a builder whose extractor out-
-// produces the commander's, or that builds a power plant far beyond the
-// commander's — a geothermal plant, which needs a vent, does not count) and
-// tech-2 factories (a factory that makes one).
+// setupTech labels advanced constructors (a builder whose extractor makes
+// at least twice the commander's, or that builds a power plant far beyond
+// the commander's — a geothermal plant, which needs a vent, does not count)
+// and tech-2 factories (a factory that makes one).
+//
+// "At least twice": every side's advanced extractor makes three or more times
+// its basic one, while a side's basic extractors may differ a little, and a
+// commander may build only a weaker variant (Talon's commander builds an
+// armoured extractor at 0.8 of its constructors' plain one). A margin of one
+// would make every first-tier constructor advanced and every first factory a
+// tech-2 factory, held back by the tech timeline: Talon built no factory in
+// a coverage census of twelve 30-minute games.
 func (s *shared) setupTech(k *aikit.Kit, com *aikit.UnitInfo) {
 	t := k.Table
 	var baseMex int32
@@ -49,7 +57,7 @@ func (s *shared) setupTech(k *aikit.Kit, com *aikit.UnitInfo) {
 			continue
 		}
 		for _, p := range u.Builds {
-			if (p.Role.Has(aikit.RoleExtractor) && baseMex > 0 && p.MetalMake > baseMex) ||
+			if (p.Role.Has(aikit.RoleExtractor) && baseMex > 0 && p.MetalMake >= 2*baseMex) ||
 				(p.Role.Has(aikit.RoleEnergy) && !s.info[p.Index].geo && bestE > 0 && p.EnergyMake >= 25*bestE) {
 				s.info[i].advCon = true
 				break

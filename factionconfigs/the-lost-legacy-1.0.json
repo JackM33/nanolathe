@@ -1,0 +1,22 @@
+{
+  "id": "the-lost-legacy",
+  "name": "The Lost Legacy",
+  "version": "1.0",
+  "summary": "The Lost Legacy faction beside Arm and Core; its campaign is not converted.",
+  "homepage": "https://tll.tauniverse.com/",
+  "tag": "tll",
+  "sides": [
+    "TLL"
+  ],
+  "source": {
+    "file": "the-lost-legacy-1.0.zip",
+    "sha256": "cf70575214f90d6b69cd7dd3c3a0a803b3022bfa6ffff42d0fc87f7067cf2d31"
+  },
+  "readmes": [
+    "docs/read me plz.txt",
+    "docs/readme.txt"
+  ],
+  "notes": [
+    "Input is the 2026-10-16 local candidate ZIP, which retains the Core Prime preservation download's original archive bytes (upstream SHA-256 3dae897799bdaa31c1a46328c456aa830e20519122a70dd770fff44f89414cbf)."
+  ]
+}

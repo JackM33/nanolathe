@@ -4,6 +4,7 @@ import (
 	"slices"
 	"sync/atomic"
 
+	"github.com/nanolathe-gg/nanolathe/internal/content"
 	"github.com/nanolathe-gg/nanolathe/internal/frame"
 	"github.com/nanolathe-gg/nanolathe/internal/pool"
 )
@@ -363,11 +364,11 @@ func (l *LocalInterface) ObserveTick(tick uint32) {
 
 // RecallGroup is digit recall: the scanner of [07 §9] over the local player's
 // units, Preserve the Shift-held toggle/preserve argument and mask the
-// authored CTRL_F filter (all zero for no filter). It changes only the local
+// authored CTRL_F filter (empty for no filter). It changes only the local
 // selection; group numbers stay the seat's (DESIGN_MULTIPLAYER §7.1). Pending
 // assignments are applied to the published numbers first, in the order they
 // were sent, with the assignment scanner's rule.
-func (l *LocalInterface) RecallGroup(units []GroupUnit, group int, preserve bool, mask [CategoryMaskBytes]byte) {
+func (l *LocalInterface) RecallGroup(units []GroupUnit, group int, preserve bool, mask content.CategoryMask) {
 	if l == nil || group < 1 || group > 9 {
 		return
 	}
@@ -394,15 +395,14 @@ func (l *LocalInterface) RecallGroup(units []GroupUnit, group int, preserve bool
 			}
 		}
 	}
-	if mask == ([CategoryMaskBytes]byte{}) {
+	filter := &mask
+	if mask.IsZero() {
 		// No CTRL_F mask producer is part of the current frame. Absent filter
 		// state is no filter; the authored mask producer remains an explicit
 		// TODO rather than a guessed category mask [07 §9].
-		for i := range mask {
-			mask[i] = 0xff
-		}
+		filter = nil
 	}
-	changed, _ := RecallGroup(views, group, preserve, mask, nil)
+	changed, _ := RecallGroup(views, group, preserve, filter, nil)
 	if !changed {
 		return
 	}

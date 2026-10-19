@@ -12,34 +12,26 @@ import (
 	"github.com/nanolathe-gg/nanolathe/internal/survival"
 )
 
-// The wire form of configuration version 1 (docs/DESIGN_MULTIPLAYER.md §8.6)
+// The wire form of configuration version 2 (docs/DESIGN_MULTIPLAYER.md §8.6)
 // in the primitives of §7.4.1, written and read through internal/netproto: u8
 // and bool are one byte, a bool exactly 0 or 1; u16, u32 and u64 are the
 // shortest unsigned base-128 varint within their width; s32 is the zigzag of
 // the 32-bit value, then a varint; text(N) is a u32 byte length and at most N
 // bytes of UTF-8 without NUL; key is a u16 byte length and 1..255 bytes of a
 // canonical content key; digest is 32 raw bytes and id 16. Collections carry
-// a u32 count. There are no optional fields and no trailing bytes, and a
-// field addition is a new version.
+// a u32 count. Fields 1–16 are frozen. An optional nonempty extension tail
+// follows field 16; its zero ID terminator is the last byte (§8.6).
 //
-// Design reading: the payload carries no version of its own. Version 1 is
+// Design reading: the payload carries no version of its own. Version 2 is
 // named by the identity domain and by the envelope that carries the payload,
 // as the command schema version is negotiated outside a command payload
 // (§7.4.1).
-//
-// Version 2 is version 1's fields followed by the version-2 fields, and a
-// configuration encodes as version 2 only when one of those fields differs
-// from its default. Every configuration version 1 can describe therefore
-// keeps its version-1 bytes and identity, and a reader tells the versions
-// apart by whether bytes follow field 15. A version-2 tail that holds only
-// defaults is not canonical and is refused. A version-1 reader refuses a
-// version-2 payload as trailing bytes.
 
-// matchConfigDomain and matchConfigDomainV2 are the literal UTF-8 domains the
-// identity hashes before the encoding, with no trailing NUL.
+// matchConfigDomain is the literal UTF-8 domain the identity hashes before
+// the encoding, with no trailing NUL.
 const (
-	matchConfigDomain   = "nanolathe/match-config/1"
-	matchConfigDomainV2 = "nanolathe/match-config/2"
+	matchConfigDomain       = "nanolathe/match-config/2"
+	matchConfigLegacyDomain = "nanolathe/match-config/1"
 )
 
 // EncodeMatchConfig returns the canonical encoding of a resolved
@@ -47,27 +39,45 @@ const (
 // is no configuration and has no encoding.
 func EncodeMatchConfig(c EffectiveMatchConfig) ([]byte, error) {
 	if c.encoding == nil {
-		return nil, matchFieldError("configuration", "a configuration ResolveMatchConfig or DecodeMatchConfig produced")
+		return nil, matchFieldError("configuration", "a configuration resolution or decoding produced")
 	}
 	return append([]byte(nil), c.encoding...), nil
 }
 
-// DecodeMatchConfig reads a version 1 payload. It refuses a payload over 2
+// DecodeMatchConfig reads a version 2 payload. It refuses a payload over 2
 // MiB, a count or length over its bound before allocating from it, an
 // overlong or overflowing integer, a boolean other than 0 or 1, any field
 // ResolveMatchConfig refuses, trailing bytes, and any encoding that is not
 // the one the decoded value re-encodes to. It never fills a default and
 // returns no partially valid value.
 func DecodeMatchConfig(payload []byte) (EffectiveMatchConfig, error) {
+	return decodeMatchConfig(payload, 2)
+}
+
+// DecodeReplayMatchConfig reads a historical or current replay configuration.
+// Version 1 contains only fields 1–15 and keeps its original encoding and
+// identity domain; version 2 is the current schema (§8.6, §10). This does not
+// admit legacy configurations to the current online protocol.
+func DecodeReplayMatchConfig(payload []byte, version uint16) (EffectiveMatchConfig, error) {
+	if version != 1 && version != 2 {
+		return EffectiveMatchConfig{}, matchFieldError("configuration.version", fmt.Sprintf("supported replay configuration version 1 or 2, got %d", version))
+	}
+	return decodeMatchConfig(payload, version)
+}
+
+func decodeMatchConfig(payload []byte, version uint16) (EffectiveMatchConfig, error) {
 	if len(payload) > matchConfigMaxBytes {
 		return EffectiveMatchConfig{}, matchFieldError("payload", fmt.Sprintf("at most %d bytes, got %d", matchConfigMaxBytes, len(payload)))
 	}
 	r := netproto.NewReader(payload, matchFieldError)
-	request := readMatchRequest(r, len(payload))
+	request := readMatchRequest(r, version)
+	if version == 2 && r.Err() == nil && r.Offset() < len(payload) {
+		request.Extensions = readMatchExtensions(r)
+	}
 	if err := r.End(); err != nil {
 		return EffectiveMatchConfig{}, err
 	}
-	c, err := ResolveMatchConfig(request)
+	c, err := resolveMatchConfig(request, version)
 	if err != nil {
 		return EffectiveMatchConfig{}, err
 	}
@@ -86,11 +96,11 @@ func (c EffectiveMatchConfig) Digest() [32]byte {
 		return [32]byte{}
 	}
 	h := sha256.New()
-	if c.request.version() == 2 {
-		h.Write([]byte(matchConfigDomainV2))
-	} else {
-		h.Write([]byte(matchConfigDomain))
+	domain := matchConfigDomain
+	if c.version == 1 {
+		domain = matchConfigLegacyDomain
 	}
+	h.Write([]byte(domain))
 	h.Write(c.encoding)
 	var out [32]byte
 	copy(out[:], h.Sum(nil))
@@ -98,8 +108,8 @@ func (c EffectiveMatchConfig) Digest() [32]byte {
 }
 
 // encodeMatchRequest writes a request validate has accepted, in the shared
-// version-1 primitives (internal/netproto).
-func encodeMatchRequest(r *MatchConfigRequest) ([]byte, error) {
+// primitives (internal/netproto). Version 1 stops after field 15.
+func encodeMatchRequest(r *MatchConfigRequest, version uint16) ([]byte, error) {
 	var w netproto.Writer
 	w.U8(uint8(r.SessionKind)) // 1
 	w.Key(r.RuleName)          // 2
@@ -167,17 +177,22 @@ func encodeMatchRequest(r *MatchConfigRequest) ([]byte, error) {
 	w.U32(pol.RejoinGraceMilliseconds)
 	w.U32(pol.SpectatorDelayMilliseconds)
 	w.U32(pol.ReplayReleaseDelayMilliseconds)
-	if r.version() == 2 {
-		for i := range r.Seats { // 16
-			p := r.Seats[i].Start
-			w.Bool(p.Set)
-			if p.Set {
-				w.U32(uint32(p.X))
-				w.U32(uint32(p.Z))
-			}
-		}
-		w.U8(uint8(r.AlliedSight)) // 17
+	if version == 1 {
+		return w.Bytes(), nil
 	}
+	w.U32(uint32(len(r.RoomContent))) // 16
+	for _, e := range r.RoomContent {
+		w.U8(uint8(e.Kind))
+		w.Text(e.Name)
+		w.Text(e.Version)
+		w.U64(e.Size)
+		w.Digest(e.Digest)
+	}
+	extensions, err := r.setupExtensions()
+	if err != nil {
+		return nil, err
+	}
+	writeMatchExtensions(&w, extensions)
 	return w.Bytes(), nil
 }
 
@@ -211,11 +226,10 @@ func writeMatchSeat(w *netproto.Writer, s *MatchSeat) {
 // encoded-size bound on a row's parameters.
 func matchUvarintLen(v uint64) int { return netproto.UvarintLen(v) }
 
-// readMatchRequest reads the fields of §8.6 in order, and the version-2
-// fields when bytes of a payload of size bytes follow field 15. A text
-// field's UTF-8 and NUL rule is the reader's; every other content rule is
-// validate's, which DecodeMatchConfig runs on the result.
-func readMatchRequest(r *netproto.Reader, size int) MatchConfigRequest {
+// readMatchRequest reads the fields of §8.6 in order. A text field's UTF-8
+// and NUL rule is the reader's; every other content rule is validate's, which
+// DecodeMatchConfig runs on the result.
+func readMatchRequest(r *netproto.Reader, version uint16) MatchConfigRequest {
 	var q MatchConfigRequest
 	q.SessionKind = MatchSessionKind(r.U8()) // 1
 	q.RuleName = r.Key()                     // 2
@@ -305,18 +319,19 @@ func readMatchRequest(r *netproto.Reader, size int) MatchConfigRequest {
 	pol.RejoinGraceMilliseconds = r.U32()
 	pol.SpectatorDelayMilliseconds = r.U32()
 	pol.ReplayReleaseDelayMilliseconds = r.U32()
-	if r.Err() == nil && r.Offset() < size {
-		for i := range q.Seats { // 16
-			p := &q.Seats[i].Start
-			if p.Set = r.Bool(); p.Set {
-				x, z := r.U32(), r.U32()
-				if r.Err() == nil && (x >= StartPointLimit || z >= StartPointLimit) {
-					r.FailAt(r.Offset()-1, fmt.Sprintf("start coordinates 0..%d", StartPointLimit-1))
-				}
-				p.X, p.Z = int32(x), int32(z)
-			}
+	if version == 1 {
+		return q
+	}
+	if n := r.Count(matchMaxRoomContent, 36); n > 0 { // 16
+		q.RoomContent = make([]MatchContentEntry, n)
+		for i := range q.RoomContent {
+			e := &q.RoomContent[i]
+			e.Kind = MatchContentKind(r.U8())
+			e.Name = r.Text(matchContentNameMaxBytes)
+			e.Version = r.Text(matchContentVersionBytes)
+			e.Size = r.U64()
+			e.Digest = r.Digest()
 		}
-		q.AlliedSight = MatchAlliedSight(r.U8()) // 17
 	}
 	if r.Err() != nil {
 		return MatchConfigRequest{}

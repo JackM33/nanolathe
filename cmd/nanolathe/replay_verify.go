@@ -50,7 +50,14 @@ func verifyReplay(data []byte, cs *contentSet) (replayVerification, error) {
 		return replayVerification{}, err
 	}
 	v := replayVerification{Header: r.Header()}
-	sess, err := replay.Compose(v.Header, replayContent(cs, nil))
+	c, roomFS, err := replayContent(cs, v.Header, nil)
+	if err != nil {
+		return v, err
+	}
+	if roomFS != nil {
+		defer roomFS.Close()
+	}
+	sess, err := replay.Compose(v.Header, c)
 	if err != nil {
 		return v, err
 	}

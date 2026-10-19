@@ -19,7 +19,7 @@ func openTestLobby(t *testing.T, g *gameShell, fake *fakeOnlineLobby, cat *conte
 	if err := g.openOnlineScreen(); err != nil {
 		t.Fatal(err)
 	}
-	g.openOnlineLobby(fake, cat, onlineTestBase(t, "Test Map", session.MatchMod{}, content.Mutators{}), "wss://relay.example.test/relay")
+	g.openOnlineLobby(fake, cat, onlineTestBase(t, "Test Map", session.MatchMod{}, content.Mutators{}), "wss://relay.example.test/relay", nil, nil)
 	g.pollOnline()
 	if !g.onlineLobbyActive() || g.frontend.Mode != modeMenuSkirmish {
 		t.Fatal("the lobby did not open as the setup window")
@@ -165,7 +165,7 @@ func TestOnlineLobbyReadyClearingAndStartGating(t *testing.T) {
 	}
 	fake.state.Mismatch = true
 	g.pollOnline()
-	if !greyed(p, "Start") || !strings.Contains(lobbyText(g, lobbyStatus), "simulate differently") {
+	if !greyed(p, "Start") || !strings.Contains(lobbyText(g, lobbyStatus), "computed the test battle differently") {
 		t.Fatalf("mismatch: %q", lobbyText(g, lobbyStatus))
 	}
 	g.activateGadget("Start")

@@ -1,6 +1,9 @@
 package aikit
 
 import (
+	"strconv"
+	"strings"
+
 	"github.com/nanolathe-gg/nanolathe/internal/construction"
 	"github.com/nanolathe-gg/nanolathe/internal/content"
 	"github.com/nanolathe-gg/nanolathe/internal/sim/numeric"
@@ -39,6 +42,9 @@ const (
 	RoleAssist      // mobile builder whose products are all units (nano tower style) or immobile nano
 	RoleStockpile   // active stockpile weapon that attacks units
 	RoleInterceptor // active weapon that intercepts projectiles
+	RoleModule      // upgrade structure: an immobile builder whose products are all fixtures (modules.go)
+	RoleUpgrade     // a fixture an upgrade module makes and keeps (modules.go)
+	RoleGate        // a gate: a structure whose aim dials a peer gate and whose script carries units to it (classifyGates)
 )
 
 // Has reports whether every bit of r2 is set.
@@ -150,6 +156,7 @@ func BuildTable(cat *content.Catalog, rules construction.Rules) *Table {
 		t.snapshotCheckpointBindings(cat, rules)
 		return t
 	}
+	commanders := sideCommanders(cat)
 	for _, key := range cat.SortedUnitKeys() {
 		def, ok := cat.Unit(key)
 		if !ok || def == nil {
@@ -158,7 +165,7 @@ func BuildTable(cat *content.Catalog, rules construction.Rules) *Table {
 		if _, dup := t.byDef[def]; dup {
 			continue
 		}
-		info := summarize(key, def)
+		info := summarize(key, def, def.Commander || commanders[content.CanonicalKey(def.UnitName)])
 		if def.IsFeature {
 			info.FinishedFeature = cat.Features[content.CanonicalKey(def.Corpse)]
 			if f := info.FinishedFeature; f != nil && f.Blocking && info.DPS == 0 {
@@ -184,7 +191,14 @@ func BuildTable(cat *content.Catalog, rules construction.Rules) *Table {
 			info.Role &^= RoleStorage
 		}
 	}
+	t.classifyModules()
 	t.computeAntiAir()
+	t.armDamageTableAntiAir()
+	t.armIdleBuilders()
+	t.classifyGates()
+	for _, u := range t.Units {
+		scaleDPSByHint(u, u.Def)
+	}
 	t.computeDepth()
 	for _, u := range t.Units {
 		if u.Cap >= 0 {
@@ -203,6 +217,94 @@ func BuildTable(cat *content.Catalog, rules construction.Rules) *Table {
 	}
 	t.snapshotCheckpointBindings(cat, rules)
 	return t
+}
+
+// armDamageTableAntiAir arms a unit whose only damage is anti-air credited
+// from the damage table: a flak weapon may author no default damage and name
+// the aircraft it hits (Talon's flak tanks and towers), so summarize saw no
+// damage at all and left it unarmed — never produced as combat, never placed
+// as a defense. It now takes the roles an armed unit of its kind takes and is
+// no longer a scout. Its DPS stays
+// zero: that weapon never fires at a target that is not airborne, so it is
+// worth its AirDPS where anti-air is wanted and nothing on the ground. A unit
+// with any other damage was armed already and is unchanged.
+func (t *Table) armDamageTableAntiAir() {
+	for _, u := range t.Units {
+		def := u.Def
+		if u.DPS > 0 || u.AirDPS <= 0 || def == nil {
+			continue
+		}
+		commander := u.Role.Has(RoleCommander)
+		mobile := u.Role.Has(RoleMobile)
+		if !mobile && def.BMCode == 0 {
+			u.Role |= RoleDefense
+		}
+		if mobile && !commander && !def.Builder {
+			u.Role = u.Role&^RoleScout | RoleCombat
+			if def.CanFly {
+				u.Role |= RoleFighter
+			}
+		}
+	}
+}
+
+// armIdleBuilders makes combat units of armed mobile units that author
+// builder=1 yet build nothing: classifyBuilder gave them no builder role,
+// and summarize had kept them out of combat for the flag alone. Talon's
+// Vanguard flak tank authors builder=1 with no worker time and no products
+// instead.
+func (t *Table) armIdleBuilders() {
+	for _, u := range t.Units {
+		def := u.Def
+		if def == nil || !def.Builder || u.DPS+u.AirDPS <= 0 || !u.Role.Has(RoleMobile) || u.Role.Any(RoleCommander|RoleBuilder|RoleCombat) {
+			continue
+		}
+		u.Role = u.Role&^RoleScout | RoleCombat
+		if def.CanFly {
+			if u.AirDPS > 0 && u.AirDPS*2 >= u.DPS && !dropsBombs(def) {
+				u.Role |= RoleFighter
+			} else {
+				u.Role |= RoleBomber
+			}
+		}
+	}
+}
+
+// classifyGates gives the gate role to a structure built the way Talon's
+// Astria Porta is: no definition authors the teleporter key for it, and that
+// key has no consumer anyway [fmt fbi]. The gate's mechanism is its script
+// (research/extensions/talon-engine.md "Gate network"): an ordinary ground
+// attack aims its weapon, and the aim script picks the peer gate nearest the
+// aimed point and never fires; units that reach its pad are attached to it
+// and handed to the peer through attach and drop operations, which need a
+// transport capacity; and its off command unlinks. So a gate is read from
+// those three authored keys together: an immobile structure that is no
+// builder, authors a transport capacity, carries an active weapon that fires
+// at units, and can be switched on and off. With every faction package
+// mounted this finds TALGATE alone; stock content has none.
+//
+// Its weapon is the dialing device, not firepower: the gate keeps no damage
+// rate or range, and none of the roles the weapon or the capacity gave it
+// (a long-range defense, a transport), so it is placed and used as a gate and
+// an enemy's gate is no threat.
+func (t *Table) classifyGates() {
+	for _, u := range t.Units {
+		def := u.Def
+		if def == nil || def.BMCode != 0 || def.Builder || def.TransportCapacity <= 0 || !def.OnOffable {
+			continue
+		}
+		armed := false
+		for _, w := range [...]*content.WeaponDef{def.Weapon1Def, def.Weapon2Def, def.Weapon3Def} {
+			if firesAtUnits(w) {
+				armed = true
+			}
+		}
+		if !armed {
+			continue
+		}
+		u.Role = RoleGate
+		u.DPS, u.AirDPS, u.WaterDPS, u.StunDPS, u.Range = 0, 0, 0, 0, 0
+	}
 }
 
 // dropsBombs reports whether a definition carries an active dropped weapon
@@ -232,7 +334,10 @@ func (t *Table) computeAntiAir() {
 			// A bomb's damage table may name aircraft, but a dropped weapon
 			// cannot engage them (dropsBombs); an interceptor engages only
 			// projectiles (firesAtUnits).
-			if !firesAtUnits(w) || w.ToAirWeapon || w.Dropped || len(w.Damage) == 0 {
+			// A toairweapon with a default damage was counted by summarize;
+			// one whose damage is all in its table (Talon's flak lasers name
+			// each aircraft and author no default) is counted here.
+			if !firesAtUnits(w) || (w.ToAirWeapon && w.DamageDefault > 0) || w.Dropped || len(w.Damage) == 0 {
 				continue
 			}
 			var airDmg int64
@@ -298,7 +403,30 @@ func definitionCap(def *content.UnitDef) (int32, bool) {
 	return max(def.Limit, 0), true
 }
 
-func summarize(key string, def *content.UnitDef) *UnitInfo {
+// sideCommanders is the set of canonical definition names the side records
+// name as their commander. A unit is a player's commander because its name
+// is the commander name of its owner's side record, not because its
+// definition sets the commander flag [08 R-TRIG-01 §3][08 R-SKIR-01 §3];
+// content may author one without the other, as converted Mynn's commander
+// carries no flag (docs/DESIGN_MODS_MUTATORS.md §5.8). Lookup only; never
+// ranged in a decision path (I1).
+func sideCommanders(cat *content.Catalog) map[string]bool {
+	set := map[string]bool{}
+	for _, side := range cat.Sides {
+		if side == nil {
+			continue
+		}
+		if name := content.CanonicalKey(side.Commander); name != "" {
+			set[name] = true
+		}
+	}
+	return set
+}
+
+// summarize derives one definition's summary. commander is true for a
+// definition that sets the commander flag or that a side record names as
+// its commander (sideCommanders).
+func summarize(key string, def *content.UnitDef, commander bool) *UnitInfo {
 	u := &UnitInfo{Key: key, Def: def, Side: def.Side, Cap: -1}
 	if limit, ok := definitionCap(def); ok {
 		u.Cap = limit
@@ -385,24 +513,24 @@ func summarize(key string, def *content.UnitDef) *UnitInfo {
 		}
 	}
 	switch {
-	case def.Commander:
+	case commander:
 		u.Role |= RoleCommander
 	case def.ExtractsMetal > 0:
 		u.Role |= RoleExtractor
 	}
-	if (u.EnergyMake > 0 || u.WindGen > 0 || u.TidalGen > 0) && !def.Commander && !mobile && def.RadarDistance == 0 && def.SonarDistance == 0 && u.DPS == 0 {
+	if (u.EnergyMake > 0 || u.WindGen > 0 || u.TidalGen > 0) && !commander && !mobile && def.RadarDistance == 0 && def.SonarDistance == 0 && u.DPS == 0 {
 		u.Role |= RoleEnergy
 	}
-	if def.MakesMetal > 0 || (def.MetalMake > 0 && def.EnergyUse > 0 && !mobile && !def.Commander) {
+	if def.MakesMetal > 0 || (def.MetalMake > 0 && def.EnergyUse > 0 && !mobile && !commander) {
 		u.Role |= RoleMetalMaker
 	}
-	if (def.MetalStorage > 0 || def.EnergyStorage > 0) && !def.Commander && !mobile && u.Role&(RoleEnergy|RoleExtractor|RoleMetalMaker) == 0 {
+	if (def.MetalStorage > 0 || def.EnergyStorage > 0) && !commander && !mobile && u.Role&(RoleEnergy|RoleExtractor|RoleMetalMaker) == 0 {
 		u.Role |= RoleStorage
 	}
-	if def.RadarDistance > 0 && !def.Commander {
+	if def.RadarDistance > 0 && !commander {
 		u.Role |= RoleRadar
 	}
-	if def.SonarDistance > 0 && !def.Commander {
+	if def.SonarDistance > 0 && !commander {
 		u.Role |= RoleSonar
 	}
 	if def.RadarDistanceJam > 0 || def.SonarDistanceJam > 0 {
@@ -430,7 +558,7 @@ func summarize(key string, def *content.UnitDef) *UnitInfo {
 	if armed && !mobile && def.BMCode == 0 {
 		u.Role |= RoleDefense
 	}
-	if armed && mobile && !def.Commander && !def.Builder {
+	if armed && mobile && !commander && !def.Builder {
 		u.Role |= RoleCombat
 		if def.CanFly {
 			if u.AirDPS > 0 && u.AirDPS*2 >= u.DPS && !dropsBombs(def) {
@@ -440,7 +568,7 @@ func summarize(key string, def *content.UnitDef) *UnitInfo {
 			}
 		}
 	}
-	if mobile && !def.Builder && !def.Commander && u.Role&(RoleTransport|RoleStockpile|RoleInterceptor) == 0 {
+	if mobile && !def.Builder && !commander && u.Role&(RoleTransport|RoleStockpile|RoleInterceptor) == 0 {
 		// A scout is fast and cheap for its speed class, or an unarmed
 		// mobile whose only purpose can be looking — not a mobile anti-nuke,
 		// whose interceptor is its purpose.
@@ -449,6 +577,40 @@ func summarize(key string, def *content.UnitDef) *UnitInfo {
 		}
 	}
 	return u
+}
+
+// AIDPSHintKey is the unit key through which content tells the Modern AI how
+// much of its weapons' authored rate a unit really delivers, in permille: a
+// unit whose script holds its fire between shots (Talon's Salamander sleeps
+// two and a half seconds after each pair of shells against a 0.2-second
+// reload) is worth far less than its weapon records say, and the table would
+// rate it many times over. The key is a
+// Nanolathe extension that only the Modern AI reads; the simulation never
+// does, and stock content authors none, so stock tables are unchanged
+// (docs/DESIGN_SESSIONS_AI_SAVE.md "Modern AI damage hints").
+const AIDPSHintKey = "nl_ai_dpspermille"
+
+// scaleDPSByHint applies a unit's AIDPSHintKey to its damage rates, every
+// one credited by then, the damage-table anti-air included. A value that is
+// not an integer from 0 to 1000 is ignored.
+func scaleDPSByHint(u *UnitInfo, def *content.UnitDef) {
+	if def == nil || len(def.Unknown) == 0 || u.DPS+u.AirDPS == 0 {
+		return
+	}
+	var permille int64 = -1
+	for _, key := range def.UnknownKeysSorted() {
+		if strings.EqualFold(key, AIDPSHintKey) {
+			if v, err := strconv.Atoi(strings.TrimSpace(def.Unknown[key])); err == nil && v >= 0 && v <= 1000 {
+				permille = int64(v)
+			}
+			break
+		}
+	}
+	if permille < 0 {
+		return
+	}
+	scale := func(v int32) int32 { return int32(int64(v) * permille / 1000) }
+	u.DPS, u.AirDPS, u.WaterDPS, u.StunDPS = scale(u.DPS), scale(u.AirDPS), scale(u.WaterDPS), scale(u.StunDPS)
 }
 
 // classifyBuilder runs after products are linked: a builder role needs a

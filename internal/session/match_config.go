@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"path"
 	"strings"
 	"unicode/utf8"
 
@@ -120,7 +121,7 @@ type MatchSeat struct {
 	// Every other role carries none.
 	AIParams []AIParam
 
-	// Start is the row's chosen start point, field 16 of version 2: unset
+	// Start is the row's chosen start point, required extension 17: unset
 	// leaves it to Location; set, X and Z are world pixels below
 	// StartPointLimit. Only a human or computer row of a skirmish chooses
 	// one, under a rule set that honours it (docs/DESIGN_SESSIONS_AI_SAVE.md
@@ -162,6 +163,33 @@ type MatchUnitRestriction struct {
 	DefinitionID uint16
 	Unit         string
 	Limit        uint8
+}
+
+// MatchContentKind is a field-16 entry's kind (§8.6, §16.8).
+type MatchContentKind uint8
+
+const (
+	// MatchContentBaseArchive is a retail-format archive in the base
+	// install's folder, named by its file name.
+	MatchContentBaseArchive MatchContentKind = 1
+	// MatchContentAddon is an official add-on, named by its catalogue id
+	// (DESIGN_MODS_MUTATORS §5.7).
+	MatchContentAddon MatchContentKind = 2
+	// MatchContentMapPackage is a downloaded map package, named by its
+	// catalogue id (DESIGN_MODS_MUTATORS §5.6).
+	MatchContentMapPackage MatchContentKind = 3
+)
+
+// MatchContentEntry is one entry of field 16, the room content: what one
+// seat must mount for the battle. A base archive carries its file name, no
+// version, and the file's size and SHA-256; an add-on or map package its
+// catalogue id and version and its archive's size and SHA-256.
+type MatchContentEntry struct {
+	Kind    MatchContentKind
+	Name    string
+	Version string
+	Size    uint64
+	Digest  [32]byte
 }
 
 // MatchView is one view record of field 14, in the camera's 1/1024 zoom
@@ -244,11 +272,22 @@ type MatchConfigRequest struct {
 
 	Policies MatchPolicies // 15
 
-	// Version 2.
-	AlliedSight MatchAlliedSight // 17; field 16 is MatchSeat.Start
+	// RoomContent is field 16 in canonical order (§16.8). Empty means the
+	// battle composes from the seat's own mounted content, as a
+	// single-player recording or a command-line play test does.
+	RoomContent []MatchContentEntry // 16
+
+	// Extensions holds opaque records in the version-2 tail after fields 1–16
+	// (docs/DESIGN_MULTIPLAYER.md §8.6), in ascending ID order. Resolution
+	// projects recognized records into Start/AlliedSight and removes them
+	// from this slice; encoding reconstructs them from those typed fields.
+	Extensions []MatchConfigExtension
+
+	// AlliedSight is the typed value of required extension 18.
+	AlliedSight MatchAlliedSight
 }
 
-// MatchAlliedSight is field 17: whether a skirmish's teams share sight and
+// MatchAlliedSight is required extension 18: whether a skirmish's teams share sight and
 // radar (docs/DESIGN_SESSIONS_AI_SAVE.md "Modern allied sight",
 // DESIGN_MULTIPLAYER §6.7 "Allied sight"). Its zero value is version 1's
 // rule, which differs by how the battle is played, so every configuration
@@ -282,9 +321,12 @@ func (a MatchAlliedSight) Shared(online bool) bool {
 type EffectiveMatchConfig struct {
 	request  MatchConfigRequest
 	encoding []byte
+	// version is 1 only for a historical replay configuration. Zero and 2
+	// use the current encoding and identity domain.
+	version uint16
 }
 
-// Protocol limits of configuration version 1 (§8.6). They are admission
+// Protocol limits of configuration version 2 (§8.6). They are admission
 // bounds, not retail claims.
 const (
 	matchConfigMaxBytes      = 2 << 20
@@ -307,6 +349,9 @@ const (
 	matchViewMinScale        = 64
 	matchViewMaxScale        = 2048
 	matchKeyMaxBytes         = 255
+	matchMaxRoomContent      = 128
+	matchContentNameMaxBytes = 255
+	matchContentVersionBytes = 64
 )
 
 // matchMutatorSteps is field 11's step table: index i is the factor the
@@ -376,7 +421,17 @@ func matchComputersPerHost(set RuleSet) int {
 // mutator factors spell the identity as 1/1 resolves to the same value as one
 // that leaves them zero; every other field is taken as written.
 func ResolveMatchConfig(r MatchConfigRequest) (EffectiveMatchConfig, error) {
+	return resolveMatchConfig(r, 2)
+}
+
+func resolveMatchConfig(r MatchConfigRequest, version uint16) (EffectiveMatchConfig, error) {
 	c := r.clone()
+	if err := c.consumeSetupExtensions(); err != nil {
+		return EffectiveMatchConfig{}, err
+	}
+	if version == 1 && (c.hasChosenStarts() || c.AlliedSight != MatchAlliedSightVersion1) {
+		return EffectiveMatchConfig{}, matchFieldError("configuration.version", "version 2 for chosen starts or allied sight")
+	}
 	if _, err := c.validate(); err != nil {
 		return EffectiveMatchConfig{}, err
 	}
@@ -399,18 +454,22 @@ func ResolveMatchConfig(r MatchConfigRequest) (EffectiveMatchConfig, error) {
 	if len(c.UnitRestrictions) == 0 {
 		c.UnitRestrictions = nil
 	}
-	encoding, err := encodeMatchRequest(&c)
+	if len(c.RoomContent) == 0 {
+		c.RoomContent = nil
+	}
+	encoding, err := encodeMatchRequest(&c, version)
 	if err != nil {
 		return EffectiveMatchConfig{}, err
 	}
 	if len(encoding) > matchConfigMaxBytes {
 		return EffectiveMatchConfig{}, matchFieldError("configuration", fmt.Sprintf("an encoding of at most %d bytes, got %d", matchConfigMaxBytes, len(encoding)))
 	}
-	return EffectiveMatchConfig{request: c, encoding: encoding}, nil
+	return EffectiveMatchConfig{request: c, encoding: encoding, version: version}, nil
 }
 
-// Request returns a deep copy of the resolved value. Resolving it again
-// yields an equal configuration.
+// Request returns a deep copy of the resolved value. ResolveMatchConfig
+// resolves that value under the current version; a legacy replay retains its
+// original identity only in the EffectiveMatchConfig returned by decoding.
 func (c EffectiveMatchConfig) Request() MatchConfigRequest { return c.request.clone() }
 
 // clone deep-copies every slice the request holds.
@@ -431,12 +490,16 @@ func (r MatchConfigRequest) clone() MatchConfigRequest {
 	if r.UnitRestrictions != nil {
 		out.UnitRestrictions = append([]MatchUnitRestriction{}, r.UnitRestrictions...)
 	}
+	if r.RoomContent != nil {
+		out.RoomContent = append([]MatchContentEntry{}, r.RoomContent...)
+	}
+	out.Extensions = cloneMatchExtensions(r.Extensions)
 	return out
 }
 
 // matchFieldError is the one diagnostic shape of a rejected configuration.
 func matchFieldError(path, expected string) error {
-	return fmt.Errorf("nanolathe: match configuration rejected: logical path %s, providers searched [match configuration v1], expected %s", path, expected)
+	return fmt.Errorf("nanolathe: match configuration rejected: logical path %s, providers searched [match configuration], expected %s", path, expected)
 }
 
 // validate checks every field of §8.6 and returns the rule set the
@@ -536,7 +599,7 @@ func (r *MatchConfigRequest) validate() (RuleSet, error) {
 	if p.Revision != MatchPolicyRevision || p.Scheduling != MatchPolicyScheduling || p.Pacing != MatchPolicyPacing || p.Drop != MatchPolicyDrop || p.Audience != MatchPolicyAudience {
 		return RuleSet{}, matchFieldError("policies", "revision 1 with scheduling, pacing, drop and audience policy 1")
 	}
-	// 16 is checked with the seats. 17. Allied sight: Survival's survivors
+	// Chosen starts are checked with the seats. Allied sight: Survival's survivors
 	// always share (DESIGN_SURVIVAL §4.3), so only a skirmish chooses.
 	if r.AlliedSight > MatchAlliedSightShared {
 		return RuleSet{}, matchFieldError("alliedSight", "0 version 1's rule, 1 separate or 2 shared")
@@ -547,7 +610,68 @@ func (r *MatchConfigRequest) validate() (RuleSet, error) {
 	if r.AlliedSight != MatchAlliedSightVersion1 && !seatRulesOf(set).AlliedSightChoice() {
 		return RuleSet{}, matchFieldError("alliedSight", fmt.Sprintf("0: rule set %q keeps version 1's sight", r.RuleName))
 	}
+	// 16. Room content.
+	if err := r.validateRoomContent(); err != nil {
+		return RuleSet{}, err
+	}
+	if err := validateMatchExtensions(r.Extensions); err != nil {
+		return RuleSet{}, err
+	}
 	return set, nil
+}
+
+// validateRoomContent checks field 16's schema: at most 128 entries of a
+// known kind in ascending kind order and, within a kind, strictly ascending
+// names compared without regard to case, so a name appears once per kind. A
+// base archive is a plain archive file name with no version; an add-on or
+// map package names a version. Whether a seat can mount each one is the
+// seat's own question at join (§16.8).
+func (r *MatchConfigRequest) validateRoomContent() error {
+	if len(r.RoomContent) > matchMaxRoomContent {
+		return matchFieldError("roomContent", fmt.Sprintf("at most %d entries", matchMaxRoomContent))
+	}
+	for i, e := range r.RoomContent {
+		at := fmt.Sprintf("roomContent[%d]", i)
+		if e.Kind < MatchContentBaseArchive || e.Kind > MatchContentMapPackage {
+			return matchFieldError(at+".kind", "1 base archive, 2 official add-on or 3 map package")
+		}
+		if err := validateMatchText(at+".name", e.Name, matchContentNameMaxBytes); err != nil {
+			return err
+		}
+		if err := validateMatchText(at+".version", e.Version, matchContentVersionBytes); err != nil {
+			return err
+		}
+		if e.Name == "" || strings.TrimSpace(e.Name) != e.Name {
+			return matchFieldError(at+".name", "a nonempty name without surrounding space")
+		}
+		if e.Kind == MatchContentBaseArchive {
+			if strings.ContainsAny(e.Name, "/\\:") || e.Name == "." || e.Name == ".." || !matchArchiveName(e.Name) {
+				return matchFieldError(at+".name", "an archive's file name: an HPI, UFO, CCX or patch-tier GP3, GP4, GPF or SWX")
+			}
+			if e.Version != "" {
+				return matchFieldError(at+".version", "empty for a base archive")
+			}
+		} else if e.Version == "" {
+			return matchFieldError(at+".version", "the catalogue version of an add-on or map package")
+		}
+		if i > 0 {
+			prev := r.RoomContent[i-1]
+			if prev.Kind > e.Kind || prev.Kind == e.Kind && strings.ToLower(prev.Name) >= strings.ToLower(e.Name) {
+				return matchFieldError(at, "entries in ascending kind order and, within a kind, strictly ascending names compared without regard to case")
+			}
+		}
+	}
+	return nil
+}
+
+// matchArchiveName reports a file name the base install's mount discovers
+// as an archive (vfs.IsArchiveName).
+func matchArchiveName(name string) bool {
+	switch strings.ToLower(path.Ext(name)) {
+	case ".hpi", ".ufo", ".ccx", ".gp3", ".gp4", ".gpf", ".swx":
+		return true
+	}
+	return false
 }
 
 // validateSeats checks field 4 and every row.
@@ -650,7 +774,7 @@ func (r *MatchConfigRequest) validateSeats(set RuleSet) error {
 	return nil
 }
 
-// validateSeatStarts checks version 2's field 16: a chosen point is set
+// validateSeatStarts checks required extension 17: a chosen point is set
 // only on a skirmish's human or computer row, under a rule set whose
 // SeatRules honours chosen starts, with coordinates below StartPointLimit.
 // Survival places its commanders itself (DESIGN_SURVIVAL §4.2), so every
@@ -676,21 +800,6 @@ func (r *MatchConfigRequest) validateSeatStarts(set RuleSet) error {
 		}
 	}
 	return nil
-}
-
-// version is the configuration version a request encodes as: 2 when it
-// holds a version-2 field other than its default, 1 otherwise, so every
-// configuration version 1 can describe keeps its bytes and identity (§8.6).
-func (r *MatchConfigRequest) version() int {
-	if r.AlliedSight != MatchAlliedSightVersion1 {
-		return 2
-	}
-	for i := range r.Seats {
-		if r.Seats[i].Start.Set {
-			return 2
-		}
-	}
-	return 1
 }
 
 // matchTeamOfTwo reports whether seat i shares a team (an ally group other

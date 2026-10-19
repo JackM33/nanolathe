@@ -203,7 +203,7 @@ func (e *Economy) evalMexN(b *core.Board, u *aikit.OwnUnit, bs *builderState, d 
 	m := b.K.Map
 	com := u.Info.Role.Has(aikit.RoleCommander)
 	speed := speedOf(u.Info)
-	base := mul(int64(p.WMetal)*10, s.mexNeed())
+	base := s.mexBase()
 	// An upgrade's return is its extra metal over the whole game against a
 	// lump cost, where the energy options it competes with pay only while
 	// energy is short: w_upgrade weights it.
@@ -323,7 +323,13 @@ func (e *Economy) evalFactoryN(b *core.Board, u *aikit.OwnUnit, p *aikit.UnitInf
 	}
 	// reach_mix: a factory for land constructors while no factory of ours
 	// makes them (econ_reach.go), whether or not its army reaches.
-	consSource := sp.ReachMix != 0 && !si.water && makesLandCons(s, p) && !s.landConsFactory()
+	// A stranded factory is the source only while no factory on offer both
+	// makes land constructors and reaches the enemy: on sail away RHYOSS's
+	// first factory was the troop lab (reach 150‰), whose army stood at
+	// home all game, though its vehicle plant's hovers reach (the play
+	// review, README §15).
+	consSource := sp.ReachMix != 0 && !si.water && makesLandCons(s, p) && !s.landConsFactory() &&
+		!(sp.Play&playReachCons != 0 && e.reachCons && (si.qualityR <= 0 || s.stranded(p)))
 	if si.qualityR <= 0 && !consSource {
 		return c
 	}

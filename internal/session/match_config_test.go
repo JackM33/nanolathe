@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
 	"reflect"
 	"strings"
 	"testing"
@@ -128,7 +129,7 @@ func TestMatchConfigRoundTrip(t *testing.T) {
 		}
 		// The identity is SHA-256 of the literal domain, no NUL, then the
 		// encoding.
-		want := sha256.Sum256(append([]byte("nanolathe/match-config/1"), payload...))
+		want := sha256.Sum256(append([]byte("nanolathe/match-config/2"), payload...))
 		if c.Digest() != want {
 			t.Fatal("the digest is not SHA-256 of the domain and the encoding")
 		}
@@ -263,6 +264,15 @@ func matchOneFieldMutations() []matchMutation {
 		{"rejoin grace", func(r *MatchConfigRequest) { r.Policies.RejoinGraceMilliseconds = 0 }},
 		{"spectator delay", func(r *MatchConfigRequest) { r.Policies.SpectatorDelayMilliseconds = 1 }},
 		{"replay release delay", func(r *MatchConfigRequest) { r.Policies.ReplayReleaseDelayMilliseconds = 2 }},
+		{"room content", func(r *MatchConfigRequest) { r.RoomContent = matchTestRoomContent() }},
+		{"room content digest", func(r *MatchConfigRequest) {
+			r.RoomContent = matchTestRoomContent()
+			r.RoomContent[0].Digest[0] ^= 1
+		}},
+		{"room content size", func(r *MatchConfigRequest) {
+			r.RoomContent = matchTestRoomContent()
+			r.RoomContent[2].Size++
+		}},
 	}
 	// Each of the eleven mutators on its own.
 	for i, name := range []string{"build speed", "build cost", "health", "damage", "area of effect", "sight", "radar", "income", "salvage", "fire rate", "unit speed"} {
@@ -525,6 +535,39 @@ func TestMatchConfigRefusesInvalidFields(t *testing.T) {
 		{"pacing 0", func(r *MatchConfigRequest) { r.Policies.Pacing = 0 }},
 		{"drop 2", func(r *MatchConfigRequest) { r.Policies.Drop = 2 }},
 		{"audience 2", func(r *MatchConfigRequest) { r.Policies.Audience = 2 }},
+		{"room content kind 0", func(r *MatchConfigRequest) { r.RoomContent = []MatchContentEntry{{Name: "a.hpi"}} }},
+		{"room content kind 4", func(r *MatchConfigRequest) { r.RoomContent = []MatchContentEntry{{Kind: 4, Name: "a", Version: "1"}} }},
+		{"room content unsorted kinds", func(r *MatchConfigRequest) {
+			c := matchTestRoomContent()
+			c[0], c[2] = c[2], c[0]
+			r.RoomContent = c
+		}},
+		{"room content unsorted names", func(r *MatchConfigRequest) {
+			c := matchTestRoomContent()
+			c[0], c[1] = c[1], c[0]
+			r.RoomContent = c
+		}},
+		{"room content name twice without regard to case", func(r *MatchConfigRequest) {
+			r.RoomContent = []MatchContentEntry{{Kind: MatchContentBaseArchive, Name: "TOTALA1.HPI"}, {Kind: MatchContentBaseArchive, Name: "totala1.hpi"}}
+		}},
+		{"room content empty name", func(r *MatchConfigRequest) {
+			r.RoomContent = []MatchContentEntry{{Kind: MatchContentAddon, Version: "1"}}
+		}},
+		{"base archive in a directory", func(r *MatchConfigRequest) {
+			r.RoomContent = []MatchContentEntry{{Kind: MatchContentBaseArchive, Name: "maps/x.ufo"}}
+		}},
+		{"base archive not an archive", func(r *MatchConfigRequest) {
+			r.RoomContent = []MatchContentEntry{{Kind: MatchContentBaseArchive, Name: "readme.txt"}}
+		}},
+		{"base archive with a version", func(r *MatchConfigRequest) {
+			r.RoomContent = []MatchContentEntry{{Kind: MatchContentBaseArchive, Name: "totala1.hpi", Version: "1"}}
+		}},
+		{"add-on without a version", func(r *MatchConfigRequest) { r.RoomContent = []MatchContentEntry{{Kind: MatchContentAddon, Name: "a"}} }},
+		{"129 room content entries", func(r *MatchConfigRequest) {
+			for i := range 129 {
+				r.RoomContent = append(r.RoomContent, MatchContentEntry{Kind: MatchContentMapPackage, Name: fmt.Sprintf("map-%03d", i), Version: "1"})
+			}
+		}},
 	}
 	for _, m := range cases {
 		r := validMatchRequest(t)
@@ -641,4 +684,15 @@ func matchCommunityJSONForTest(f community.Features) ([]byte, error) {
 		set, _ = LookupRuleSet(StrictRuleSetName)
 	}
 	return matchCommunityJSON(set, f)
+}
+
+// matchTestRoomContent is a field 16 in canonical order: two base archives,
+// an add-on and a map package. The values are Nanolathe protocol test data.
+func matchTestRoomContent() []MatchContentEntry {
+	return []MatchContentEntry{
+		{Kind: MatchContentBaseArchive, Name: "rev31.gp3", Size: 5, Digest: [32]byte{1}},
+		{Kind: MatchContentBaseArchive, Name: "TOTALA1.HPI", Size: 7, Digest: [32]byte{2}},
+		{Kind: MatchContentAddon, Name: "cavedog-bonus-units", Version: "original", Size: 11, Digest: [32]byte{3}},
+		{Kind: MatchContentMapPackage, Name: "gods-of-war-2", Version: "original", Size: 13, Digest: [32]byte{4}},
+	}
 }

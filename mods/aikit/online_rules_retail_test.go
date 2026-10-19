@@ -198,15 +198,15 @@ func onlineStrictComputer(kind ai.Controller) session.OnlineComputer {
 // on the sixth, and the host's ending bit stays clear [05 R-ECO-01 §1]
 // [08 R-SKIR-01 §3] "A hosting machine's own defeat and its computer".
 //
-// The Modern computer defeats seat 0 a little under seven minutes in and
-// stands with a dozen units afterwards, so its run shows a live computer
-// whose settlement pauses for the five dues and resumes while the battle goes
-// on for seat 1; eight minutes cover it. The Classic computer's commander
-// meets seat 0's a little over five minutes in and both are destroyed in the
-// exchange, so its run, which ends when seat 1's victory countdown does,
-// locks the countdown copy rather than the settlement gate. Neither clock is
-// retail data: they are what this composition does on The Pass with these
-// seeds.
+// The Modern computer defeats seat 0 a little under nine minutes in (tick
+// 15720) and stands with dozens of units afterwards, so its run shows a live
+// computer whose settlement pauses for the five dues and resumes while the
+// battle goes on for seat 1; eleven minutes cover it. The Classic computer's
+// commander meets seat 0's a little over five minutes in and both are
+// destroyed in the exchange, so its run, which ends when seat 1's victory
+// countdown does, locks the countdown copy rather than the settlement gate.
+// Neither clock is retail data: they are what this composition does on The
+// Pass with these seeds.
 func TestOnlineStrictComputerStopsWithItsHostRetail(t *testing.T) {
 	cat, _ := retailcat.Shared(t)
 	for _, tc := range []struct {
@@ -217,7 +217,7 @@ func TestOnlineStrictComputerStopsWithItsHostRetail(t *testing.T) {
 		// run shows its settlement stopping rather than its elimination.
 		outlives bool
 	}{
-		{"Modern", ai.ControllerModern, 14400, true},
+		{"Modern", ai.ControllerModern, 19800, true},
 		{"Classic", ai.ControllerClassic, onlineModernSpan, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

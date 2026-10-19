@@ -359,3 +359,59 @@ func TestFiringPositionDisplacedCleanupLeavesSuccessorControlEvents(t *testing.T
 		t.Fatal("displaced attack took its successor's control events or goal")
 	}
 }
+
+// Nanolathe Modern policy: DESIGN_WEAPONS_PROJECTILES §2.3.2 "No room". A
+// search that finds no candidate lets combat fire into a destructible feature
+// until its retry is due; a found place, another target or Strict does not.
+func TestFiringPositionNoRoom(t *testing.T) {
+	f := newFiringFixture()
+	if f.q.NoFiringPosition(f.u, f.target, 10) {
+		t.Fatal("no room before any search")
+	}
+	f.candidates = false
+	if f.step(10) || !f.q.NoFiringPosition(f.u, f.target, 11) || !f.q.NoFiringPosition(f.u, f.target, 39) {
+		t.Fatal("an exhausted search did not report no room until its retry")
+	}
+	if f.q.NoFiringPosition(f.u, f.target, 40) {
+		t.Fatal("no room outlived the retry")
+	}
+	if f.q.NoFiringPosition(f.u, &units.Unit{Handle: f.target.Handle}, 20) {
+		t.Fatal("no room answered for another target")
+	}
+	f.candidates = true
+	if !f.step(40) || f.q.NoFiringPosition(f.u, f.target, 41) {
+		t.Fatal("a found place still reported no room")
+	}
+	f = newFiringFixture()
+	f.candidates = false
+	f.step(10)
+	f.q.Binding().Rules = StrictRules{}
+	f.step(11)
+	if f.q.NoFiringPosition(f.u, f.target, 12) {
+		t.Fatal("Strict kept the Modern search result")
+	}
+
+	// A unit that may not move for the shot has no room without a search.
+	for name, tc := range map[string]struct {
+		modify func(*firingFixture)
+		want   bool
+	}{
+		"explicit stationary attack": {func(f *firingFixture) { f.n.ID = Lookup("Attack_NoMove") }, true},
+		"automatic hold position": {func(f *firingFixture) {
+			f.n.automaticAttack = true
+			f.u.Flags &^= 3 << units.StandingMoveShift
+		}, true},
+		"idle hold position":        {func(f *firingFixture) { f.q.primary = nil; f.u.Flags &^= 3 << units.StandingMoveShift }, true},
+		"idle maneuver":             {func(f *firingFixture) { f.q.primary = nil }, false},
+		"explicit chase on hold":    {func(f *firingFixture) { f.u.Flags &^= 3 << units.StandingMoveShift }, false},
+		"automatic stationary roam": {func(f *firingFixture) { f.n.ID = Lookup("Attack_NoMove"); f.n.automaticAttack = true }, false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			f := newFiringFixture()
+			tc.modify(f)
+			if got := f.q.NoFiringPosition(f.u, f.target, 10); got != tc.want {
+				t.Fatalf("no room = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}

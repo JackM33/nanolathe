@@ -114,6 +114,10 @@ type mapsFetch struct {
 	previewStatus         string
 	previewPixels         []byte
 	previewPalette        [256][4]byte
+	// query and kind are the browser's search text and Type cycle; listRows
+	// maps list positions to entry indices (docs/DESIGN_MODS_MUTATORS.md §5.6).
+	query, kind string
+	listRows    []int
 	// inInstall caches catalogueInInstall for inInstallContent.
 	inInstall        []bool
 	inInstallContent *contentSet
@@ -129,6 +133,49 @@ var (
 
 func (g *gameShell) mapsFetchActive() bool {
 	return mapsFetchUI != nil && mapsFetchPanel != nil && g.activePanel() == mapsFetchPanel
+}
+
+// mapSearchHint is the search box's placeholder. The panel owns the editor
+// text; the hint is shown while the box is empty and unfocused, treated as
+// "no query" while shown, and cleared the moment the player focuses the box.
+const mapSearchHint = "Search maps"
+
+// mapSearchQuery is the search box's text policy: the hint is never a query,
+// focusing it clears it, and an empty unfocused box shows the hint again.
+func mapSearchQuery(text string, captured bool) (query, box string) {
+	switch {
+	case text == mapSearchHint:
+		if captured {
+			return "", ""
+		}
+		return "", mapSearchHint
+	case text == "" && !captured:
+		return "", mapSearchHint
+	}
+	return text, text
+}
+
+// syncMapsSearch applies live typing in the browser's search box. The panel
+// owns the editor state; the fetch state owns the filter, so a refresh
+// follows only a real change (docs/DESIGN_MODS_MUTATORS.md §5.6).
+func (g *gameShell) syncMapsSearch(p *ui.Panel) {
+	state := mapsFetchUI
+	if state == nil || p == nil {
+		return
+	}
+	index := p.Index("MAPSEARCH")
+	captured := p.EditorCaptured() && p.EditorIndex() == index
+	query, box := mapSearchQuery(p.TextOf("MAPSEARCH"), captured)
+	if box != p.TextOf("MAPSEARCH") {
+		p.SetTextAt(index, box)
+	}
+	state.mu.Lock()
+	changed := query != state.query
+	state.query = query
+	state.mu.Unlock()
+	if changed {
+		g.refreshMapsFetch()
+	}
 }
 
 func (g *gameShell) openMapsFetch() error {
@@ -230,7 +277,9 @@ func (g *gameShell) commitMapsListSelection(name string, index int) bool {
 		return false
 	}
 	mapsFetchUI.mu.Lock()
-	mapsFetchUI.selected = index
+	if index >= 0 && index < len(mapsFetchUI.listRows) {
+		mapsFetchUI.selected = mapsFetchUI.listRows[index]
+	}
 	mapsFetchUI.mu.Unlock()
 	g.refreshMapsFetch()
 	return true
@@ -243,6 +292,29 @@ func (g *gameShell) activateMapsGadget(name string) bool {
 	switch name {
 	case "PREVMENU":
 		g.closeMapsFetch()
+	case "MAPSORT", "MAPTYPE", "MAPAI":
+		state := mapsFetchUI
+		state.mu.Lock()
+		switch name {
+		case "MAPTYPE":
+			kinds := mapKinds(state.entries)
+			if state.kind == "" {
+				if len(kinds) > 0 {
+					state.kind = kinds[0]
+				}
+			} else {
+				next := ""
+				for i, kind := range kinds {
+					if strings.EqualFold(kind, state.kind) && i+1 < len(kinds) {
+						next = kinds[i+1]
+						break
+					}
+				}
+				state.kind = next
+			}
+		}
+		state.mu.Unlock()
+		g.refreshMapsFetch()
 	case "LOAD", "MAPNAMES":
 		job := mapDownload.view()
 		if job.running {
@@ -606,8 +678,9 @@ func (g *gameShell) selectLibraryMap(entry modfetch.Entry) error {
 
 // The authored retail font consumes bytes. Catalogue text is UTF-8, so use
 // readable equivalents for common publishing punctuation before measuring it.
+// The middle dot and dashes are not in the retail glyph set.
 func mapCatalogueText(text string) string {
-	return strings.NewReplacer("’", "'", "‘", "'", "“", "\"", "”", "\"", "–", "-", "—", "-", "×", "x", "…", "...", "\u00a0", " ").Replace(text)
+	return strings.NewReplacer("’", "'", "‘", "'", "“", "\"", "”", "\"", "–", "-", "—", "-", "·", "-", "×", "x", "…", "...", "\u00a0", " ").Replace(text)
 }
 
 func (g *gameShell) refreshMapsFetch() {
@@ -618,28 +691,61 @@ func (g *gameShell) refreshMapsFetch() {
 	job := mapDownload.view()
 	state.mu.Lock()
 	defer func() { state.mu.Unlock(); g.refreshMapRemovalRows(p) }()
+	// Filter and selection first: listRows maps the visible list to entry
+	// indices; the preview and details follow the selection, so a filter
+	// change that moves the selection restarts the preview too
+	// (docs/DESIGN_MODS_MUTATORS.md §5.6).
+	state.listRows = mapFilterOrder(state.entries, state.query, state.kind)
+	selectedPos := -1
+	for i, index := range state.listRows {
+		if index == state.selected {
+			selectedPos = i
+			break
+		}
+	}
+	if selectedPos < 0 && len(state.listRows) > 0 {
+		selectedPos = 0
+		state.selected = state.listRows[0]
+	}
 	state.startPreviewLocked()
 	inInstall := g.catalogueInInstall(state)
-	rows := make([]mapCatalogueRow, len(state.entries))
-	items := make([]string, len(state.entries))
-	for i, e := range state.entries {
+	rows := make([]mapCatalogueRow, len(state.listRows))
+	items := make([]string, len(state.listRows))
+	for i, index := range state.listRows {
+		e := state.entries[index]
 		var skipped error
 		if _, ok := installedVersion(state.installed, e); ok && state.lib != nil {
 			skipped = g.cs.mapSkipped(filepath.Join(state.lib.Root, e.ID, e.Version))
 		}
-		rows[i] = catalogueRow(e, state.installed, state.dependencies, inInstall[i], skipped)
-		items[i] = mapCatalogueText(e.Name) + "  (" + rows[i].suffix + ")"
+		rows[i] = catalogueRow(e, state.installed, state.dependencies, inInstall[index], skipped)
+		suffix := rows[i].suffix
+		if rows[i].action == "Download" {
+			if extra := mapEntryKindSuffix(e); extra != "" {
+				suffix += " \u00b7 " + extra
+			}
+		}
+		items[i] = mapCatalogueText(e.Name + "  (" + suffix + ")")
 	}
-	g.setListItems("MAPNAMES", items, state.selected)
+	g.setListItems("MAPNAMES", items, selectedPos)
 	description, detail, action, blocked := "", "", "Download", false
+	previewStatus := state.previewStatus
 	if state.selected >= 0 && state.selected < len(state.entries) {
-		e, row := state.entries[state.selected], rows[state.selected]
-		description, detail, action, blocked = e.Summary, e.Homepage, row.action, row.blocked
+		e := state.entries[state.selected]
+		description, detail, action = e.Summary, mapEntryStats(e), "Download"
+		if detail == "" {
+			detail = e.Homepage
+		}
+		for i, index := range state.listRows {
+			if index == state.selected {
+				action, blocked = rows[i].action, rows[i].blocked
+				if rows[i].detail != "" {
+					detail = rows[i].detail
+				}
+				break
+			}
+		}
 		if len(e.Requires) > 0 {
 			description += fmt.Sprintf(" Includes %d feature pack(s).", len(e.Requires))
-		}
-		if row.detail != "" {
-			detail = row.detail
 		}
 	}
 	status, percent, bytes := state.status, "", ""
@@ -655,13 +761,22 @@ func (g *gameShell) refreshMapsFetch() {
 	case job.outcome != "":
 		status = job.outcome
 	}
+	if state.query != "" || state.kind != "" {
+		status = fmt.Sprintf("%d of %d community maps", len(state.listRows), len(state.entries))
+	}
 	if percent != "" {
 		detail = percent + "   " + bytes
 	}
+	kindLabel := "all"
+	if state.kind != "" {
+		kindLabel = strings.ToLower(state.kind)
+	}
+	p.SetText("MAPTYPE", "Type: "+kindLabel)
+	retailGreyGadget(p.Window, "MAPTYPE", len(mapKinds(state.entries)) == 0)
 	p.SetText("DESCRIPTION", g.fitDetail(mapCatalogueText(description), 230, 2))
 	p.SetText("SIZE", g.fitDetail(mapCatalogueText(detail), 230, 1))
 	p.SetText("STATUS", g.fitDetail(mapCatalogueText(status), 116, 3))
-	p.SetText("PREVIEWSTATUS", g.fitDetail(state.previewStatus, 116, 2))
+	p.SetText("PREVIEWSTATUS", g.fitDetail(mapCatalogueText(previewStatus), 116, 2))
 	p.SetText("STATUS2", percent)
 	p.SetText("STATUS3", bytes)
 	p.SetText("LOAD", action)
@@ -680,7 +795,7 @@ type mapCatalogueRow struct {
 // catalogueRow describes e against the installed library and the running
 // mount (docs/DESIGN_INTERFACE_HUD_INPUT.md "Community map downloads").
 func catalogueRow(e modfetch.Entry, installed []modlibrary.Mod, dependencies []modfetch.Entry, inInstall bool, skipped error) mapCatalogueRow {
-	row := mapCatalogueRow{suffix: fmt.Sprintf("%.1f MB", float64(e.Archive.Size)/1e6), action: "Download"}
+	row := mapCatalogueRow{suffix: fmt.Sprintf("%.1fM", float64(e.Archive.Size)/1e6), action: "Download"}
 	switch {
 	case inInstall:
 		row.suffix, row.detail, row.blocked = "in your install", "Already in your install: choose it from the map list", true

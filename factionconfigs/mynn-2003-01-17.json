@@ -1,0 +1,21 @@
+{
+  "id": "mynn",
+  "name": "Mynn",
+  "version": "2003-01-17",
+  "summary": "The Mynn faction beside Arm and Core.",
+  "tag": "rac",
+  "sides": [
+    "Mynn"
+  ],
+  "source": {
+    "file": "mynn-2003-01-17.zip",
+    "sha256": "5c2f9071f5b5f51df7d58b2a42d4e2f38e3375f2a52adefe14dd0bda06039ab3"
+  },
+  "exclude": [
+    "mynn-weapons.ufo"
+  ],
+  "notes": [
+    "Input is the 2026-10-16 local candidate ZIP, which retains the Core Prime preservation download's original archive bytes (upstream SHA-256 777a3a23b3c34d417fb27eefb874e224a17f1f066ea83b93643d1232b57e21e7).",
+    "The candidate's mynn-weapons.ufo slot repair is not mounted: faction weapons take allocated record slots, so the authored IDs cannot collide."
+  ]
+}

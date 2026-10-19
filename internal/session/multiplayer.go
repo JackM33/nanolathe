@@ -123,7 +123,7 @@ func NewPlaytestSkirmish(inputs *content.SimulationInputs, config EffectiveMatch
 // are gone (DESIGN_MULTIPLAYER §6.6). Binding projects that answer onto the
 // visibility service.
 //
-// Unless the room keeps sight separate (field 17), each online skirmish team
+// Unless the room keeps sight separate (extension 18), each online skirmish team
 // of two or more rows is one side for sight and radar (§6.7 "Allied sight"): every member's coverage reaches every member's
 // grids, and the sensor pass treats teammates as its own side, the
 // vision-team mechanism Survival's survivors use (DESIGN_SURVIVAL §4.3). A
@@ -151,7 +151,7 @@ func (s *Session) setOnlineVisionTeams(r *MatchConfigRequest) {
 			s.onlineResults.hosted[i] = int8(seat.HostSeat)
 		}
 	}
-	// The room may keep its teams' sight separate (field 17); version 1's
+	// The room may keep its teams' sight separate (extension 18); version 1's
 	// rule, the zero value, shares it.
 	if s.Vis == nil || r.SessionKind != MatchOnlineSkirmish || !r.AlliedSight.Shared(true) {
 		return

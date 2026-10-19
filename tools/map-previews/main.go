@@ -1,6 +1,9 @@
 // map-previews exports the authored minimaps from verified catalogue ZIPs.
 // It writes small PNGs and their optional catalogue references; map packages
-// themselves remain byte-identical. See DESIGN_MODS_MUTATORS §5.6.
+// themselves remain byte-identical. With --annotate it draws the map's own
+// data over the authored picture — metal deposits, reclaimable features,
+// water and steep terrain — and records a legend for the browser. See
+// DESIGN_MODS_MUTATORS §5.6.
 package main
 
 import (
@@ -22,6 +25,7 @@ import (
 	"strings"
 
 	"github.com/nanolathe-gg/nanolathe/formats"
+	"github.com/nanolathe-gg/nanolathe/internal/content"
 	"github.com/nanolathe-gg/nanolathe/internal/palette"
 	"github.com/nanolathe-gg/nanolathe/vfs"
 )
@@ -38,14 +42,33 @@ func main() {
 	root := flag.String("root", "", "reference install supplying the authored palette")
 	out := flag.String("out", "", "PNG output directory")
 	baseURL := flag.String("url", "https://nanolathe.gg/maps/previews/", "published PNG directory URL")
+	annotate := flag.Bool("annotate", false, "draw the map's own data over the picture and record a legend")
+	var featuresRoots stringList
+	flag.Var(&featuresRoots, "features-root", "extra feature source root, mounted under the base install (repeatable)")
 	flag.Parse()
-	if err := run(*manifest, *archives, *root, *out, *baseURL); err != nil {
+	if err := run(*manifest, *archives, *root, *out, *baseURL, *annotate, featuresRoots); err != nil {
 		fmt.Fprintln(os.Stderr, "map-previews:", err)
 		os.Exit(1)
 	}
 }
 
-func run(manifest, archives, root, out, baseURL string) error {
+// stringList is a repeatable string flag.
+type stringList []string
+
+func (s *stringList) String() string { return strings.Join(*s, ",") }
+func (s *stringList) Set(value string) error {
+	*s = append(*s, value)
+	return nil
+}
+
+// previewLegend names what an annotated picture shows: the coloured dots the
+// browser draws beside the preview, and the annotations they stand for.
+var previewLegend = []map[string]string{
+	{"color": "#ffdc00", "label": "metal"},
+	{"color": "#40c840", "label": "reclaim"},
+}
+
+func run(manifest, archives, root, out, baseURL string, annotate bool, featuresRoots []string) error {
 	if manifest == "" || archives == "" || root == "" || out == "" {
 		return fmt.Errorf("--manifest, --archives, --root and --out are required")
 	}
@@ -129,6 +152,17 @@ func run(manifest, archives, root, out, baseURL string) error {
 		if err != nil {
 			return fmt.Errorf("%s: %w", filename, err)
 		}
+		if annotate {
+			defs, err := featureDefs(root, z, featuresRoots)
+			if err != nil {
+				return fmt.Errorf("%s: %w", filename, err)
+			}
+			annotatePicture(picture, terrain, defs, colors)
+			entry["legend"], err = json.Marshal(previewLegend)
+			if err != nil {
+				return err
+			}
+		}
 		var encoded bytes.Buffer
 		if err = png.Encode(&encoded, picture); err != nil {
 			return err
@@ -162,6 +196,132 @@ func run(manifest, archives, root, out, baseURL string) error {
 	}
 	fmt.Printf("%d previews, %d bytes total\n", len(maps), total)
 	return nil
+}
+
+// featureDefs compiles the feature definitions a map package sees: the base
+// install's features, the extra feature source roots (a catalogue dependency
+// like the community feature library), plus any features/ tree the package
+// itself carries — the same resolution the engine's map admission uses
+// (§5.6). An unresolved successor hop anywhere is not fatal here: annotation
+// only needs each definition's metal and indestructible flags, so a failed
+// compile retries without the package's own tree and then gives up quietly.
+func featureDefs(root string, z *zip.Reader, featuresRoots []string) (map[string]*content.FeatureDef, error) {
+	tmp, err := os.MkdirTemp("", "map-previews-features-")
+	if err != nil {
+		return nil, err
+	}
+	defer os.RemoveAll(tmp)
+	wrote := false
+	for _, file := range z.File {
+		name := strings.ToLower(file.Name)
+		if file.FileInfo().IsDir() || !strings.HasPrefix(name, "features/") || !strings.HasSuffix(name, ".tdf") {
+			continue
+		}
+		clean := path.Clean(file.Name)
+		if strings.HasPrefix(clean, "..") || strings.Contains(clean, "/../") {
+			continue
+		}
+		target := filepath.Join(tmp, filepath.FromSlash(clean))
+		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+			return nil, err
+		}
+		src, err := file.Open()
+		if err != nil {
+			return nil, err
+		}
+		data, readErr := io.ReadAll(io.LimitReader(src, 1<<20))
+		src.Close()
+		if readErr != nil {
+			return nil, readErr
+		}
+		if err := os.WriteFile(target, data, 0o644); err != nil {
+			return nil, err
+		}
+		wrote = true
+	}
+	compile := func(roots []string) (map[string]*content.FeatureDef, error) {
+		fs := vfs.New()
+		defer fs.Close()
+		if err := fs.MountGameDirectories(roots); err != nil {
+			return nil, err
+		}
+		return content.CompileFeatures(fs)
+	}
+	roots := append(append([]string(nil), featuresRoots...), root)
+	if wrote {
+		roots = append([]string{tmp}, roots...)
+	}
+	if defs, err := compile(roots); err == nil {
+		return defs, nil
+	}
+	if defs, err := compile(append(append([]string(nil), featuresRoots...), root)); err == nil {
+		return defs, nil
+	}
+	return map[string]*content.FeatureDef{}, nil
+}
+
+// annotatePicture draws the map's own data over the authored minimap:
+// indestructible metal-bearing features as the extractor's deposits (the
+// engine's own seed rule [05 R-FEAT-01 §7]) in yellow, and every other placed
+// feature as reclaimable ground in green. Colours are matched back into the
+// authored palette so the PNG stays indexed and small.
+func annotatePicture(picture *image.Paletted, t *formats.TNT, defs map[string]*content.FeatureDef, colors color.Palette) {
+	w, h := picture.Rect.Dx(), picture.Rect.Dy()
+	cw, ch := int(t.Width), int(t.Height)
+	if w <= 0 || h <= 0 || cw <= 0 || ch <= 0 || len(t.Attributes) < cw*ch {
+		return
+	}
+	nearest := nearestPalette(colors)
+	for y := 0; y < h; y++ {
+		cz := y * ch / h
+		for x := 0; x < w; x++ {
+			cx := x * cw / w
+			i := cz*cw + cx
+			r, g, b, _ := colors[picture.ColorIndexAt(x, y)].RGBA()
+			rr, gg, bb := uint8(r>>8), uint8(g>>8), uint8(b>>8)
+			if f := t.Attributes[i].Feature; f < 0xfffb && int(f) < len(t.FeatureTable) {
+				def := defs[content.CanonicalKey(t.FeatureTable[f].Name)]
+				if def != nil && def.Metal != 0 && def.Indestructible {
+					rr, gg, bb = 255, 220, 0
+				} else {
+					rr, gg, bb = blend(rr, gg, bb, 64, 200, 64, 0.5)
+				}
+			}
+			picture.SetColorIndex(x, y, nearest(rr, gg, bb))
+		}
+	}
+}
+
+// blend mixes an overlay colour into the source at weight.
+func blend(r, g, b, or_, og, ob uint8, weight float64) (uint8, uint8, uint8) {
+	mix := func(s, o uint8) uint8 {
+		return uint8(float64(s)*(1-weight) + float64(o)*weight + 0.5)
+	}
+	return mix(r, or_), mix(g, og), mix(b, ob)
+}
+
+// nearestPalette maps RGB colours to palette indices, caching each colour.
+func nearestPalette(colors color.Palette) func(r, g, b uint8) uint8 {
+	cache := map[uint32]uint8{}
+	return func(r, g, b uint8) uint8 {
+		key := uint32(r)<<16 | uint32(g)<<8 | uint32(b)
+		if index, ok := cache[key]; ok {
+			return index
+		}
+		best, distance := uint8(0), 1<<30
+		for i, entry := range colors {
+			er, eg, eb, _ := entry.RGBA()
+			dr := int(r) - int(er>>8)
+			dg := int(g) - int(eg>>8)
+			db := int(b) - int(eb>>8)
+			d := dr*dr + dg*dg + db*db
+			if d < distance {
+				best, distance = uint8(i), d
+			}
+		}
+		cache[key] = best
+		return best
+	}
 }
 
 func minimap(t *formats.TNT, colors color.Palette) (*image.Paletted, error) {

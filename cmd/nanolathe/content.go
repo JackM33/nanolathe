@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/nanolathe-gg/nanolathe/internal/addonlibrary"
 	"github.com/nanolathe-gg/nanolathe/internal/client"
 	"github.com/nanolathe-gg/nanolathe/internal/community"
 	"github.com/nanolathe-gg/nanolathe/internal/content"
@@ -42,7 +43,14 @@ type contentSet struct {
 	// without a catalog, takes them, so the window admits exactly the content
 	// the displayless command does (docs/DESIGN_CONTENT_VFS.md §5 "Content
 	// profiles"). A retail content set resolves to the retail baseline.
-	limits           content.Limits
+	limits content.Limits
+	// profileLimits are the running config's own limits, before downloaded
+	// map packages raise the terrain cap; an online room's limits start from
+	// them (docs/DESIGN_MULTIPLAYER.md §16.8).
+	profileLimits content.Limits
+	// layout is the running config's directory table, which every view of
+	// this content applies, an online room's included.
+	layout           vfs.Layout
 	presentation     contentprofiles.Presentation
 	gameplayFeatures []community.Overrides
 	// config is the running Nanolathe config: the mounted mod's own, or the
@@ -90,6 +98,17 @@ type contentSet struct {
 	// skippedMaps are downloaded map packages this mount left out, with the
 	// reason; they stay removable from the More maps catalogue.
 	skippedMaps []maplibrary.Skipped
+	// mapRoots are the downloaded map packages this mount holds, below the
+	// base install, in mount order.
+	mapRoots []string
+	// addons are the official add-ons this mount holds from the library,
+	// in the base install's folder at its *.UFO tier; addonSelection is what
+	// the mount was asked for, which a remount asks for again; addonsOff
+	// marks a running config that leaves them off
+	// (docs/DESIGN_MODS_MUTATORS.md §5.7).
+	addons         []addonlibrary.Addon
+	addonSelection []settings.AddonSelection
+	addonsOff      bool
 	// profileControls is the controls preset of a config mounted without a
 	// mod (--mod-config on a manual stack). It is offered once
 	// (docs/DESIGN_MODS_MUTATORS.md §4.3); a mod carries its own in mod.
@@ -214,10 +233,24 @@ func mountContent(opts Options, baseRoots []string, selection modSelection) (*co
 	for _, note := range mapNotes {
 		fmt.Fprintln(os.Stderr, note)
 	}
+	// Official add-ons mount in the base install's folder, at its *.UFO
+	// tier, whatever mod is selected (docs/DESIGN_MODS_MUTATORS.md §5.7).
+	addons, err := resolveAddons(opts, profile, baseRoots, selection.mod)
+	if err != nil {
+		return nil, err
+	}
+	printNotes(addons.notes)
 	mapRootsCount := len(mapRoots)
 	roots = append(mapRoots, roots...)
+	gameRoots := make([]vfs.GameRoot, len(roots))
+	for i, root := range roots {
+		gameRoots[i] = vfs.GameRoot{Dir: root}
+	}
+	gameRoots[mapRootsCount].Extra = addonExtras(addons.mounted)
+	gameRoots[mapRootsCount].ExtraLayout = factionLayout(profile.Layout(), addons.factions)
+	gameRoots[mapRootsCount].ExtraTier = addonExtraTier(addons.factions)
 	fileSystem := vfs.New()
-	if err := fileSystem.MountGameDirectories(roots); err != nil {
+	if err := fileSystem.MountGameRoots(gameRoots); err != nil {
 		fileSystem.Close()
 		return nil, &missingProductError{what: "mounting content failed: " + err.Error(), logical: "<content roots>", providers: roots, expected: "readable content directories and archives"}
 	}
@@ -251,6 +284,8 @@ func mountContent(opts Options, baseRoots []string, selection modSelection) (*co
 		unmappedMount:    fileSystem,
 		profile:          profile.Name,
 		limits:           content.LimitsFromProfile(profile.Limits),
+		profileLimits:    content.LimitsFromProfile(profile.Limits),
+		layout:           profile.Layout(),
 		presentation:     profile.Presentation,
 		gameplayFeatures: config.meta.CommunitySources(),
 		config:           config.meta.Config,
@@ -258,8 +293,11 @@ func mountContent(opts Options, baseRoots []string, selection modSelection) (*co
 		root:             baseRoots[0], roots: append([]string(nil), roots...), notes: fileSystem.Notes(),
 		mod: mod, baseRoots: append([]string(nil), baseRoots...), manualRoots: selection.manual, modNotice: notice,
 		configNotice: config.notice, savedMod: selection.saved, skippedMaps: skippedMaps,
+		mapRoots: append([]string(nil), mapRoots...),
+		addons:   addons.mounted, addonSelection: addons.selection, addonsOff: addons.off,
 	}
 	set.notes = append(set.notes, mapNotes...)
+	set.notes = append(set.notes, addons.notes...)
 	if mapRootsCount > 0 {
 		set.limits.TNTBytes = max(set.limits.TNTBytes, maplibrary.MaxTNTBytes)
 	}

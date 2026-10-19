@@ -4,6 +4,7 @@ import (
 	"math"
 
 	"github.com/nanolathe-gg/nanolathe/internal/ai"
+	"github.com/nanolathe-gg/nanolathe/internal/content"
 	"github.com/nanolathe-gg/nanolathe/internal/orders"
 	"github.com/nanolathe-gg/nanolathe/internal/pool"
 	"github.com/nanolathe-gg/nanolathe/internal/sim/numeric"
@@ -17,21 +18,32 @@ import (
 type CmdKind uint8
 
 const (
-	CmdMove      CmdKind = iota + 1 // command code 2
-	CmdAttack                       // code 3 on a unit
-	CmdAttackPos                    // code 3 on the ground
-	CmdPatrol                       // code 9
-	CmdGuard                        // code 7
-	CmdRepair                       // code 8: help build or repair
-	CmdReclaim                      // code 12 on a unit
-	CmdStop                         // purge unprotected orders
-	CmdBuild                        // code 14: mobile build near a point or on a metal spot
-	CmdProduce                      // factory queue
-	CmdReplace                      // code 12 on an own building, then code 14 on its metal spot
-	CmdUnblock                      // code 12 on whatever seals an own factory's exit
-	CmdClear                        // code 12 on features around a point (streets first, then wrecks)
-	CmdStockpile                    // counted BuildWeapon in the secondary queue
+	CmdMove       CmdKind = iota + 1 // command code 2
+	CmdAttack                        // code 3 on a unit
+	CmdAttackPos                     // code 3 on the ground
+	CmdPatrol                        // code 9
+	CmdGuard                         // code 7
+	CmdRepair                        // code 8: help build or repair
+	CmdReclaim                       // code 12 on a unit
+	CmdStop                          // purge unprotected orders
+	CmdBuild                         // code 14: mobile build near a point or on a metal spot
+	CmdProduce                       // factory queue
+	CmdReplace                       // code 12 on an own building, then code 14 on its metal spot
+	CmdUnblock                       // code 12 on whatever seals an own factory's exit
+	CmdClear                         // code 12 on features around a point (streets first, then wrecks)
+	CmdStockpile                     // counted BuildWeapon in the secondary queue
+	CmdLoad                          // code 6 on a unit: a transport picks it up
+	CmdUnload                        // code 5 on the ground: a transport unloads there
+	CmdActivate                      // the Activate state order: an on/off unit is switched on
+	CmdDeactivate                    // the Deactivate state order: switched off
+	CmdCloak                         // the Cloak_On state order: cloak requested
+	CmdDecloak                       // the Cloak_Off state order: the request cleared
 )
+
+// stateOrders names the state order each of the four switch commands pushes,
+// as the side panel's ON/OFF and CLOAK gadgets do (session HumanActivation
+// and HumanCloak).
+var stateOrders = [...]string{CmdActivate: "Activate", CmdDeactivate: "Deactivate", CmdCloak: "Cloak_On", CmdDecloak: "Cloak_Off"}
 
 // Command is one player-level action. A group order is one command.
 type Command struct {
@@ -490,7 +502,7 @@ func (e *executor) apply(b *batch, tick uint32, w *units.World, persona *Persona
 	}
 }
 
-var orderCodes = [...]int{CmdMove: 2, CmdAttack: 3, CmdAttackPos: 3, CmdPatrol: 9, CmdGuard: 7, CmdRepair: 8, CmdReclaim: 12}
+var orderCodes = [...]int{CmdMove: 2, CmdAttack: 3, CmdAttackPos: 3, CmdPatrol: 9, CmdGuard: 7, CmdRepair: 8, CmdReclaim: 12, CmdLoad: 6, CmdUnload: 5}
 
 func (e *executor) exec(c *Command, b *batch, tick uint32, w *units.World) bool {
 	switch c.Kind {
@@ -506,9 +518,11 @@ func (e *executor) exec(c *Command, b *batch, tick uint32, w *units.World) bool 
 		return e.execUnblock(c, b, tick, w)
 	case CmdClear:
 		return e.execClear(c, b, tick, w)
+	case CmdActivate, CmdDeactivate, CmdCloak, CmdDecloak:
+		return e.execState(c, b, tick, w)
 	}
 	var target *units.Unit
-	if c.Kind == CmdAttack || c.Kind == CmdGuard || c.Kind == CmdRepair || c.Kind == CmdReclaim {
+	if c.Kind == CmdAttack || c.Kind == CmdGuard || c.Kind == CmdRepair || c.Kind == CmdReclaim || c.Kind == CmdLoad {
 		target = e.targetOK(w, c)
 		if target == nil {
 			e.checkpointReject()
@@ -601,6 +615,69 @@ func (e *executor) canChase(u, target *units.Unit) bool {
 		}
 	}
 	return !target.Def.DefinitionMask().Intersects(u.Def.NoChaseCategoryMask)
+}
+
+// switchApplies reports whether a switch command means anything to a unit of
+// def: activation only to an on/off definition, which is all the session's
+// ON/OFF gadget sends it to, and cloak only to a definition whose cloak cost
+// gives it the can-cloak capability the Cloak_On and Cloak_Off handlers test
+// [04 R-ORD-01 §2]. The handlers would complete without effect on any other
+// unit; such an actor is skipped instead of being sent an empty record.
+func switchApplies(kind CmdKind, def *content.UnitDef) bool {
+	if def == nil {
+		return false
+	}
+	if kind == CmdCloak || kind == CmdDecloak {
+		return def.CloakCost > 0
+	}
+	return def.OnOffable
+}
+
+// execState applies a switch command: the state order the side panel's
+// ON/OFF or CLOAK gadget pushes, through the same producer insertion. Both
+// pairs of descriptors keep the queue (they skip the replacement purge and
+// head-insert), so the unit's mission carries on behind them.
+func (e *executor) execState(c *Command, b *batch, tick uint32, w *units.World) bool {
+	id := orders.Lookup(stateOrders[c.Kind])
+	if id == 0 {
+		e.checkpointReject()
+		e.stats.Failed++
+		return false
+	}
+	issued := false
+	actors := 0
+	for i := c.first; i < c.first+c.count; i++ {
+		u := e.actorOK(w, b.actors[i], b.inst[i])
+		if u == nil || !switchApplies(c.Kind, u.Def) {
+			e.checkpointReject()
+			continue
+		}
+		actors++
+		q := orders.BindQueueBinding(u, e.m.OrderBinding)
+		if q == nil {
+			e.checkpointReject()
+			continue
+		}
+		func() {
+			restore := e.checkpointAttempt().ObserveQueue(q, u)
+			actor := e.checkpointActor(u)
+			defer restore()
+			mark := e.checkpointAttempt().InsertionIndex()
+			q.Push(id, orders.NewNodeForOrder(id, 0, 0, 0, 0, tick, u.Handle, c.Queued))
+			e.checkpointOrderOutcome(mark, actor, 1)
+			issued = true
+		}()
+	}
+	if !issued {
+		e.checkpointReject()
+		e.stats.Failed++
+		if actors == 0 {
+			e.stats.Reasons[FailNoActor]++
+		} else {
+			e.stats.Reasons[FailResolve]++
+		}
+	}
+	return issued
 }
 
 func (e *executor) execBuild(c *Command, b *batch, tick uint32, w *units.World) bool {

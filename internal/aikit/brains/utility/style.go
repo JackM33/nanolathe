@@ -252,8 +252,31 @@ func (vr *variety) attackValue(s *shared, p *Params) int64 {
 	}
 	a := int64(ambition(&s.k.Persona))
 	v := (topArmy.a + topArmy.b*t/1800) * a * share / (100 * 100 * 1000)
+	if p.Play&playAttackIncome != 0 {
+		v = v * incomeScale(s) / one
+	}
 	return max64(v, floor)
 }
+
+// incomeScale (permille, attackIncomeLo..1000) is our metal income over
+// the income the human army curve was played on at this minute: the top
+// tier's extractors (topExtractors) at attackSpotIncome each, and the
+// commander's own. The army curve is a clock, so at half income the army
+// never caught the launch value and stood at home all game while the
+// enemy took the middle (the play review, README §15); a richer game keeps
+// the curve as it was.
+func incomeScale(s *shared) int64 {
+	ref := max64(topExtractors.at(100, s.tick), 0)*attackSpotIncome/1000 + 1000
+	return clamp(s.mInc*1000/max64(ref, 1), attackIncomeLo, one)
+}
+
+// attackSpotIncome is metal per second (milli) of a typical extractor, as
+// ARM's mirrors at full income measure it (14 metal/s on 8 extractors and
+// the commander's 1 at minute 10); attackIncomeLo is the least scale.
+const (
+	attackSpotIncome = 1600
+	attackIncomeLo   = 400
+)
 
 // Floors: every persona may own one factory and one extractor, and an army
 // worth 200 before the curve allows more.

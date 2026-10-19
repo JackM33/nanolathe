@@ -214,7 +214,7 @@ func TestOnlineLobbyComputerLimits(t *testing.T) {
 // The colours the lobby shows are the ones composition resolves, for every
 // arrangement of humans and stored computer colours.
 func TestOnlineComputerColorsMatchComposition(t *testing.T) {
-	frozen := onlineCreationFrozen(&contentSet{profile: "retail", limits: content.RetailLimits()}, [2]uint32{1, 2}, content.Mutators{}, content.Restrictions{}, nil)
+	frozen := onlineCreationFrozen(&contentSet{profile: "retail", limits: content.RetailLimits()}, [2]uint32{1, 2}, content.Mutators{}, content.Restrictions{}, nil, nil)
 	for _, c := range []struct {
 		seats     []uint8
 		computers []uint8

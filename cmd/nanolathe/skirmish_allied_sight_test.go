@@ -29,7 +29,7 @@ func TestTheSettingsFileKeepsAlliedSight(t *testing.T) {
 }
 
 // The online lobby's host keeps a skirmish room's teams' sight separate with
-// the Allied Sight button, which writes configuration field 17; the default
+// the Allied Sight button, which writes required configuration extension 18; the default
 // shares it, as online skirmishes always did, and a Survival room has no
 // button (DESIGN_MULTIPLAYER §6.7 "Allied sight").
 func TestOnlineLobbyHostChoosesAlliedSight(t *testing.T) {
@@ -52,7 +52,7 @@ func TestOnlineLobbyHostChoosesAlliedSight(t *testing.T) {
 	g.activateGadget(alliedSightButton)
 	g.pollOnline()
 	if got := sight(); got != session.MatchAlliedSightSeparate || !r.settings.separateSight || p.StageAt(p.Index(alliedSightButton)) != 0 {
-		t.Fatalf("separate: field 17 = %d, stage %d", got, p.StageAt(p.Index(alliedSightButton)))
+		t.Fatalf("separate: extension 18 = %d, stage %d", got, p.StageAt(p.Index(alliedSightButton)))
 	}
 	if !onlineSettingsOf(mustDecodeRequest(t, fake.config)).separateSight {
 		t.Fatal("a guest reads the room's sight as shared")
@@ -60,7 +60,7 @@ func TestOnlineLobbyHostChoosesAlliedSight(t *testing.T) {
 	g.activateGadget(alliedSightButton)
 	g.pollOnline()
 	if got := sight(); got != session.MatchAlliedSightVersion1 || r.settings.separateSight {
-		t.Fatalf("shared again: field 17 = %d", got)
+		t.Fatalf("shared again: extension 18 = %d", got)
 	}
 	r.settings.survival = true
 	g.refreshOnlineLobby()

@@ -58,6 +58,11 @@ func catalogHash(c *Catalog) string {
 			fmt.Fprintf(h, "weapon %s id=%d %s\n", k, w.ID, w.Hash)
 		}
 	}
+	// A weapon's Hash is its authored record's; the damage entries faction
+	// declarations add are hashed here, in composition order (§5.8).
+	for _, e := range c.FactionDamage {
+		fmt.Fprintf(h, "factiondamage %s %s=%d %s\n", e.Weapon, e.Unit, e.Damage, e.Provenance.LogicalPath)
+	}
 	// Features — sorted [02 §5] C12. Successor links fatal verbatim [GAP T14] C9 already validated.
 	if len(c.Features) > 0 {
 		keys := make([]string, 0, len(c.Features))

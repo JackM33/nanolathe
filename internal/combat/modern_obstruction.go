@@ -1,6 +1,7 @@
 package combat
 
 import (
+	"github.com/nanolathe-gg/nanolathe/internal/content"
 	"github.com/nanolathe-gg/nanolathe/internal/pool"
 	"github.com/nanolathe-gg/nanolathe/internal/sim/numeric"
 	"github.com/nanolathe-gg/nanolathe/internal/units"
@@ -122,13 +123,86 @@ func modernObstructedShot(q *ShotQuery) bool {
 		// not predict what a target or blocker will do after launch.
 		cx, cz := world.WorldToCell(p.Pos.X), world.WorldToCell(p.Pos.Z)
 		cell := q.Terrain.PlotAt(cx, cz)
-		if cell == nil || contactUnitInCell(p, q.World, q.Terrain, cx, cz) != 0 ||
-			(!w.UnitsOnly && (int16(p.Pos.Y.Raw()>>16) < int16(cell.MinHeight()) || (!w.WaterWeapon && int16(p.Pos.Y.Raw()>>16) < int16(q.Terrain.SeaLevel)))) ||
+		if cell == nil || contactUnitInCell(p, q.World, q.Terrain, cx, cz) != 0 {
+			return false
+		}
+		// Under "No room" the flight ends at the first feature the live
+		// contact ladder hits, after units and before terrain [06 §8.1]. The
+		// shot is worth firing only if that blast damages the feature.
+		if q.passFeatures && !w.UnitsOnly {
+			if hit, damages := modernFeatureImpact(q, w, p.Pos, cx, cz, cell); hit {
+				return !damages
+			}
+		}
+		if (!w.UnitsOnly && (int16(p.Pos.Y.Raw()>>16) < int16(cell.MinHeight()) || (!w.WaterWeapon && int16(p.Pos.Y.Raw()>>16) < int16(q.Terrain.SeaLevel)))) ||
 			(q.Burst == nil && modernPastAim(q.Muzzle, q.Aim, p.Pos)) || tick == ^uint32(0) {
 			return false
 		}
 	}
 	return false
+}
+
+// modernFireIntoFeatures is the "No room" clause of §2.3.2: when the shooter
+// has no clear place to step to, a held shot whose only obstructions are
+// features that can be destroyed fires if it would reach its target between
+// the features or damage the first one it hits. Friends, features that cannot
+// be destroyed, and a blast that would not reach the feature still hold it.
+// The second preview runs only for a held shot.
+func modernFireIntoFeatures(q *ShotQuery) bool {
+	if q.Target == nil || q.Shooter == nil || q.Shooter.Def == nil || !modernNoFiringPosition(q.Shooter, q.Target, q.Tick) {
+		return false
+	}
+	q.passFeatures = true
+	blocked := modernObstructedShot(q)
+	q.passFeatures = false
+	return !blocked
+}
+
+// modernFeatureImpact reports whether a projectile at pos contacts a feature
+// as the live ladder's feature step does, and whether the blast there reaches
+// that feature's area candidate, which is what damages or ignites it
+// [06 §8.1][06 §9.3][06 §13.1]. The blast centre is the contact point. The
+// preview ignores the record's last-feature-cell cache, which a stale pool
+// record can carry [R-DMG-01 §13].
+func modernFeatureImpact(q *ShotQuery, w *content.WeaponDef, pos Vec3, cx, cz int32, cell *world.PlotCell) (hit, damages bool) {
+	if cell.IsEmpty() {
+		return false, false
+	}
+	ax, az := int(cx), int(cz)
+	if cell.IsFringe() {
+		ax += int(cell.AnchorDXSigned())
+		az += int(cell.AnchorDZSigned())
+	}
+	index, ok := world.ResolveFeature(q.Terrain.Plot, int(q.Terrain.CellW), int(q.Terrain.CellH), ax, az)
+	if !ok {
+		return false, false
+	}
+	def, ok := q.Terrain.FeatureDefAt(index)
+	if !ok || def == nil || int16(pos.Y.Raw()>>16) >= int16(int32(cell.MinHeight())+int32(uint8(def.Height))) {
+		return false, false
+	}
+	if def.Indestructible || q.Service == nil || q.Service.Features == nil {
+		return true, false
+	}
+	cand, ok := q.Service.Features.AreaCandidateAt(int(cx), int(cz))
+	if !ok {
+		return true, false
+	}
+	point := Vec3{X: cand.X, Y: cand.Y, Z: cand.Z}
+	return true, DistanceToBox(pos, UnitForArea{Pos: point, Min: point, Max: point}) < BlastRadius(w.AreaOfEffect)
+}
+
+// A unit that cannot move has nowhere to step to. Any other unit answers
+// through its existing opaque queue link: the queue owns the firing-position
+// search and its result (DESIGN_UNITS_ORDERS_COB "Modern firing positions").
+func modernNoFiringPosition(u, target *units.Unit, tick uint32) bool {
+	if !u.Def.CanMove {
+		return true
+	}
+	q, ok := u.Orders.(interface {
+		NoFiringPosition(u, target *units.Unit, tick uint32) bool
+	})
+	return ok && q.NoFiringPosition(u, target, tick)
 }
 
 func (q *ShotQuery) manualAttack() bool {
@@ -283,6 +357,10 @@ func modernObstructedCell(q *ShotQuery, cx, cz, low, high int32, terminalTarget 
 	}
 	if index, ok := world.ResolveFeature(q.Terrain.Plot, int(q.Terrain.CellW), int(q.Terrain.CellH), ax, az); ok {
 		if def, ok := q.Terrain.FeatureDefAt(index); ok && def != nil {
+			// Only features the impact can damage are crossed [06 §13.1].
+			if q.passFeatures && !def.Indestructible {
+				return false
+			}
 			// Feature height is an authored byte and equality clears [06 §8.1].
 			return int16(low>>16) < int16(int32(cell.MinHeight())+int32(uint8(def.Height)))
 		}

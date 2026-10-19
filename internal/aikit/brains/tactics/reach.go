@@ -57,7 +57,7 @@ func (a *Army) setupReach(k *aikit.Kit) {
 		return
 	}
 	for i, u := range t.Units {
-		if u.Side != k.Side || !u.Role.Any(aikit.RoleCombat|aikit.RoleBuilder|aikit.RoleScout) {
+		if !k.Owns(u) || !u.Role.Any(aikit.RoleCombat|aikit.RoleBuilder|aikit.RoleScout) {
 			continue
 		}
 		mc, ok := aikit.MoveClassOf(u)

@@ -209,9 +209,16 @@ type defPlan struct {
 	normDual bool // the builder can build a missile tower (front rules)
 }
 
-// classify says what a defense definition is for.
+// classify says what a defense definition is for. Its fire is DPS, or
+// AirDPS without any: a flak tower whose only damage is damage-table
+// anti-air has AirDPS and no DPS (aikit computeAntiAir), and is an air
+// defense. Every stock defense has DPS.
 func classify(u *aikit.UnitInfo, si *staticInfo) uint8 {
-	if !u.Role.Has(aikit.RoleDefense) || u.Role.Has(aikit.RoleMobile) || u.DPS <= 0 {
+	fire := int64(u.DPS)
+	if fire == 0 {
+		fire = int64(u.AirDPS)
+	}
+	if !u.Role.Has(aikit.RoleDefense) || u.Role.Has(aikit.RoleMobile) || fire <= 0 {
 		return dcNone
 	}
 	if u.Range >= defStrategic {
@@ -219,7 +226,7 @@ func classify(u *aikit.UnitInfo, si *staticInfo) uint8 {
 	}
 	// Negligible sustained fire for its cost: an anti-missile system's
 	// nominal weapon, or a building armed only incidentally.
-	if int64(u.DPS)*1000 < 20*max64(si.costMeq, 1) {
+	if fire*1000 < 20*max64(si.costMeq, 1) {
 		return dcNone
 	}
 	switch {
@@ -227,6 +234,10 @@ func classify(u *aikit.UnitInfo, si *staticInfo) uint8 {
 		return dcWater
 	case si.aaOnly:
 		return dcAir
+	case si.gndDPS == 0:
+		// A tower on land whose only fire is water-only (a shore torpedo
+		// launcher) defends neither ground nor air.
+		return dcNone
 	}
 	return dcGround
 }
@@ -245,7 +256,7 @@ func (pl *defPlan) setup(s *shared, b *core.Board) {
 		if u.Role.Has(aikit.RoleDefense) {
 			pl.defIdx = append(pl.defIdx, int32(i))
 		}
-		if c == dcNone || u.Side != k.Side || u.Depth < 0 {
+		if c == dcNone || !k.Owns(u) || u.Depth < 0 {
 			continue
 		}
 		v := s.info[i].costMeq

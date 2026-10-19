@@ -11,6 +11,7 @@ import (
 	"github.com/nanolathe-gg/nanolathe/internal/mission"
 	"github.com/nanolathe-gg/nanolathe/internal/save"
 	"github.com/nanolathe-gg/nanolathe/internal/session"
+	"github.com/nanolathe-gg/nanolathe/internal/settings"
 )
 
 // The loading screen uses the logical 640x480 surface, draws
@@ -259,8 +260,19 @@ func (g *gameShell) loadRetailSavePath(path string) error {
 		if modPlan, err = g.planSidecarMod(sidecar); err != nil {
 			return err
 		}
+		if modPlan.addons, err = g.planSidecarAddons(sidecar); err != nil {
+			return err
+		}
 		if selection, err = resolveSidecarSelection(sidecar); err != nil {
 			return err
+		}
+		if modPlan.addons != nil && modPlan.switchTo == "" {
+			// Only the add-ons differ: reload onto the running mod with the
+			// recorded add-ons (§5.7).
+			modPlan.switchTo, modPlan.selection = g.cs.modSelector(), g.modSetting
+			if g.cs.mod != nil {
+				modPlan.selection = settings.ModSelection{ID: g.cs.mod.ID, Version: g.cs.mod.Version}
+			}
 		}
 		if modPlan.switchTo != "" {
 			return g.switchModForLoad(path, modPlan, selection)

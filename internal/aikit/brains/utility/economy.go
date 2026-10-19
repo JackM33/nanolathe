@@ -96,8 +96,10 @@ type Economy struct {
 	// scratch per decision
 	bestQ, bestDef int64
 	bestQR         int64         // best reach-weighted factory quality on offer (switches on)
+	reachCons      bool          // a factory on offer, not an air plant, makes land constructors and its army reaches (reach_mix)
 	def            defPlan       // the proactive defense plan's state (defense*.go)
 	strategic      strategicPlan // stockpile ammunition and deliberate ground targets
+	ab             abilities     // cloak and the gate network (abil*.go)
 	// fac_backoff: factory site searches that found no site lately.
 	facOff     [facOffSlots]facBackoff
 	facOffNext int
@@ -192,6 +194,7 @@ func (e *Economy) Plan(b *core.Board) {
 			budget--
 		}
 	}
+	budget -= e.abilities(b, budget) // cloak and gates (abil.go)
 	if s.p.Layout != 0 {
 		e.clearFailures(b)
 		if budget > 0 {
@@ -526,6 +529,22 @@ func speedOf(u *aikit.UnitInfo) int64 {
 
 // evalMex scores the best free metal spot for this builder: metal need ×
 // return per cost × travel × route threat × territory.
+// mexBase is an extractor site's weight times its metal need. Extraction
+// stops in an energy stall, and a stall also cuts the metal income the
+// metal need is read from, so the cheap extractor kept outscoring power
+// while the stall deepened: TLL and RHYOSS openings took four to nine
+// extractors on one solar and sat at no energy for minutes, worst at
+// medium (the play review, README §15). Under
+// playMexPower, with the energy store below half, an extractor waits for
+// energy coverage.
+func (s *shared) mexBase() int64 {
+	base := mul(int64(s.p.WMetal)*10, s.mexNeed())
+	if s.p.Play&playMexPower != 0 && s.eStock*2 < s.eCap {
+		base = mul(base, lin(s.covE, mexPowerLo, mexPowerHi))
+	}
+	return base
+}
+
 func (e *Economy) evalMex(b *core.Board, u *aikit.OwnUnit, bs *builderState, d *decision) {
 	s := e.s
 	p := &s.p
@@ -537,7 +556,7 @@ func (e *Economy) evalMex(b *core.Board, u *aikit.OwnUnit, bs *builderState, d *
 	com := u.Info.Role.Has(aikit.RoleCommander)
 	cost := max64(s.info[mex.Index].costMeq, 1)
 	speed := speedOf(u.Info)
-	base := mul(int64(p.WMetal)*10, s.mexNeed())
+	base := s.mexBase()
 	th := int64(p.ThreatHalf)
 	best := cand{kind: cMex, prod: mex, spot: -1}
 	best.score = 0
@@ -655,6 +674,7 @@ func (e *Economy) evalBuildings(b *core.Board, u *aikit.OwnUnit, bs *builderStat
 	c0, reg := s.placeOf(u)
 	// Normalizers: the best factory quality and defense efficiency on offer.
 	e.bestQ, e.bestDef, e.bestQR = 1, 1, 1
+	e.reachCons = false
 	for _, p := range bi.Builds {
 		si := &s.info[p.Index]
 		if p.Role.Has(aikit.RoleFactory) && si.quality > e.bestQ {
@@ -662,6 +682,13 @@ func (e *Economy) evalBuildings(b *core.Board, u *aikit.OwnUnit, bs *builderStat
 		}
 		if ext && p.Role.Has(aikit.RoleFactory) && si.qualityR > e.bestQR && (!si.water || s.p.Naval != 0) && (!si.airFac || s.p.Air != 0) {
 			e.bestQR = si.qualityR
+		}
+		// An air plant does not count: its constructors are slow to come
+		// and, on an island without a factory zone, the plant itself was
+		// chosen again and again and never placed, which left the commander
+		// the only land builder (TLL on sail away).
+		if ext && p.Role.Has(aikit.RoleFactory) && !si.water && !si.airFac && si.qualityR > 0 && !s.stranded(p) && makesLandCons(s, p) {
+			e.reachCons = true
 		}
 		if p.Role.Has(aikit.RoleDefense) {
 			if ef := s.eff(p, s.aaNeed); ef > e.bestDef {
@@ -706,6 +733,10 @@ func (e *Economy) evalBuildings(b *core.Board, u *aikit.OwnUnit, bs *builderStat
 			c = e.evalRadar(b, u, p)
 		case p.Role.Has(aikit.RoleStorage):
 			c = e.evalStorage(b, u, p)
+		case p.Role.Has(aikit.RoleModule):
+			c = e.evalModule(b, u, p)
+		case p.Role.Has(aikit.RoleGate):
+			c = e.evalGate(b, u, p)
 		default:
 			continue
 		}
@@ -1000,7 +1031,9 @@ func (e *Economy) evalAssist(b *core.Board, u *aikit.OwnUnit, cm *commitment, d 
 			}
 			prio := int64(700)
 			switch {
-			case r.Has(aikit.RoleFactory):
+			case r.Any(aikit.RoleFactory | aikit.RoleUpgrade):
+				// An upgrade's module works on it slowly (upgrades.go):
+				// help is where its time goes.
 				prio = 1500
 			case r.Any(aikit.RoleEnergy | aikit.RoleExtractor):
 				prio = 1000
