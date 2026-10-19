@@ -814,8 +814,14 @@ history stays one grid per player (Q24); what a teammate sees also explores
 each member's own grid, as it does for Survival's survivors, so a teammate's
 view never draws as unexplored. Retail's sharing commands and alliance
 declarations add to it (§7.1). This is Nanolathe's online policy;
-retail never merges allies' sight by default `[03 §3.2]`. Single-player
-battles are unchanged.
+retail never merges allies' sight by default `[03 §3.2]`. Since 2026-10-18
+(user-authorized Nanolathe Modern policy) the host of a Modern or Community
+3.9 room may keep a skirmish room's teams' sight separate with the lobby's
+Allied Sight button, required configuration extension 18 (§8.6); the default shares it,
+as every earlier online skirmish did. A Strict 3.1 room offers no button and
+its configuration refuses the choice (`SeatRules.AlliedSightChoice`). A
+single-player skirmish shares a team's sight only with its own Allied Sight
+option (DESIGN_SESSIONS_AI_SAVE "Modern allied sight").
 
 **Sharing time (Q25).** Periodic explored-map shares run at their existing
 due site on the request tick, humans in canonical seat order, each copying
@@ -1362,16 +1368,34 @@ No tail is written when no extensions exist.
 Unknown optional records are descriptive metadata only: they are retained,
 deep-copied and included in the configuration identity, but change nothing
 the simulation computes. Unknown required records are refused by ID before
-composition, by readers and writers alike. No extension semantics are
-assigned yet. A new battle choice, such as chosen starts or allied sight,
-must receive an unused required extension ID and typed validation and
-application through its existing owning `RuleSet` seam. It must not reuse
-field 16, which already names room content, or be marked optional so an
-older simulation silently ignores it. This framing does not authorize or
-implement those gameplay choices. Existing readers from before this
-extension contract still refuse a nonempty tail; readers implementing this
-contract can skip future optional fields without a configuration-version
-bump. Changing a frozen field's meaning still needs a new schema.
+composition, by readers and writers alike. Gameplay choices use required
+records with typed validation and application through the existing owning
+`RuleSet` seam. The assigned records are:
+
+| ID | Required payload and admission |
+|---|---|
+| 17. Chosen starts | Per seat in slot order, a `bool` set, followed when set by X and Z as two `u32` world pixels below 2^20. At least one seat must choose; omit the record when every start is Auto. Only a skirmish's human or computer row may choose, under `SeatRules.ChosenStarts` (DESIGN_SESSIONS_AI_SAVE "Modern chosen start positions"). |
+| 18. Allied sight | One `u8`: 1 separate or 2 shared. Omit for the inherited default: online skirmish teams share, single-player teams do not. Survival always shares and carries no choice. `SeatRules.AlliedSightChoice` must permit the record (DESIGN_SESSIONS_AI_SAVE "Modern allied sight"). |
+
+Both require flag bit 0; an optional spelling, malformed payload, trailing
+payload bytes or an explicit default is refused. The local API exposes
+`MatchSeat.Start` and `MatchConfigRequest.AlliedSight`; recognized raw records
+are projected into those fields during resolution and removed from the opaque
+`Extensions` slice. Supplying both spellings requires equal values. Encoding
+reconstructs the required records, followed by opaque metadata in ID order,
+so changing a typed choice cannot leave stale wire bytes behind. The combined
+record count retains the 128-record bound. Strict 3.1 refuses both choices
+through the existing `SeatRules` answers.
+
+No battle choice may reuse field 16, which names room content, or be marked
+optional so an older simulation silently ignores it. Main builds that do not
+implement these choices refuse required IDs 17/18 explicitly. Readers from
+before the extension contract refuse any nonempty tail; later readers can
+skip future optional metadata without a configuration-version bump. Existing
+v1 and original-v2 recordings keep their original bytes, identity domain and
+checksum validation (§10). Current default configurations retain main's
+version-2 encoding and identity; they add no extension tail. Changing a
+frozen field's meaning still needs a new schema.
 
 | Order / effective field | Representation and normalization |
 |---|---|

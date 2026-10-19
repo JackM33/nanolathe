@@ -25,11 +25,9 @@ const (
 )
 
 // Fields 1–16 are frozen positional fields, including RoomContent at 16.
-// New battle choices, such as chosen starts and allied sight, belong in
-// future extensions rather than reusing a positional field. They have no
-// implemented semantics here. Any future gameplay extension must be
-// required, validate its typed value and apply through the existing owning
-// RuleSet seam before a build can accept it (§8.6, DESIGN_GAMEPLAY_RULES §9).
+// Required IDs 17 and 18 carry chosen starts and allied sight through their
+// typed fields and existing SeatRules seam. Future gameplay choices follow
+// that same required, typed admission contract (§8.6, DESIGN_GAMEPLAY_RULES §9).
 
 func cloneMatchExtensions(extensions []MatchConfigExtension) []MatchConfigExtension {
 	if len(extensions) == 0 {
@@ -52,7 +50,10 @@ func validateMatchExtensions(extensions []MatchConfigExtension) error {
 		if err := validateMatchExtensionID(e.ID, previous); err != nil {
 			return err
 		}
-		if e.Required {
+		if matchSetupExtension(e.ID) && !e.Required {
+			return matchFieldError(fmt.Sprintf("extensions[%d].flags", e.ID), "required for a gameplay choice")
+		}
+		if e.Required && !matchSetupExtension(e.ID) {
 			return unknownRequiredMatchExtension(e.ID)
 		}
 		if len(e.Data) > matchConfigMaxExtensionLen {
@@ -123,7 +124,7 @@ func readMatchExtensions(r *netproto.Reader) []MatchConfigExtension {
 		if r.Err() == nil && flags & ^uint8(matchConfigRequiredFlag) != 0 {
 			r.FailAt(r.Offset()-1, "only bit 0 (Required) in extension flags")
 		}
-		if r.Err() == nil && flags&matchConfigRequiredFlag != 0 {
+		if r.Err() == nil && flags&matchConfigRequiredFlag != 0 && !matchSetupExtension(id) {
 			r.Abort(unknownRequiredMatchExtension(id))
 		}
 		n := r.U32()
@@ -134,7 +135,7 @@ func readMatchExtensions(r *netproto.Reader) []MatchConfigExtension {
 		if r.Err() != nil {
 			break
 		}
-		extensions = append(extensions, MatchConfigExtension{ID: id, Data: append([]byte(nil), data...)})
+		extensions = append(extensions, MatchConfigExtension{ID: id, Required: flags&matchConfigRequiredFlag != 0, Data: append([]byte(nil), data...)})
 		previous = id
 	}
 	return nil

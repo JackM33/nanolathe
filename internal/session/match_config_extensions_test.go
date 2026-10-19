@@ -83,7 +83,7 @@ func TestMatchConfigExtensionAdmissionBoundaries(t *testing.T) {
 	r := validMatchRequest(t)
 	r.Extensions = make([]MatchConfigExtension, 128)
 	for i := range r.Extensions {
-		r.Extensions[i].ID = uint16(17 + i)
+		r.Extensions[i].ID = uint16(32 + i)
 	}
 	r.Extensions[0].Data = make([]byte, 64<<10)
 	c := resolveMatch(t, r)
@@ -99,9 +99,9 @@ func TestMatchConfigExtensionAdmissionBoundaries(t *testing.T) {
 		{"64 KiB plus one", func(q *MatchConfigRequest) { q.Extensions[0].Data = make([]byte, 64<<10+1) }, "at most 65536"},
 		{"reserved", func(q *MatchConfigRequest) { q.Extensions[0].ID = 16 }, "reserved"},
 		{"terminator ID", func(q *MatchConfigRequest) { q.Extensions[0].ID = 0 }, "reserved"},
-		{"duplicate", func(q *MatchConfigRequest) { q.Extensions[1].ID = 17 }, "strictly ascending"},
+		{"duplicate", func(q *MatchConfigRequest) { q.Extensions[1].ID = 32 }, "strictly ascending"},
 		{"descending", func(q *MatchConfigRequest) { q.Extensions[0].ID = 1000 }, "strictly ascending"},
-		{"required unknown", func(q *MatchConfigRequest) { q.Extensions[0].Required = true }, "required match configuration extension 17"},
+		{"required unknown", func(q *MatchConfigRequest) { q.Extensions[0].Required = true }, "required match configuration extension 32"},
 		{"total size", func(q *MatchConfigRequest) {
 			for i := 0; i < 32; i++ {
 				q.Extensions[i].Data = make([]byte, 64<<10)
@@ -123,7 +123,7 @@ func TestDecodeMatchConfigRefusesMalformedExtensionTails(t *testing.T) {
 	base := encodeMatchForTest(t, resolveMatch(t, validMatchRequest(t)))
 	valid := extensionRecordForTest(32, 0, []byte{7})
 	var tooMany []byte
-	for i := uint64(17); i < 17+129; i++ {
+	for i := uint64(32); i < 32+129; i++ {
 		tooMany = append(tooMany, extensionRecordForTest(i, 0, nil)...)
 	}
 	tooMany = append(tooMany, 0)

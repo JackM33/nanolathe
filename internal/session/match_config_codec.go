@@ -188,7 +188,11 @@ func encodeMatchRequest(r *MatchConfigRequest, version uint16) ([]byte, error) {
 		w.U64(e.Size)
 		w.Digest(e.Digest)
 	}
-	writeMatchExtensions(&w, r.Extensions)
+	extensions, err := r.setupExtensions()
+	if err != nil {
+		return nil, err
+	}
+	writeMatchExtensions(&w, extensions)
 	return w.Bytes(), nil
 }
 

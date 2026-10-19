@@ -1653,6 +1653,10 @@ DESIGN_SESSIONS_AI_SAVE "Modern AI computer player"); the save package keeps
 it as raw JSON. Like the mutators, the
 recorded parameters replace the host's configuration on a load, and a
 record naming a parameter this build does not know refuses the load.
+`alliedSight: true`, present when a skirmish battle's teams shared sight and
+radar (DESIGN_SESSIONS_AI_SAVE "Modern allied sight"), makes the load rebuild
+those teams; like `ai` it leaves the schema alone, so an older build loads the
+bank with sight kept separate.
 
 ### 7.3 Loading
 

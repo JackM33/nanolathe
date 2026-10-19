@@ -2894,6 +2894,206 @@ moved on; under Strict 3.1 the pair never links),
 and `aikit.TestModernAIUsesATalonGatePairRetail` (the util+tac brain dials a
 standing pair, sends its army through and a unit is carried).
 
+### Modern chosen start positions
+
+**Nanolathe Modern policy (user-authorized 2026-10-18).** A skirmish player
+may choose the start position its commander begins on. Modern and Community
+3.9 honour the choice; Strict 3.1 keeps retail's placement, so its setup
+screen offers none, its battle entry ignores one a setup still carries, and
+its configuration refuses one. The decision is `SeatRules.ChosenStarts`
+(`StrictSeats` false, `ModernSeats` true; Community 3.9 binds
+`ModernSeats`). It adds no simulation random draw and no per-tick state, and
+a setup in which nobody chooses places every commander exactly as retail
+does in every mode, so every fingerprint lock is unchanged.
+
+**Retail behaviour.** Skirmish battle entry gives each eligible slot a stored
+start number: the slot's own under fixed starts, and a cyclic permutation of
+the eligible slots from the loading CRT walk under random starts; a stored
+number the map lacks is the verbatim missing-start fatal
+`[08 R-ENTRY-01 §5]` `[08 "Randomization for skirmish starts"]`.
+
+**Policy.** `SkirmishPlayer.Start` is a `StartPoint`: unset (Auto), or a
+point on the map in world pixels, the units the map's own `StartPos` records
+use, where the player put its commander in the setup screen's Place Starts
+window. `Validate` refuses coordinates outside `0..StartPointLimit`. When
+at least one eligible slot chose a point, `skirmishStartAssignment`
+replaces retail's step:
+
+1. Each slot that chose a point begins there. Every authored start within
+   `chosenStartClaim` (24 cells, 384 world pixels) of a chosen point is
+   claimed by it before the remaining starts are assigned.
+2. The others share the authored starts left, by the Location word.
+   **Fixed:** each keeps its own number when that start exists and is
+   unclaimed; the rest take the lowest free starts in slot order.
+   **Random:** the lowest free starts, one per remaining slot, are dealt by a
+   Fisher–Yates shuffle on the same disposable loading CRT the retail walk
+   uses; the simulation stream is not read. Too few free starts is this
+   build's error.
+3. Battle entry moves each chosen point onto the map and to the nearest
+   cell, ring by ring out to 48 cells, where the commander passes the spawn
+   command's placement checks — its movement class's slope and water
+   limits, its footprint and the units and features already there
+   (`chosenStartPosition`, in the same ring and within-ring order Survival's
+   spawns use). The search also excludes reserved commander footprints:
+   every assigned authored commander is reserved before allocation, and
+   each chosen or generated commander's resolved footprint joins the
+   reservations in slot order. An authored commander keeps its exact point
+   even when allocated later, so relocation beyond the original click's
+   claim cannot put a chosen commander on top of it. Two players who chose
+   one point begin side by side. Reservations change no world state, RNG
+   draws, resource effects or commander allocation order; a setup without
+   chosen or generated starts keeps retail's placement. No cell within
+   reach is this build's error.
+
+The Modern AI is told the start owners (`ai.Manager.StartOwners`) under fixed
+starts when nobody chose a point; a chosen point is not an authored start,
+and an unpublished owner reads as an empty start, so such a battle publishes
+nothing and every Modern controller searches. Survival places its own
+commanders (DESIGN_SURVIVAL §4.2) and clears any row's choice. The Community
+schema's random-start exchange of the last human and computer
+(DESIGN_COMMUNITY_PATCH §4.5) skips a slot that chose, and a chosen point
+takes no authored start, so no schema placement replaces its commander.
+
+**Where the choice travels.** The setup screen's Place Starts window
+(DESIGN_INTERFACE_HUD_INPUT §2.6 "Start positions") and the settings file
+(`start` per row with the map the points were placed on, `startMap`) carry
+it to `skirmishConfigForStart`, which keeps it with its row through the
+compaction; a point belongs to its map, so choosing another map clears the
+points, and a settings file whose points name another map loads them as
+Auto. Replays carry it as required extension 17 of configuration version 2
+(DESIGN_MULTIPLAYER §8.6); a configuration with no choice keeps its
+existing version-2 bytes and identity. A save needs none: the bank already holds the
+commanders where they stand. The online lobby offers no control for it; a
+seat's choice would need a relay seat message.
+
+**Tests:** `TestStrictIgnoresChosenStarts` (the seam's answers, Strict's
+bypass with retail's draws, and a Strict configuration's refusal),
+`TestUnchosenStartsKeepRetailPlacement` (identity and the CRT walk, with
+retail's draw count), `TestChosenPointsUnderFixedLocation` (a point claims
+the authored start beside it), `TestChosenPointsUnderRandomLocation` (the
+deal replayed from the CRT definition),
+`TestChosenPointsRefuseWhatTheMapCannotSeat`, `TestChosenPointPlacesTheCommander`,
+`TestChosenRelocationAvoidsLaterAuto` (terrain relocation onto a later Auto
+start, full footprint separation with shared chosen points, and unchanged
+simulation draws, retained CRT and resources),
+`TestStartReservationsLeaveRetailPlacementUnchanged` (ordinary Modern and
+Strict's bypass retain exact authored positions),
+`TestChosenStartsEncodeAsConfigurationVersion2`,
+`TestChosenStartsRoundTripTheLocalAdapter`,
+`TestTheSettingsFileKeepsEachRowsStartPoint`, `TestPlaceStartsFollowsTheRules`
+and, on the retail art, `TestSkirmishScreenPlacesStartsOnTheMapRetail`, which
+places a player through the window's own clicks and composes the screen's
+battle under Strict 3.1 (retail's starts) and Modern (the chosen commander
+within a few cells of the click).
+
+### Modern extra start positions
+
+**Nanolathe Modern policy (user-authorized 2026-10-18).** A skirmish may
+seat more players than its map has start positions. Retail refuses such a
+setup at Start with `There are too many players enabled for this map`, and
+its battle entry treats a missing start as fatal `[08 R-ENTRY-01 §5]`;
+Strict 3.1 keeps both. Modern and Community 3.9 seat the extra players at
+generated starts (`SeatRules.ExtraStarts`: `StrictSeats` false,
+`ModernSeats` true). Of the 99 stock multiplayer maps, 97 author ten start
+positions, Luschinfloggen six and one thirteen, so the policy matters mostly
+for eight players on Luschinfloggen and for downloaded maps with few starts.
+
+**Policy.** Whatever retail can place is placed as retail places it, draws
+included, so a setup within the map's starts is unchanged. Then:
+
+1. A slot whose retail start the map lacks takes the lowest authored start
+   no slot holds, in slot order (`reassignMissingStarts`). With chosen
+   points (DESIGN_SESSIONS_AI_SAVE "Modern chosen start positions"), the
+   players the free authored starts do not cover are the extra ones: under
+   fixed starts the last in slot order, under random starts dealt together
+   with the free starts by the same Fisher–Yates shuffle.
+2. Each slot still without a start gets a generated one, in slot order
+   (`generateExtraStarts`): 32 cells drawn from the disposable loading CRT
+   over the usable terrain, four cells in from its edges, are kept when they
+   lie in the largest connected region of the commander's movement class,
+   so no player begins cut off from the rest of the map, and are tried
+   farthest first from every start already decided — authored, chosen or
+   generated — taking the first whose nearest cell in that region passes the
+   spawn command's placement checks. With no candidate in the region the
+   region's cell nearest the map centre is tried; no cell at all is this
+   build's error. Candidate searches exclude the assigned authored
+   commanders' reserved footprints and earlier generated footprints, so
+   terrain relocation cannot select a later Auto commander's cell.
+3. The generated start joins the chosen points, and battle entry creates
+   the commander on the nearest standable cell as it does for those,
+   excluding every authored commander and each earlier resolved commander
+   by its full footprint, including when chosen and generated starts mix.
+
+The simulation stream is not read, and the same seed generates the same
+starts. A battle with a generated start publishes no start owners to the
+Modern AI, as one with a chosen point does not. The setup screen's Start
+preflight drops its too-many-players refusal under these rules. The policy
+is single-player only: an online battle keeps kind 3's retail answer to a
+missing start, the jittered point it draws for every commander
+`[08 R-ENTRY-01 §5]`, and its lobby keeps its own capacity, the map's start
+positions (DESIGN_MULTIPLAYER §6.6).
+
+**Tests:** `TestExtraStartsReuseUnusedStartsThenGenerate` (unused authored
+starts first, then generation, and retail's assignment without the policy),
+`TestExtraPlayersBeginAtGeneratedStarts` (four players on a two-start
+synthetic map: the generated starts are apart from every other, repeat with
+the seed, and Strict 3.1 keeps the missing-start fatal),
+`TestGeneratedStartsAvoidLaterAuto` (a region-centre fallback beside a later
+Auto commander, with and without chosen starts) and, on the retail
+corpus, `TestEightPlayersOnASmallMapRetail` (eight players on Luschinfloggen:
+Strict's preflight refuses, Modern composes eight commanders at least 128
+pixels apart, the same with the same seed).
+
+### Modern allied sight
+
+**Nanolathe Modern policy (user-authorized 2026-10-18).** Allies may share
+line of sight, radar and the explored map, chosen per battle: the skirmish
+setup screen's Allied Sight option for a single-player skirmish, the online
+lobby host's for an online skirmish (DESIGN_MULTIPLAYER §6.7 "Allied
+sight"). Modern and Community 3.9 honour the choice; Strict 3.1 keeps
+retail's separate sight in a single-player skirmish, which never merges an
+ally's current sight `[03 §3.2]` `[03 R-VIS-01 §7]`, and the approved online
+policy's shared sight in an online room, so neither screen offers the
+choice there, battle entry and load ignore it, and the configuration
+refuses it. The decision is `SeatRules.AlliedSightChoice` (`StrictSeats`
+false, `ModernSeats` true). It adds no random draw or per-tick state, and a
+battle without the choice is unchanged in every mode, so every fingerprint
+lock is unchanged. Survival's survivors always share (DESIGN_SURVIVAL §4.3).
+
+**Policy.** `SkirmishConfig.AlliedSight` makes each team one side through
+the vision-team mechanism Survival and online teams already use
+(`visibility.Service.SetVisionTeam`): a member's coverage reaches every
+member's grids, its explored-map bit every member's history, radar and sonar
+from any member's units reveal contacts for all, members' units are friendly
+and members' jammers do not blind each other. `setAlliedVisionTeams` reads
+each team from the alliance table — the mutual allies of each existing,
+non-observer player, which in a skirmish are exactly the players sharing an
+ally group other than 5 `[08 R-SKIR-01 §2]` — once at battle entry, before
+any coverage is published. A player alone in its group joins no team.
+Single-player alliances cannot change in battle, so the teams and the
+coverage reference counts stay balanced. The computer players' sight
+predicates read the same grids, so a Classic or Modern ally sees what its
+team sees.
+
+**Where the choice travels.** The setup screen's button (DESIGN_INTERFACE_HUD_INPUT
+§2.6 "Allied sight") and the settings file (`alliedSight`, omitted when off)
+carry it to the setup. Replays carry it as required extension 18 of configuration version
+2 (DESIGN_MULTIPLAYER §8.6), whose zero value keeps version 1's rule, so a
+battle without it keeps its existing version-2 bytes. A save records it in the
+sidecar (`alliedSight`, DESIGN_MODS_MUTATORS §7.2): the bank keeps the
+alliance rows but not the ally groups `[08 R-SKIR-01 §2]` "Save
+persistence", so the load rebuilds the teams from the restored rows before
+the restored units publish coverage. A campaign takes none.
+
+**Tests:** `TestAlliedSightTeamsFollowTheAllianceTable`,
+`TestAlliedSightIsRequiredExtension18`,
+`TestAlliedSightSharesATeamsSightRetail` (a three-player battle on Ashap
+Plateau: under Modern the human sees its teammate's commander only with the
+option, under Strict 3.1 never, and never the opponent's; also after a
+Modern save and a load with and without the sidecar flag), `TestTheSettingsFileKeepsAlliedSight`,
+`TestOnlineLobbyHostChoosesAlliedSight` and, on the retail art,
+`TestSkirmishScreenSharesAlliedSightRetail`.
+
 ## 6. Research map
 
 | Behaviour | Owning research |

@@ -120,6 +120,13 @@ type MatchSeat struct {
 	// All, difficulty and seat layers already merged, in ascending key order.
 	// Every other role carries none.
 	AIParams []AIParam
+
+	// Start is the row's chosen start point, required extension 17: unset
+	// leaves it to Location; set, X and Z are world pixels below
+	// StartPointLimit. Only a human or computer row of a skirmish chooses
+	// one, under a rule set that honours it (docs/DESIGN_SESSIONS_AI_SAVE.md
+	// "Modern chosen start positions").
+	Start StartPoint
 }
 
 // MatchMod is field 8: the selected mod's public identity. Base content is
@@ -270,9 +277,41 @@ type MatchConfigRequest struct {
 	// single-player recording or a command-line play test does.
 	RoomContent []MatchContentEntry // 16
 
-	// Extensions is the optional version-2 tail after the frozen fields 1–16
-	// (docs/DESIGN_MULTIPLAYER.md §8.6). Records are in ascending ID order.
+	// Extensions holds opaque records in the version-2 tail after fields 1–16
+	// (docs/DESIGN_MULTIPLAYER.md §8.6), in ascending ID order. Resolution
+	// projects recognized records into Start/AlliedSight and removes them
+	// from this slice; encoding reconstructs them from those typed fields.
 	Extensions []MatchConfigExtension
+
+	// AlliedSight is the typed value of required extension 18.
+	AlliedSight MatchAlliedSight
+}
+
+// MatchAlliedSight is required extension 18: whether a skirmish's teams share sight and
+// radar (docs/DESIGN_SESSIONS_AI_SAVE.md "Modern allied sight",
+// DESIGN_MULTIPLAYER §6.7 "Allied sight"). Its zero value is version 1's
+// rule, which differs by how the battle is played, so every configuration
+// version 1 describes keeps its meaning: an online skirmish's teams share
+// and a single-player battle's do not. The adapters write zero for that rule
+// and an explicit value only for the other choice.
+type MatchAlliedSight uint8
+
+const (
+	MatchAlliedSightVersion1 MatchAlliedSight = 0
+	MatchAlliedSightSeparate MatchAlliedSight = 1
+	MatchAlliedSightShared   MatchAlliedSight = 2
+)
+
+// Shared reports whether teams share sight in a battle played online or
+// single-player.
+func (a MatchAlliedSight) Shared(online bool) bool {
+	switch a {
+	case MatchAlliedSightSeparate:
+		return false
+	case MatchAlliedSightShared:
+		return true
+	}
+	return online
 }
 
 // EffectiveMatchConfig is a resolved, validated and frozen configuration.
@@ -387,6 +426,12 @@ func ResolveMatchConfig(r MatchConfigRequest) (EffectiveMatchConfig, error) {
 
 func resolveMatchConfig(r MatchConfigRequest, version uint16) (EffectiveMatchConfig, error) {
 	c := r.clone()
+	if err := c.consumeSetupExtensions(); err != nil {
+		return EffectiveMatchConfig{}, err
+	}
+	if version == 1 && (c.hasChosenStarts() || c.AlliedSight != MatchAlliedSightVersion1) {
+		return EffectiveMatchConfig{}, matchFieldError("configuration.version", "version 2 for chosen starts or allied sight")
+	}
 	if _, err := c.validate(); err != nil {
 		return EffectiveMatchConfig{}, err
 	}
@@ -554,6 +599,17 @@ func (r *MatchConfigRequest) validate() (RuleSet, error) {
 	if p.Revision != MatchPolicyRevision || p.Scheduling != MatchPolicyScheduling || p.Pacing != MatchPolicyPacing || p.Drop != MatchPolicyDrop || p.Audience != MatchPolicyAudience {
 		return RuleSet{}, matchFieldError("policies", "revision 1 with scheduling, pacing, drop and audience policy 1")
 	}
+	// Chosen starts are checked with the seats. Allied sight: Survival's survivors
+	// always share (DESIGN_SURVIVAL §4.3), so only a skirmish chooses.
+	if r.AlliedSight > MatchAlliedSightShared {
+		return RuleSet{}, matchFieldError("alliedSight", "0 version 1's rule, 1 separate or 2 shared")
+	}
+	if r.SessionKind != MatchOnlineSkirmish && r.AlliedSight != MatchAlliedSightVersion1 {
+		return RuleSet{}, matchFieldError("alliedSight", "0 for Survival, whose survivors always share")
+	}
+	if r.AlliedSight != MatchAlliedSightVersion1 && !seatRulesOf(set).AlliedSightChoice() {
+		return RuleSet{}, matchFieldError("alliedSight", fmt.Sprintf("0: rule set %q keeps version 1's sight", r.RuleName))
+	}
 	// 16. Room content.
 	if err := r.validateRoomContent(); err != nil {
 		return RuleSet{}, err
@@ -666,6 +722,9 @@ func (r *MatchConfigRequest) validateSeats(set RuleSet) error {
 	if humans == 0 {
 		return matchFieldError("seats", "at least one human seat")
 	}
+	if err := r.validateSeatStarts(set); err != nil {
+		return err
+	}
 	limit := matchComputersPerHost(set)
 	for host, count := range hosted {
 		if count > limit {
@@ -710,6 +769,34 @@ func (r *MatchConfigRequest) validateSeats(set RuleSet) error {
 	for i := range r.Seats {
 		if r.Seats[i].SharedVictory != matchTeamOfTwo(r.Seats, i) {
 			return matchFieldError(fmt.Sprintf("seats[%d].sharedVictory", i), "set exactly when the row's team holds two or more seats")
+		}
+	}
+	return nil
+}
+
+// validateSeatStarts checks required extension 17: a chosen point is set
+// only on a skirmish's human or computer row, under a rule set whose
+// SeatRules honours chosen starts, with coordinates below StartPointLimit.
+// Survival places its commanders itself (DESIGN_SURVIVAL §4.2), so every
+// Survival row holds none.
+func (r *MatchConfigRequest) validateSeatStarts(set RuleSet) error {
+	for i := range r.Seats {
+		p := r.Seats[i].Start
+		if !p.Set {
+			if p.X != 0 || p.Z != 0 {
+				return matchFieldError(fmt.Sprintf("seats[%d].start", i), "zero coordinates for an unset start")
+			}
+			continue
+		}
+		path := fmt.Sprintf("seats[%d].start", i)
+		if !seatRulesOf(set).ChosenStarts() {
+			return matchFieldError(path, fmt.Sprintf("unset: rule set %q assigns every start by Location", r.RuleName))
+		}
+		if role := r.Seats[i].Role; r.SessionKind != MatchOnlineSkirmish || (role != MatchRoleHuman && role != MatchRoleComputer) {
+			return matchFieldError(path, "unset except on a skirmish's human or computer row")
+		}
+		if p.X < 0 || p.Z < 0 || p.X >= StartPointLimit || p.Z >= StartPointLimit {
+			return matchFieldError(path, fmt.Sprintf("coordinates 0..%d", StartPointLimit-1))
 		}
 	}
 	return nil
