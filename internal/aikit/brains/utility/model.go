@@ -203,6 +203,7 @@ type shared struct {
 	cons           int32 // mobile builders able to build economy (built)
 	consPending    int32
 	builders       int32
+	idleBuilders   int32 // built builders with no productive order this think
 	freeSafe       int32
 	ownAA          int64
 	scouts         int32
@@ -702,6 +703,7 @@ func (s *shared) observe(b *core.Board) {
 	s.touched = s.touched[:0]
 	s.bpFac, s.bpBld, s.upkeepE, s.mexUpkeep, s.firmE, s.windE = 0, 0, 0, 0, 0, 0
 	s.cons, s.consPending, s.ownAA, s.scouts, s.armyCount, s.airScouts = 0, 0, 0, 0, 0, 0
+	s.idleBuilders = 0
 	s.mexBuilt = 0
 	var consFrames int32
 	for i := range o.Own {
@@ -735,6 +737,9 @@ func (s *shared) observe(b *core.Board) {
 			s.bpBld += int64(info.BuildPower)
 			if s.info[info.Index].canEco && !r.Has(aikit.RoleCommander) {
 				s.cons++
+			}
+			if u.Order == aikit.OrderIdle {
+				s.idleBuilders++
 			}
 		}
 		s.upkeepE += int64(info.EnergyUse) * 1000

@@ -222,6 +222,15 @@ func (ps *personality) draw(k *aikit.Kit, v *Variety, p *Params) {
 			}
 		}
 	}
+	// A lower persona already attempts a smaller plan; a full-strength
+	// drawn extreme on top of it made a 35%-ambition ally spend a whole
+	// three-hour game with towers -86 and expansion -42. Scale drawn and
+	// named traits by the ambition, then let an explicit pin stand exact.
+	if amb := ambition(&k.Persona); amb < 100 {
+		for i := range ps.trait {
+			ps.trait[i] = ps.trait[i] * amb / 100
+		}
+	}
 	for i := range ps.trait {
 		if v.Pinned&(1<<i) != 0 {
 			ps.trait[i] = v.Traits[i]

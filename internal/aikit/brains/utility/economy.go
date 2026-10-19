@@ -87,12 +87,13 @@ const retreatTicks = 450
 
 // Economy assigns idle builders by scoring every candidate build.
 type Economy struct {
-	s     *shared
-	one   [1]pool.Handle
-	ring  [8]decision
-	next  int
-	rot   int
-	fails int32
+	s       *shared
+	one     [1]pool.Handle
+	helpers []pool.Handle
+	ring    [8]decision
+	next    int
+	rot     int
+	fails   int32
 	// scratch per decision
 	bestQ, bestDef int64
 	bestQR         int64         // best reach-weighted factory quality on offer (switches on)
@@ -133,20 +134,31 @@ func (e *Economy) Init(b *core.Board) { e.s.setup(b.K) }
 func (e *Economy) Plan(b *core.Board) {
 	s := e.s
 	o := b.O
-	// Keep one action for the army and one per factory that will want one.
-	budget := int(s.budget) - 1
+	// Keep one action for the army only while the base is threatened, and
+	// one for a factory with an empty queue. The old form reserved one for
+	// the army unconditionally and one per short-queue factory (up to two):
+	// at the Easy persona's one-action budget that left nothing for a
+	// builder, which is how a forty-builder pool sat on Standby all game.
+	budget := int(s.budget)
+	if b.NearHomeThreat > 0 && budget > 0 {
+		budget--
+	}
+	if budget > 0 {
+		budget -= e.strategic.service(b, budget)
+	}
+	if budget > 0 && e.rescueIdle(b) {
+		budget--
+	}
 	nf := 0
 	for _, fi := range b.Factories {
-		if o.Own[fi].QueueLen < 2 && nf < 2 {
-			nf++
+		if o.Own[fi].QueueLen == 0 {
+			nf = 1
+			break
 		}
 	}
 	budget -= nf
 	if att := int(b.K.Persona.Attention); budget > att {
 		budget = att
-	}
-	if budget > 0 {
-		budget -= e.strategic.service(b, budget)
 	}
 	// A build issued last think that left its builder idle failed to place.
 	// When the batch it went out in reports a search that found no site, a
@@ -225,6 +237,73 @@ func (e *Economy) Plan(b *core.Board) {
 			budget--
 		}
 	}
+}
+
+// rescueIdle spends one action to put idle builders to work. At a low APM
+// the per-builder loop can issue only one assignment per think, so a pool
+// of idle constructors otherwise never drains. Guarding a producing
+// factory is one group command for all of them: they assist its nanoframe
+// and repair it, which is work a human gets from a box-select and one
+// right-click. The commander is left out of the group.
+func (e *Economy) rescueIdle(b *core.Board) bool {
+	s := e.s
+	o := b.O
+	if s.idleBuilders < 2 {
+		return false
+	}
+	best := int32(-1)
+	bestN := 0
+	for _, fi := range b.Factories {
+		f := &o.Own[fi]
+		fs := s.fstateOf(f)
+		if f.QueueLen == 0 || fs.blocked || fs.dead {
+			continue
+		}
+		n := 0
+		for _, bi := range b.Builders {
+			u := &o.Own[bi]
+			if u.Order != aikit.OrderIdle || u.Info.Role.Has(aikit.RoleCommander) {
+				continue
+			}
+			if aikit.Dist2(u.X, u.Z, f.X, f.Z) <= 1200*1200 {
+				n++
+			}
+		}
+		if n > bestN {
+			best, bestN = fi, n
+		}
+	}
+	if best < 0 || bestN < 2 {
+		return false
+	}
+	f := &o.Own[best]
+	e.helpers = e.helpers[:0]
+	for _, bi := range b.Builders {
+		u := &o.Own[bi]
+		if u.Order != aikit.OrderIdle || u.Info.Role.Has(aikit.RoleCommander) {
+			continue
+		}
+		if aikit.Dist2(u.X, u.Z, f.X, f.Z) > 1200*1200 {
+			continue
+		}
+		e.helpers = append(e.helpers, u.H)
+	}
+	if len(e.helpers) < 2 {
+		return false
+	}
+	b.K.Guard(e.helpers, f.H, false)
+	for _, bi := range b.Builders {
+		u := &o.Own[bi]
+		if u.Order != aikit.OrderIdle || u.Info.Role.Has(aikit.RoleCommander) {
+			continue
+		}
+		if aikit.Dist2(u.X, u.Z, f.X, f.Z) > 1200*1200 {
+			continue
+		}
+		c := s.commitOf(u)
+		*c = commitment{def: u.Info, gen: u.Gen, kind: cGuard, target: f.H, x: f.X, z: f.Z, tick: s.tick}
+	}
+	return true
 }
 
 // fail records a build that left its builder idle. The builder avoids that

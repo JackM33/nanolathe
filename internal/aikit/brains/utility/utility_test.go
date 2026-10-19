@@ -256,6 +256,26 @@ func TestFleetLightBoats(t *testing.T) {
 // (0.55 at minute 12, 0.75 by 20) per finished extractor, plus at most two
 // for claimable spots; the factory cap is two from minute 8 or one per
 // 14 metal/s, and only while investing is safe.
+// Long-game fallback: the lower personas keep their tier caps in a short
+// game, then start the growth shape too. This is Nanolathe Modern policy:
+// a 35%-ambition ally otherwise never expands or techs in a three-hour
+// battle.
+func TestGrowthLongGameFallback(t *testing.T) {
+	s := &shared{p: Params{Growth: gExpand}, k: &aikit.Kit{Persona: aikit.PersonaMed}}
+	s.tick = (growthFallbackMinute - 1) * 1800
+	if s.part(gExpand) {
+		t.Error("medium growth acted before the fallback minute")
+	}
+	s.tick = growthFallbackMinute * 1800
+	if !s.part(gExpand) {
+		t.Error("medium growth did not act at the fallback minute")
+	}
+	s.p.Growth = 0
+	if s.part(gExpand) {
+		t.Error("growth=0 acted at the fallback minute")
+	}
+}
+
 func TestGrowthTargets(t *testing.T) {
 	k := &aikit.Kit{Persona: aikit.PersonaHard}
 	s := &shared{p: Params{Growth: gConstructors | gFactories, SpotsPerCon: 3}, k: k}

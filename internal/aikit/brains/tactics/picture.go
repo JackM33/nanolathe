@@ -248,6 +248,18 @@ func (a *Army) buildPicture(b *core.Board) {
 			a.zoneSeen[a.zoneOf(u.X, u.Z)] = tick
 		}
 	}
+	// Allied buildings and builders in sight are assets too: a team's base
+	// under fire is an incident the army can answer even though it cannot
+	// command the ally. Own army value and strength stay own-only.
+	for i := range o.Allies {
+		u := &o.Allies[i]
+		if u.Info == nil || !u.Built {
+			continue
+		}
+		if !u.Info.Role.Has(aikit.RoleMobile) || u.Info.Role.Any(aikit.RoleBuilder|aikit.RoleCommander) {
+			a.addDisc(a.asset, u.X, u.Z, 3*aikit.SectorWorld, u.Info.Value)
+		}
+	}
 	// Units observed last think and gone now were destroyed. Only a unit
 	// observed last think can still carry that think's tick.
 	if a.seenTick != 0 {

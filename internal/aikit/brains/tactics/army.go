@@ -708,7 +708,12 @@ func (a *Army) activate(b *core.Board) {
 		rOn, rOff = a.P.RaidOn, a.P.RaidOn*raidOffValue/raidOnValue
 	}
 	on(sqRaid, a.P.Raid && att >= 2, rOn, rOff)
-	on(sqDefend, a.P.Defend && att >= 3 && a.threatMemory > 0, defendOnValue, defendOffValue)
+	// A standing home guard exists before the first incident. The old
+	// squad activated only after the threat memory became nonzero, so a
+	// long-game ally could send every unit on an offensive and leave its
+	// base to static towers until an enemy raid had already landed.
+	standingGuard := b.Tick >= standingGuardFrom
+	on(sqDefend, a.P.Defend && att >= 3 && (a.threatMemory > 0 || standingGuard), defendOnValue, defendOffValue)
 	// With the air forces on, anti-air keeps escorting for a while after
 	// enemy aircraft were last seen (the host forgets mobiles after a
 	// minute; bombers come back).
@@ -746,6 +751,12 @@ const (
 	raidOffValue   = 900
 	defendOnValue  = 800
 	defendOffValue = 500
+	// standingGuardFrom is when the home guard stops waiting for an
+	// incident, and standingGuardShare the army value it keeps at home.
+	// Both are Nanolathe Modern policy: a long team skirmish needs a
+	// reaction force even before the first raid.
+	standingGuardFrom  = 20 * 1800
+	standingGuardShare = 10
 )
 
 func isAAUnit(info *aikit.UnitInfo) bool {
@@ -902,10 +913,15 @@ func (a *Army) withdrawPoint(b *core.Board, info *aikit.UnitInfo) (int32, int32,
 	return b.HomeX, b.HomeZ, false
 }
 
-// defendNeed sizes the home guard: the recent threat, bounded by a share
-// of the army.
+// defendNeed sizes the home guard: the recent threat, or the standing
+// share once the battle is long, bounded by the defendShare maximum.
 func (a *Army) defendNeed(b *core.Board) int64 {
 	need := a.threatMemory
+	if b.Tick >= standingGuardFrom {
+		if floor := int64(b.ArmyValue) * standingGuardShare / 100; floor > need {
+			need = floor
+		}
+	}
 	if limit := int64(b.ArmyValue) * defendShare / 100; need > limit {
 		need = limit
 	}

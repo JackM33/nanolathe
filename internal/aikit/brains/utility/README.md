@@ -209,7 +209,7 @@ runs defaults); persona keys (`think`, `react`, `apm`, `attention`,
 | `reach_mix` | 1 | 0–1 | switch: reach over the plausible enemy starts; stranded factories make a home guard only (§13.1, §13.8) |
 | `fleet` | 1 | 0–1 | switch: against an enemy navy, heavier hulls, light boats kept to a few (§13.2, §13.8) |
 | `tidal_field` | 1 | 0–1 | switch: water economy in fields, later shipyards on a ring, clear of the yards (§13.3) |
-| `growth` | 16 | 0–31 | human economy shape at full ambition, a sum of parts: 1 expansion, 2 tech-2 timeline, 4 constructors per extractor, 8 factories per income, 16 constructor floor, which acts at every ambition (§13.4) |
+| `growth` | 16 | 0–31 | human economy shape at full ambition and at every ambition after minute 20, a sum of parts: 1 expansion, 2 tech-2 timeline, 4 constructors per extractor, 8 factories per income, 16 constructor floor, which acts at every ambition (§13.4) |
 | `fac_first` | 0 | 0–5 | first factory family: 0 none, 1 kbot lab, 2 vehicle plant, 3 air plant, 4 shipyard, 5 drawn per game (§13.5) |
 | `w_fac_first` | 300 | 100–1000 | percent by which other factories rate below the chosen family's until one of it is owned (§13.5) |
 | `expand` | 0 | 0–31 | mid-game expansion, a sum of parts: 1 extractors on the expansion pace, 2 constructors follow the expansion, 4 failed spots held until seen empty, 8 contested spots behind our army, 16 factories follow the income while metal banks (§13.10) |
@@ -1076,8 +1076,10 @@ The benchmark's recommendation (d): human land-map winners hold 0.57 /
 util+tac plateaus near 14), build one factory per ~14 metal/s of income
 with the second around minute 8 (util+tac twice as many), and 73% of
 winners have a tech-2 factory, at a median minute 12. `growth` is a sum
-of parts, at full ambition only (easy and medium keep their tier caps,
-style.go):
+of parts, at full ambition and — Nanolathe Modern AI policy from the
+2026-10-19 long-game replay — at every ambition from minute 20 (before
+that, easy and medium keep their tier caps, style.go; the tier curves
+still scale the counts by ambition):
 
 | part | what it does |
 |---|---|

@@ -2024,6 +2024,62 @@ is the retail baseline and every fingerprint lock runs Classic.
   background think whose result equals the synchronous one
   ([DESIGN_GAMEPLAY_RULES](DESIGN_GAMEPLAY_RULES.md#the-modern-ai-controller)).
 
+**Long-game and low-action corrections (2026-10-19).** Nanolathe Modern AI
+policy, from the play-test replay of a 2 h 57 min six-player Crooked Creek
+battle. The replay's Modern seats were Easy (APM 25, Attention 1, Ambition
+35) and all three ended with 40-44 builders, 36-41 of them idle, a crowded
+base whose factory exits took 84% of all spawn attempts blocked, and five to
+eight extractors after 2 h 24. The corrections are decisions of the brain,
+not new gameplay rules, and use the ordinary order and construction paths.
+
+- *Long-game growth fallback.* `growth` (the human economy shape: extraction
+  territory, tech-2 timeline, constructors per extractor, factories per
+  income) now acts for every ambition from minute 20, not only at full
+  ambition. Below the fallback minute the lower personas keep their tier
+  caps and constructor floor. The tier curves still scale the counts by the
+  persona's ambition, so Easy's earlier plan is unchanged.
+- *Idle builder cap.* Ordinary constructor production stops while two or
+  more builders are already idle. Advanced constructors are exempt, because
+  the tech plan's first advanced constructor is wanted even beside idle
+  ordinary builders.
+- *Idle builder rescue.* When at least two constructed builders are idle
+  near a producing factory, the economy spends one action on a group Guard
+  of that factory. This is the human box-select and right-click, not one
+  action per builder; it lets a low-APM persona use a large builder pool and
+  assist factory production.
+- *Builder action reserve.* The economy no longer reserves one action for
+  the army unconditionally and one per short-queue factory. It reserves an
+  army action only while the base is threatened and at most one for a
+  factory with an empty queue. At the Easy persona's one-action budget the
+  old form left nothing for a builder.
+- *Factory pads and dead factories.* A pad clear moves the parked units to a
+  builder rally behind home instead of one footprint plus 128 wu along the
+  factory's exit, which was still inside the built-up base or on another
+  pad. A factory written off as dead is cleared too: if its exit opens its
+  queue resumes instead of being lost for the rest of the battle.
+- *Personality scaling.* A persona below full ambition scales its drawn and
+  named personality traits by its ambition; an explicitly pinned trait
+  stays exact. The old full-strength draw could give a 35%-ambition ally
+  towers -86, expansion -42 and heavy -68, which is not a smaller plan but a
+  different, weaker one.
+- *Standing home guard.* From minute 20 the tactics army keeps a 10% home
+  guard even before an incident; the defend squad previously activated only
+  after the threat memory became nonzero. The guard is bounded by the
+  existing 15% defend share.
+- *Allied assets.* Allied buildings and builders in sight count as assets
+  for incidents and home defence, so a team's army can answer an attack on
+  an ally's base even though it cannot command the ally. Own army value and
+  strength stay own-only.
+
+Strict 3.1 with only Classic players is unchanged: these are Modern AI
+decisions, not rule seams, and add no RNG, per-tick state, or new order
+surface. Every fingerprint lock continues to run Classic.
+
+Tests: `utility.TestGrowthLongGameFallback`,
+`utility.TestIdleBuildersStopConstructorProduction`,
+`utility.TestIdleBuildersGroupGuardAFactory`,
+`utility.TestLowAmbitionPersonalityTraitsScale`.
+
 **Radar coverage.** Nanolathe Modern policy (user-requested correction,
 2026-09-26): the utility economy offers a radar only when its request point
 is at least the larger of its authored radar range and each nearby own
