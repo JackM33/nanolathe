@@ -269,6 +269,10 @@ type MatchConfigRequest struct {
 	// battle composes from the seat's own mounted content, as a
 	// single-player recording or a command-line play test does.
 	RoomContent []MatchContentEntry // 16
+
+	// Extensions is the optional version-2 tail after the frozen fields 1–16
+	// (docs/DESIGN_MULTIPLAYER.md §8.6). Records are in ascending ID order.
+	Extensions []MatchConfigExtension
 }
 
 // EffectiveMatchConfig is a resolved, validated and frozen configuration.
@@ -278,6 +282,9 @@ type MatchConfigRequest struct {
 type EffectiveMatchConfig struct {
 	request  MatchConfigRequest
 	encoding []byte
+	// version is 1 only for a historical replay configuration. Zero and 2
+	// use the current encoding and identity domain.
+	version uint16
 }
 
 // Protocol limits of configuration version 2 (§8.6). They are admission
@@ -375,6 +382,10 @@ func matchComputersPerHost(set RuleSet) int {
 // mutator factors spell the identity as 1/1 resolves to the same value as one
 // that leaves them zero; every other field is taken as written.
 func ResolveMatchConfig(r MatchConfigRequest) (EffectiveMatchConfig, error) {
+	return resolveMatchConfig(r, 2)
+}
+
+func resolveMatchConfig(r MatchConfigRequest, version uint16) (EffectiveMatchConfig, error) {
 	c := r.clone()
 	if _, err := c.validate(); err != nil {
 		return EffectiveMatchConfig{}, err
@@ -401,18 +412,19 @@ func ResolveMatchConfig(r MatchConfigRequest) (EffectiveMatchConfig, error) {
 	if len(c.RoomContent) == 0 {
 		c.RoomContent = nil
 	}
-	encoding, err := encodeMatchRequest(&c)
+	encoding, err := encodeMatchRequest(&c, version)
 	if err != nil {
 		return EffectiveMatchConfig{}, err
 	}
 	if len(encoding) > matchConfigMaxBytes {
 		return EffectiveMatchConfig{}, matchFieldError("configuration", fmt.Sprintf("an encoding of at most %d bytes, got %d", matchConfigMaxBytes, len(encoding)))
 	}
-	return EffectiveMatchConfig{request: c, encoding: encoding}, nil
+	return EffectiveMatchConfig{request: c, encoding: encoding, version: version}, nil
 }
 
-// Request returns a deep copy of the resolved value. Resolving it again
-// yields an equal configuration.
+// Request returns a deep copy of the resolved value. ResolveMatchConfig
+// resolves that value under the current version; a legacy replay retains its
+// original identity only in the EffectiveMatchConfig returned by decoding.
 func (c EffectiveMatchConfig) Request() MatchConfigRequest { return c.request.clone() }
 
 // clone deep-copies every slice the request holds.
@@ -436,12 +448,13 @@ func (r MatchConfigRequest) clone() MatchConfigRequest {
 	if r.RoomContent != nil {
 		out.RoomContent = append([]MatchContentEntry{}, r.RoomContent...)
 	}
+	out.Extensions = cloneMatchExtensions(r.Extensions)
 	return out
 }
 
 // matchFieldError is the one diagnostic shape of a rejected configuration.
 func matchFieldError(path, expected string) error {
-	return fmt.Errorf("nanolathe: match configuration rejected: logical path %s, providers searched [match configuration v1], expected %s", path, expected)
+	return fmt.Errorf("nanolathe: match configuration rejected: logical path %s, providers searched [match configuration], expected %s", path, expected)
 }
 
 // validate checks every field of §8.6 and returns the rule set the
@@ -543,6 +556,9 @@ func (r *MatchConfigRequest) validate() (RuleSet, error) {
 	}
 	// 16. Room content.
 	if err := r.validateRoomContent(); err != nil {
+		return RuleSet{}, err
+	}
+	if err := validateMatchExtensions(r.Extensions); err != nil {
 		return RuleSet{}, err
 	}
 	return set, nil
