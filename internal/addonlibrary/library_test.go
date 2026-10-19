@@ -82,7 +82,7 @@ func TestValidatorAdmitsExactlyTheListedArchives(t *testing.T) {
 			t.Errorf("%s: admitted", name)
 		}
 	}
-	for name, add := range map[string]string{"nested file": "units/armfark.fbi", "other archive": "Extra.hpi", "loose content": "armfark.fbi"} {
+	for name, add := range map[string]string{"nested file": "units/armfark.fbi", "other archive": "Extra.hpi", "expansion archive": "patch.ccx", "loose content": "armfark.fbi"} {
 		t.Run(name, func(t *testing.T) {
 			root, meta, archives := fixture(t)
 			write(t, root, add, []byte("x"))
@@ -97,6 +97,40 @@ func TestValidatorAdmitsExactlyTheListedArchives(t *testing.T) {
 	write(t, root, modlibrary.MetadataFile, raw)
 	if err := Validator(expected(archives))(root, meta); err == nil {
 		t.Fatal("a configured package was admitted")
+	}
+}
+
+// A fix add-on's payload is a patch-tier revision archive: the validator
+// admits it, ReplacesBase marks the add-on a fix, and other non-UFO names
+// refuse (§5.7).
+func TestValidatorAdmitsAFixArchive(t *testing.T) {
+	for name, want := range map[string]bool{
+		"rev31.gp3": true, "Rev31.GP3": true, "rev99.swx": true, "AFark.ufo": true,
+		"foo.gp3": false, "rev31.ccx": false, "rev31.hpi": false, "rev.gp3": false, "units/rev31.gp3": false, "": false,
+	} {
+		if got := ArchiveName(name); got != want {
+			t.Errorf("ArchiveName(%q) = %v, want %v", name, got, want)
+		}
+	}
+	root := t.TempDir()
+	meta := modlibrary.Metadata{Schema: 1, ID: "fix", Name: "Fix", Version: "1"}
+	raw, _ := json.Marshal(meta)
+	write(t, root, modlibrary.MetadataFile, raw)
+	write(t, root, "readme.txt", []byte("notes"))
+	payload := ufo(t, map[string]string{"units/armflash.fbi": "[UNITINFO]{UnitName=ARMFLASH;}"})
+	write(t, root, "rev31.gp3", payload)
+	if err := Validator([]Archive{archiveOf("rev31.gp3", payload)})(root, meta); err != nil {
+		t.Fatal(err)
+	}
+	addon, err := read(modlibrary.Mod{Metadata: meta, Dir: root})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ReplacesBase(addon) || len(addon.Archives) != 1 || addon.Archives[0].Name != "rev31.gp3" {
+		t.Fatalf("fix add-on = %+v", addon)
+	}
+	if ReplacesBase(Addon{Archives: []Archive{{Name: "AFark.ufo"}}}) {
+		t.Fatal("a content archive marked the add-on a fix")
 	}
 }
 

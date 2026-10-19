@@ -444,11 +444,15 @@ func parseManifest(raw []byte, base *url.URL, allowed origin) (Manifest, error) 
 		// that a build without faction support, which ignores unknown
 		// fields, never offers one (§5.8 "Catalogue").
 		Factions []Entry `json:"factions"`
+		// Fixes are add-ons that replace the base install's patch archive,
+		// listed apart so that a build without fix support, which ignores
+		// unknown fields, never offers one (§5.7).
+		Fixes []Entry `json:"fixes"`
 	}
 	if err := json.Unmarshal(raw, &wire); err != nil {
 		return Manifest{}, fail("reading the content catalogue failed: " + err.Error())
 	}
-	manifest := Manifest{Schema: wire.Schema, Maps: wire.Maps, Dependencies: wire.Dependencies, Addons: append(wire.Addons, wire.Factions...)}
+	manifest := Manifest{Schema: wire.Schema, Maps: wire.Maps, Dependencies: wire.Dependencies, Addons: append(append(wire.Addons, wire.Factions...), wire.Fixes...)}
 	for _, rawEntry := range wire.Mods {
 		// These fields used to be ignored regardless of JSON type in the mod
 		// catalogue, and remain configuration-free there (§5.1).
@@ -597,7 +601,8 @@ func parseManifest(raw []byte, base *url.URL, allowed origin) (Manifest, error) 
 const MaxAddonContents = 32
 
 // validateContents admits an add-on's archive list: at least one and at most
-// MaxAddonContents flat *.UFO file names, unique without regard to case, each
+// MaxAddonContents flat archive file names — *.UFO content archives or
+// patch-tier revision archives — unique without regard to case, each
 // with a positive size and a SHA-256, which it lowercases (§5.7).
 func validateContents(contents []Content) error {
 	if len(contents) == 0 || len(contents) > MaxAddonContents {
@@ -607,7 +612,7 @@ func validateContents(contents []Content) error {
 	for i := range contents {
 		c := &contents[i]
 		if !AddonArchiveName(c.Name) {
-			return fmt.Errorf("archive name %q is not a flat *.UFO file name", c.Name)
+			return fmt.Errorf("archive name %q is not a flat *.UFO or rev*.GP3 file name", c.Name)
 		}
 		if names[strings.ToLower(c.Name)] {
 			return fmt.Errorf("archive %s is listed twice", c.Name)
@@ -625,11 +630,31 @@ func validateContents(contents []Content) error {
 }
 
 // AddonArchiveName reports whether name is a file name an add-on's archive
-// may have: flat, at most 255 bytes, and a *.UFO, so that it mounts at that
-// tier (§5.7).
+// may have: flat, at most 255 bytes, and either a *.UFO content archive or a
+// patch-tier revision archive (rev*.GP3 and the like), so that it mounts at
+// that tier (§5.7). It mirrors addonlibrary.ArchiveName; this package must
+// not import the library.
 func AddonArchiveName(name string) bool {
-	return name != "" && len(name) <= 255 && path.Base(name) == name && name != "." && name != ".." &&
-		!strings.ContainsAny(name, "/\\:\x00\r\n") && strings.EqualFold(path.Ext(name), ".ufo") && len(name) > len(".ufo")
+	if name == "" || len(name) > 255 || path.Base(name) != name || name == "." || name == ".." ||
+		strings.ContainsAny(name, "/\\:\x00\r\n") {
+		return false
+	}
+	if strings.EqualFold(path.Ext(name), ".ufo") {
+		return len(name) > len(".ufo")
+	}
+	return addonRevision(name)
+}
+
+// addonRevision reports the patch-tier revision naming addonlibrary.Revision
+// admits: rev* with a patch-tier extension.
+func addonRevision(name string) bool {
+	switch strings.ToLower(path.Ext(name)) {
+	case ".gp3", ".gp4", ".gpf", ".swx":
+	default:
+		return false
+	}
+	stem := name[:len(name)-len(path.Ext(name))]
+	return len(stem) > len("rev") && strings.EqualFold(stem[:len("rev")], "rev")
 }
 
 // safeMapPath restricts hosted maps to the flat map-discovery directory.

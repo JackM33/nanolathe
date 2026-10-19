@@ -784,14 +784,18 @@ content audit, or no longer validates against the current base and mod stack
 the reason and its directory, while the base game and the other packages
 mount; its map stays removable from the catalogue.
 
-**Official add-ons** (user-authorized 2026-10-16) are Cavedog's bonus
-archives kept in their own library
+**Official add-ons** (user-authorized 2026-10-16 and 2026-10-18) are
+Cavedog's bonus archives and community fixes kept in their own library
 ([DESIGN_MODS_MUTATORS §5.7](DESIGN_MODS_MUTATORS.md#57-official-add-ons)).
-An enabled add-on's archives join the base install's `*.UFO` tier (C1),
-ordered among the folder's own `*.UFO` files as if they were in it, so the
-patch and `*.CCX` archives still win over them and they still win over the
-local `*.HPI` archives `[02 §2]`; an archive of the same name in the folder
-is replaced, as copying the add-on's in would. The selected mod mounts above
+An enabled content add-on's archives join the base install's `*.UFO` tier
+(C1), ordered among the folder's own `*.UFO` files as if they were in it, so
+the patch and `*.CCX` archives still win over them and they still win over
+the local `*.HPI` archives `[02 §2]`; an archive of the same name in the
+folder is replaced, as copying the add-on's in would. A fix add-on's
+patch-tier archive joins the patch tier instead and replaces the folder's
+patch archive, and a faction add-on's archives mount one tier above the
+patch, after any fix (a Nanolathe layer order: content, fix, faction). The
+selected mod mounts above
 them and the map library below the base install, as before. Their provider
 IDs are their file names, as a folder copy's are, so the mount's manifest is
 the one the archives in the folder would give, while the provenance's source

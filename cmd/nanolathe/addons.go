@@ -3,7 +3,8 @@ package main
 // Official add-ons (docs/DESIGN_MODS_MUTATORS.md §5.7): Cavedog's bonus
 // archives, hosted by Nanolathe and mounted with the base install at its
 // *.UFO tier, apart from the mod slot, so a player can enable them and still
-// select any mod.
+// select any mod. A fix add-on replaces the base patch archive and mounts
+// over the content add-ons; faction add-ons mount over the patch (§5.8).
 
 import (
 	"fmt"
@@ -74,6 +75,18 @@ func factionLayout(layout vfs.Layout, factions map[string]bool) func(string) vfs
 	}
 }
 
+// addonExtraTier is the ExtraTier function a mount's faction archives use:
+// they mount one tier above the base patch, so a fix add-on that replaces
+// the patch stays below them, while loose host files keep the last word
+// (§5.7 "Layers and mounting", §5.8).
+func addonExtraTier(factions map[string]bool) func(string) (vfs.MountTier, bool) {
+	if len(factions) == 0 {
+		return nil
+	}
+	tier := vfs.DefaultRetailMountPlan().GP3 + 1
+	return func(full string) (vfs.MountTier, bool) { return tier, factions[full] }
+}
+
 // factionArchives are the archive paths of the faction add-ons in supplies.
 func factionArchives(supplies []addonSupply) map[string]bool {
 	out := map[string]bool{}
@@ -87,13 +100,48 @@ func factionArchives(supplies []addonSupply) map[string]bool {
 	return out
 }
 
+// addonLayer orders the add-on kinds a mount stacks: content add-ons mount
+// at their archives' tiers, a fix add-on replaces the base patch archive and
+// so mounts over them, and faction add-ons mount over the patch, so a fix
+// never shadows one (§5.7 "Layers and mounting", §5.8).
+type addonLayer int
+
+const (
+	layerContent addonLayer = iota
+	layerFix
+	layerFaction
+)
+
+// addonLayerOf is the layer an add-on's archives give it: a faction
+// declaration makes it a faction; otherwise a patch-tier revision archive
+// makes it a fix; anything else is content (§5.7).
+func addonLayerOf(addon addonlibrary.Addon, declared bool) addonLayer {
+	switch {
+	case declared:
+		return layerFaction
+	case addonlibrary.ReplacesBase(addon):
+		return layerFix
+	default:
+		return layerContent
+	}
+}
+
+// addonCandidate is an enabled add-on a mount holds, with the layer its
+// archives put it in and its faction declaration.
+type addonCandidate struct {
+	addon    addonlibrary.Addon
+	layer    addonLayer
+	factions []addonlibrary.Faction
+}
+
 // resolveAddons decides which enabled add-ons a mount holds: none when the
 // running config sets content.addons false; each installed one otherwise,
 // except one already in the base folder, which the install supplies itself,
 // one that defines a unit or feature name the base or the mod defines at
-// another path, one that supplies a logical path or defines a unit or
-// feature name an add-on earlier in the selection also does. A saved add-on
-// that has
+// another path (except a fix add-on, which repairs that content), and one
+// that supplies a logical path or defines a unit or feature name an add-on
+// mounted before it also does (except that a fix may replace a content
+// add-on). A saved add-on that has
 // gone is left out with a notice; one named by --addon fails the start, as
 // --mod does (§5.7, §5.8).
 func resolveAddons(opts Options, profile contentprofiles.Profile, baseRoots []string, mod *modlibrary.Mod) (addonMount, error) {
@@ -123,7 +171,7 @@ func resolveAddons(opts Options, profile contentprofiles.Profile, baseRoots []st
 	for _, s := range skipped {
 		out.notes = append(out.notes, fmt.Sprintf("nanolathe: official add-on not mounted: %s; delete %s", noticeReason(s.Err), s.Dir))
 	}
-	var candidates []addonlibrary.Addon
+	var candidates []addonCandidate
 	for _, want := range requested {
 		addon, ok := installedAddon(installed, want.ID, want.Version)
 		if !ok {
@@ -138,12 +186,24 @@ func resolveAddons(opts Options, profile contentprofiles.Profile, baseRoots []st
 		if _, in := addonlibrary.InFolder(baseRoots[0], addon.Archives); in {
 			continue
 		}
-		candidates = append(candidates, addon)
+		factions, err := addonlibrary.Factions(addon)
+		if err != nil {
+			out.notes = append(out.notes, fmt.Sprintf("nanolathe: official add-on %s not mounted: %s", addon.Name, noticeReason(err)))
+			continue
+		}
+		candidates = append(candidates, addonCandidate{addon: addon, layer: addonLayerOf(addon, len(factions) > 0), factions: factions})
 	}
 	if len(candidates) == 0 {
 		return out, nil
 	}
-	others, err := addonOthers(profile, baseRoots, mod, candidates)
+	// The layer decides the mount order whatever the selection's order says:
+	// content add-ons, then a fix, then factions (§5.7 "Layers and mounting").
+	sort.SliceStable(candidates, func(i, j int) bool { return candidates[i].layer < candidates[j].layer })
+	addonsToCheck := make([]addonlibrary.Addon, 0, len(candidates))
+	for _, c := range candidates {
+		addonsToCheck = append(addonsToCheck, c.addon)
+	}
+	others, err := addonOthers(profile, baseRoots, mod, addonsToCheck)
 	if err != nil {
 		return out, err
 	}
@@ -154,9 +214,13 @@ func resolveAddons(opts Options, profile contentprofiles.Profile, baseRoots []st
 	// composedSides counts the sides the mount holds so far, read from the
 	// base only once a faction add-on needs it.
 	composedSides := -1
-	for _, addon := range candidates {
+	for _, candidate := range candidates {
+		addon, layer := candidate.addon, candidate.layer
 		names, err := addonlibrary.DefinedNames(addon)
-		if err == nil {
+		// A fix add-on repairs the base content wholesale: it may move a
+		// definition between files, so §5.7's name check does not refuse it
+		// (§5.7 "Layers and mounting").
+		if err == nil && layer != layerFix {
 			var found string
 			if found, err = addonlibrary.Conflict(others.fs, names); err == nil && found != "" {
 				err = fmt.Errorf("the installed content already defines %s at another path", found)
@@ -165,12 +229,12 @@ func resolveAddons(opts Options, profile contentprofiles.Profile, baseRoots []st
 		var paths map[string]string
 		if err == nil && len(candidates) > 1 {
 			if paths, err = addonlibrary.Paths(addon); err == nil {
-				err = addonCollision(accepted, paths, names)
+				err = addonCollision(accepted, layer, paths, names)
 			}
 		}
-		sides, declared := 0, false
+		sides := 0
 		if err == nil {
-			paths, sides, declared, err = factionBaseCollision(others.fs, addon, paths)
+			paths, sides, err = factionBaseCollision(others.fs, addon, candidate.factions, paths)
 		}
 		if err == nil && sides > 0 {
 			if composedSides < 0 {
@@ -184,7 +248,7 @@ func resolveAddons(opts Options, profile contentprofiles.Profile, baseRoots []st
 			out.notes = append(out.notes, fmt.Sprintf("nanolathe: official add-on %s not mounted: %s", addon.Name, noticeReason(err)))
 			continue
 		}
-		accepted = append(accepted, addonSupply{addon: addon, paths: paths, names: names, faction: declared})
+		accepted = append(accepted, addonSupply{addon: addon, paths: paths, names: names, faction: len(candidate.factions) > 0, layer: layer})
 		composedSides += sides
 	}
 	out.mounted = compilingAddons(profile, baseRoots, mod, accepted, &out.notes)
@@ -257,6 +321,7 @@ func composeAddons(profile contentprofiles.Profile, baseRoots []string, mod *mod
 			root.Archives = func(name string) bool { return !replaced[strings.ToLower(name)] }
 			root.Extra = addonExtras(addons)
 			root.ExtraLayout = factionLayout(profile.Layout(), factions)
+			root.ExtraTier = addonExtraTier(factions)
 		}
 		roots = append(roots, root)
 	}
@@ -281,15 +346,22 @@ type addonSupply struct {
 	// faction marks an add-on with a faction declaration, a unit pack's
 	// included (§5.8).
 	faction bool
+	// layer is the mount layer the add-on's archives put it in (§5.7).
+	layer addonLayer
 }
 
 // addonCollision says why an add-on cannot mount beside the add-ons already
 // accepted: one of them supplies a logical path it also supplies, or defines
 // a unit or feature name it also defines, so one would replace the other's
-// (§5.8 isolation rules 1 and 2). The add-on earlier in the selection keeps
-// its own, so the outcome follows the selection's order alone.
-func addonCollision(accepted []addonSupply, paths map[string]string, names addonlibrary.Names) error {
+// (§5.8 isolation rules 1 and 2). Within a layer the add-on earlier in the
+// selection keeps its own, so the outcome follows the selection's order
+// alone. A fix add-on repairs the content add-ons mounted before it, so it
+// may replace theirs (§5.7).
+func addonCollision(accepted []addonSupply, layer addonLayer, paths map[string]string, names addonlibrary.Names) error {
 	for _, prior := range accepted {
+		if layer == layerFix && prior.layer == layerContent {
+			continue
+		}
 		if shared := addonlibrary.SharedPath(paths, prior.paths); shared != "" {
 			return fmt.Errorf("the enabled add-on %s also supplies %s", prior.addon.Name, shared)
 		}
@@ -303,22 +375,22 @@ func addonCollision(accepted []addonSupply, paths map[string]string, names addon
 // factionBaseCollision refuses a faction add-on that supplies a logical path
 // the base install or the mod also supplies: a faction never replaces a base
 // file (§5.8 isolation rule 1). An add-on without a declaration keeps §5.7's
-// name check alone. paths is the add-on's path set when already read; the
-// result is it, read here if a faction needed it, the number of sides the
-// add-on declares, and whether it has a declaration at all: a unit pack has
-// one and no sides.
-func factionBaseCollision(others vfs.FSOps, addon addonlibrary.Addon, paths map[string]string) (map[string]string, int, bool, error) {
-	factions, err := addonlibrary.Factions(addon)
-	if err != nil || len(factions) == 0 {
-		return paths, 0, false, err
+// name check alone. factions is the add-on's declaration, read when it
+// became a candidate; paths is its path set when already read; the result is
+// it, read here if a faction needed it, and the number of sides the add-on
+// declares.
+func factionBaseCollision(others vfs.FSOps, addon addonlibrary.Addon, factions []addonlibrary.Faction, paths map[string]string) (map[string]string, int, error) {
+	if len(factions) == 0 {
+		return paths, 0, nil
 	}
 	sides := 0
 	for _, f := range factions {
 		sides += len(f.Sides)
 	}
 	if paths == nil {
+		var err error
 		if paths, err = addonlibrary.Paths(addon); err != nil {
-			return nil, 0, true, err
+			return nil, 0, err
 		}
 	}
 	keys := make([]string, 0, len(paths))
@@ -328,10 +400,10 @@ func factionBaseCollision(others vfs.FSOps, addon addonlibrary.Addon, paths map[
 	sort.Strings(keys)
 	for _, key := range keys {
 		if info, err := others.Stat(key); err == nil && !info.IsDir {
-			return paths, 0, true, fmt.Errorf("the installed content already supplies %s", paths[key])
+			return paths, 0, fmt.Errorf("the installed content already supplies %s", paths[key])
 		}
 	}
-	return paths, sides, true, nil
+	return paths, sides, nil
 }
 
 // baseSideCount is how many sides the content without add-ons defines;

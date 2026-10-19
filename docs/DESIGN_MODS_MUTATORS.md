@@ -97,6 +97,7 @@ To keep the two apart, code for this feature never uses the bare identifier
 | D19 | (2026-10-05) Classic computer players keep retail's behaviour — a capped product stalls with the allocator's 300-tick retry — while the Modern AI does not choose a unit once it has reached that unit's cap (§15.7). |
 | D20 | (2026-10-16) Nanolathe hosts Cavedog's official bonus units and maps. The units are an add-on the player enables apart from the mod slot, so any mod can still be selected beside them; the maps join the community map catalogue (§5.7). |
 | D21 | (2026-10-16) Third-party factions are add-ons the player enables in any combination beside ARM and CORE, each independent of the others and of the mod slot, never replacing another's content or identities (§5.8). |
+| D22 | (2026-10-18) Nanolathe hosts Switeck's TA Bugfix 1.7b6 as the fix add-on `switecks-bugfix`, listed under the add-on catalogue's `fixes` key. A fix add-on replaces the base patch archive and mounts after the content add-ons and before faction add-ons; it may repair the Cavedog content it replaces (§5.7). |
 
 D9–D13 were proposed in review and accepted with the rest of the design
 direction. D14 is the maintainer's layout for the screen. D13's offer was
@@ -104,7 +105,8 @@ extended on 2026-09-24: a mod that starts by any other route is offered its
 preset once on the main menu, and the preset became the mod's full recommended
 settings (§4.3). D15 supersedes D12's content profile: a mod's config is its
 own, so no preference can apply one mod's table to another. D17–D19 are the
-user's decisions for unit restrictions, recorded in §15.
+user's decisions for unit restrictions, recorded in §15. D22 is the user's
+decision to host the fix add-on, recorded in §5.7.
 
 ## 3. The match selection
 
@@ -928,7 +930,7 @@ with the reference install held none of the bonus units. Nanolathe hosts the con
 base game, apart from the mod slot, so a player can enable it and still
 select any mod.
 
-**What is hosted.** One add-on, `cavedog-bonus-units` version `original`,
+**What is hosted.** Two add-ons. `cavedog-bonus-units` version `original`
 holds six original archives byte for byte:
 
 | Archive | Unit | Side | Role |
@@ -950,6 +952,21 @@ Contingency already supplies Comet Catcher, so an install with it sees that
 package as already in the install. `Example.ufo` is not bonus content: it
 ships with the install, beside its loose campaign files.
 
+`switecks-bugfix` version `1.7b6` (user-authorized 2026-10-18, D22) holds one
+archive, `rev31.gp3`, 3,009,142 bytes, SHA-256
+`ff05c360172c88ec02253a371c1d4c4515c75fc586de4029b55fab324ea537f3`:
+Switeck's (David Sellick's) data-only repair of the 3.1c and Core
+Contingency content, renamed from the release's `][BF17b6.ORG` exactly as its
+own installer renames it. The archive is the pack's repaired content — unit
+definitions, weapons, scripts, features, models, textures, sounds and tables,
+with its own copies of the six bonus units — and it is a **fix add-on**: its
+patch-tier archive replaces the base install's patch archive, so the fix
+mounts over the base game and the Cavedog add-ons, while faction add-ons and
+the selected mod still mount over it (§5.8). The pack's own installer lowers
+or disables the base archives it runs against; this mount leaves them in
+place, and the reference install compiles with the Core Contingency, Battle
+Tactics and bonus archives mounted below the fix.
+
 **Identity.** An add-on is named by its id, its version and its content
 digest: the SHA-256 over its archives' file names folded to lower case, their
 byte sizes and their own SHA-256s, in name order. The catalogue's contents
@@ -968,18 +985,31 @@ Cavedog's own download pages would settle both. Package preparation keeps
 any readme the archives carry and records these identities in the
 website's packaging notes.
 
+The fix archive is the release's own payload: `TA_Bugfix_v1-7b6.zip` from the
+TA Archive's preservation mirror (the ModDB copy is byte-identical, MD5
+`190c96c16904b8fe2408e910ef9ac161`) holds `][BF17b6.ORG`, byte-identical and
+renamed `rev31.gp3`. Its readme dates from September 2008 and the payload
+from 1 April 2010; the author's last finished release was 1.6, and 1.7b6 is a
+later build. The readme's Legalese grants distribution ("You may distribute
+this file in any way that is legal … I relenquish all ownership of this
+file"), and the maintainer authorized hosting on 2026-10-18 (D22); the
+Cavedog bytes it carries remain Cavedog's.
+
 **Catalogue and library.** The catalogue is
 `https://nanolathe.gg/addons/manifest.json`: schema 1, an `addons` array of
-the mod catalogue's record fields (§5.1), and for each add-on a `contents`
-array naming every archive it holds with its byte size and SHA-256.
+the mod catalogue's record fields (§5.1) and a `fixes` array beside it for
+fix add-ons, each entry with a `contents`
+array naming every archive it holds with its byte size and SHA-256. A build
+without fix support ignores the key, so it never offers one.
 Archives are assets of the website repository's `addons` release, one
-`<id>-<version>.zip` per add-on holding the original archives, root
+`<id>-<version>.zip` per add-on holding the archives, root
 documentation and an identity-only schema-1 `nanolathe-mod.json`.
 `NANOLATHE_ADDON_CATALOG` overrides the catalogue for development under the
 mod override's origin rules. The library is `$XDG_DATA_HOME/nanolathe/addons`,
 falling back to `~/.local/share/nanolathe/addons`, with the mod library's
 atomic install, receipts, resume and hash policy (§5.1, §5.3). An add-on's
-payload is one to 32 `*.UFO` archives at its root, each passing the container
+payload is one to 32 archives at its root — `*.UFO` content archives or a
+patch-tier revision archive — each passing the container
 gate (DESIGN_CONTENT_VFS C5) and matching the catalogue's contents list by
 name, size and SHA-256, beside root documentation; anything else refuses the
 install.
@@ -996,21 +1026,36 @@ process, as a mod switch does (§4.4). An add-on whose archives all sit
 byte-identical in the base install's folder is shown as already in the
 install, with no switch.
 
-**Mounting.** Each enabled add-on's archives mount at the base install's
-`*.UFO` tier, in the folder of its first content root, ordered among the
-folder's own `*.UFO` files by the overlay's rule for that tier, exactly as if
-they were in the folder `[02 §2]` (DESIGN_CONTENT_VFS C1); a folder archive
-of the same name is replaced, as copying the add-on's in would. The selected mod still mounts last and wins every
+**Layers and mounting.** An add-on's archives mount as if they sat in the
+base install's folder: a content archive joins its extension's tier, in the
+folder of its first content root, ordered among the folder's own archives of
+that tier by file name `[02 §2]` (DESIGN_CONTENT_VFS C1); a patch-tier
+revision archive (`rev*.GP3` and the like) joins the patch tier and replaces
+the folder archive of the same name, as copying the add-on's in would. The
+add-on layers mount in one order whatever the selection says: content
+add-ons, then a fix add-on, then faction add-ons, which mount one tier above
+the patch (§5.8). The selected mod still mounts last and wins every
 path it supplies, and the map library still mounts below the base install.
-On the reference GOG Commander Pack install no hosted archive supplies a
+On the reference GOG Commander Pack install no hosted content archive supplies a
 logical path the base game also supplies, except Comet Catcher's map, which The Core
 Contingency's archive wins from its higher tier, as retail's folder gives.
 
+Add-ons keep apart as §5.8's isolation contract says: in layer then selection
+order, a later add-on that supplies a logical path, or defines a unit or
+feature name, an earlier one also does is left off with a notice — except
+that a fix add-on may replace the content add-ons mounted before it, because
+it repairs them. A fix add-on is also exempt from the name-at-another-path
+check against the base and the mod: it repairs the base content wholesale, so
+it may keep a definition in a differently named file, as Switeck's merged
+corpse files do.
+
 **With a mod.** Add-ons mount under every mod unless the mod's config sets
-`content.addons` to `false` (§4.2). An add-on is also left unmounted, with
+`content.addons` to `false` (§4.2). A content or faction add-on is also left
+unmounted, with
 a startup notice naming it, when the base or the mod defines one of its
 unit or feature names at another path, as §5.6 refuses differing same-name
-features. The Mods & Mutators screen says when the running mod leaves an
+features; a fix add-on is not, because it repairs the base content
+wholesale. The Mods & Mutators screen says when the running mod leaves an
 add-on off.
 
 **Every gameplay mode.** An add-on is content, as it is in retail's folder,
@@ -1103,11 +1148,15 @@ faction add-ons, so enabling one can never change another or the base game:
 Faction add-ons install like any add-on: from the catalogue with *Get*,
 or from a local package with `--install-addon <zip|dir>`, which, like
 `--install-mod`, installs without enabling; `--addon` or the Add-ons card
-enables it. The card names a faction row's sides and unit count. Besides
+enables it. The card names a faction row's sides and unit count. Faction
+archives mount one tier above the patch, after any fix add-on (§5.7
+"Layers and mounting"), so a fix never shadows one; the base install's loose
+files and the selected mod still mount above them. Besides
 §5.7's checks against the base and the mod, the mount keeps enabled add-ons
-apart from each other — in selection order, a later add-on that supplies a
-path, or defines a unit or feature name, an earlier one does is left off
-with a notice — refuses a faction add-on that supplies any path the base
+apart from each other — in layer then selection order, a later add-on that
+supplies a path, or defines a unit or feature name, an earlier one does is
+left off with a notice, except that a fix add-on may replace the content
+add-ons mounted before it — refuses a faction add-on that supplies any path the base
 or the mod supplies, and leaves off a faction add-on whose sides would take
 the battle past 10, rather than let the compile fail. When faction add-ons
 are enabled the mount compiles the catalog with them once, and if that

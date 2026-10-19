@@ -1,6 +1,7 @@
 // Package addonlibrary installs Nanolathe-hosted official add-ons: original
 // Cavedog archives that mount with the base game at its *.UFO tier, apart
-// from the mod slot (docs/DESIGN_MODS_MUTATORS.md §5.7). It reuses
+// from the mod slot, and fix add-ons, whose patch-tier archive replaces the
+// base install's patch (docs/DESIGN_MODS_MUTATORS.md §5.7). It reuses
 // modlibrary's extraction, receipts and atomic publication, with a payload of
 // archives only. It has no network.
 package addonlibrary
@@ -240,8 +241,9 @@ func Validator(expect []Archive) func(string, modlibrary.Metadata) error {
 
 // LocalValidator is the install gate for a package installed from this
 // machine (--install-addon): identity-only schema-1 metadata the package
-// itself carries, and the payload audit — 1 to MaxArchives *.UFO archives at
-// the package root, each passing the container gate, beside root
+// itself carries, and the payload audit — 1 to MaxArchives archives at
+// the package root, each a *.UFO content archive or a patch-tier revision
+// archive, passing the container gate, beside root
 // documentation (§5.7). A local package has no catalogue contents list, so
 // its archives are matched against none; the installed copy's own archives
 // give its identity (Digest), as they do for a catalogue install.
@@ -278,7 +280,8 @@ func identityOnly(root string, meta modlibrary.Metadata) error {
 }
 
 // payload audits a package and returns its archives' file names, sorted:
-// *.UFO archives at the root that pass the container gate, beside metadata,
+// *.UFO content archives and patch-tier revision archives at the root that
+// pass the container gate, beside metadata,
 // receipt and root documentation; anything else refuses. tolerateClutter is
 // the audit of an installed package, which ignores file-manager litter.
 func payload(root string, tolerateClutter bool) ([]string, error) {
@@ -311,7 +314,7 @@ func payload(root string, tolerateClutter bool) ([]string, error) {
 			return nil
 		}
 		if !ArchiveName(rel) {
-			return diagnostic("add-on package contains other content", rel, []string{root}, "*.UFO archives and root documentation")
+			return diagnostic("add-on package contains other content", rel, []string{root}, "*.UFO or rev*.GP3 archives and root documentation")
 		}
 		single := vfs.New()
 		defer single.Close()
@@ -325,7 +328,7 @@ func payload(root string, tolerateClutter bool) ([]string, error) {
 		return nil, err
 	}
 	if len(names) == 0 || len(names) > MaxArchives {
-		return nil, diagnostic("add-on package has no archives or too many", root, names, fmt.Sprintf("1 to %d *.UFO archives", MaxArchives))
+		return nil, diagnostic("add-on package has no archives or too many", root, names, fmt.Sprintf("1 to %d *.UFO or rev*.GP3 archives", MaxArchives))
 	}
 	folded := make(map[string]bool, len(names))
 	for _, name := range names {
@@ -339,11 +342,46 @@ func payload(root string, tolerateClutter bool) ([]string, error) {
 }
 
 // ArchiveName reports whether name is a file name an add-on's archive may
-// have: flat, at most 255 bytes, and a *.UFO, so that it mounts at that tier
-// (§5.7).
+// have: flat, at most 255 bytes, and either a *.UFO content archive or a
+// patch-tier revision archive (rev*.GP3 and the like), which mounts at the
+// patch tier and replaces the folder archive of the same name (§5.7).
 func ArchiveName(name string) bool {
-	return name != "" && len(name) <= 255 && path.Base(name) == name && !strings.ContainsAny(name, "/\\:\x00\r\n") &&
-		strings.EqualFold(path.Ext(name), ".ufo") && len(name) > len(".ufo")
+	if name == "" || len(name) > 255 || path.Base(name) != name || strings.ContainsAny(name, "/\\:\x00\r\n") {
+		return false
+	}
+	if strings.EqualFold(path.Ext(name), ".ufo") {
+		return len(name) > len(".ufo")
+	}
+	return Revision(name)
+}
+
+// Revision reports whether name is a patch-tier revision archive: rev* with
+// one of the patch-tier extensions, the naming retail's own patch archive
+// uses. It mounts at the patch tier and replaces the base install's archive
+// of the same name, as copying it into the folder would (§5.7).
+func Revision(name string) bool {
+	if name == "" || path.Base(name) != name || strings.ContainsAny(name, "/\\:\x00\r\n") {
+		return false
+	}
+	switch strings.ToLower(path.Ext(name)) {
+	case ".gp3", ".gp4", ".gpf", ".swx":
+	default:
+		return false
+	}
+	stem := name[:len(name)-len(path.Ext(name))]
+	return len(stem) > len("rev") && strings.EqualFold(stem[:len("rev")], "rev")
+}
+
+// ReplacesBase reports whether an add-on holds a patch-tier revision archive,
+// which makes it a fix add-on: it mounts after the content add-ons and may
+// repair their files (§5.7 "Layers and mounting").
+func ReplacesBase(addon Addon) bool {
+	for _, archive := range addon.Archives {
+		if Revision(archive.Name) {
+			return true
+		}
+	}
+	return false
 }
 
 func diagnostic(what, logical string, providers []string, expected string) error {

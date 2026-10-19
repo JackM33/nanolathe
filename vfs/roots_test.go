@@ -272,3 +272,56 @@ func TestGameRootExtraLayoutRehomesAnArchive(t *testing.T) {
 		t.Fatalf("opened file info %+v", info)
 	}
 }
+
+// A GameRoot ExtraTier override mounts an add-on layer above the retail
+// tiers: a faction archive sits over a fix archive that replaced the patch,
+// while the loose host files stay on top (docs/DESIGN_MODS_MUTATORS.md §5.7
+// "Mounting", §5.8).
+func TestGameRootExtraTierOrdersAnAddonLayer(t *testing.T) {
+	base, library := t.TempDir(), t.TempDir()
+	write := func(path string, files ...vfs.ArchiveFile) {
+		t.Helper()
+		var buf bytes.Buffer
+		if err := vfs.WriteArchive(&buf, files, vfs.ArchiveWriteOptions{}); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, buf.Bytes(), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write(filepath.Join(base, "Alpha.ufo"), vfs.ArchiveFile{Path: "units/shared.fbi", Data: []byte("content")})
+	write(filepath.Join(base, "rev31.gp3"), vfs.ArchiveFile{Path: "units/shared.fbi", Data: []byte("base patch")})
+	fix := filepath.Join(library, "rev31.gp3")
+	write(fix, vfs.ArchiveFile{Path: "units/shared.fbi", Data: []byte("fix")})
+	faction := filepath.Join(library, "Faction.ufo")
+	write(faction, vfs.ArchiveFile{Path: "units/shared.fbi", Data: []byte("faction")})
+	overlay := vfs.DefaultRetailMountPlan().GP3 + 1
+
+	fixOnly := vfs.New()
+	defer fixOnly.Close()
+	if err := fixOnly.MountGameRoots([]vfs.GameRoot{{Dir: base, Extra: []string{fix}}}); err != nil {
+		t.Fatal(err)
+	}
+	if data, err := fixOnly.ReadFile("units/shared.fbi"); err != nil || string(data) != "fix" {
+		t.Fatalf("the fix archive = %q, %v, want it over the base patch and the content archive", data, err)
+	}
+
+	layered := vfs.New()
+	defer layered.Close()
+	if err := layered.MountGameRoots([]vfs.GameRoot{{Dir: base, Extra: []string{fix, faction}, ExtraTier: func(full string) (vfs.MountTier, bool) {
+		return overlay, full == faction
+	}}}); err != nil {
+		t.Fatal(err)
+	}
+	if data, err := layered.ReadFile("units/shared.fbi"); err != nil || string(data) != "faction" {
+		t.Fatalf("the faction archive = %q, %v, want it over the fix archive", data, err)
+	}
+
+	bad := vfs.New()
+	defer bad.Close()
+	if err := bad.MountGameRoots([]vfs.GameRoot{{Dir: base, Extra: []string{faction}, ExtraTier: func(string) (vfs.MountTier, bool) {
+		return vfs.DefaultRetailMountPlan().Loose, true
+	}}}); err == nil {
+		t.Fatal("an override at the loose tier was admitted")
+	}
+}

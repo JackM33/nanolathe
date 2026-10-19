@@ -248,6 +248,7 @@ func mountContent(opts Options, baseRoots []string, selection modSelection) (*co
 	}
 	gameRoots[mapRootsCount].Extra = addonExtras(addons.mounted)
 	gameRoots[mapRootsCount].ExtraLayout = factionLayout(profile.Layout(), addons.factions)
+	gameRoots[mapRootsCount].ExtraTier = addonExtraTier(addons.factions)
 	fileSystem := vfs.New()
 	if err := fileSystem.MountGameRoots(gameRoots); err != nil {
 		fileSystem.Close()

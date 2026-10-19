@@ -62,6 +62,36 @@ func TestAddonManifestReadsFactionsApart(t *testing.T) {
 	}
 }
 
+// Fix add-ons are listed under their own key, which a build without fix
+// support ignores; this build offers them as add-ons, and a fix may list the
+// patch-tier replacement its installer renames its payload to (§5.7).
+func TestAddonManifestReadsFixesApart(t *testing.T) {
+	base, _ := url.Parse(DefaultAddonCatalogURL)
+	fix := addonManifest().Addons[0]
+	fix.ID, fix.Name = "switecks-bugfix", "Switeck's TA Bugfix"
+	fix.Contents = []Content{{Name: "rev31.gp3", Size: 3009142, SHA256: strings.Repeat("A", 64)}}
+	raw, _ := json.Marshal(map[string]any{"schema": 1, "fixes": []Entry{fix}})
+	m, err := parseManifest(raw, base, originOf(base))
+	if err != nil {
+		t.Fatal(err)
+	}
+	entry, ok := m.OffersAddon("switecks-bugfix", "original")
+	if !ok || len(entry.Contents) != 1 || entry.Contents[0].Name != "rev31.gp3" || entry.Contents[0].SHA256 != strings.Repeat("a", 64) {
+		t.Fatalf("fix entry = %+v, %v", entry, ok)
+	}
+	var old struct {
+		Addons []Entry `json:"addons"`
+	}
+	if err := json.Unmarshal(raw, &old); err != nil || len(old.Addons) != 0 {
+		t.Fatalf("a reader of the add-ons key alone sees %+v (%v)", old.Addons, err)
+	}
+	fix.ID = "bonus"
+	raw, _ = json.Marshal(map[string]any{"schema": 1, "addons": addonManifest().Addons, "fixes": []Entry{fix}})
+	if _, err := parseManifest(raw, base, originOf(base)); err == nil || !strings.Contains(err.Error(), "twice") {
+		t.Fatalf("an add-on under both keys: err %v", err)
+	}
+}
+
 func TestAddonManifestRefusals(t *testing.T) {
 	base, _ := url.Parse(DefaultAddonCatalogURL)
 	for _, tc := range []struct {
@@ -72,6 +102,9 @@ func TestAddonManifestRefusals(t *testing.T) {
 		{"nested archive", func(m *Manifest) { m.Addons[0].Contents[0].Name = "units/AFark.ufo" }},
 		{"escaping archive", func(m *Manifest) { m.Addons[0].Contents[0].Name = ".." }},
 		{"not a UFO", func(m *Manifest) { m.Addons[0].Contents[0].Name = "AFark.hpi" }},
+		{"patch name without rev", func(m *Manifest) { m.Addons[0].Contents[0].Name = "AFark.gp3" }},
+		{"revision with a foreign extension", func(m *Manifest) { m.Addons[0].Contents[0].Name = "rev31.ccx" }},
+		{"bare revision", func(m *Manifest) { m.Addons[0].Contents[0].Name = "rev.gp3" }},
 		{"repeated archive", func(m *Manifest) { m.Addons[0].Contents[1].Name = "afark.UFO" }},
 		{"empty archive", func(m *Manifest) { m.Addons[0].Contents[0].Size = 0 }},
 		{"bad archive digest", func(m *Manifest) { m.Addons[0].Contents[0].SHA256 = "bad" }},

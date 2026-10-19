@@ -449,12 +449,18 @@ func (f *FS) MountGameDirectories(roots []string) error {
 // directory the layout renames answer under the layout's name, beside the
 // files of content authored that way. Faction add-ons mount so under a mod
 // that renames the retail directories (§5.8 "With a mod").
+//
+// ExtraTier, when set, gives an Extra archive a tier other than its
+// extension's, so an add-on layer mounts above the retail tiers; the tier
+// must be one below Loose, and the mount refuses one that is not (§5.7
+// "Mounting", §5.8).
 type GameRoot struct {
 	Dir         string
 	Archives    func(name string) bool
 	NoLoose     bool
 	Extra       []string
 	ExtraLayout func(full string) Layout
+	ExtraTier   func(full string) (tier MountTier, ok bool)
 }
 
 // MountGameRoots is MountGameDirectories for roots that may admit only some
@@ -465,7 +471,7 @@ func (f *FS) MountGameRoots(roots []GameRoot) error {
 	plan := DefaultRetailMountPlan()
 	span := int(max(plan.HPI, plan.UFO, plan.CCX, plan.GP3, plan.Loose)) * 10
 	for i, root := range roots {
-		if err := f.mountGameDirectoryFiltered(root.Dir, plan, i*span, root.Archives, !root.NoLoose, root.Extra, root.ExtraLayout); err != nil {
+		if err := f.mountGameDirectoryFiltered(root.Dir, plan, i*span, root.Archives, !root.NoLoose, root.Extra, root.ExtraLayout, root.ExtraTier); err != nil {
 			return fmt.Errorf("mounting root %q: %w", root.Dir, err)
 		}
 	}
@@ -508,7 +514,7 @@ func (f *FS) MountGameDirectoryWithPlan(root string, plan MountPlan) error {
 }
 
 func (f *FS) mountGameDirectory(root string, plan MountPlan, basePriority int) error {
-	return f.mountGameDirectoryFiltered(root, plan, basePriority, nil, true, nil, nil)
+	return f.mountGameDirectoryFiltered(root, plan, basePriority, nil, true, nil, nil, nil)
 }
 
 // gameArchive is one archive a game directory mount plans: its file name,
@@ -516,9 +522,13 @@ func (f *FS) mountGameDirectory(root string, plan MountPlan, basePriority int) e
 type gameArchive struct {
 	name, full string
 	layout     Layout
+	// tier and tierSet carry an Extra archive's tier override
+	// (GameRoot.ExtraTier); a set tier replaces its extension's.
+	tier    MountTier
+	tierSet bool
 }
 
-func (f *FS) mountGameDirectoryFiltered(root string, plan MountPlan, basePriority int, admit func(string) bool, loose bool, extra []string, extraLayout func(string) Layout) error {
+func (f *FS) mountGameDirectoryFiltered(root string, plan MountPlan, basePriority int, admit func(string) bool, loose bool, extra []string, extraLayout func(string) Layout, extraTier func(string) (MountTier, bool)) error {
 	if err := plan.Validate(); err != nil {
 		return err
 	}
@@ -545,6 +555,9 @@ func (f *FS) mountGameDirectoryFiltered(root string, plan MountPlan, basePriorit
 			if extraLayout != nil {
 				archive.layout = extraLayout(full)
 			}
+			if extraTier != nil {
+				archive.tier, archive.tierSet = extraTier(full)
+			}
 			archives = append(archives, archive)
 		}
 	}
@@ -565,17 +578,25 @@ func (f *FS) mountGameDirectoryFiltered(root string, plan MountPlan, basePriorit
 	// Retail's ten-new-archive budget restarts on each mount pass; repeated
 	// passes mount every valid local HPI [02 §2]. Mount that converged set here.
 	for _, entry := range archives {
-		extension := strings.ToLower(filepath.Ext(entry.name))
 		tier := plan.HPI
-		switch extension {
-		case ".hpi":
-			tier = plan.HPI
-		case ".ccx":
-			tier = plan.CCX
-		case ".gp3", ".gp4", ".gpf", ".swx":
-			tier = plan.GP3
-		case ".ufo":
-			tier = plan.UFO
+		if entry.tierSet {
+			// An add-on layer must stay below the loose host files, which
+			// keep the last word (GameRoot.ExtraTier).
+			if entry.tier == 0 || entry.tier >= plan.Loose {
+				return fmt.Errorf("archive %s: extra tier %d is not below the loose tier %d", entry.full, entry.tier, plan.Loose)
+			}
+			tier = entry.tier
+		} else {
+			switch strings.ToLower(filepath.Ext(entry.name)) {
+			case ".hpi":
+				tier = plan.HPI
+			case ".ccx":
+				tier = plan.CCX
+			case ".gp3", ".gp4", ".gpf", ".swx":
+				tier = plan.GP3
+			case ".ufo":
+				tier = plan.UFO
+			}
 		}
 		_, err := f.mountArchiveRehomed(entry.full, basePriority+int(tier)*10, entry.layout)
 		if err != nil {
