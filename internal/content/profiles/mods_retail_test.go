@@ -175,8 +175,14 @@ func TestEscalationReadCapsAdmitItsMapAndLOSTable(t *testing.T) {
 	// Deliberately expose only FSOps to exercise the capped fallback, rather
 	// than depending on a wrapper accidentally hiding RangeReader.
 	wholeFileView := struct{ vfs.FSOps }{view}
-	if _, err := content.CompileMaps(wholeFileView); err == nil {
-		t.Fatal("the retail map read cap admitted Escalation's oversize terrain file")
+	// The baseline caps admit both files, so the refusals below use caps
+	// sized for a stock 3.1 install; the profile is still what admits the
+	// files under those.
+	const stockTNTBytes, stockLOSBytes = 16 << 20, 1 << 20
+	stockMapCap := content.RetailLimits()
+	stockMapCap.TNTBytes = stockTNTBytes
+	if _, err := content.CompileWithOptions(wholeFileView, content.Options{Limits: stockMapCap}); err == nil {
+		t.Fatal("a stock-sized map read cap admitted Escalation's oversize terrain file")
 	} else {
 		for _, want := range []string{"[esc] dark prime.tnt", "exceeds read limit"} {
 			if !strings.Contains(strings.ToLower(err.Error()), want) {
@@ -187,9 +193,9 @@ func TestEscalationReadCapsAdmitItsMapAndLOSTable(t *testing.T) {
 	// The map cap is what admits it and nothing else: the profile's limits with
 	// only that count put back to retail refuse the same file again.
 	mapCapHeldBack := limits
-	mapCapHeldBack.TNTBytes = content.RetailTNTBytes
+	mapCapHeldBack.TNTBytes = stockTNTBytes
 	if _, err := content.CompileWithOptions(wholeFileView, content.Options{Limits: mapCapHeldBack}); err == nil {
-		t.Fatal("the retail map read cap admitted Escalation's oversize terrain file")
+		t.Fatal("a stock-sized map read cap admitted Escalation's oversize terrain file")
 	} else if !strings.Contains(strings.ToLower(err.Error()), "[esc] dark prime.tnt") {
 		t.Fatalf("holding the map cap at retail did not stop the compile on that map: %v", err)
 	}
@@ -197,8 +203,10 @@ func TestEscalationReadCapsAdmitItsMapAndLOSTable(t *testing.T) {
 		t.Fatalf("profile cap should admit the whole-file map census: %v", err)
 	}
 
-	if _, err := content.CompileLOSTables(view, content.RetailLimits()); err == nil {
-		t.Fatal("the retail battle-table read cap admitted Escalation's enlarged LOS table")
+	stockLOSCap := content.RetailLimits()
+	stockLOSCap.LOSBytes = stockLOSBytes
+	if _, err := content.CompileLOSTables(view, stockLOSCap); err == nil {
+		t.Fatal("a stock-sized battle-table read cap admitted Escalation's enlarged LOS table")
 	} else {
 		for _, want := range []string{"logical path gamedata/los.tdf", "exceeds read limit"} {
 			if !strings.Contains(err.Error(), want) {
