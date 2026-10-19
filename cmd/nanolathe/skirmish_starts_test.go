@@ -16,7 +16,7 @@ import (
 // the start conversion, which compacts the open rows out
 // (DESIGN_INTERFACE_HUD_INPUT §2.6 "Start positions").
 func TestTheSettingsFileKeepsEachRowsStartPoint(t *testing.T) {
-	g := &gameShell{setup: newSkirmishMenuConfig("m")}
+	g := &gameShell{maps: []string{"Ashap Plateau"}, setup: newSkirmishMenuConfig("m")}
 	blob := settings.Defaults()
 	blob.Skirmish.Map, blob.Skirmish.StartMap = "Ashap Plateau", "ashap plateau"
 	blob.Skirmish.NumPlayers = 3
@@ -48,6 +48,23 @@ func TestTheSettingsFileKeepsEachRowsStartPoint(t *testing.T) {
 	bad.Normalize()
 	if bad.Players[0].Start != nil || bad.Players[1].Start != nil {
 		t.Fatal("out-of-range points survived Normalize")
+	}
+}
+
+// A removed map must not transfer its chosen points to the installed fallback,
+// including when another preference change writes the setup back to disk.
+func TestMissingSavedMapDropsChosenStarts(t *testing.T) {
+	g := &gameShell{maps: []string{"Installed"}, setup: newSkirmishMenuConfig("Installed")}
+	s := settings.Defaults()
+	s.Skirmish.Map, s.Skirmish.StartMap = "Removed", "Removed"
+	s.Skirmish.Players[0].Start = &settings.StartPoint{X: 300, Z: 400}
+	g.applySettings(s)
+	if g.setup.MapName != "Installed" || g.setup.Players[0].Start.Set {
+		t.Fatalf("fallback %q has start %+v from a removed map", g.setup.MapName, g.setup.Players[0].Start)
+	}
+	back := g.captureSettings()
+	if back.Skirmish.StartMap != "" || back.Skirmish.Players[0].Start != nil {
+		t.Fatalf("fallback saved another map's chosen point: %+v", back.Skirmish)
 	}
 }
 

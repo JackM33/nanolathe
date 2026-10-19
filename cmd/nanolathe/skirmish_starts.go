@@ -12,6 +12,7 @@ package main
 import (
 	"strconv"
 
+	"github.com/nanolathe-gg/nanolathe/formats"
 	"github.com/nanolathe-gg/nanolathe/internal/client"
 	"github.com/nanolathe-gg/nanolathe/internal/gui"
 	"github.com/nanolathe-gg/nanolathe/internal/input"
@@ -119,12 +120,14 @@ const (
 var (
 	placerPanel = gui.Rect{X: 30, Y: 24, W: 580, H: 432}
 	placerMap   = gui.Rect{X: 236, Y: 52, W: 360, H: 360}
-	placerClear = gui.Rect{X: 46, Y: 386, W: 84, H: 26}
-	placerDone  = gui.Rect{X: 138, Y: 386, W: 84, H: 26}
+	placerClear = gui.Rect{X: 46, Y: 386, W: 80, H: 20}
+	placerDone  = gui.Rect{X: 142, Y: 386, W: 80, H: 20}
 )
 
 const (
-	placerRowX, placerRowY, placerRowW, placerRowH, placerRowPitch = 46, 56, 176, 24, 30
+	// Twenty-pixel rows use the common button artwork's height, with enough
+	// space below ten players for both instructions above the action buttons.
+	placerRowX, placerRowY, placerRowW, placerRowH, placerRowPitch = 46, 56, 176, 20, 28
 	placerMarker                                                   = 14
 )
 
@@ -324,7 +327,25 @@ func (g *gameShell) drawStartPlacer(c *client.Client) {
 		}
 		drawGUIBevel(c, r, g.guiColor(v.top), g.guiColor(v.bot), g.guiColor(v.fill))
 	}
-	bevel(placerPanel, false)
+	var common *formats.GAF
+	if g.assets != nil {
+		common = g.assets.common
+	}
+	// Use the same authored BackTile and BUTTONS0 frames as retail dialogs.
+	// Only player rows are widened to fit their name and placement status;
+	// the action buttons keep the original 80-by-20 artwork dimensions.
+	drawWindowPanel(c, &gui.Window{Rect: placerPanel}, nil, common, g.guiColor)
+	button := func(r gui.Rect, down bool) {
+		state := 0
+		if down {
+			state = 1
+		}
+		if art := g.retailButtonArt(gui.Gadget{Kind: gui.KindButton, Rect: r}, state, 0, false); art != nil {
+			c.UIBlitFrameScaled(art, int(r.X), int(r.Y), int(r.W), int(r.H))
+		} else {
+			bevel(r, down)
+		}
+	}
 	font := g.windowGadgetFont(p, p.Window.Gadgets[max(p.Index("HELPTEXT"), 0)])
 	measure, metric := g.retailTextMetrics(font)
 	text := func(s string, x, y, w int) {
@@ -339,7 +360,7 @@ func (g *gameShell) drawStartPlacer(c *client.Client) {
 	rows := g.placerRows()
 	for i, row := range rows {
 		r := placerRowRect(i)
-		bevel(r, row == pl.selected)
+		button(r, row == pl.selected)
 		player := g.setup.Players[row]
 		logo(player.Color, int(r.X)+5, int(r.Y)+(int(r.H)-placerMarker)/2, placerMarker)
 		name := "Player"
@@ -362,7 +383,7 @@ func (g *gameShell) drawStartPlacer(c *client.Client) {
 		caption string
 		press   int
 	}{{placerClear, "Clear All", placerPressClear}, {placerDone, "Done", placerPressDone}} {
-		bevel(b.r, pl.pressed == b.press)
+		button(b.r, pl.pressed == b.press)
 		text(b.caption, int(b.r.X)+(int(b.r.W)-measure(b.caption))/2, int(b.r.Y)+(int(b.r.H)-metric)/2, int(b.r.W))
 	}
 	// The map.

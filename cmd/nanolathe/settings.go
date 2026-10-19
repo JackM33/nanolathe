@@ -137,6 +137,19 @@ func (g *gameShell) applySettings(s settings.Settings) {
 	g.setup.LOSType = sk.LOSType
 	g.setup.AlliedSight = sk.AlliedSight
 
+	// Resolve the installed map before restoring its chosen points. A removed
+	// map leaves the shell's fallback selected, whose coordinates are unrelated.
+	if sk.Map != "" {
+		for i, name := range g.maps {
+			if name == sk.Map {
+				g.setup.MapName = name
+				g.mapIdx = i
+				break
+			}
+		}
+	}
+	restoreStarts := strings.EqualFold(sk.StartMap, sk.Map) && strings.EqualFold(sk.StartMap, g.setup.MapName)
+
 	for i := 0; i < session.SkirmishMaxPlayers && i < len(sk.Players); i++ {
 		p := sk.Players[i]
 		row := &g.setup.Players[i]
@@ -147,7 +160,7 @@ func (g *gameShell) applySettings(s settings.Settings) {
 		row.Energy = p.Energy
 		// A point placed on another map means nothing on this one.
 		row.Start = session.StartPoint{}
-		if p.Start != nil && strings.EqualFold(sk.StartMap, sk.Map) {
+		if p.Start != nil && restoreStarts {
 			row.Start = session.StartPoint{Set: true, X: int32(p.Start.X), Z: int32(p.Start.Z)}
 		}
 		// Only a row stored "classic" plays the Classic AI: a row without
@@ -173,17 +186,6 @@ func (g *gameShell) applySettings(s settings.Settings) {
 	// [08 R-SKIR-01 §1] "Shown rows only".
 	g.retailControllersSet = true
 
-	// The stored map only wins if it is still installed; a map removed from the
-	// install falls back to the first of the enumerated list.
-	if sk.Map != "" {
-		for i, name := range g.maps {
-			if name == sk.Map {
-				g.setup.MapName = name
-				g.mapIdx = i
-				break
-			}
-		}
-	}
 	g.syncMapIndex()
 }
 

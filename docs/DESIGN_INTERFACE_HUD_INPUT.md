@@ -1088,7 +1088,8 @@ cloned from the Location label at (305, 290) and a Place Starts button
 cloned from Select Map at (305, 306) sit beside Players and Allied Sight
 under the player box. The button reads `Auto`, or how many players are
 placed (`2 Placed`), and opens the Place Starts window over the dimmed
-setup screen: a bevelled panel (30, 24, 580×432) with the live players on
+setup screen: a panel (30, 24, 580×432) tiled with the original common GUI
+`BackTile` artwork, with the live players on
 the left, each with its colour logo, its row caption (`Player`, `Modern AI`,
 `Classic AI`) and `Auto` or `Placed`, and the map on the right, the usable
 terrain fitted into a 360-pixel box in the map picker's projection
@@ -1098,13 +1099,20 @@ it (its row sunken, its marker outlined); a left click on the map places the
 selected player there and moves to the next player without a point; a right
 click on a player or its marker puts it back on Auto; Clear All clears every
 point and Done, Escape or Enter closes the window and saves the points.
+Player rows and action buttons use the common `BUTTONS0` artwork and its
+released/pressed frames. Rows are widened to fit their captions; the two
+action buttons keep the native 80×20 size. The 20-pixel rows are spaced 28
+pixels apart so both instruction lines remain above the action buttons
+with all ten players shown.
 While open the window takes every pointer and key event, so nothing beneath
 reacts. Choosing another map clears the points, since a point belongs to its
 map. The map picker's preview marks the selected map's start positions for
 the current rows with small bevelled squares. The points persist with the
-rows (`start`, with `startMap`) and travel to battle as `SkirmishPlayer.Start`
+rows (`start`, with `startMap`), are restored only for the selected installed
+map (a missing saved map drops its points), and travel to battle as `SkirmishPlayer.Start`
 ([DESIGN_SESSIONS_AI_SAVE "Modern chosen start positions"](DESIGN_SESSIONS_AI_SAVE.md#modern-chosen-start-positions)).
-Tests: `TestTheSettingsFileKeepsEachRowsStartPoint`, `TestPlaceStartsFollowsTheRules`
+Tests: `TestTheSettingsFileKeepsEachRowsStartPoint`,
+`TestMissingSavedMapDropsChosenStarts`, `TestPlaceStartsFollowsTheRules`
 and `TestSkirmishScreenPlacesStartsOnTheMapRetail`, which with
 `NANOLATHE_SHOT_DIR` set writes the open window and the map picker as PNGs.
 
