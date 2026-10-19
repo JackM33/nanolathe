@@ -29,7 +29,7 @@ type ArenaPlayer struct {
 	Label   string
 	Brain   aikit.Brain
 	Persona aikit.Persona
-	Side    int // 0 ARM, 1 CORE
+	Side    int // side ordinal: 0 ARM, 1 CORE, then any faction add-on's sides
 }
 
 // ArenaRequest describes one displayless AI-versus-AI match.
@@ -47,9 +47,12 @@ type ArenaRequest struct {
 	WatchFrom uint32
 	Root      string
 	Roots     []string
-	Map       string
-	Gameplay  gameplay.Mode // a registered set whose planner is aikit.HostPlanner
-	Seed      uint32
+	// Addons are add-on archives mounted at the first root's *.UFO tier,
+	// as enabled add-ons are (docs/DESIGN_MODS_MUTATORS.md §5.8).
+	Addons   []string
+	Map      string
+	Gameplay gameplay.Mode // a registered set whose planner is aikit.HostPlanner
+	Seed     uint32
 	// MapSeed plays the battle on ArenaMapSeed(Seed, Map) instead of Seed.
 	// A Modern brain draws its style and jitter from the battle seed and its
 	// slot, so a tournament that reuses one seed list on every map would
@@ -898,7 +901,7 @@ func (req ArenaRequest) battleSeed() uint32 {
 
 // RunArenaMatch mounts the install, composes the match and plays it out.
 func RunArenaMatch(req ArenaRequest) (ArenaResult, error) {
-	fs, err := mountContentRoots(req.Root, req.Roots)
+	fs, err := mountContentRootsWithAddons(req.Root, req.Roots, req.Addons)
 	if err != nil {
 		return ArenaResult{}, err
 	}
@@ -1052,13 +1055,23 @@ func playArena(req ArenaRequest, sess *session.Session) (ArenaResult, error) {
 		m.Ext = h
 		hosts[i] = h
 	}
-	// Commanders at entry, and value accounting on death.
+	// Commanders at entry, and value accounting on death. A commander is
+	// the table's: a side record's commander counts though its definition
+	// lacks the flag, since the side record is what names a player's
+	// commander [08 R-TRIG-01 §3].
+	isCommander := func(u *units.Unit) bool {
+		if u.Def.Commander {
+			return true
+		}
+		info := table.Of(u.Def)
+		return info != nil && info.Role.Has(aikit.RoleCommander)
+	}
 	starts := make([]int, n)
 	for i := range starts {
 		starts[i] = -1
 	}
 	for _, u := range sess.Units.IterSliced() {
-		if u.Def != nil && u.Def.Commander && int(u.Owner) < n {
+		if u.Def != nil && int(u.Owner) < n && isCommander(u) {
 			tr.commander[u.Owner] = u.Handle
 			starts[u.Owner] = arenaStartOf(sess, u)
 		}
@@ -1081,7 +1094,7 @@ func playArena(req ArenaRequest, sess *session.Session) (ArenaResult, error) {
 					}
 				}
 			}
-			if u.Def.Commander && tr.diedTick[u.Owner] == 0 && sess.Clock != nil {
+			if isCommander(u) && tr.diedTick[u.Owner] == 0 && sess.Clock != nil {
 				tr.diedTick[u.Owner] = sess.Clock.GlobalTick
 				tr.events = append(tr.events, ArenaEvent{Tick: sess.Clock.GlobalTick, Player: int(u.Owner), Kind: "commander_death", X: int32(int64(u.X) >> 16), Z: int32(int64(u.Z) >> 16)})
 			}

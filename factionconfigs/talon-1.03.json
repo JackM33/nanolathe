@@ -1,0 +1,34 @@
+{
+  "id": "talon",
+  "name": "Talon",
+  "version": "1.03",
+  "summary": "The Talon faction beside Arm and Core.",
+  "tag": "tal",
+  "sides": [
+    "TAL"
+  ],
+  "unitSides": [
+    "TAL",
+    "TALON",
+    "TAL1",
+    "AIDONTBUILD"
+  ],
+  "layout": {
+    "download": "DownloadTAL",
+    "gamedata": "GameTAL",
+    "guis": "guiTAL",
+    "units": "UnitTAL",
+    "weapons": "WeapTAL"
+  },
+  "omitUnits": [
+    "TAIGATE"
+  ],
+  "source": {
+    "file": "talon-1.03.zip",
+    "sha256": "f5580bdfa4bba52389aec33fb35d35c8f8cc4f8b81f38606525f07c9f6fd4c2a"
+  },
+  "notes": [
+    "Input is the 2026-10-16 local candidate ZIP, which retains the Core Prime preservation download's original archive bytes (upstream SHA-256 3922be8679f058769b92bb6028fb7193956073dbaec630e412a74254f2393100).",
+    "TAIGATE is left out: like the Arm and Core AI Galactic Gates the release's readme credits, it costs 1 and makes 31337 metal and energy, a computer player's unit. Nanolathe's Modern AI uses every unit a player may build."
+  ]
+}

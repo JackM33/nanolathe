@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -162,5 +163,96 @@ func TestConflictNamesAnotherPathsDefinition(t *testing.T) {
 	}
 	if found, err := Conflict(others(map[string]string{"features/corpses/mod.tdf": "[armfark_dead]{}"}), names); err != nil || found != "feature armfark_dead" {
 		t.Fatalf("feature conflict = %q, %v", found, err)
+	}
+}
+
+// A local install has no catalogue contents list: the gate is identity-only
+// metadata the package carries and the payload audit, and a second install
+// of the same id and version is refused as a manual mod install is (§4.5,
+// §5.7).
+func TestLocalValidatorAuditsWithoutAContentsList(t *testing.T) {
+	staged, meta, _ := fixture(t)
+	if err := LocalValidator()(staged, meta); err != nil {
+		t.Fatal(err)
+	}
+	lib, err := Open(filepath.Join(t.TempDir(), "addons"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := lib.InstallDirectory(staged, modlibrary.InstallOptions{Validate: LocalValidator()}); err != nil {
+		t.Fatal(err)
+	}
+	if addons, skipped, err := Installed(lib.Root); err != nil || len(skipped) != 0 || len(addons) != 1 || len(addons[0].Archives) != 2 {
+		t.Fatalf("installed = %+v, %+v, %v", addons, skipped, err)
+	}
+	if _, err := lib.InstallDirectory(staged, modlibrary.InstallOptions{Validate: LocalValidator()}); !errors.Is(err, modlibrary.ErrAlreadyInstalled) {
+		t.Fatalf("a second install = %v, want already installed", err)
+	}
+	for name, change := range map[string]func(t *testing.T, root string){
+		"configured metadata": func(t *testing.T, root string) {
+			write(t, root, modlibrary.MetadataFile, []byte(`{"schema":1,"id":"bonus","name":"Bonus units","version":"original","config":{}}`))
+		},
+		"loose unit file": func(t *testing.T, root string) { write(t, root, "armfark.fbi", []byte("x")) },
+		"other archive": func(t *testing.T, root string) {
+			write(t, root, "Extra.hpi", ufo(t, map[string]string{"units/x.fbi": "x"}))
+		},
+		"broken archive": func(t *testing.T, root string) { write(t, root, "broken.ufo", []byte("not an archive")) },
+		"nested file":    func(t *testing.T, root string) { write(t, root, "units/armfark.fbi", []byte("x")) },
+	} {
+		t.Run(name, func(t *testing.T) {
+			root, meta, _ := fixture(t)
+			change(t, root)
+			if raw, err := os.ReadFile(filepath.Join(root, modlibrary.MetadataFile)); err == nil {
+				_ = json.Unmarshal(raw, &meta)
+			}
+			if err := LocalValidator()(root, meta); err == nil {
+				t.Fatal("admitted")
+			}
+		})
+	}
+	// A package without metadata is described as local-<name>@local by the
+	// library; an add-on needs its own identity.
+	root, _, _ := fixture(t)
+	generated := modlibrary.Metadata{Schema: 1, ID: "local-bonus", Name: "bonus", Version: "local"}
+	raw, _ := json.Marshal(generated)
+	write(t, root, modlibrary.MetadataFile, raw)
+	if err := LocalValidator()(root, generated); err == nil {
+		t.Fatal("a package without metadata was admitted")
+	}
+}
+
+// Two add-ons that supply one logical path, or define one unit or feature
+// name, share it; the comparison folds case and names the first in order.
+func TestSharedPathAndName(t *testing.T) {
+	dir := t.TempDir()
+	write(t, dir, "a.ufo", ufo(t, map[string]string{"units/AAA.fbi": "[UNITINFO]{UnitName=aaa;}", "Gamedata/Shared.tdf": "x", "anims/zz.gaf": "x"}))
+	write(t, dir, "b.ufo", ufo(t, map[string]string{"units/bbb.fbi": "[UNITINFO]{UnitName=AAA;}", "gamedata/shared.TDF": "y", "anims/ZZ.gaf": "y"}))
+	write(t, dir, "c.ufo", ufo(t, map[string]string{"units/ccc.fbi": "[UNITINFO]{UnitName=ccc;}", "features/c.tdf": "[ccc_dead]{}"}))
+	read := func(name string) (map[string]string, Names) {
+		addon := Addon{ID: name, Paths: []string{filepath.Join(dir, name+".ufo")}}
+		paths, err := Paths(addon)
+		if err != nil {
+			t.Fatal(err)
+		}
+		names, err := DefinedNames(addon)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return paths, names
+	}
+	ap, an := read("a")
+	bp, bn := read("b")
+	cp, cn := read("c")
+	if len(ap) != 3 {
+		t.Fatalf("paths = %v", ap)
+	}
+	if got := SharedPath(ap, bp); got != "anims/zz.gaf" {
+		t.Fatalf("shared path = %q", got)
+	}
+	if got := SharedName(an, bn); got != "unit aaa" {
+		t.Fatalf("shared name = %q", got)
+	}
+	if SharedPath(ap, cp) != "" || SharedName(an, cn) != "" {
+		t.Fatal("disjoint add-ons share something")
 	}
 }

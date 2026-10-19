@@ -170,19 +170,34 @@ func TestLocalGroupRecallSeesPendingAssignment(t *testing.T) {
 	l := NewLocalInterface()
 	a, b, c := ref(1, 1), ref(2, 2), ref(3, 3)
 	units := []GroupUnit{{Ref: a, DefID: 1, Group: 4}, {Ref: b, DefID: 1}, {Ref: c, DefID: 1}}
-	l.RecallGroup(units, 4, false, [CategoryMaskBytes]byte{})
+	l.RecallGroup(units, 4, false, content.CategoryMask{})
 	if !slices.Equal(l.SelectedRefs(), []pool.UnitRef{a}) {
 		t.Fatalf("recall = %v, want the published member", l.SelectedRefs())
 	}
 	l.NoteGroupAssign(4, []pool.UnitRef{b, c}, 9)
-	l.RecallGroup(units, 4, false, [CategoryMaskBytes]byte{})
+	l.RecallGroup(units, 4, false, content.CategoryMask{})
 	if !slices.Equal(l.SelectedRefs(), []pool.UnitRef{b, c}) {
 		t.Fatalf("recall after a pending assignment = %v, want its membership", l.SelectedRefs())
 	}
 	l.ObserveTick(9)
-	l.RecallGroup(units, 4, true, [CategoryMaskBytes]byte{})
+	l.RecallGroup(units, 4, true, content.CategoryMask{})
 	if !slices.Equal(l.SelectedRefs(), []pool.UnitRef{a, b, c}) {
 		t.Fatalf("preserving recall after the assignment's tick = %v, want a toggled in", l.SelectedRefs())
+	}
+}
+
+// Recall with no CTRL_F filter supplied recalls every member, whatever its
+// definition id: the key flag on an armed member must not turn absent filter
+// state into a filter that drops them, including the IDs past 511 that a
+// content profile or faction add-ons give a widened catalog
+// (docs/DESIGN_MODS_MUTATORS.md §5.8).
+func TestLocalGroupRecallWithoutFilterKeepsWideDefinitionIDs(t *testing.T) {
+	l := NewLocalInterface()
+	a, b := ref(1, 1), ref(2, 2)
+	units := []GroupUnit{{Ref: a, DefID: 7, Group: 3, Flags: CtrlFFlag}, {Ref: b, DefID: 600, Group: 3, Flags: CtrlFFlag}}
+	l.RecallGroup(units, 3, false, content.CategoryMask{})
+	if !slices.Equal(l.SelectedRefs(), []pool.UnitRef{a, b}) {
+		t.Fatalf("recall = %v, want both members", l.SelectedRefs())
 	}
 }
 

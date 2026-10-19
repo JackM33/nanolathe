@@ -11,10 +11,8 @@
 github.com/nanolathe-gg/nanolathe/cmd/nanolathe battleSession.pumpBackground
 github.com/nanolathe-gg/nanolathe/cmd/nanolathe gameShell.onlineBackgroundStep
 github.com/nanolathe-gg/nanolathe/cmd/nanolathe serviceOnlineBackground
-github.com/nanolathe-gg/nanolathe/formats EncodeGAF
 github.com/nanolathe-gg/nanolathe/formats EncodeThreeDO
 github.com/nanolathe-gg/nanolathe/formats EncodeWAV
-github.com/nanolathe-gg/nanolathe/formats encodeGAFRLE
 github.com/nanolathe-gg/nanolathe/internal/ai NewManager
 github.com/nanolathe-gg/nanolathe/internal/aikit AnalyzeMap
 github.com/nanolathe-gg/nanolathe/internal/aikit executor.checkpointBindingKind

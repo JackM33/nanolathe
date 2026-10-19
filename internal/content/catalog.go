@@ -105,7 +105,13 @@ type Catalog struct {
 	// §5 "Content profiles"). Retained so a consumer can report the domain the
 	// definition IDs live in and load terrain under the same whole-file cap
 	// without re-resolving the profile.
-	Limits   Limits
+	Limits Limits
+	// compiled are the tables the compile actually built: Limits widened to
+	// hold what faction declarations add (factionLimits). Limits stays what
+	// the caller asked for, so a recompile, a save or an online room passing
+	// Limits back reproduces this catalog, as widening is idempotent
+	// (docs/DESIGN_MODS_MUTATORS.md §5.8). Equal to Limits without factions.
+	compiled Limits
 	Weapons  map[string]*WeaponDef     // key = CanonicalKey(section name) [02 §5]
 	Features map[string]*FeatureDef    // key = CanonicalKey(feature name) [02 §5]
 	Movement map[string]*MovementClass // key = CanonicalKey(class Name) [02 "Movement class record"]
@@ -138,6 +144,11 @@ type Catalog struct {
 	// exposes only fully resolved placements. Authored BUTTON slots remain
 	// explicit because a generated page can be sparse.
 	DownloadPlacements []DownloadMenuPlacement
+	// FactionDamage lists the entries faction declarations added to base
+	// weapons' damage tables, in declaration then section order
+	// (docs/DESIGN_MODS_MUTATORS.md §5.8). Content without declarations has
+	// none.
+	FactionDamage []FactionDamage
 
 	// SurvivalRoster optionally selects scenario attackers (DESIGN_SURVIVAL §5.1).
 	SurvivalRoster *SurvivalRoster
@@ -221,6 +232,7 @@ func CompileWithOptions(fs vfs.FSOps, opts Options) (*Catalog, error) {
 	if err != nil {
 		return nil, err
 	}
+	requested := limits
 	report := opts.Progress
 
 	// Stage 1: discover and parse every family into typed records [02 §5] C1.
@@ -243,6 +255,13 @@ func CompileWithOptions(fs vfs.FSOps, opts Options) (*Catalog, error) {
 	units := unitResult.units
 	records := unitResult.records
 	report.Report(FamilyUnits, 100)
+	if limits, err = factionLimits(fs, limits, weapons, len(records)); err != nil {
+		return nil, err
+	}
+	factionDamage, err := composeFactionDamage(fs, weapons, units)
+	if err != nil {
+		return nil, err
+	}
 	categories, err := compileCategoryRecords(records, units, limits)
 	if err != nil {
 		return nil, err
@@ -358,6 +377,9 @@ func CompileWithOptions(fs vfs.FSOps, opts Options) (*Catalog, error) {
 	if err != nil {
 		return nil, err
 	}
+	if downloadPlacements, err = composeFactionPlacements(fs, units, downloadPlacements); err != nil {
+		return nil, err
+	}
 	warnings = append(warnings, applyDownloadRecordMenus(records, units, buildMenus, downloadPlacements)...)
 	warnings = append(warnings, fillUnitRecordScripts(fs, records)...)
 	report.Report(FamilyModels, 100)
@@ -371,7 +393,8 @@ func CompileWithOptions(fs vfs.FSOps, opts Options) (*Catalog, error) {
 	manifest, _ := manifestHashFor(fs)
 
 	c := &Catalog{
-		Limits:             limits,
+		Limits:             requested,
+		compiled:           limits,
 		Units:              units,
 		unitRecords:        records,
 		Categories:         categories,
@@ -391,6 +414,7 @@ func CompileWithOptions(fs vfs.FSOps, opts Options) (*Catalog, error) {
 		WeaponSoundPaths:   weaponResult.soundPaths,
 		BuildMenus:         buildMenus,
 		DownloadPlacements: downloadPlacements,
+		FactionDamage:      factionDamage,
 		SurvivalRoster:     survivalRoster,
 		Warnings:           warnings,
 		Manifest:           manifest,
@@ -725,8 +749,15 @@ func (c *Catalog) compileLimits() Limits {
 	if c == nil || c.Limits.Units <= 0 {
 		return RetailLimits()
 	}
+	if c.compiled.Units > 0 {
+		return c.compiled
+	}
 	return c.Limits
 }
+
+// CompiledLimits are the table sizes the compile built, which faction
+// declarations may have widened beyond Limits (§5.8).
+func (c *Catalog) CompiledLimits() Limits { return c.compileLimits() }
 
 // SortedUnitKeys returns unique name-index keys sorted ascending (I1).
 // Use UnitRecords when every retained definition is required [02 R-CAT-01 §5].
@@ -786,6 +817,7 @@ func (c *Catalog) Clone() *Catalog {
 		Manifest: c.Manifest,
 		Hash:     c.Hash,
 		Limits:   c.Limits,
+		compiled: c.compiled,
 	}
 	if c.SurvivalRoster != nil {
 		cp := *c.SurvivalRoster

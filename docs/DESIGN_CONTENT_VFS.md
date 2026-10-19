@@ -1094,11 +1094,11 @@ catalog's hash is bit-for-bit what it was. Two ceilings stand above any
 profile. The runtime definition identity a unit carries to the pool and to the
 committed frame is a 16-bit field, so `content.MaxDefinitionDomain` refuses a
 domain past 65536 rather than truncating an identity (I13: retail record sizes
-do not dictate Go layout, but a field that must survive publication does). And
-the authored CTRL_F type filter is a retail record — a 512-bit bitset indexed
-by definition ID [07 §9] — which cannot be widened; a definition above 511 is
-therefore absent from a CTRL_F-filtered group recall, a presentation-only
-consequence already diagnosed by `hud.TypeFilterPasses`. Retail's own save and
+do not dictate Go layout, but a field that must survive publication does).
+The authored CTRL_F type filter is the registry's `CTRL_F` entry [07 §9], so
+it is one of these membership sets and widens with them:
+`hud.TypeFilterPasses` tests a definition's own bit at any ID. No producer
+supplies one, and recall without it applies no filter. Retail's own save and
 mission records are not a constraint: a mission trigger's resolved definition
 index is 16 bits, the saved restriction list writes a `u32` per definition, and
 the build-order side channel carries the definition *name* through the

@@ -412,16 +412,22 @@ func (h *Host) begin(tick uint32, w *units.World) {
 	h.inited = true
 	table := tableFor(m)
 	// The extractor footprint and own anchor come from this owner's units:
-	// the commander's cheapest extractor and the commander's position.
+	// the commander's cheapest extractor and the commander's position. The
+	// commander is the table's: a side record's commander counts though its
+	// definition lacks the flag (sideCommanders), or the brain plays with no
+	// side and roots its build tree at another side's commander.
 	var ownX, ownZ int32
 	var side string
 	var fx, fz int32 = 2, 2
 	for _, u := range w.AppendLiveSliced(nil) {
-		if u.Owner != m.Player || u.Def == nil || !u.Def.Commander {
+		if u.Owner != m.Player || u.Def == nil {
+			continue
+		}
+		info := table.Of(u.Def)
+		if !u.Def.Commander && (info == nil || !info.Role.Has(RoleCommander)) {
 			continue
 		}
 		ownX, ownZ = int32(int64(u.X)>>16), int32(int64(u.Z)>>16)
-		info := table.Of(u.Def)
 		if info == nil {
 			continue
 		}

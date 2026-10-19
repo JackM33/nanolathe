@@ -341,13 +341,13 @@ type HumanBuildPageCommand struct {
 // (DESIGN_MULTIPLAYER §7.1). Recall changes only the local selection, so the
 // host applies it to its own local state and the session refuses it; Preserve
 // is recall's Shift-held toggle/preserve argument, and Mask the authored
-// CTRL_F filter when that state is available (an all-zero value is the
-// no-filter path).
+// CTRL_F filter when that state is available (an empty set is the no-filter
+// path).
 type HumanGroupCommand struct {
 	Handles  []pool.Handle
 	Group    int
 	Preserve bool
-	Mask     [hud.CategoryMaskBytes]byte
+	Mask     content.CategoryMask
 }
 
 // HumanCommand is an immutable-at-boundary command value. EnqueueHumanCommand

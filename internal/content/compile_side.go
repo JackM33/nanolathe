@@ -215,5 +215,50 @@ func CompileSides(fs vfs.FSOps) ([]*SideDef, error) {
 		}
 		sides = append(sides, sd)
 	}
+	return appendFactionSides(fs, sides, baseHeight)
+}
+
+// MaxComposedSides bounds the sides faction declarations may bring the
+// battle to: skirmish reserves ordinal 10 for players with no playable side,
+// so composed sides stay below it (§5.8).
+const MaxComposedSides = 10
+
+// appendFactionSides adds each faction declaration's SIDE0..N, to its first
+// gap, after the base game's sides, in declaration order. A faction side
+// takes the next ordinal and the base [GENERAL] interface height; its name
+// must be new (docs/DESIGN_MODS_MUTATORS.md §5.8).
+func appendFactionSides(fs vfs.FSOps, sides []*SideDef, baseHeight int32) ([]*SideDef, error) {
+	factions, err := DiscoverFactions(fs)
+	if err != nil || len(factions) == 0 {
+		return sides, err
+	}
+	for _, f := range factions {
+		doc, prov, ok, err := factionFragment(fs, f, factionSides, 1<<20)
+		if err != nil {
+			return nil, err
+		}
+		if !ok {
+			continue
+		}
+		for i := 0; ; i++ {
+			section := doc.Root.Section(fmt.Sprintf("SIDE%d", i))
+			if section == nil {
+				break
+			}
+			sd, err := compileSideSection(section, len(sides), prov, baseHeight)
+			if err != nil {
+				return nil, err
+			}
+			for _, prior := range sides {
+				if CanonicalKey(prior.Name) == CanonicalKey(sd.Name) {
+					return nil, factionDuplicate("side", sd.Name, prov.LogicalPath, prior.Provenance)
+				}
+			}
+			if len(sides) >= MaxComposedSides {
+				return nil, fmt.Errorf("nanolathe: faction sides exceed the skirmish side ordinals: logical path %s, providers searched [%s], expected at most %d sides in all", prov.LogicalPath, prov.ProviderID, MaxComposedSides)
+			}
+			sides = append(sides, sd)
+		}
+	}
 	return sides, nil
 }

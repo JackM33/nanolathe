@@ -164,5 +164,38 @@ func CompileMovement(fs vfs.FSOps) (map[string]*MovementClass, error) {
 			result[key] = compileMovementSection(section, name, prov)
 		}
 	}
+	return appendFactionMovement(fs, result)
+}
+
+// appendFactionMovement adds each faction declaration's movement classes
+// beside the base game's. A class is a named parameter record with no slot
+// identity of its own, so a declaration's classes need not fit the retail
+// CLASS0..CLASS31 probe; each top-level section with a Name is one class, and
+// the name must be new (docs/DESIGN_MODS_MUTATORS.md §5.8).
+func appendFactionMovement(fs vfs.FSOps, result map[string]*MovementClass) (map[string]*MovementClass, error) {
+	factions, err := DiscoverFactions(fs)
+	if err != nil || len(factions) == 0 {
+		return result, err
+	}
+	for _, f := range factions {
+		doc, prov, ok, err := factionFragment(fs, f, factionMovement, 1<<20)
+		if err != nil {
+			return nil, err
+		}
+		if !ok {
+			continue
+		}
+		for _, section := range doc.Root.Sections() {
+			name, ok := section.StringValue("Name", "")
+			if !ok || trimTDFSemantic(name) == "" {
+				continue
+			}
+			key := CanonicalKey(name)
+			if prior, found := result[key]; found {
+				return nil, factionDuplicate("movement class", name, prov.LogicalPath, prior.Provenance)
+			}
+			result[key] = compileMovementSection(section, name, prov)
+		}
+	}
 	return result, nil
 }

@@ -104,6 +104,16 @@ type Options struct {
 	// InstallMod installs a local zip or directory into the mod library and
 	// exits (a command-line stand-in for drag-and-drop, §4.5).
 	InstallMod string
+	// InstallAddon installs a local add-on zip or directory into the add-on
+	// library and exits, as InstallMod does for a mod
+	// (docs/DESIGN_MODS_MUTATORS.md §5.7, §5.8).
+	InstallAddon string
+	// Sides are the --sides choices for the --map skirmish's two players,
+	// row 0 the local player and row 1 the computer, each a side name or
+	// ordinal that battle composition resolves against the compiled sides.
+	// A prototype for faction add-on captures; Survival takes none
+	// (docs/DESIGN_MODS_MUTATORS.md §5.8).
+	Sides []string
 	// modBaseRoots marks Roots as the base install only (an internal remount
 	// with a mod selected), so several roots are not a manual stack.
 	modBaseRoots       bool
@@ -427,6 +437,22 @@ func parseFlags(args []string, out io.Writer) (Options, error) {
 		return nil
 	})
 	set.StringVar(&opts.InstallMod, "install-mod", "", "install a mod zip or directory into the mod library, then exit")
+	set.StringVar(&opts.InstallAddon, "install-addon", "", "install a local add-on zip or directory (identity-only metadata and *.UFO archives) into the add-on library, then exit; it is not enabled (docs/DESIGN_MODS_MUTATORS.md §5.7, §5.8)")
+	set.Func("sides", "prototype: the --map skirmish's two sides, <player>,<computer>, each a side name (case-insensitive, e.g. ARM, CORE or an enabled faction add-on's) or ordinal; not for Survival (docs/DESIGN_MODS_MUTATORS.md §5.8)", func(text string) error {
+		parts := strings.Split(text, ",")
+		for i := range parts {
+			parts[i] = strings.TrimSpace(parts[i])
+			if parts[i] == "" {
+				parts = nil
+				break
+			}
+		}
+		if len(parts) != 2 {
+			return fmt.Errorf("nanolathe: invalid sides: logical path <command line>, providers searched [sides], expected <player>,<computer>, two side names or ordinals")
+		}
+		opts.Sides = parts
+		return nil
+	})
 	set.Func("gameplay-feature", "community feature override name=value (repeatable; Strict ignores overrides)", func(text string) error {
 		v, err := community.ParseOverride(text)
 		if err == nil {
@@ -511,7 +537,7 @@ func parseFlags(args []string, out io.Writer) (Options, error) {
 			refused = localMultiplayerError("address", "a local play-test address or --relay-address host:port")
 		}
 		set.Visit(func(f *flag.Flag) {
-			if !localMultiplayerFlagAllowed(f.Name) {
+			if !localMultiplayerFlagAllowed(f.Name) || f.Name == "install-addon" || f.Name == "sides" {
 				refused = localMultiplayerError("--"+f.Name, "a window play-test option")
 			}
 			if strings.HasPrefix(f.Name, "relay-") && opts.RelayAddress == "" || strings.HasPrefix(f.Name, "local-mp-") && opts.RelayAddress != "" {
@@ -563,6 +589,16 @@ func parseFlags(args []string, out io.Writer) (Options, error) {
 			return opts, err
 		}
 		opts.Restrictions, opts.RestrictionsSet = restrictions, true
+	}
+	if opts.InstallAddon != "" && opts.InstallMod != "" {
+		err := fmt.Errorf("nanolathe: invalid install: logical path <command line>, providers searched [install-mod, install-addon], expected one of --install-mod or --install-addon")
+		fmt.Fprintln(out, err)
+		return opts, err
+	}
+	if len(opts.Sides) != 0 && (opts.Map == "" || opts.Survival || opts.Mission != "" || opts.LoadSave != "" || opts.BattleBenchmark != "" || opts.LiveScene != "") {
+		err := fmt.Errorf("nanolathe: invalid sides selection: logical path <command line>, providers searched [sides], expected a --map skirmish, not Survival, a mission, a save, a benchmark or a staged live scene")
+		fmt.Fprintln(out, err)
+		return opts, err
 	}
 	if len(opts.ComputerAI) != 0 && (opts.Map == "" || opts.Mission != "" || opts.LoadSave != "") {
 		err := fmt.Errorf("nanolathe: invalid computer AI selection: logical path <command line>, providers searched [ai-player], expected --map and no --mission or --load-save")
@@ -681,7 +717,7 @@ func validateReplayOptions(opts Options) error {
 	}
 	other := opts.Map != "" || opts.Mission != "" || opts.LoadSave != "" || opts.Headless || opts.Shot != "" || opts.ShotModel != "" ||
 		opts.ShotDebris != "" || opts.ShotUnitViewer != "" || opts.Film != "" || opts.NLShot != "" || opts.WalkPreview != "" ||
-		opts.BattleBenchmark != "" || opts.LiveTrace != "" || opts.multiplayerPlaytest() || opts.ListInstalls || opts.CheckInstall || opts.InstallMod != ""
+		opts.BattleBenchmark != "" || opts.LiveTrace != "" || opts.multiplayerPlaytest() || opts.ListInstalls || opts.CheckInstall || opts.InstallMod != "" || opts.InstallAddon != ""
 	switch {
 	case opts.Replay != "" && opts.VerifyReplay != "":
 		return refuse("replay", "one of --replay or --verify-replay")

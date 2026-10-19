@@ -134,7 +134,9 @@ func applyDownloadRecordMenus(records []*UnitDef, units map[string]*UnitDef, men
 	}
 	var firstProducts []string
 	for _, placement := range placements {
-		if placement.ItemOrder == 0 && placement.ProductResolved {
+		// A faction declaration's entries are no download record, so they
+		// take no part in the first-item enforcement (§5.8).
+		if placement.ItemOrder == 0 && placement.ProductResolved && !inFactionDeclaration(placement.Provenance) {
 			firstProducts = append(firstProducts, placement.Product)
 		}
 		if !placement.BuilderResolved {

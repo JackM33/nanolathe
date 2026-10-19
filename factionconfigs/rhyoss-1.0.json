@@ -1,0 +1,17 @@
+{
+  "id": "rhyoss",
+  "name": "Rhyoss",
+  "version": "1.0",
+  "summary": "The Rhyoss faction beside Arm and Core.",
+  "tag": "rhy",
+  "sides": [
+    "RHYOSS"
+  ],
+  "source": {
+    "file": "rhyoss-1.0.zip",
+    "sha256": "e28f0b450b8122fa83b475b3f09d7f462675bea8e55299646ca63cbf6ec1016f"
+  },
+  "notes": [
+    "Input is the 2026-10-16 local candidate ZIP, which retains the Core Prime preservation download's original archive bytes (upstream SHA-256 ede75159b64d323e0d5c5e6d6f1cbe5bfa40154b439a2674584ba62ea081b869)."
+  ]
+}

@@ -863,6 +863,9 @@ func (g *gameShell) buildRetailButtonArt(gad gui.Gadget, own *formats.GAF) retai
 	if g != nil && g.assets != nil {
 		common = g.assets.common
 	}
+	if g != nil && g.battleCommon != nil {
+		common = g.battleCommon
+	}
 	if entry == nil && common != nil {
 		if e, ok := common.Find(name); ok {
 			entry = e

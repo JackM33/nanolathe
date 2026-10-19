@@ -238,6 +238,34 @@ func Validator(expect []Archive) func(string, modlibrary.Metadata) error {
 	}
 }
 
+// LocalValidator is the install gate for a package installed from this
+// machine (--install-addon): identity-only schema-1 metadata the package
+// itself carries, and the payload audit — 1 to MaxArchives *.UFO archives at
+// the package root, each passing the container gate, beside root
+// documentation (§5.7). A local package has no catalogue contents list, so
+// its archives are matched against none; the installed copy's own archives
+// give its identity (Digest), as they do for a catalogue install.
+func LocalValidator() func(string, modlibrary.Metadata) error {
+	return func(root string, meta modlibrary.Metadata) error {
+		if generatedMetadata(meta) {
+			return diagnostic("add-on package has no metadata", modlibrary.MetadataFile, []string{root}, "an identity-only schema 1 nanolathe-mod.json at the package root")
+		}
+		if err := identityOnly(root, meta); err != nil {
+			return err
+		}
+		_, err := payload(root, false)
+		return err
+	}
+}
+
+// generatedMetadata reports the description the mod library writes for a
+// package that carries no metadata, local-<name> at version local
+// (DESIGN_MODS_MUTATORS §4.5). Packaged metadata may not claim that shape —
+// the library refuses it — so the shape alone identifies such a package.
+func generatedMetadata(meta modlibrary.Metadata) bool {
+	return strings.HasPrefix(meta.ID, "local-") && meta.Version == "local"
+}
+
 func identityOnly(root string, meta modlibrary.Metadata) error {
 	ok, err := modlibrary.IdentityOnly(root, meta)
 	if err != nil {
@@ -345,6 +373,89 @@ func DefinedNames(addon Addon) (Names, error) {
 		}
 	}
 	return names, nil
+}
+
+// Paths lists the logical files an add-on's archives supply, keyed by folded
+// logical path, each with the spelling of the first archive that supplies
+// it. Two add-ons that both supply a path would leave one replacing the
+// other's file, so the mount keeps only the earlier (§5.8 isolation rule 1).
+func Paths(addon Addon) (map[string]string, error) {
+	paths := map[string]string{}
+	for _, full := range addon.Paths {
+		single := vfs.New()
+		if _, err := single.MountArchive(full, 0); err != nil {
+			single.Close()
+			return nil, err
+		}
+		err := collectPaths(single, "", paths)
+		single.Close()
+		if err != nil {
+			return nil, err
+		}
+	}
+	return paths, nil
+}
+
+func collectPaths(from vfs.FSOps, dir string, into map[string]string) error {
+	entries, err := from.ReadDir(dir)
+	if err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		if entry.IsDir {
+			if err := collectPaths(from, entry.Path, into); err != nil {
+				return err
+			}
+			continue
+		}
+		if _, ok := into[entry.Path]; !ok {
+			spelled := entry.OriginalPath
+			if spelled == "" {
+				spelled = entry.Path
+			}
+			into[entry.Path] = spelled
+		}
+	}
+	return nil
+}
+
+// SharedPath is the first logical path, in folded order, that both path sets
+// (Paths) hold, spelled as a holds it; "" when they share none.
+func SharedPath(a, b map[string]string) string {
+	keys := make([]string, 0, len(a))
+	for key := range a {
+		if _, ok := b[key]; ok {
+			keys = append(keys, key)
+		}
+	}
+	if len(keys) == 0 {
+		return ""
+	}
+	sort.Strings(keys)
+	return a[keys[0]]
+}
+
+// SharedName is the first unit name, then feature name, in folded order,
+// that both name sets (DefinedNames) define, as "unit <name>" or
+// "feature <name>"; "" when they share none. Two add-ons defining one name
+// would leave one definition replacing the other (§5.8 isolation rule 2).
+func SharedName(a, b Names) string {
+	for _, kind := range []struct {
+		label string
+		a, b  map[string]string
+	}{{"unit", a.Units, b.Units}, {"feature", a.Features, b.Features}} {
+		var shared []string
+		for name := range kind.a {
+			if _, ok := kind.b[name]; ok {
+				shared = append(shared, name)
+			}
+		}
+		if len(shared) > 0 {
+			sort.Strings(shared)
+			return kind.label + " " + shared[0]
+		}
+	}
+	return ""
 }
 
 // Conflict reports the first unit or feature name the add-on defines that

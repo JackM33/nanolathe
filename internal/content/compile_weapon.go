@@ -256,9 +256,15 @@ var knownWeaponKeys = map[string]struct{}{
 // authored-or-default on every parse, while DAMAGE overrides append to the
 // existing table [02 R-CONTENT-02][06 R-DMG-01 §1].
 func compileWeaponSectionWithPrior(section *formats.Section, sectionName string, prov Provenance, prior *WeaponDef) *WeaponDef {
-	var extensionKeys uint16
 	// C2 weapon identity: read ID first, default -1, use to select record; section name is catalog key; name is display string [02 "Weapon record"]
-	id := section.IntValue("ID", -1)
+	return compileWeaponRecord(section, sectionName, prov, prior, section.IntValue("ID", -1))
+}
+
+// compileWeaponRecord is compileWeaponSectionWithPrior with the record slot
+// chosen by the caller: a faction weapon's slot is assigned at composition,
+// never read from its authored ID (docs/DESIGN_MODS_MUTATORS.md §5.8).
+func compileWeaponRecord(section *formats.Section, sectionName string, prov Provenance, prior *WeaponDef, id int32) *WeaponDef {
+	var extensionKeys uint16
 	displayName, _ := section.StringValue("name", "")
 	displayName = boundedString(displayName, 63)
 	// Conversions exactly as tabulated, each truncated after multiply, never composed differently [02 "Weapon record"] C3
@@ -775,6 +781,10 @@ func compileWeapons(fs vfs.FSOps, limits Limits) (weaponCompilation, error) {
 		}
 	}
 
+	if err := compileFactionWeapons(fs, slots, processSounds(&soundPaths)); err != nil {
+		return weaponCompilation{}, err
+	}
+
 	// Collision diagnostics: every name that shared a slot, in discovery
 	// order, the surviving record's name last. ID -1 is the shared scratch
 	// slot of the ID-less sections — its "winner" wins a slot name lookup can
@@ -864,4 +874,68 @@ func (w *WeaponDef) RestoreActiveByte(value uint8) {
 		w.activeByte = value
 		w.activeByteRestored = true
 	}
+}
+
+// processSounds returns the presentation admission a faction weapon makes,
+// the same registration every parsed base section performs [03 §8.3].
+func processSounds(paths *[]string) func(*WeaponDef) {
+	return func(wd *WeaponDef) {
+		for _, path := range [...]string{wd.SoundStart, wd.SoundHit, wd.SoundWater} {
+			if path != "" {
+				*paths = append(*paths, path)
+			}
+		}
+	}
+}
+
+// compileFactionWeapons adds each faction declaration's weapons.tdf after the
+// base weapons. Every section takes the next free record slot from
+// factionWeaponBase upward, in declaration then section order, whatever ID it
+// authors, so no faction weapon can replace a base record or another
+// faction's; each name must be new (docs/DESIGN_MODS_MUTATORS.md §5.8).
+func compileFactionWeapons(fs vfs.FSOps, slots map[int32]*WeaponDef, admit func(*WeaponDef)) error {
+	factions, err := DiscoverFactions(fs)
+	if err != nil || len(factions) == 0 {
+		return err
+	}
+	// Each base name maps to its lowest slot's record, the one a name lookup
+	// finds, so the refusal names the same definition every run (I1).
+	ids := make([]int32, 0, len(slots))
+	for id := range slots {
+		ids = append(ids, id)
+	}
+	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
+	names := make(map[string]Provenance, len(slots))
+	for _, id := range ids {
+		wd := slots[id]
+		if _, seen := names[wd.CanonicalKey]; !seen {
+			names[wd.CanonicalKey] = wd.Provenance
+		}
+	}
+	next := factionWeaponBase(slots)
+	for _, f := range factions {
+		doc, prov, ok, err := factionFragment(fs, f, factionWeapons, 4<<20)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			continue
+		}
+		for _, section := range doc.Root.Sections() {
+			name := trimTDFSemantic(section.OriginalName)
+			if name == "" {
+				continue
+			}
+			if prior, seen := names[CanonicalKey(name)]; seen {
+				return factionDuplicate("weapon", name, prov.LogicalPath, prior)
+			}
+			id := nextFactionWeaponSlot(next)
+			next = id + 1
+			wd := compileWeaponRecord(section, name, prov, nil, id)
+			admit(wd)
+			names[wd.CanonicalKey] = prov
+			slots[id] = wd
+		}
+	}
+	return nil
 }

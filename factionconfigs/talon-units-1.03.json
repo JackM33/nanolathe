@@ -1,0 +1,37 @@
+{
+  "id": "talon-units",
+  "name": "Talon's Arm and Core units",
+  "version": "1.03",
+  "summary": "The units Talon 1.03 adds to Arm and Core, on their builders' menus.",
+  "tag": "tau",
+  "kind": "units",
+  "unitSides": [
+    "ARM",
+    "CORE",
+    "ARMS",
+    "CORES",
+    "AINOBUILD"
+  ],
+  "layout": {
+    "download": "DownloadTAL",
+    "gamedata": "GameTAL",
+    "guis": "guiTAL",
+    "units": "UnitTAL",
+    "weapons": "WeapTAL"
+  },
+  "omitUnits": [
+    "AAIGATE",
+    "CAIGATE",
+    "AAISILO",
+    "CAISILO"
+  ],
+  "source": {
+    "file": "talon-1.03.zip",
+    "sha256": "f5580bdfa4bba52389aec33fb35d35c8f8cc4f8b81f38606525f07c9f6fd4c2a"
+  },
+  "notes": [
+    "Input is the 2026-10-16 local candidate ZIP, which retains the Core Prime preservation download's original archive bytes (upstream SHA-256 3922be8679f058769b92bb6028fb7193956073dbaec630e412a74254f2393100).",
+    "The units keep the stats Talon gave them; Talon's changes to Arm and Core's own units are not carried.",
+    "AAIGATE, CAIGATE, AAISILO and CAISILO are left out: the release's readme credits them as the Arm and Core AI Galactic Gates and AI nukes, made for its computer players (the gates cost 1 and make 31337 metal and energy; the AI nukes build ten times faster than the silos they copy). Nanolathe's Modern AI uses every unit a player may build."
+  ]
+}

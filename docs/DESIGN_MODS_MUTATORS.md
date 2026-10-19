@@ -96,6 +96,7 @@ To keep the two apart, code for this feature never uses the bare identifier
 | D18 | (2026-10-05) In Survival everyone obeys the restrictions, the wave attacker included, as retail binds computer players exactly as it binds humans (§15.6). |
 | D19 | (2026-10-05) Classic computer players keep retail's behaviour — a capped product stalls with the allocator's 300-tick retry — while the Modern AI does not choose a unit once it has reached that unit's cap (§15.7). |
 | D20 | (2026-10-16) Nanolathe hosts Cavedog's official bonus units and maps. The units are an add-on the player enables apart from the mod slot, so any mod can still be selected beside them; the maps join the community map catalogue (§5.7). |
+| D21 | (2026-10-16) Third-party factions are add-ons the player enables in any combination beside ARM and CORE, each independent of the others and of the mod slot, never replacing another's content or identities (§5.8). |
 
 D9–D13 were proposed in review and accepted with the rest of the design
 direction. D14 is the maintainer's layout for the screen. D13's offer was
@@ -1027,6 +1028,218 @@ with the add-ons its battle had: a single-player replay's header lists them
 reloads onto them first, and an online replay's room content names them. An
 online room lists them as room content, and a seat that lacks one fetches it
 in the lobby (DESIGN_MULTIPLAYER §16.8).
+
+### 5.8 Faction add-ons
+
+User-authorized 2026-10-16 (D21). Third-party sides — Talon, Rhyoss, Mynn,
+The Lost Legacy, Argon and later ones — are add-ons a player enables beside
+ARM and CORE, in any combination: none, one or several. Each is independent
+of the others and of the mod slot. A *unit pack* is the same kind of add-on
+adding units to the sides that exist, such as the units a release added to
+ARM and CORE. **Status: prototype on branch `faction-addons`; not on main.**
+
+**What a faction add-on is.** An ordinary add-on (§5.7): the same library,
+catalogue record, content digest, `addons` setting, `--addon` flag, Add-ons
+card, save sidecar, replay header and online room content. What makes it a
+faction is its archive's *declaration* directory, `factions/<id>/`. Nothing
+else selects it; the declaration is authored data that the catalog compiler
+reads wherever it is mounted.
+
+**The isolation contract.** These hold for every combination of enabled
+faction add-ons, so enabling one can never change another or the base game:
+
+1. *No shared paths.* A faction add-on supplies no logical path that the base
+   install, the mod or another enabled add-on also supplies. The mount checks
+   this and leaves the add-on off with a startup notice naming the path. A
+   faction therefore never replaces a base file — not `sidedata.tdf`,
+   `moveinfo.tdf`, `sound.tdf`, `logos.gaf`, a model, a texture bank or a
+   sound.
+2. *No shared names.* Every name the faction defines in a global namespace —
+   unit, feature, weapon, side, build-menu builder, movement class, sound
+   category, team logo — is new. The mount refuses an add-on whose unit or
+   feature names collide (§5.7's check); the compiler refuses any other
+   collision with a diagnostic naming both definitions, rather than letting
+   one replace the other.
+3. *Composed tables, not replaced ones.* The base game's singleton tables are
+   extended from the declaration (below). Base definitions keep their
+   positions: base sides keep ordinals 0 and 1, base sound categories keep
+   their fallback ordinals, base weapons keep their authored record slots.
+4. *Allocated weapon slots.* A faction weapon never uses its authored `id`.
+   Retail chooses a weapon's record by that id and a later section with the
+   same id replaces the earlier record whole `[02 §5 R-CONTENT-02]`; the five
+   packages above collide with base ids and with each other's. The compiler
+   gives faction weapons the slots from the first one past both the retail
+   table and every base-authored slot, in declaration then section order,
+   skipping slots whose low byte is zero (that byte is the active gate and
+   the byte saves copy).
+5. *Composed entries name the add-on's own units.* Two base tables gain
+   entries, and only for units the declaring archive defines: a base
+   weapon's damage table gains entries for those units, never replacing one,
+   and a builder's menu gains them on pages after every page it already has
+   (below). Entries from different add-ons therefore never meet, and the
+   base units' own damage and menus are unchanged.
+6. *Widened tables.* When declarations are present the weapon table grows to
+   the highest assigned slot and the unit-definition domain to the composed
+   record count, in whole category words. The widening depends only on the
+   content and the requested limits and is idempotent. The catalog reports
+   the limits it was asked for (`Catalog.Limits`) and keeps the widened ones
+   as `CompiledLimits`, so a save, a recompile or an online room that passes
+   the limits back reproduces the same catalog.
+
+**The declaration.** `factions/<id>/` holds:
+
+| File | Read as | Composition |
+|---|---|---|
+| `sidedata.tdf` (required) | `SIDE0..N` to the first gap, and `[CANBUILD]` | Sides follow the base sides, taking the next ordinals and the base `[GENERAL]` interface height; builder pages join the base pages. At most 10 sides in all, as skirmish reserves ordinal 10. A unit pack declares no side. |
+| `moveinfo.tdf` | every top-level section with a `Name` | Classes join the base classes by name. A class is a named parameter record with no slot identity, so declarations are not held to `CLASS0..CLASS31`. |
+| `sound.tdf` | every top-level section | Categories follow the base categories. |
+| `weapons.tdf` | every top-level section | Weapons take allocated slots (rule 4). |
+| `damage.tdf` | a section per base weapon, named as the weapon is; each assignment `unit=damage`, read as a `DAMAGE` entry [02 "Weapon record"] | Each entry joins that weapon's damage table at its case-insensitive place [06 R-DMG-01 §1]. The unit must be the archive's own, the weapon the base's, and the table must not name the unit already. The weapon's `Hash` stays its authored record's, as under a mutator's damage rewrite; the catalog lists the entries (`Catalog.FactionDamage`) and hashes them. |
+| `download.tdf` | sections of `UNITMENU` (a builder) and `UNITNAME` (a unit the archive defines), no `MENU` or `BUTTON` | Each declaration's products for a builder fill new pages after every page the builder already has — its authored page windows and every placement before them — six to a page in entry order, and the next declaration starts on the page after, so two add-ons never claim a button. An entry naming a builder this content lacks places nothing. The entries are no download record, so retail's first-item `downloadable` enforcement [02 R-CAT-01 §8] does not read them. |
+| `logos.gaf` | every entry, typed as the logo bank's | Team (10-frame) and other model textures beside the logo bank's, never replacing a bank name. |
+| `commongui.gaf` | every entry | The release's replacement of the shared interface support bank, layered over `anims/commongui.gaf` for the faction's own sides' interface only. |
+| `skirmish.gaf` | `SIDEx`, one frame per declared side | The skirmish menu's side button: the frames join the authored `SIDEx` after the base sides' frames, so frame n stays side n's. |
+
+Faction add-ons install like any add-on: from the catalogue with *Get*,
+or from a local package with `--install-addon <zip|dir>`, which, like
+`--install-mod`, installs without enabling; `--addon` or the Add-ons card
+enables it. The card names a faction row's sides and unit count. Besides
+§5.7's checks against the base and the mod, the mount keeps enabled add-ons
+apart from each other — in selection order, a later add-on that supplies a
+path, or defines a unit or feature name, an earlier one does is left off
+with a notice — refuses a faction add-on that supplies any path the base
+or the mod supplies, and leaves off a faction add-on whose sides would take
+the battle past 10, rather than let the compile fail. When faction add-ons
+are enabled the mount compiles the catalog with them once, and if that
+fails, leaves off, in selection order, each faction add-on the compiler
+refuses, with a notice naming its error; a broken package therefore never
+stops the start. The compile costs about 0.4 s on the reference install and
+runs only with faction add-ons enabled. `--sides <a,b>` chooses a `--map` skirmish's two sides
+by name or ordinal, for captures and trials.
+
+Declarations compose in folded `<id>` order. Units, features, models,
+scripts, unit pictures, build pages, download menus, animations, texture
+banks and sounds use their ordinary directories under names the faction
+owns. A unit belongs to a side through its `side` key, as retail's do.
+
+**Packaging.** The original faction releases are mods, not add-ons: they
+replace `sidedata.tdf`, `moveinfo.tdf`, `sound.tdf` and `logos.gaf` whole,
+four of the five ship changed copies of ARM and CORE (a bug-fix pass in
+Argon and Rhyoss, Talon's own artillery and rocket pass, small tweaks in
+The Lost Legacy), and Talon renames the retail directories. `cmd/factionpack` converts one release into an
+add-on from a recipe, `factionconfigs/<id>-<version>.json`, which pins the
+release's SHA-256, names the sides to keep and the release's directory
+layout, gives the faction its *tag*, the short prefix it owns, and may name
+units to omit. It
+mounts the base install without its `*.UFO` add-on archives, which a
+player's install may lack, and the release over those archives, as its
+authors saw it, and keeps only what the kept sides need:
+
+- the units whose `side` is a kept side, and everything they reach: weapons,
+  corpses and their successors, movement classes, sound categories, models
+  and the textures those models name, scripts, pictures, build pages and
+  download entries between kept units, animation banks and sounds named by
+  its weapons and features, and the side's interface art and fonts;
+- each reached item the release supplies byte-identically to the base
+  install is dropped and resolved from the base; an item reached only
+  through an add-on archive, such as a bonus unit's wreck, is copied under
+  the tag, so a faction never depends on another add-on;
+- each reached item the release supplies differently — a rebalanced base
+  weapon, a repainted base texture — and each new name the faction does not
+  own is renamed `<tag>_<name>` (shortened with a hash where a format bounds
+  its length), and every reference to it is rewritten. The faction owns a
+  name that starts with its tag or with one of its kept units' names; unit
+  names themselves are kept, and the mount refuses an add-on whose unit
+  names collide;
+- the `DAMAGE` values the release's weapons of base-weapon names give the
+  kept units become `damage.tdf`, as the release authored them against its
+  own version of the weapon; an entry the base's table already holds stays
+  the base's;
+- every other file — the changed ARM and CORE, the replaced singleton
+  tables, front-end art, campaigns — is left out, as are the units the
+  recipe omits and the units no player of the package can reach. A
+  faction's players start from its kept sides' commanders and a unit pack's
+  from the base builders; either then builds what the release's build lists
+  and download entries give each reached unit. Unfinished, retired and
+  computer-only units fall out this way (Argon's five unlisted units,
+  Talon's Pylon, Automaton and Requiem, TLL's `TLLSILOAI`), and a unit the
+  release hides behind a side spelling stays when a player reaches it
+  (Talon's Zenith shell, `side=aidontbuild`, which the recipe's unit sides
+  name). Talon's recipes omit the units its readme credits as made
+  for its computer players: the AI Galactic Gates (AAIGATE, CAIGATE and
+  Talon's TAIGATE), which cost 1 and make 31,337 metal and energy, and the
+  AI nukes (AAISILO, CAISILO), base-silo copies with a tenth of the build
+  time. The Modern AI uses every unit a player may build.
+
+A recipe of kind `units` converts a release into a unit pack instead: the
+units of the named unit sides that neither the base install nor its own
+add-on archives define, with no side records. The release's additions of
+those units to base builders' lists — in its `sidedata.tdf` or download
+entries — become `download.tdf` entries. Retail draws such a button only
+from `anims/<unit>_gadget.GAF` and leaves it art-less without one
+[07 R-WGT-01 §3], so for each placed product the
+release gives no such file, the converter writes one from the release's own
+entry of that name in its page banks, else from the unit's `unitpics`
+picture mapped into the game palette, else from a render of the unit's own
+model the packager supplies (`-art`, made with `--shot-model`; The Lost
+Legacy's ARMSPEED has no picture of any kind). `talon-units-1.03` holds Talon's 47
+ARM and CORE units and `the-lost-legacy-units-1.0` The Lost Legacy's 35.
+They share no name, and `factionpack verify` checks the five factions and
+both packs together: no base definition changes but by rule 5, and each
+add-on composes the same entries alone as alongside the others.
+
+The result is one `<id>.ufo` written by the archive writer, an identity-only
+`nanolathe-mod.json` and a `FACTION-NANOLATHE.txt` naming the recipe, the
+release's SHA-256 and every rename. The converter never invents content: an
+authored reference that resolves nowhere stays as authored, and the support
+documents for each faction keep their recorded gaps.
+
+**With a mod.** Faction add-ons play with the base game only: while a mod
+is selected each is left unmounted with a startup notice, and the Add-ons
+card shows it left off. A mod's directory layout can hide a faction's
+files, its definitions can share a faction's names, which the compiler
+refuses outright, and a faction's references to base weapons and features
+would resolve to the mod's. Add-ons without a declaration keep §5.7's
+behaviour under a mod.
+
+**Every gameplay mode.** A faction add-on is content, like §5.7's, and
+applies under Strict 3.1, Community 3.9 and Modern alike. Strict 3.1 with no
+add-ons is the retail baseline; every fingerprint lock runs without them,
+and content with no declaration compiles byte-for-byte as before.
+
+**Wide definition IDs.** Unit definition IDs are positions in name order,
+and with several factions many faction units take IDs of 512 and above
+(403 of 914 with all five releases). Category selects such as Ctrl+F read
+the catalog's widened membership sets and reach them, and so does the
+CTRL_F filter digit recall may apply, which is one of those sets
+(`internal/hud` `TypeFilterPasses`). Without a filter, recall selects every
+member whatever its ID.
+
+**Limits of the prototype.** Factions play with retail ARM and CORE, not
+the changed copies their releases tuned against. A unit pack's units keep
+the stats their release gave them. Under Strict 3.1 a builder's list keeps
+retail's download cutoff, so ARMCSA and CORCSA offer 31 of their 32
+products with both packs; Modern offers every authored product
+([Modern authored build membership](DESIGN_ECONOMY_CONSTRUCTION.md#modern-authored-build-membership)).
+Release-specific Classic
+AI profiles are not composed; Classic computer players build faction units
+at the profile defaults. Faction campaigns are not converted. Online rooms
+carry faction add-ons as room content but have not been exercised.
+Faction-specific gaps stay with each release's own research: Talon's
+version-6 scripts need the COB support of the faction-ports work; 13 Talon
+units author `side=TALON` or `TAL1`, not their side record's `TAL`, so the
+Classic planner, which matches a product's side to its builder's, never
+chooses them.
+
+**Commanders without the flag.** Mynn's commander, RACCOM, does not author
+`Commander=1`, in the release as in the add-on; every other side's commander
+does. A player's commander is the unit its side record names, not the flag
+[08 R-TRIG-01 §3], so the Modern AI takes the role from either
+(`internal/aikit` `sideCommanders`), and the arena reports such a commander's
+start and death. Before this the Modern AI playing Mynn found no commander of
+its own, rooted its build tree at another side's commander and built no
+factory. The add-on keeps RACCOM as authored; the retail readers of the flag,
+such as unit sharing [05 R-SHARE-01], see what the release wrote.
 
 ## 6. Mutators
 

@@ -42,6 +42,10 @@ type nlAddonRow struct {
 	// comma-separated.
 	units []nlAddonUnit
 	names string
+	// faction is the row's faction line when its archives hold a faction
+	// declaration (docs/DESIGN_MODS_MUTATORS.md §5.8): its sides and how
+	// many units they have, shown in place of the unit names.
+	faction string
 }
 
 // nlAddonUnit is one unit an add-on's archives define: its unit name, its
@@ -162,10 +166,49 @@ func nlAddonRowsOf(known []knownAddon, root string) []nlAddonRow {
 				names = append(names, u.name)
 			}
 			row.names = strings.Join(names, ", ")
+			if factions, err := addonlibrary.Factions(addonlibrary.Addon{Paths: paths}); err == nil {
+				row.faction = nlFactionText(factions)
+			}
 		}
 		rows = append(rows, row)
 	}
 	return rows
+}
+
+// nlFactionText is a faction add-on's line, its declarations' sides and
+// their units, e.g. "Faction: Mynn · 78 units", or a unit pack's, e.g.
+// "Unit pack · 52 units"; "" for an add-on without a declaration.
+func nlFactionText(factions []addonlibrary.Faction) string {
+	var sides []string
+	units, packUnits, packs := 0, 0, 0
+	for _, f := range factions {
+		if f.UnitPack() {
+			packUnits += f.Units
+			packs++
+			continue
+		}
+		named := false
+		for _, side := range f.Sides {
+			if side != "" {
+				sides, named = append(sides, side), true
+			}
+		}
+		if !named {
+			sides = append(sides, f.ID)
+		}
+		units += f.Units
+	}
+	if len(sides) == 0 {
+		if packs == 0 {
+			return ""
+		}
+		return "Unit pack · " + unitCountText(packUnits)
+	}
+	label := "Faction: "
+	if len(sides) > 1 {
+		label = "Factions: "
+	}
+	return label + strings.Join(sides, ", ") + " · " + unitCountText(units)
 }
 
 // nlAddonUnitsOf reads the units an add-on's archives define, in unit-name
@@ -273,8 +316,7 @@ func (s *nlScreen) addonsCard() nlCard {
 			})
 		},
 		desc: func(*nlDraft, int) string {
-			return "Cavedog's own bonus content, hosted by Nanolathe. An add-on mounts with the original game under every mod and rule set, Strict 3.1 included, unless the mod leaves add-ons off. " +
-				"Get downloads one and switches it on; switching add-ons reloads the game data."
+			return "Cavedog's bonus units and extra factions beside Arm and Core, in any combination. Factions play with the original game only."
 		},
 		scene: func(*nlDraft, int) string { return "armor" },
 	}
@@ -345,6 +387,13 @@ func (s *nlScreen) addonsUnavailable() string {
 	return ""
 }
 
+// factionLeftOff reports whether the drafted mod leaves this row's add-on
+// off because it is a faction add-on, which plays with the base game only
+// (§5.8; resolveAddons).
+func (s *nlScreen) factionLeftOff(row nlAddonRow) bool {
+	return row.faction != "" && s.modAt(s.draft.mod) != nil
+}
+
 // addonsLeftOffBy names the drafted mod when its config leaves the official
 // add-ons off (§5.7 "With a mod"), "" otherwise.
 func (s *nlScreen) addonsLeftOffBy() string {
@@ -410,9 +459,19 @@ func (s *nlScreen) pollAddons() {
 	}
 }
 
-// addonSubText is a row's second line: the units its archives define, by
-// name, else the catalogue's summary or how many archives the add-on holds.
+// addonSubText is a row's second line: a faction add-on's sides and unit
+// count, saying so while the drafted mod leaves it off; else the units its
+// archives define, by name, else the catalogue's summary or how many
+// archives the add-on holds.
 func (s *nlScreen) addonSubText(row nlAddonRow) string {
+	if row.faction != "" {
+		if s.factionLeftOff(row) {
+			return s.ui.text(nlTextKey{kind: "addon faction off", a: row.faction}, func() string {
+				return row.faction + " · off under a mod: factions play with the base game only"
+			})
+		}
+		return row.faction
+	}
 	if row.names != "" {
 		return row.names
 	}
@@ -492,7 +551,7 @@ func (s *nlScreen) heroAddons(screen *ebiten.Image, x, y, a float64) float64 {
 		if on {
 			screenkit.HGradient(screen, r, color.RGBA{40, 100, 44, uint8(170 * a)}, color.RGBA{16, 30, 16, uint8(90 * a)})
 		}
-		s.lamp(screen, r.X+18*u, r.Y+24*u, 6*u, nlGreen, row.inFolder || on && !leftOff)
+		s.lamp(screen, r.X+18*u, r.Y+24*u, 6*u, nlGreen, row.inFolder || on && !leftOff && !s.factionLeftOff(row))
 		tc := color.RGBA{200, 192, 160, 255}
 		if on {
 			tc = nlCream

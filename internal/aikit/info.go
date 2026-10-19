@@ -150,6 +150,7 @@ func BuildTable(cat *content.Catalog, rules construction.Rules) *Table {
 		t.snapshotCheckpointBindings(cat, rules)
 		return t
 	}
+	commanders := sideCommanders(cat)
 	for _, key := range cat.SortedUnitKeys() {
 		def, ok := cat.Unit(key)
 		if !ok || def == nil {
@@ -158,7 +159,7 @@ func BuildTable(cat *content.Catalog, rules construction.Rules) *Table {
 		if _, dup := t.byDef[def]; dup {
 			continue
 		}
-		info := summarize(key, def)
+		info := summarize(key, def, def.Commander || commanders[content.CanonicalKey(def.UnitName)])
 		if def.IsFeature {
 			info.FinishedFeature = cat.Features[content.CanonicalKey(def.Corpse)]
 			if f := info.FinishedFeature; f != nil && f.Blocking && info.DPS == 0 {
@@ -298,7 +299,30 @@ func definitionCap(def *content.UnitDef) (int32, bool) {
 	return max(def.Limit, 0), true
 }
 
-func summarize(key string, def *content.UnitDef) *UnitInfo {
+// sideCommanders is the set of canonical definition names the side records
+// name as their commander. A unit is a player's commander because its name
+// is the commander name of its owner's side record, not because its
+// definition sets the commander flag [08 R-TRIG-01 §3][08 R-SKIR-01 §3];
+// content may author one without the other, as converted Mynn's commander
+// carries no flag (docs/DESIGN_MODS_MUTATORS.md §5.8). Lookup only; never
+// ranged in a decision path (I1).
+func sideCommanders(cat *content.Catalog) map[string]bool {
+	set := map[string]bool{}
+	for _, side := range cat.Sides {
+		if side == nil {
+			continue
+		}
+		if name := content.CanonicalKey(side.Commander); name != "" {
+			set[name] = true
+		}
+	}
+	return set
+}
+
+// summarize derives one definition's summary. commander is true for a
+// definition that sets the commander flag or that a side record names as
+// its commander (sideCommanders).
+func summarize(key string, def *content.UnitDef, commander bool) *UnitInfo {
 	u := &UnitInfo{Key: key, Def: def, Side: def.Side, Cap: -1}
 	if limit, ok := definitionCap(def); ok {
 		u.Cap = limit
@@ -385,24 +409,24 @@ func summarize(key string, def *content.UnitDef) *UnitInfo {
 		}
 	}
 	switch {
-	case def.Commander:
+	case commander:
 		u.Role |= RoleCommander
 	case def.ExtractsMetal > 0:
 		u.Role |= RoleExtractor
 	}
-	if (u.EnergyMake > 0 || u.WindGen > 0 || u.TidalGen > 0) && !def.Commander && !mobile && def.RadarDistance == 0 && def.SonarDistance == 0 && u.DPS == 0 {
+	if (u.EnergyMake > 0 || u.WindGen > 0 || u.TidalGen > 0) && !commander && !mobile && def.RadarDistance == 0 && def.SonarDistance == 0 && u.DPS == 0 {
 		u.Role |= RoleEnergy
 	}
-	if def.MakesMetal > 0 || (def.MetalMake > 0 && def.EnergyUse > 0 && !mobile && !def.Commander) {
+	if def.MakesMetal > 0 || (def.MetalMake > 0 && def.EnergyUse > 0 && !mobile && !commander) {
 		u.Role |= RoleMetalMaker
 	}
-	if (def.MetalStorage > 0 || def.EnergyStorage > 0) && !def.Commander && !mobile && u.Role&(RoleEnergy|RoleExtractor|RoleMetalMaker) == 0 {
+	if (def.MetalStorage > 0 || def.EnergyStorage > 0) && !commander && !mobile && u.Role&(RoleEnergy|RoleExtractor|RoleMetalMaker) == 0 {
 		u.Role |= RoleStorage
 	}
-	if def.RadarDistance > 0 && !def.Commander {
+	if def.RadarDistance > 0 && !commander {
 		u.Role |= RoleRadar
 	}
-	if def.SonarDistance > 0 && !def.Commander {
+	if def.SonarDistance > 0 && !commander {
 		u.Role |= RoleSonar
 	}
 	if def.RadarDistanceJam > 0 || def.SonarDistanceJam > 0 {
@@ -430,7 +454,7 @@ func summarize(key string, def *content.UnitDef) *UnitInfo {
 	if armed && !mobile && def.BMCode == 0 {
 		u.Role |= RoleDefense
 	}
-	if armed && mobile && !def.Commander && !def.Builder {
+	if armed && mobile && !commander && !def.Builder {
 		u.Role |= RoleCombat
 		if def.CanFly {
 			if u.AirDPS > 0 && u.AirDPS*2 >= u.DPS && !dropsBombs(def) {
@@ -440,7 +464,7 @@ func summarize(key string, def *content.UnitDef) *UnitInfo {
 			}
 		}
 	}
-	if mobile && !def.Builder && !def.Commander && u.Role&(RoleTransport|RoleStockpile|RoleInterceptor) == 0 {
+	if mobile && !def.Builder && !commander && u.Role&(RoleTransport|RoleStockpile|RoleInterceptor) == 0 {
 		// A scout is fast and cheap for its speed class, or an unarmed
 		// mobile whose only purpose can be looking — not a mobile anti-nuke,
 		// whose interceptor is its purpose.

@@ -2,6 +2,8 @@ package hud
 
 import (
 	"testing"
+
+	"github.com/nanolathe-gg/nanolathe/internal/content"
 )
 
 // TestGroupAssignRecallTogglePreserve covers group assignment and recall
@@ -49,7 +51,7 @@ func TestGroupAssignRecallTogglePreserve(t *testing.T) {
 		{Flags: SelectionFlag, Group: 0, DefID: 13},
 	}
 	var d2 uint32
-	changed, cnt := RecallGroup(units, 1, false, [CategoryMaskBytes]byte{}, &d2)
+	changed, cnt := RecallGroup(units, 1, false, nil, &d2)
 	if !changed {
 		t.Fatalf("Recall preserve false should change")
 	}
@@ -70,7 +72,7 @@ func TestGroupAssignRecallTogglePreserve(t *testing.T) {
 		{Flags: 0, Group: 0, DefID: 23},             // deselected nonmatch -> preserve deselected
 	}
 	var d3 uint32
-	changed, cnt = RecallGroup(units, 1, true, [CategoryMaskBytes]byte{}, &d3)
+	changed, cnt = RecallGroup(units, 1, true, nil, &d3)
 	if !changed {
 		t.Fatalf("preserve true toggle should change")
 	}
@@ -94,17 +96,19 @@ func TestGroupAssignRecallTogglePreserve(t *testing.T) {
 		{Flags: SelectionFlag, Group: 1, DefID: 0},
 		{Flags: 0, Group: 1, DefID: 1},
 	}
-	RecallGroup(units, 1, false, [CategoryMaskBytes]byte{}, nil)
+	RecallGroup(units, 1, false, nil, nil)
 	if !isSelected(units[0].Flags) {
 		t.Fatalf("ineligible DefID 0 should be preserved even though group matches")
 	}
 }
 
-// setTypeMaskBit sets definition id's bit in the 512-bit CTRL_F category
-// mask: byte id/8, bit id%8 — the byte form of retail's word[id>>5] bit id&31
-// [07 §9].
-func setTypeMaskBit(mask *[CategoryMaskBytes]byte, defID uint16) {
-	mask[defID/8] |= 1 << (defID % 8)
+// typeMask is a CTRL_F filter admitting the given definition ids [07 §9].
+func typeMask(ids ...uint32) content.CategoryMask {
+	var m content.CategoryMask
+	for _, id := range ids {
+		m = m.Or(content.MaskForID(id))
+	}
+	return m
 }
 
 // TestCtrlFFilter verifies the secondary CTRL_F branch [07 §9] C9.
@@ -115,10 +119,9 @@ func TestCtrlFFilter(t *testing.T) {
 		{Flags: 0, Group: 3, DefID: 7},
 		{Flags: 0, Group: 3, DefID: 10},
 	}
-	var mask [CategoryMaskBytes]byte
-	setTypeMaskBit(&mask, 5)
+	mask := typeMask(5)
 	// No flag 0x80000000 anywhere: filter inactive, both members recall without filtering.
-	changed, cnt := RecallGroup(units, 3, false, mask, nil)
+	changed, cnt := RecallGroup(units, 3, false, &mask, nil)
 	if !changed || cnt != 3 {
 		t.Fatalf("filter inactive should select all 3, got cnt %d changed %v", cnt, changed)
 	}
@@ -132,9 +135,8 @@ func TestCtrlFFilter(t *testing.T) {
 		{Flags: 0, Group: 3, DefID: 5},
 		{Flags: 0, Group: 2, DefID: 5}, // nonmatch group, should not be selected even if passes mask
 	}
-	mask = [CategoryMaskBytes]byte{}
-	setTypeMaskBit(&mask, 5)
-	_, cnt = RecallGroup(units, 3, false, mask, nil)
+	mask = typeMask(5)
+	_, cnt = RecallGroup(units, 3, false, &mask, nil)
 	if cnt != 2 {
 		t.Fatalf("filtered recall count %d want 2 (only DefID 5 matches)", cnt)
 	}
@@ -148,9 +150,8 @@ func TestCtrlFFilter(t *testing.T) {
 		{Flags: 0, Group: 3, DefID: 7},             // deselected filtered out -> preserve deselected
 		{Flags: CtrlFFlag, Group: 3, DefID: 7},     // carries flag but DefID 7 not in mask -> still nonmatch? Actually it carries flag and is mismatch, but it's still a match group, filtered out -> nonmatch.
 	}
-	mask = [CategoryMaskBytes]byte{}
-	setTypeMaskBit(&mask, 5) // only 5 admitted
-	RecallGroup(units, 3, true, mask, nil)
+	mask = typeMask(5) // only 5 admitted
+	RecallGroup(units, 3, true, &mask, nil)
 	if isSelected(units[0].Flags) {
 		t.Fatalf("preserve true filtered passing should toggle off")
 	}
@@ -164,26 +165,28 @@ func TestCtrlFFilter(t *testing.T) {
 	if !TypeFilterPasses(5, mask) || TypeFilterPasses(7, mask) {
 		t.Fatalf("TypeFilterPasses wrong")
 	}
-	// The mask is 512 bits wide, so an id above 255 is filtered like any other
-	// instead of being waved through [07 §9].
-	setTypeMaskBit(&mask, 300)
-	if !TypeFilterPasses(300, mask) {
-		t.Fatalf("definition id 300 is inside the 512-bit mask and its bit is set; want pass [07 §9]")
-	}
-	if TypeFilterPasses(301, mask) {
-		t.Fatalf("definition id 301 has no bit set; want reject — a 256-bit mask would have admitted it [07 §9]")
-	}
-	if TypeFilterPasses(511, mask) {
-		t.Fatalf("definition id 511 is the last usable id and has no bit set; want reject [07 §9]")
-	}
 	// Id 0 is the catalog's null sentinel: admitted unfiltered.
 	if !TypeFilterPasses(0, mask) {
 		t.Fatalf("definition id 0 should pass unfiltered [07 §9]")
 	}
-	// Retail defines no outcome at or above 512; this build rejects rather than
-	// widening a filtered recall. See the TODO(question) on TypeFilterPasses.
-	if TypeFilterPasses(512, mask) {
-		t.Fatalf("definition id 512 is outside the mask domain; want reject [07 §9]")
+	// The filter is a category set as wide as the catalog's domain, so an id
+	// past retail's 511 is filtered by its own bit like any other: admitted
+	// when set, rejected when not [07 §9] (docs/DESIGN_CONTENT_VFS.md §5).
+	mask = typeMask(5, 300, 600)
+	for _, c := range []struct {
+		id   uint16
+		want bool
+	}{{300, true}, {301, false}, {511, false}, {600, true}, {601, false}, {65535, false}} {
+		if got := TypeFilterPasses(c.id, mask); got != c.want {
+			t.Fatalf("TypeFilterPasses(%d) = %v, want %v [07 §9]", c.id, got, c.want)
+		}
+	}
+	units = []*SelectUnit{
+		{Flags: CtrlFFlag, Group: 3, DefID: 600},
+		{Flags: 0, Group: 3, DefID: 700},
+	}
+	if _, cnt = RecallGroup(units, 3, false, &mask, nil); cnt != 1 || !isSelected(units[0].Flags) {
+		t.Fatalf("filtered recall over wide ids selected %d, want only definition 600", cnt)
 	}
 }
 

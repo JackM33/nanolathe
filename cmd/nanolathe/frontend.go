@@ -109,6 +109,10 @@ type gameShell struct {
 
 	opts Options
 	cs   *contentSet
+	// battleCommon, while a battle builds its windows, is the support bank
+	// they draw from in place of the shared one: a faction side's own
+	// (factionSupportGAF, docs/DESIGN_MODS_MUTATORS.md §5.8).
+	battleCommon *formats.GAF
 
 	// pendingDetail is the load-time remaster's art for the battle the loading
 	// screen has just finished, handed to the candidate at the one render-thread
@@ -744,6 +748,9 @@ func loadMenuAssets(cs *contentSet) *menuAssets {
 	}
 	if panel := a.panel[modeMenuMission]; panel != nil {
 		panel.background = a.missionBackground
+	}
+	if panel := a.panel[modeMenuSkirmish]; panel != nil && panel.art != nil {
+		spliceFactionSideButtons(cs.fs, panel.art)
 	}
 	message, err := loadRetailPanelStrict(cs, "guis/msgbox.gui", "", "", "MSGBOX authored GUI")
 	if err != nil {

@@ -232,6 +232,40 @@ func compileSoundCategoriesOrdered(fs vfs.FSOps) (map[string]*SoundCategory, []*
 		result[key] = sc
 		ordered = append(ordered, sc)
 	}
+	return appendFactionSounds(fs, result, ordered)
+}
+
+// appendFactionSounds adds each faction declaration's sound categories after
+// the base game's, so every base category keeps its ordinal in the
+// `soundcategory` fallback domain; each name must be new
+// (docs/DESIGN_MODS_MUTATORS.md §5.8).
+func appendFactionSounds(fs vfs.FSOps, result map[string]*SoundCategory, ordered []*SoundCategory) (map[string]*SoundCategory, []*SoundCategory, error) {
+	factions, err := DiscoverFactions(fs)
+	if err != nil || len(factions) == 0 {
+		return result, ordered, err
+	}
+	for _, f := range factions {
+		doc, prov, ok, err := factionFragment(fs, f, factionSounds, 2<<20)
+		if err != nil {
+			return nil, nil, err
+		}
+		if !ok {
+			continue
+		}
+		for _, section := range doc.Root.Sections() {
+			name := trimTDFSemantic(section.OriginalName)
+			if name == "" {
+				continue
+			}
+			key := CanonicalKey(name)
+			if prior, found := result[key]; found {
+				return nil, nil, factionDuplicate("sound category", name, prov.LogicalPath, prior.Provenance)
+			}
+			sc := compileSoundCategorySection(section, name, prov)
+			result[key] = sc
+			ordered = append(ordered, sc)
+		}
+	}
 	return result, ordered, nil
 }
 

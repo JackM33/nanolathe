@@ -140,6 +140,9 @@ func run(opts Options, out, errOut *os.File) error {
 	if opts.InstallMod != "" {
 		return runInstallMod(opts, out)
 	}
+	if opts.InstallAddon != "" {
+		return runInstallAddon(opts, out)
+	}
 
 	// A replay names the content it plays: its mod, or none, unless --mod
 	// chose one.

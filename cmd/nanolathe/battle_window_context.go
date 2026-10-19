@@ -40,7 +40,12 @@ func (c *battleWindowContext) install(window *gui.Window, page, common *formats.
 		return
 	}
 	if c.shell != nil {
+		// A faction side's support bank (factionSupportGAF) stands in for the
+		// shell's shared one while its windows are built.
+		saved := c.shell.battleCommon
+		c.shell.battleCommon = common
 		c.shell.installRetailWindowButtonArt(window, page)
+		c.shell.battleCommon = saved
 		return
 	}
 	// Direct battle entry has the same content and startup state but no menu

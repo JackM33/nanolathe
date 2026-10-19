@@ -21,6 +21,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"path/filepath"
 	"runtime/pprof"
 	"strconv"
 	"strings"
@@ -167,6 +168,8 @@ func runMatch(args []string) error {
 	publish := fs.Bool("publish", false, "keep the session's frame publication (the arena drops it by default: same game, less time; docs/MODERN_AI_RESEARCH.md §5.3)")
 	adjudicate := fs.String("adjudicate", "", "end the match early as a win for a clear leader: ratio,minutes,from (e.g. 2,3,10: twice the other's score at every sample of 3 minutes, from minute 10); empty plays to the limit")
 	fs.Var(&players, "p", "player spec brain[:persona[:side[:k=v,...]]] (repeat)")
+	var addons playerFlags
+	fs.Var(&addons, "addon", "an add-on archive (*.ufo) or a directory of them to mount with the base install, as enabled add-ons are (repeat)")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -192,6 +195,14 @@ func runMatch(args []string) error {
 		req.Gameplay = gameplay.Mode(*rules)
 	}
 	req.PaceTPS = *pace
+	for _, a := range addons {
+		if info, err := os.Stat(a); err == nil && info.IsDir() {
+			matches, _ := filepath.Glob(filepath.Join(a, "*.ufo"))
+			req.Addons = append(req.Addons, matches...)
+			continue
+		}
+		req.Addons = append(req.Addons, a)
+	}
 	for i, spec := range players {
 		p, err := parsePlayer(spec, i)
 		if err != nil {
