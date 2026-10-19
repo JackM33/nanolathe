@@ -25,9 +25,9 @@ const (
 )
 
 // Fields 1–16 are frozen positional fields, including RoomContent at 16.
-// PR #138's proposed chosen starts and allied sight belong in future
-// extensions 17 and 18, respectively, rather than reusing field 16. They
-// have no implemented semantics here. Any future gameplay extension must be
+// New battle choices, such as chosen starts and allied sight, belong in
+// future extensions rather than reusing a positional field. They have no
+// implemented semantics here. Any future gameplay extension must be
 // required, validate its typed value and apply through the existing owning
 // RuleSet seam before a build can accept it (§8.6, DESIGN_GAMEPLAY_RULES §9).
 

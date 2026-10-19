@@ -1344,8 +1344,34 @@ without NUL, at most N bytes, checked before allocation; `digest` is exactly
 order; duplicate or unsorted map keys are rejected. The whole configuration
 is at most 2 MiB. Its identity is SHA-256 of the literal UTF-8 domain
 `nanolathe/match-config/2` (no trailing NUL) followed by this positional
-encoding. There are no optional unknown fields or trailing bytes; adding a
-field requires a new version.
+encoding, including any extension records below. Fields 1–16 are frozen;
+additive fields use the extension tail rather than changing their layout
+or renumbering them. A configuration with no extensions retains its exact
+existing version-2 bytes and identity.
+
+**Configuration extensions (user-authorized 2026-10-19).** After field 16,
+an optional tail contains records `{ID u16, Flags u8, Size u32, Data[Size]}`
+in strictly ascending ID order, terminated by ID zero. IDs 1–16 remain
+reserved for the positional fields; extension IDs begin at 17. Bit 0 of
+Flags means required; every other bit is invalid. At most 128 records are
+admitted, each with at most 64 KiB of payload, within the existing 2 MiB
+configuration bound. An empty tail, missing terminator, duplicate or
+unsorted ID, or bytes after the terminator are noncanonical and refused.
+No tail is written when no extensions exist.
+
+Unknown optional records are descriptive metadata only: they are retained,
+deep-copied and included in the configuration identity, but change nothing
+the simulation computes. Unknown required records are refused by ID before
+composition, by readers and writers alike. No extension semantics are
+assigned yet. A new battle choice, such as chosen starts or allied sight,
+must receive an unused required extension ID and typed validation and
+application through its existing owning `RuleSet` seam. It must not reuse
+field 16, which already names room content, or be marked optional so an
+older simulation silently ignores it. This framing does not authorize or
+implement those gameplay choices. Existing readers from before this
+extension contract still refuse a nonempty tail; readers implementing this
+contract can skip future optional fields without a configuration-version
+bump. Changing a frozen field's meaning still needs a new schema.
 
 | Order / effective field | Representation and normalization |
 |---|---|
@@ -1696,9 +1722,40 @@ stream state at its start so it decodes alone: command, pump run
 reason: finished, left, recording stopped, room failed). Integers are the
 netproto version-1 primitives. A file that stops inside a chunk, or without
 its end entry, plays to its last whole chunk and is listed as incomplete.
-Version 2 added the header's add-ons, and a version-1 file is not read:
-released builds wrote version-1 battle configurations, which this build no
-longer decodes either.
+Version 2 added the header's add-ons. Readers accept both versions: version
+1 ends its fixed header after the start time and decodes its configuration
+as fields 1–15, retaining the exact canonical bytes and the
+`nanolathe/match-config/1` identity domain; version 2 includes field 16 and
+uses the version-2 domain. The legacy decoder is a replay-only entry point;
+live room decoding remains version 2. New recordings are written as version
+2; a header read from a version-1 file cannot simply be relabeled as version
+2 by the writer.
+
+**Extensible version-2 headers (user-authorized 2026-10-19).** The fixed
+prefix through the add-on list is frozen. New writers append records
+`{ID u16, Flags u8, Size u32, Data[Size]}` in strictly ascending nonzero ID
+order inside an area of at least 256 bytes. New metadata consumes this reserve
+before the area grows; the unused tail is zeroed, with at least one byte for
+the ID-zero terminator. Every byte after that terminator must be zero padding. The existing header
+size bounds the entire area and locates the first command chunk; no fixed
+offset into this reserve is a public field. Each payload is at most 64 KiB,
+at most 128 records are admitted, and the existing 4 MiB header ceiling
+still applies. Older version-2 files ending immediately after the add-on
+list remain readable. The chunk framing and command, pump and checksum
+entries are unchanged.
+
+Flag bit 0 means required and all other bits are invalid. There are no
+assigned header extension IDs yet. Unknown optional records are preserved
+as opaque bytes and skipped for playback; unknown required records name an
+unsupported replay feature and are refused by both reader and writer.
+Malformed lengths, duplicate or unsorted IDs, a missing terminator and
+nonzero padding are refused. New metadata uses an unused tagged record;
+it does not append another positional field or require a replay-format
+bump. Information needed to reproduce a battle belongs in a required
+configuration extension (§8.6), not an optional header annotation. A future
+incompatible stream or frozen-field change still needs a new format.
+Already released readers that predate this contract cannot acquire these
+rules without updating.
 A busy single-player battle takes about 4 KB a minute, half of it
 checksums.
 
@@ -1755,7 +1812,14 @@ change nothing a tick computes.
 **Later.** Pacing notes, chat and session events, rewind, sharing, and a
 canonical-checkpoint digest beside the unit checksums. Compatibility
 requires a simulation that reproduces the recording; there is no
-cross-release compatibility program (Q12, Q20).
+cross-release simulation compatibility program (Q12, Q20). File and
+configuration decoding compatibility does not change that boundary: v1
+playback retains content and identity admission and every recorded checksum,
+and stops at the first divergence rather than emulating an older AI or
+silently accepting a different battle. Authored fixtures from the original
+v1 writer lock single-player Strict and Modern and online playback, and an
+original v2 recording locks pre-extension compatibility. Optional header
+and configuration fields are also tested through actual playback.
 
 ## 11. Seats over time
 

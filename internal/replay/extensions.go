@@ -18,7 +18,8 @@ type HeaderExtension struct {
 const (
 	maxHeaderExtensions     = 128
 	maxHeaderExtensionBytes = 64 << 10
-	// The first zero is the ID terminator; the rest is reserved zero padding.
+	// Metadata consumes this minimum area; the unused tail is zero padding,
+	// including at least one byte for the ID terminator.
 	headerExtensionReserve = 256
 )
 
@@ -45,13 +46,15 @@ func validateHeaderExtensions(fields []HeaderExtension) error {
 	return nil
 }
 
-// writeHeaderExtensions appends bounded records and 256 reserved zero bytes,
-// including the ID terminator. The enclosing header size frames the area.
+// writeHeaderExtensions fills the 256-byte reserve before growing the area.
+// The enclosing header size frames it; the unused tail stays zero.
 func writeHeaderExtensions(w *netproto.Writer, fields []HeaderExtension) error {
-	size := w.Len() + headerExtensionReserve
+	used := 0
 	for _, field := range fields {
-		size += netproto.UvarintLen(uint64(field.ID)) + 1 + netproto.UvarintLen(uint64(len(field.Data))) + len(field.Data)
+		used += netproto.UvarintLen(uint64(field.ID)) + 1 + netproto.UvarintLen(uint64(len(field.Data))) + len(field.Data)
 	}
+	padding := max(1, headerExtensionReserve-used)
+	size := w.Len() + used + padding
 	if size > MaxHeaderBytes {
 		return formatError("header", fmt.Sprintf("at most %d bytes", MaxHeaderBytes))
 	}
@@ -65,7 +68,7 @@ func writeHeaderExtensions(w *netproto.Writer, fields []HeaderExtension) error {
 		w.U32(uint32(len(field.Data)))
 		w.Raw(field.Data)
 	}
-	w.Raw(make([]byte, headerExtensionReserve))
+	w.Raw(make([]byte, padding))
 	return nil
 }
 

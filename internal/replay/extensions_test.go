@@ -137,6 +137,9 @@ func TestHeaderExtensionsPreserveStreamAndCopies(t *testing.T) {
 	if !bytes.Equal(plain[plainAt:], data[extendedAt:]) {
 		t.Fatal("header metadata changed the chunk stream")
 	}
+	if plainAt != extendedAt {
+		t.Fatal("small metadata did not fit inside the existing header reserve")
+	}
 	entries, err := readAll(t, data)
 	if err != io.EOF || !reflect.DeepEqual(replayed(entries), ops) {
 		t.Fatalf("extended header changed stream entries: %+v, %v", entries, err)
@@ -158,7 +161,7 @@ func TestHeaderExtensionsPreserveStreamAndCopies(t *testing.T) {
 	if !reflect.DeepEqual(r.Header(), h) {
 		t.Fatal("Header() aliases the reader's extensions")
 	}
-	data[extendedAt-headerExtensionReserve-1] ^= 1
+	data[plainAt-headerExtensionReserve+3] ^= 1 // first field's payload
 	if !reflect.DeepEqual(r.Header(), h) {
 		t.Fatal("the reader's extension payload aliases the input")
 	}
@@ -181,6 +184,17 @@ func TestHeaderExtensionReserveAndBounds(t *testing.T) {
 	}
 	if !bytes.Equal(raw, append(append([]byte(nil), old...), make([]byte, 256)...)) {
 		t.Fatal("new headers do not append exactly 256 reserved zero bytes")
+	}
+	for _, payload := range []int{251, 252} {
+		h.Extensions = []HeaderExtension{{ID: 1, Data: make([]byte, payload)}}
+		raw, err = encodeHeader(h)
+		wantArea := max(256, payload+5) // ID, flags, two-byte length, terminator
+		if err != nil || len(raw)-len(old) != wantArea {
+			t.Fatalf("%d-byte metadata payload: area %d, want %d: %v", payload, len(raw)-len(old), wantArea, err)
+		}
+		if got, err := decodeHeader(raw); err != nil || !reflect.DeepEqual(got, h) {
+			t.Fatalf("reserve boundary read: %v", err)
+		}
 	}
 	h.Extensions = []HeaderExtension{{ID: 1, Data: bytes.Repeat([]byte{7}, maxHeaderExtensionBytes)}}
 	raw, err = encodeHeader(h)
