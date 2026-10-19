@@ -94,7 +94,12 @@ func run(archive, out string, verbose bool) error {
 	seen := map[string]string{}
 	var written, skipped int
 	for _, entry := range files {
-		name := strings.TrimPrefix(entry.Path, "/")
+		// The logical path is the folded lookup key; the archive's own
+		// spelling is what the package keeps, on every host file system.
+		name := strings.TrimPrefix(entry.OriginalPath, "/")
+		if name == "" {
+			name = strings.TrimPrefix(entry.Path, "/")
+		}
 		if !allowed(name) {
 			if verbose {
 				fmt.Println("skip", name)
