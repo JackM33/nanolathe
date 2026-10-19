@@ -717,6 +717,7 @@ func boolInt(value bool) int {
 func (g *gameShell) drawRetailSurface(c *client.Client, p *ui.Panel, index int, gad gui.Gadget, r gui.Rect) {
 	if p == mapsFetchPanel && gad.Name == "CATALOGUEPIC" {
 		g.drawMapsPreview(c, r)
+		g.drawMapsLegend(c, r)
 		return
 	}
 	if p != nil && g.replaysPanelAssets(p) != nil && gui.CallbackName(gad.Name) == "RADAR" {

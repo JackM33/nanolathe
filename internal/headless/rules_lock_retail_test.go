@@ -281,6 +281,14 @@ import (
 // lock, the benchmark initial composition, both online Modern AI digests and
 // every Strict and Community lock hold: Strict and Community keep retail's
 // sixty. Every Modern value is the same with GOMAXPROCS 1, 2 and 12.
+//
+// Firing when there is no room (DESIGN_WEAPONS_PROJECTILES §2.3.2 "No room")
+// moves the Modern benchmark final lock: a boxed-in unit whose shot is held
+// only by features it can destroy now fires, past them between samples or
+// into one its blast damages, where it used to wait. The benchmark warm lock,
+// both ashap locks, both online Modern AI digests and every Strict and
+// Community lock hold: Strict and Community never hold such a shot. Every
+// Modern value is the same with GOMAXPROCS 1, 2 and 12.
 const (
 	lockAshapMap                   = "ashap plateau"
 	lockAshapSeed           uint32 = 7
@@ -307,7 +315,7 @@ const (
 	lockBenchModernWarm              = "partial-v1:b29e92b1f56dda76"
 	lockBenchStrictFinal             = "partial-v1:4a9bfa48817da57c"
 	lockBenchCommunityFinal          = "partial-v1:a97cef8ec7ca358d"
-	lockBenchModernFinal             = "partial-v1:936542a67f5d100f"
+	lockBenchModernFinal             = "partial-v1:2489ded57e35f247"
 )
 
 // The expanded retail audit corrects active-search budget continuation

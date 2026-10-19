@@ -5,6 +5,7 @@ import (
 
 	"github.com/nanolathe-gg/nanolathe/internal/content"
 	"github.com/nanolathe-gg/nanolathe/internal/economy"
+	"github.com/nanolathe-gg/nanolathe/internal/features"
 	"github.com/nanolathe-gg/nanolathe/internal/pool"
 	"github.com/nanolathe-gg/nanolathe/internal/sim/numeric"
 	"github.com/nanolathe-gg/nanolathe/internal/sim/rng"
@@ -18,6 +19,9 @@ func obstructionFixture(t *testing.T) ShotQuery {
 	muzzle, aim := modernTerrainPoints()
 	def := contactDef(contactModelTop)
 	def.StandingFireOrder = 2
+	// A mobile shooter without a queue may still step aside, so obstruction
+	// holds it (§2.3.2 "No room").
+	def.CanMove = true
 	h, err := w.Create(def, 0, muzzle.X, muzzle.Y, muzzle.Z)
 	if err != nil {
 		t.Fatal(err)
@@ -595,5 +599,88 @@ func TestModernObstructionCancelsPendingBurst(t *testing.T) {
 	q.Burst = &p
 	if modernObstructedShot(&q) {
 		t.Fatal("pellet preview moved on the emission tick and reached a wreck beyond expiry")
+	}
+}
+
+type noRoomIntent bool
+
+func (room noRoomIntent) NoFiringPosition(*units.Unit, *units.Unit, uint32) bool { return bool(room) }
+
+// Nanolathe Modern policy: DESIGN_WEAPONS_PROJECTILES §2.3.2 "No room". A shot
+// held only by features that can be destroyed fires when the shooter has
+// nowhere to step to, if it would reach its target between samples or its
+// blast would damage the feature it hits. Friends, indestructible features and
+// a blast that falls short of the feature still hold it.
+func TestModernNoRoomFiresIntoFeatures(t *testing.T) {
+	for _, tc := range []struct {
+		name                  string
+		noRoom, immobile      bool
+		indestructible        bool
+		aoe, velocity         int32
+		friendCell            int32
+		wreck, strict, admits bool
+	}{
+		{name: "wreck with room", wreck: true, aoe: 64},
+		{name: "wreck without room", noRoom: true, wreck: true, aoe: 64, admits: true},
+		{name: "blast short of wreck", noRoom: true, wreck: true, aoe: 8},
+		{name: "samples pass wreck", noRoom: true, wreck: true, aoe: 8, velocity: 36, admits: true},
+		{name: "immobile behind wreck", immobile: true, wreck: true, aoe: 64, admits: true},
+		{name: "indestructible without room", noRoom: true, wreck: true, indestructible: true, aoe: 64},
+		{name: "friend without room", noRoom: true, friendCell: 4, aoe: 64},
+		{name: "wreck stops shot before friend", noRoom: true, wreck: true, aoe: 64, friendCell: 8, admits: true},
+		{name: "friend beyond passed wreck", noRoom: true, wreck: true, aoe: 8, velocity: 36, friendCell: 8},
+		{name: "strict", wreck: true, aoe: 8, strict: true, admits: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			q := obstructionFixture(t)
+			q.Service.Features = &features.Service{Terrain: q.Terrain}
+			if tc.strict {
+				q.Service.Rules = StrictRules{}
+			}
+			q.Shooter.Def.CanMove = !tc.immobile
+			q.Shooter.Orders = noRoomIntent(tc.noRoom)
+			weapon := q.Launch.Weapon
+			weapon.Turret, weapon.Accuracy, weapon.ReloadTime = true, 128, 30
+			weapon.EnergyPerShot, weapon.MetalPerShot = 100, 5
+			weapon.AreaOfEffect = tc.aoe
+			if tc.velocity != 0 {
+				weapon.WeaponVelocity = tc.velocity << 16
+			}
+			q.Shooter.InstallWeapon(0, weapon)
+			slot := q.Shooter.SlotAt(0)
+			target, err := q.World.Create(contactDef(contactModelTop), 1, q.Aim.X, q.Aim.Y, q.Aim.Z)
+			if err != nil {
+				t.Fatal(err)
+			}
+			stampGroundRect(q.Terrain, 12, 1, 1, 1, target)
+			slot.Target = units.Target{Kind: units.TargetUnit, Unit: target}
+			if tc.wreck {
+				q.Terrain.FeatureDefs[0].Height = 64
+				q.Terrain.FeatureDefs[0].Indestructible = tc.indestructible
+				q.Terrain.PlotAt(4, 1).SetFeature(0)
+			}
+			if tc.friendCell != 0 {
+				h, err := q.World.Create(contactDef(contactModelTop), 0, cellCentre(tc.friendCell), 0, cellCentre(1))
+				if err != nil {
+					t.Fatal(err)
+				}
+				stampGroundRect(q.Terrain, tc.friendCell, 1, 1, 1, h)
+			}
+			var econ economy.Service
+			econ.Players[0].Stock = [2]float32{50, 500}
+			random := rng.NewSimulation(7)
+			before := random
+			var summary UnitStepSummary
+			q.Service.firePreparedSlot(q.Shooter, slot, 0, &slotPrep{weapon: weapon, tgtPos: q.Aim}, q.Tick, q.Terrain, &econ, &random, q.World, nil, &summary)
+			if !tc.admits {
+				if summary.Fired != 0 || slot.Reload != 0 || random != before || econ.Players[0].Stock != [2]float32{50, 500} {
+					t.Fatal("held shot fired or spent")
+				}
+				return
+			}
+			if summary.Fired != 1 || slot.Reload != 30 || random.Draws()-before.Draws() != 2 || econ.Players[0].Stock != [2]float32{45, 400} {
+				t.Fatalf("shot did not fire normally: fired=%d reload=%d draws=%d stock=%v", summary.Fired, slot.Reload, random.Draws()-before.Draws(), econ.Players[0].Stock)
+			}
+		})
 	}
 }

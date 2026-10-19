@@ -56,6 +56,27 @@ type Entry struct {
 	Map      string    `json:"map,omitempty"`
 	Requires []string  `json:"requires,omitempty"`
 	Contents []Content `json:"contents,omitempty"`
+
+	// Optional presentation metadata for the map catalogue's browser: the
+	// author credit, the player count, the map's dimensions and year, a short
+	// world-kind label (a tileset family such as "space" or "metal") and an AI
+	// profile marker. They select, sort and label the list and change nothing
+	// about the bytes or how they are installed (§5.6). Legend is the key to
+	// an annotated preview, drawn beside it as coloured dots and names.
+	Author  string        `json:"author,omitempty"`
+	Players int           `json:"players,omitempty"`
+	SizeMap string        `json:"sizemap,omitempty"`
+	Year    int           `json:"year,omitempty"`
+	Kind    string        `json:"kind,omitempty"`
+	AI      string        `json:"ai,omitempty"`
+	Legend  []LegendEntry `json:"legend,omitempty"`
+}
+
+// LegendEntry is one annotation of an annotated preview: the colour it draws
+// in (as "#rrggbb") and the name shown beside it.
+type LegendEntry struct {
+	Color string `json:"color"`
+	Label string `json:"label"`
 }
 
 // Content is one archive an official add-on holds, by file name, byte size

@@ -812,6 +812,24 @@ Map catalogue development uses `NANOLATHE_MAP_CATALOG` under the same origin
 rules as the mod override. The shared `modfetch.Client` fetches, caches and
 verifies both catalogues; a separate cache directory keeps them independent.
 
+**Optional presentation metadata (user-authorized 2026-10-17).** A map record
+may also carry `author`, `players`, `sizemap`, `year`, `kind` and `ai`. They
+label the browser — the author credit, the player count, the map dimensions and
+year, a short world-kind word (a tileset family such as `space` or `metal`) and
+an authored AI-profile marker — and the browser's search, sort and filter
+controls order and select on them. They are display-only: validation, identity,
+mounts and installs ignore them, and catalogues without them (including the
+current live one) keep working unchanged.
+
+**Curated community set (user-authorized 2026-10-17).** Beyond Cavedog's bonus
+maps, the catalogue may ingest a curated subset of the community archive
+(TA Archive / the r2010 collection), hosted as `maps`-release assets like any
+other package: *we host the maps and credit the authors*, keeping each map's
+credits and homepage; the catalogue carries no takedown path. The selection is
+a reviewable recipe (priority pools: author-curated packs, ladder staples,
+classics, AI-ready maps and unusual tilesets), never a bulk crawler: entire
+archives are not mirrored.
+
 A map may also carry `preview: {url, size, sha256}`. This optional PNG uses the
 same trusted origins as map archives, is at most 1 MiB, and has positive
 dimensions no larger than 1024 × 1024. Its hash identifies a separate persistent
@@ -821,7 +839,13 @@ requests. An old response cannot replace the current picture. Verified cached
 pictures work offline. Missing or failed previews leave map downloads available.
 `tools/map-previews` exports authored TNT minimaps through the reference palette,
 using the chooser's source crop to omit padding, and adds their identities to
-the manifest. These are presentation assets, not newly generated terrain.
+the manifest. With `--annotate` it also draws the map's own features over the
+picture — indestructible metal-bearing features as the extractor's deposits
+[05 R-FEAT-01 §7] in yellow, and other placed features as reclaimable ground
+in green — and records the browser's `legend` key: a list of `{color, label}`
+entries the browser draws above the preview as a coloured dot and its name.
+The picture is still the authored minimap: annotations are presentation, not
+newly generated terrain.
 
 The installed map library is `$XDG_DATA_HOME/nanolathe/maps`, falling back
 to `~/.local/share/nanolathe/maps`. It reuses the mod library's atomic

@@ -52,7 +52,7 @@ func (*ModernRules) AdmitShot(q *ShotQuery) bool {
 		return true
 	}
 	q.Covered, q.Blocked = false, false
-	if modernObstructedShot(q) {
+	if modernObstructedShot(q) && !modernFireIntoFeatures(q) {
 		q.Blocked = true
 		return false
 	}

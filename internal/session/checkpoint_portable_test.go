@@ -197,11 +197,11 @@ func checkpointPortableCommands(command string, actor *units.Unit, x, z numeric.
 // empty; their hashes must differ from the corresponding absent section.
 func checkpointPortableHeader(t *testing.T, data []byte, id checkpoint.Identity) {
 	t.Helper()
-	want := append([]byte("NLCPSTAT\x03\x00"), id.Content[:]...)
+	want := append([]byte("NLCPSTAT\x04\x00"), id.Content[:]...)
 	want = append(want, id.Config[:]...)
 	want = append(want, 13, 0)
 	if !bytes.HasPrefix(data, want) {
-		t.Fatal("capture lacks the complete schema-3 header")
+		t.Fatal("capture lacks the complete schema-4 header")
 	}
 }
 

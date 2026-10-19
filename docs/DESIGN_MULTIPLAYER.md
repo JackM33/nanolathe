@@ -2960,7 +2960,9 @@ behaviour.
 
 #### 16.3.6 Canonical format and public API
 
-Schema 3 (2026-10-14) adds visibility's retained wide coverage rows. Counts
+Schema 4 (2026-10-17) adds the order queue's firing-position no-room answer,
+which Modern combat reads (DESIGN_WEAPONS_PROJECTILES §2.3.2 "No room").
+Schema 3 (2026-10-14) added visibility's retained wide coverage rows. Counts
 remain meaningful across rule switches and are not recoverable from saturated
 byte grids and observer records. The shared schema version also changes the
 AI application-history hash domains; their receipt payloads are unchanged.
@@ -2978,7 +2980,7 @@ dependencies.
 
 ```go
 // internal/sim/checkpoint
-const SchemaVersion uint16 = 3
+const SchemaVersion uint16 = 4
 const OwnerCount = 13
 
 type Owner uint16

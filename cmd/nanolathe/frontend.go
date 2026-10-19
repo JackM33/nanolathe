@@ -531,6 +531,10 @@ func runGameShell(launch, opts Options, cs *contentSet) error {
 	toolsScreenInst = &toolsScreen{}
 	defer toolsScreenInst.release()
 	options.Screen = &frontendScreens{settings: nlScreenInst, tools: toolsScreenInst}
+	// The map browser's preview is host content: while it is on screen the
+	// window lays out at the display's resolution and the preview draws above
+	// the scaled retail canvas, so the minimap keeps its full detail.
+	options.NativeOverlay = &mapsPreviewOverlay{shell: func() *gameShell { return host.shell }}
 	// A trace of menu play is the player's own session, not a benchmark: it
 	// takes no benchmark lock (a game should not wait on one) and saves
 	// settings as usual. It starts at the first battle.

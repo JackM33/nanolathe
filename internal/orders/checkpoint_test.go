@@ -241,6 +241,7 @@ func TestCheckpointOrderRetainedMutation(t *testing.T) {
 		{"danger deadline", func(q *Queue, _ *Node) { q.danger.quietUntil = 7 }},
 		{"danger opportunity", func(q *Queue, _ *Node) { q.danger.opportunityTarget = 7 }},
 		{"firing inactive residual", func(q *Queue, _ *Node) { q.firingPosition.started = 7 }},
+		{"firing exhausted", func(q *Queue, _ *Node) { q.firingPosition.exhausted = true }},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

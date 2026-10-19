@@ -273,9 +273,11 @@ func writeQueueCheckpoint(e *checkpoint.Encoder, c *CheckpointContext, q *Queue,
 	}
 	writeDangerCheckpoint(e, c, &q.danger, path+".danger")
 	f := &q.firingPosition
-	// Expanded firingPositionState: active, nextAttempt, node, owner, started, target.
+	// Expanded firingPositionState: active, exhausted, nextAttempt, node, owner, started, target.
 	e.Field(path + ".firingPosition.active")
 	e.Bool(f.active)
+	e.Field(path + ".firingPosition.exhausted")
+	e.Bool(f.exhausted)
 	e.Field(path + ".firingPosition.nextAttempt")
 	e.U32(f.nextAttempt)
 	writeOrderCheckpointReference(e, path+".firingPosition.node", 3, &c.Nodes, f.node)

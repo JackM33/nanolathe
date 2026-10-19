@@ -67,6 +67,10 @@ type app struct {
 	rendererToggles int
 	// scrollPointScale converts native window points to the letterboxed surface.
 	scrollPointScale float64
+	// overlayScale and its offsets are the transform the authored canvas was
+	// drawn with while the native overlay owns the layout (overlay.go).
+	overlayScale, overlayOffsetX, overlayOffsetY float64
+	overlayWasActive                             bool
 	// windowW/windowH are the last selected host size. Logical menu/battle
 	// transitions do not change them (DESIGN_PRESENTATION_CLIENT §2.1).
 	windowW, windowH int
@@ -211,6 +215,9 @@ type RunOptions struct {
 	FrameTrace *FrameTraceOptions
 	// Screen is the optional host-owned full-window screen; see FullScreen.
 	Screen FullScreen
+	// NativeOverlay is the optional host-owned layer drawn at the display's
+	// resolution above the scaled authored canvas; see NativeOverlay.
+	NativeOverlay NativeOverlay
 }
 
 // Update refreshes input once per display frame. The separate host clock runs
@@ -317,6 +324,12 @@ func (a *app) updateBody() {
 	a.hostSamples = a.hostSamples[:len(a.hostSamples)-1]
 	if a.trace != nil {
 		a.trace.pointerX, a.trace.pointerY = sample.x, sample.y
+	}
+	if a.overlayScale > 0 {
+		// The overlay laid the window out at the display resolution; the
+		// client still thinks in authored canvas pixels (overlay.go).
+		lx, ly := a.logicalPointer(int(sample.x), int(sample.y))
+		sample.x, sample.y = int32(lx), int32(ly)
 	}
 	if a.scrollPointScale > 0 {
 		sample.panX *= a.scrollPointScale
@@ -611,6 +624,10 @@ func (a *app) Draw(screen *ebiten.Image) {
 		a.img = ebiten.NewImage(width, height)
 	}
 	a.img.WritePixels(a.c.Present())
+	if a.overlayActive() {
+		a.drawOverlayCanvas(screen, a.img)
+		return
+	}
 	screen.DrawImage(a.img, &ebiten.DrawImageOptions{})
 }
 
@@ -734,6 +751,9 @@ func (a *app) drawModern(screen *ebiten.Image, width, height int, showFPS bool) 
 		// Place only the cursor from a fresh host sample after the recorder
 		// joins. Command input remains on the ordinary host step [07 §8].
 		x, y := ebiten.CursorPosition()
+		if a.overlayScale > 0 {
+			x, y = a.logicalPointer(x, y)
+		}
 		a.c.PositionPresentationCursor(list, x, y)
 		var submitStarted time.Time
 		if showFPS || a.trace != nil {
@@ -759,7 +779,11 @@ func (a *app) drawModern(screen *ebiten.Image, width, height int, showFPS bool) 
 		}
 		if img != nil {
 			a.c.CommitStrategicPresentation()
-			screen.DrawImage(img, &ebiten.DrawImageOptions{})
+			if a.overlayActive() {
+				a.drawOverlayCanvas(screen, img)
+			} else {
+				screen.DrawImage(img, &ebiten.DrawImageOptions{})
+			}
 			a.c.MarkArrivalPresented()
 		}
 		if a.trace != nil {
@@ -1108,6 +1132,27 @@ func (a *app) Layout(outsideWidth, outsideHeight int) (int, int) {
 		a.layoutW, a.layoutH = a.screenLayout(outsideWidth, outsideHeight)
 		nativeScroll.viewport(a.layoutW, a.layoutH, outsideWidth, outsideHeight)
 		return a.layoutW, a.layoutH
+	}
+	if a.overlayActive() {
+		// The native overlay needs the display's pixels: lay out at the device
+		// resolution and scale the authored canvas ourselves, exactly as a
+		// full screen lays itself out (overlay.go).
+		if !a.overlayWasActive {
+			a.overlayWasActive = true
+			a.presentPending = true
+		}
+		a.layoutW, a.layoutH = a.layoutOverlay(outsideWidth, outsideHeight)
+		if a.overlayScale > 0 {
+			// Native points arrive in device pixels; the client thinks in
+			// authored canvas pixels.
+			a.scrollPointScale = 1 / a.overlayScale
+		}
+		return a.layoutW, a.layoutH
+	}
+	if a.overlayWasActive {
+		a.overlayWasActive = false
+		a.overlayScale, a.overlayOffsetX, a.overlayOffsetY = 0, 0, 0
+		a.presentPending = true
 	}
 	w, h := a.c.Size()
 	nativeScroll.viewport(w, h, outsideWidth, outsideHeight)
