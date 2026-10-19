@@ -108,3 +108,11 @@ func TestRenameGAFEntriesInPlace(t *testing.T) {
 		t.Fatal("a 32-byte name must be refused: the field holds 31 and a NUL")
 	}
 }
+
+// Names fold as the overlay folds them, ASCII only: a release's Latin-1
+// byte stays itself, so a copied file keeps the name its references use.
+func TestLowerFoldsASCIIOnly(t *testing.T) {
+	if got := lower("Objects3d/Ketzer-Gau\xdf.3DO"); got != "objects3d/ketzer-gau\xdf.3do" {
+		t.Fatalf("lower = %q", got)
+	}
+}

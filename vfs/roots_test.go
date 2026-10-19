@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"sort"
 	"testing"
 
 	"github.com/nanolathe-gg/nanolathe/vfs"
@@ -199,5 +200,75 @@ func TestGameRootExtraArchivesJoinTheFoldersTier(t *testing.T) {
 	}
 	if _, err := fs.Stat("Bravo.ufo.txt"); err != nil {
 		t.Fatal("the root's archive filter left out an extra archive")
+	}
+}
+
+// An extra archive with a layout answers under the layout's directories: a
+// content set that reads units from unitsE finds the archive's units/ files
+// beside its own, through the layout's view under the retail name, while a
+// root's units/ stay hidden and every other directory keeps its path
+// (docs/DESIGN_MODS_MUTATORS.md §5.8 "With a mod").
+func TestGameRootExtraLayoutRehomesAnArchive(t *testing.T) {
+	base, mod, library := t.TempDir(), t.TempDir(), t.TempDir()
+	write := func(path string, files []vfs.ArchiveFile) {
+		t.Helper()
+		var buf bytes.Buffer
+		if err := vfs.WriteArchive(&buf, files, vfs.ArchiveWriteOptions{}); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, buf.Bytes(), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write(filepath.Join(base, "totala1.hpi"), []vfs.ArchiveFile{{Path: "units/armcom.fbi", Data: []byte("base")}})
+	write(filepath.Join(mod, "mod.gp3"), []vfs.ArchiveFile{{Path: "unitsE/armcom.fbi", Data: []byte("mod")}})
+	faction := filepath.Join(library, "faction.ufo")
+	write(faction, []vfs.ArchiveFile{{Path: "Units/XenoCom.fbi", Data: []byte("xeno")}, {Path: "objects3d/xenocom.3do", Data: []byte("model")}})
+	layout := vfs.NewLayout(map[string]string{"units": "unitsE"})
+	fs := vfs.New()
+	defer fs.Close()
+	if err := fs.MountGameRoots([]vfs.GameRoot{
+		{Dir: base, Extra: []string{faction}, ExtraLayout: func(full string) vfs.Layout {
+			if full == faction {
+				return layout
+			}
+			return vfs.Layout{}
+		}},
+		{Dir: mod},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	view := layout.Apply(fs)
+	entries, err := view.ReadDir("units")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var names []string
+	for _, e := range entries {
+		names = append(names, e.Path)
+	}
+	sort.Strings(names)
+	if !reflect.DeepEqual(names, []string{"units/armcom.fbi", "units/xenocom.fbi"}) {
+		t.Fatalf("units = %v, want the mod's and the archive's", names)
+	}
+	if data, err := view.ReadFileLimit("units/xenocom.fbi", 64); err != nil || string(data) != "xeno" {
+		t.Fatalf("rehomed file = %q, %v", data, err)
+	}
+	if data, err := view.ReadFileLimit("units/armcom.fbi", 64); err != nil || string(data) != "mod" {
+		t.Fatalf("the mod's file = %q, %v", data, err)
+	}
+	if _, err := fs.Stat("units/xenocom.fbi"); err == nil {
+		t.Fatal("the archive still answers under the renamed retail directory")
+	}
+	if _, err := view.Stat("objects3d/xenocom.3do"); err != nil {
+		t.Fatalf("a directory the layout keeps moved: %v", err)
+	}
+	file, err := fs.Open("unitse/xenocom.fbi")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer file.Close()
+	if info := file.Info(); info.Path != "unitse/xenocom.fbi" || info.Source.LogicalPath != "unitse/xenocom.fbi" || info.OriginalPath != "Units/XenoCom.fbi" {
+		t.Fatalf("opened file info %+v", info)
 	}
 }

@@ -32,7 +32,7 @@ func (p *packer) gadgetArt(products []string) {
 	var need []string
 	seen := map[string]bool{}
 	for _, product := range products {
-		key := strings.ToLower(strings.TrimSpace(product))
+		key := lower(strings.TrimSpace(product))
 		if _, kept := p.kept[key]; !kept || seen[key] {
 			continue
 		}
@@ -62,7 +62,7 @@ func (p *packer) gadgetArt(products []string) {
 			continue
 		}
 		for i := range g.Entries {
-			key := strings.ToLower(strings.TrimSpace(g.Entries[i].Name))
+			key := lower(strings.TrimSpace(g.Entries[i].Name))
 			if wanted[key] && found[key] == nil {
 				found[key] = &g.Entries[i]
 			}

@@ -534,7 +534,7 @@ func speedOf(u *aikit.UnitInfo) int64 {
 // metal need is read from, so the cheap extractor kept outscoring power
 // while the stall deepened: TLL and RHYOSS openings took four to nine
 // extractors on one solar and sat at no energy for minutes, worst at
-// medium (the play review, docs/PLAN_FACTION_BALANCE.md §3.3). Under
+// medium (the play review, README §15). Under
 // playMexPower, with the energy store below half, an extractor waits for
 // energy coverage.
 func (s *shared) mexBase() int64 {

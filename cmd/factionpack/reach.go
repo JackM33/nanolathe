@@ -16,7 +16,7 @@ import (
 func (p *packer) buildEdges() map[string][]string {
 	edges := map[string][]string{}
 	add := func(builder, product string) {
-		b, u := strings.ToLower(strings.TrimSpace(builder)), strings.ToLower(strings.TrimSpace(product))
+		b, u := lower(strings.TrimSpace(builder)), lower(strings.TrimSpace(product))
 		if b != "" && u != "" {
 			edges[b] = append(edges[b], u)
 		}
@@ -124,7 +124,7 @@ func (p *packer) sideCommanders() []string {
 	}
 	want := map[string]bool{}
 	for _, s := range p.r.Sides {
-		want[strings.ToLower(s)] = true
+		want[lower(s)] = true
 	}
 	var out []string
 	taken := map[string]bool{}
@@ -134,13 +134,13 @@ func (p *packer) sideCommanders() []string {
 			break
 		}
 		name, _ := s.StringValue("name", "")
-		name = strings.ToLower(strings.TrimSpace(name))
+		name = lower(strings.TrimSpace(name))
 		if !want[name] || taken[name] {
 			continue
 		}
 		taken[name] = true
 		commander, _ := s.StringValue("commander", "")
-		out = append(out, strings.ToLower(strings.TrimSpace(commander)))
+		out = append(out, lower(strings.TrimSpace(commander)))
 	}
 	return out
 }

@@ -208,8 +208,9 @@ func fixtureUnits(t *testing.T, fs vfs.FSOps, names ...string) map[string]*UnitD
 // A declaration's damage.tdf adds base weapons' damage against its own units
 // and nothing else: entries from different add-ons compose, the weapon keeps
 // its authored hash and entries, and an entry naming a base unit, another
-// add-on's unit or a faction weapon, or replacing an entry, is refused
-// (docs/DESIGN_MODS_MUTATORS.md §5.8).
+// add-on's unit or a faction weapon is refused. One for a weapon the content
+// lacks, or a unit the table already names, places nothing and keeps the
+// table's own entry, as under a mod (docs/DESIGN_MODS_MUTATORS.md §5.8).
 func TestFactionDamageNamesOnlyItsOwnUnits(t *testing.T) {
 	base := baseFixture()
 	base["weapons/base.tdf"] = "[ARM_LASER]{ID=19;range=300;[DAMAGE]{default=10;ARMCOM=5;}}[CORE_GUN]{ID=255;range=400;[DAMAGE]{default=8;RHYTANK=1;}}"
@@ -250,11 +251,14 @@ func TestFactionDamageNamesOnlyItsOwnUnits(t *testing.T) {
 		{"[ARM_LASER]{ARMCOM=40;}", "does not define"},
 		{"[ARM_LASER]{TLLTANK=40;}", "does not define"},
 		{"[RHY_W0]{RHYTANK=40;}", "names no base weapon"},
-		{"[CORE_GUN]{RHYTANK=40;}", "replaces an entry"},
 	} {
 		if _, _, err := compose(c.rhy, ""); err == nil || !strings.Contains(err.Error(), c.want) {
 			t.Fatalf("damage.tdf %s: err %v, want %q", c.rhy, err, c.want)
 		}
+	}
+	weapons, entries, err = compose("[CORE_GUN]{RHYTANK=40;}[MOD_REMOVED]{RHYTANK=9;}", "")
+	if got, _ := weapons["core_gun"].DamageOverride("RHYTANK"); err != nil || len(entries) != 0 || got != 1 {
+		t.Fatalf("entries the content cannot take: err %v, entries %+v, CORE_GUN vs RHYTANK %d", err, entries, got)
 	}
 }
 

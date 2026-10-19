@@ -11,6 +11,9 @@
     "file": "argon-2.6-beta.zip",
     "sha256": "be45f630dff4eded5ca053043375c6a69d31a68149ea6042ddd2ed32f9eb5fff"
   },
+  "readmes": [
+    "docs/Read me.htm"
+  ],
   "notes": [
     "Input is the 2026-10-16 local candidate ZIP, which retains the Core Prime preservation download's original archive bytes (upstream SHA-256 5955465b8b47ba416c3675a0b583970fddbc2abf7f1aea7dd6cdd297a037b02c)."
   ]

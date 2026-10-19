@@ -440,11 +440,15 @@ func parseManifest(raw []byte, base *url.URL, allowed origin) (Manifest, error) 
 		Maps         []Entry           `json:"maps"`
 		Dependencies []Entry           `json:"dependencies"`
 		Addons       []Entry           `json:"addons"`
+		// Factions are add-ons with a faction declaration, listed apart so
+		// that a build without faction support, which ignores unknown
+		// fields, never offers one (§5.8 "Catalogue").
+		Factions []Entry `json:"factions"`
 	}
 	if err := json.Unmarshal(raw, &wire); err != nil {
 		return Manifest{}, fail("reading the content catalogue failed: " + err.Error())
 	}
-	manifest := Manifest{Schema: wire.Schema, Maps: wire.Maps, Dependencies: wire.Dependencies, Addons: wire.Addons}
+	manifest := Manifest{Schema: wire.Schema, Maps: wire.Maps, Dependencies: wire.Dependencies, Addons: append(wire.Addons, wire.Factions...)}
 	for _, rawEntry := range wire.Mods {
 		// These fields used to be ignored regardless of JSON type in the mod
 		// catalogue, and remain configuration-free there (§5.1).

@@ -263,8 +263,8 @@ func (vr *variety) attackValue(s *shared, p *Params) int64 {
 // tier's extractors (topExtractors) at attackSpotIncome each, and the
 // commander's own. The army curve is a clock, so at half income the army
 // never caught the launch value and stood at home all game while the
-// enemy took the middle (the play review, docs/PLAN_FACTION_BALANCE.md
-// §3.3); a richer game keeps the curve as it was.
+// enemy took the middle (the play review, README §15); a richer game keeps
+// the curve as it was.
 func incomeScale(s *shared) int64 {
 	ref := max64(topExtractors.at(100, s.tick), 0)*attackSpotIncome/1000 + 1000
 	return clamp(s.mInc*1000/max64(ref, 1), attackIncomeLo, one)

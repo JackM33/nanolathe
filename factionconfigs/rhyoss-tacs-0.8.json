@@ -1,0 +1,24 @@
+{
+  "id": "rhyoss",
+  "name": "Rhyoss",
+  "version": "tacs-0.8",
+  "summary": "The Rhyoss faction beside Arm and Core, as TA: Chaos Space 0.8 carries it.",
+  "homepage": "https://files.tauniverse.com/files/ta/mods/ta-chaos-space-rhyoss-race/",
+  "tag": "rhy",
+  "sides": [
+    "RHYOSS"
+  ],
+  "source": {
+    "file": "Chaos Space.zip",
+    "sha256": "0fd15104e6f67ef6cc350fe1adc724591c89d47297f350c52147d0bca739c45d",
+    "root": "Chaos Space"
+  },
+  "readmes": [
+    "Manual/about.html",
+    "Manual/themod.html",
+    "Manual/credits.html"
+  ],
+  "notes": [
+    "Input is TA: Chaos Space 0.8 by BlueBurst (2005), as TAUniverse hosts it (Chaos Space.zip, 10 January 2008). Its Rhyoss is Monolithic Inc.'s race, rebuilt by BlueBurst on Switeck's BugFix 1.7 beta; its TotalAR.exe, totala.ini and fix scripts are not used."
+  ]
+}

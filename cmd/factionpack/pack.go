@@ -69,7 +69,7 @@ func (p *packer) bonusUnit(key string) bool {
 			if doc, err := formats.ParseTDF(data); err == nil {
 				if ui := doc.Root.Section("UNITINFO"); ui != nil {
 					name, _ := ui.StringValue("UnitName", "")
-					p.bonusUnits[strings.ToLower(strings.TrimSpace(name))] = true
+					p.bonusUnits[lower(strings.TrimSpace(name))] = true
 				}
 			}
 		}
@@ -85,11 +85,11 @@ func (p *packer) unitPack() bool { return p.r.Kind == "units" }
 // its page and button (§5.8).
 func (p *packer) menuEntry(builder, product string) {
 	builder, product = strings.TrimSpace(builder), strings.TrimSpace(product)
-	key := strings.ToLower(product)
+	key := lower(product)
 	if _, kept := p.kept[key]; !kept || builder == "" {
 		return
 	}
-	pair := strings.ToLower(builder) + "|" + key
+	pair := lower(builder) + "|" + key
 	if p.menuSeen == nil {
 		p.menuSeen = map[string]bool{}
 	}
@@ -125,7 +125,7 @@ func (p *packer) damage() []string {
 		baseTable := p.baseWeapons[key].section.Section("DAMAGE")
 		var lines []string
 		for _, item := range table.ResolvedAssignments() {
-			unit := strings.ToLower(strings.TrimSpace(item.Key))
+			unit := lower(strings.TrimSpace(item.Key))
 			if _, kept := p.kept[unit]; !kept {
 				continue
 			}
@@ -150,7 +150,7 @@ func (p *packer) damage() []string {
 // its tag or with one of its kept units' names, which the mount checks for
 // uniqueness (§5.7).
 func (p *packer) owned(name string) bool {
-	n := strings.ToLower(name)
+	n := lower(name)
 	if strings.HasPrefix(n, p.tag) {
 		return true
 	}
@@ -169,7 +169,14 @@ func (p *packer) tagged(name string, max int) string {
 	if len(next) <= max {
 		return next
 	}
-	sum := sha256.Sum256([]byte(strings.ToLower(name)))
+	return p.hashTagged(name, max)
+}
+
+// hashTagged is name in the faction's namespace with a hash suffix, the form
+// tagged shortens to, also used when the plain tagged name is one the
+// release itself already gives another definition.
+func (p *packer) hashTagged(name string, max int) string {
+	sum := sha256.Sum256([]byte(lower(name)))
 	keep := max - len(p.tag) - 1 - 7
 	if keep < 1 {
 		keep = 1
@@ -196,7 +203,7 @@ func (p *packer) noteRename(kind, from, to string) {
 // the tag. transform may rewrite the bytes and reports whether it changed
 // any reference.
 func (p *packer) file(logical string, max int, transform func([]byte) ([]byte, bool, error)) (string, error) {
-	key := strings.ToLower(logical)
+	key := lower(logical)
 	if out, ok := p.fileNames[key]; ok {
 		return out, nil
 	}
@@ -226,7 +233,7 @@ func (p *packer) file(logical string, max int, transform func([]byte) ([]byte, b
 		p.noteRename("file", logical, out)
 	}
 	p.fileNames[key] = out
-	p.files[strings.ToLower(out)] = data
+	p.files[lower(out)] = data
 	return out, nil
 }
 
@@ -262,7 +269,7 @@ func (p *packer) model(name string) (string, error) {
 			return data, false, nil
 		}
 		patched, err := renameModelTextures(data, func(t string) string {
-			if next, ok := p.textures[strings.ToLower(t)]; ok {
+			if next, ok := p.textures[lower(t)]; ok {
 				return next
 			}
 			return t
@@ -280,7 +287,7 @@ func (p *packer) model(name string) (string, error) {
 // (§5.8 "Packaging") and the name moved into the tag unless the faction owns
 // it and the base lacks it.
 func (p *packer) texture(name string) (string, error) {
-	key := strings.ToLower(name)
+	key := lower(name)
 	if out, ok := p.textures[key]; ok {
 		return out, nil
 	}
@@ -334,7 +341,7 @@ func (p *packer) copyTextureBanks() error {
 		if err != nil {
 			return fmt.Errorf("textures/logos.gaf: %w", err)
 		}
-		p.files["factions/"+strings.ToLower(p.r.ID)+"/logos.gaf"] = out
+		p.files["factions/"+lower(p.r.ID)+"/logos.gaf"] = out
 	}
 	return nil
 }
@@ -342,7 +349,7 @@ func (p *packer) copyTextureBanks() error {
 func (p *packer) renameBank(data []byte, logos bool) ([]byte, error) {
 	entries := gafEntries(data)
 	return renameGAFEntries(data, func(name string) string {
-		key := strings.ToLower(name)
+		key := lower(name)
 		if out, ok := p.textures[key]; ok {
 			return out
 		}
@@ -369,10 +376,11 @@ func (p *packer) renameBank(data []byte, logos bool) ([]byte, error) {
 // and reports whether any changed. A definition the release lacks is the
 // base's; one equal to the base's with no changed reference is the base's;
 // otherwise the release's section is emitted under the name the faction may
-// use.
+// use. A carried kind is always emitted: from the release's section, or the
+// base's when the release has none.
 func (p *packer) definition(kind, name string, decided map[string]string, rel, base map[string]tdfSection,
 	rewrite func(tdfSection) (string, bool, error), emit func(text, name string)) (string, error) {
-	key := strings.ToLower(strings.TrimSpace(name))
+	key := lower(strings.TrimSpace(name))
 	if key == "" {
 		return name, nil
 	}
@@ -388,15 +396,21 @@ func (p *packer) definition(kind, name string, decided map[string]string, rel, b
 	p.inFlight[guard] = true
 	defer delete(p.inFlight, guard)
 	relSec, relOK := rel[key]
+	if !relOK && carried(kind) {
+		relSec, relOK = base[key]
+	}
 	if !relOK {
 		decided[key] = name
 		return name, nil
 	}
 	baseSec, baseOK := base[key]
-	sameAsBase := baseOK && sectionsEqual(relSec.section, baseSec.section)
+	sameAsBase := !carried(kind) && baseOK && sectionsEqual(relSec.section, baseSec.section)
 	out := strings.TrimSpace(name)
 	if baseOK || !p.owned(out) {
 		out = p.tagged(out, 99)
+		if _, taken := rel[lower(out)]; taken {
+			out = p.hashTagged(strings.TrimSpace(name), 99)
+		}
 	}
 	// The copy's name is set before the references are visited, so a
 	// successor cycle back to this definition resolves to the copy. A
@@ -418,6 +432,12 @@ func (p *packer) definition(kind, name string, decided map[string]string, rel, b
 	emit(renameSection(text, out), out)
 	return out, nil
 }
+
+// carried reports the kinds a package always holds its own copy of, even
+// where the release's definition equals the base's: the weapons its units
+// fire and the features they leave. A mod that rebalances or drops a base
+// weapon or wreck then changes no faction unit (§5.8 "With a mod").
+func carried(kind string) bool { return kind == "weapon" || kind == "feature" }
 
 func rewriteWith(text string, keys map[string]func(string) string) (string, bool) {
 	next := rewriteValues(text, keys)
@@ -502,7 +522,7 @@ func (p *packer) soundCategory(name string) (string, error) {
 		var err error
 		keys := map[string]func(string) string{}
 		for _, it := range s.section.Assignments() {
-			keys[strings.ToLower(it.Key)] = keyFn(&err, p.sound)
+			keys[lower(it.Key)] = keyFn(&err, p.sound)
 		}
 		text, changed := rewriteWith(s.text, keys)
 		return text, changed, err

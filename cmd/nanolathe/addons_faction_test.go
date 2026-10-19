@@ -110,8 +110,9 @@ func TestInstallAddonInstallsALocalPackage(t *testing.T) {
 
 // Add-ons are kept apart from each other as from the base: one that supplies
 // a logical path, or defines a unit or feature name, an add-on earlier in the
-// selection also does is left off with a notice naming both, and while a mod
-// is selected a faction add-on stays off (§5.8).
+// selection also does is left off with a notice naming both. A faction
+// add-on mounts under a mod, its files under the mod's layout, unless it
+// defines a name the mod also defines (§5.8 "With a mod").
 func TestResolveAddonsKeepsAddonsApart(t *testing.T) {
 	base, mods := modFixture(t)
 	packages := map[string]string{
@@ -125,13 +126,13 @@ func TestResolveAddonsKeepsAddonsApart(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	resolve := func(mod *modlibrary.Mod, ids ...string) ([]string, []string) {
+	resolveWith := func(profile contentprofiles.Profile, mod *modlibrary.Mod, ids ...string) ([]string, []string) {
 		t.Helper()
 		opts := Options{AddonsSet: true, Addons: []settings.AddonSelection{}}
 		for _, id := range ids {
 			opts.Addons = append(opts.Addons, settings.AddonSelection{ID: id, Version: "1"})
 		}
-		out, err := resolveAddons(opts, contentprofiles.Retail(), []string{base}, mod)
+		out, err := resolveAddons(opts, profile, []string{base}, mod)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -143,6 +144,10 @@ func TestResolveAddonsKeepsAddonsApart(t *testing.T) {
 			t.Fatalf("selection %+v, want every installed add-on asked for", out.selection)
 		}
 		return mounted, out.notes
+	}
+	resolve := func(mod *modlibrary.Mod, ids ...string) ([]string, []string) {
+		t.Helper()
+		return resolveWith(contentprofiles.Retail(), mod, ids...)
 	}
 	mounted, notes := resolve(nil, "alpha", "beta", "gamma", "xeno")
 	if strings.Join(mounted, ",") != "alpha,xeno" || len(notes) != 2 ||
@@ -184,14 +189,29 @@ func TestResolveAddonsKeepsAddonsApart(t *testing.T) {
 		t.Fatalf("too many sides: mounted %v, notes %q", mounted, notes)
 	}
 	mod := installFixtureMod(t, mods, "plain", &modlibrary.Metadata{Schema: 1, ID: "plain", Name: "Plain", Version: "1"})
-	if mounted, notes := resolve(&mod, "alpha", "xeno"); strings.Join(mounted, ",") != "alpha" || len(notes) != 1 || notes[0] != "nanolathe: official add-on Xeno not mounted: faction add-ons play with the base game only" {
+	if mounted, notes := resolve(&mod, "alpha", "xeno"); strings.Join(mounted, ",") != "alpha,xeno" || len(notes) != 0 {
 		t.Fatalf("under a mod: mounted %v, notes %q", mounted, notes)
+	}
+	renamed := contentprofiles.Retail()
+	renamed.Directories = map[string]string{"units": "unitsM"}
+	if mounted, notes := resolveWith(renamed, &mod, "alpha", "xeno"); strings.Join(mounted, ",") != "alpha,xeno" || len(notes) != 0 {
+		t.Fatalf("under a renaming layout: mounted %v, notes %q", mounted, notes)
+	}
+	rival := filepath.Join(t.TempDir(), "rival")
+	writeModFixtureFile(t, rival, "units/rivaltank.fbi", "[UNITINFO]{UnitName=XENOTANK;Name=Rival Tank;side=ARM;}")
+	meta, _ := json.Marshal(modlibrary.Metadata{Schema: 1, ID: "rival", Name: "Rival", Version: "1"})
+	writeModFixtureFile(t, rival, modlibrary.MetadataFile, string(meta))
+	rivalMod, err := mods.InstallDirectory(rival, modlibrary.InstallOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if mounted, notes := resolve(&rivalMod, "xeno"); len(mounted) != 0 || len(notes) != 1 || !strings.Contains(notes[0], "Xeno not mounted: the installed content already defines unit xenotank at another path") {
+		t.Fatalf("a faction sharing a mod's unit name: mounted %v, notes %q", mounted, notes)
 	}
 }
 
 // A faction add-on's row reads its sides and unit count in place of the
-// unit names, and says it is off while the drafted mod leaves it off; other
-// add-ons keep their unit names (§5.8).
+// unit names; other add-ons keep their unit names (§5.8).
 func TestNLScreenAddonRowNamesTheFaction(t *testing.T) {
 	dir := t.TempDir()
 	xeno := filepath.Join(dir, "xeno.ufo")
@@ -209,11 +229,6 @@ func TestNLScreenAddonRowNamesTheFaction(t *testing.T) {
 	s := &nlScreen{}
 	if len(rows) != 2 || len(rows[0].units) != 2 || s.addonSubText(rows[0]) != "Faction: Xeno · 2 units" || s.addonSubText(rows[1]) != "FARK" {
 		t.Fatalf("rows %+v", rows)
-	}
-	s.mods = []modlibrary.Mod{{Metadata: modlibrary.Metadata{ID: "m", Name: "M", Version: "1"}}}
-	s.draft.mod = 1
-	if !s.factionLeftOff(rows[0]) || s.factionLeftOff(rows[1]) || !strings.Contains(s.addonSubText(rows[0]), "base game only") {
-		t.Fatalf("under a drafted mod: %q", s.addonSubText(rows[0]))
 	}
 }
 

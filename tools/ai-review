@@ -7,7 +7,7 @@ RESULT is `ai-arena match -out`, TRACE is its `-trace` (with -explain-every),
 units.json is `balance-lab stats` output for unit roles and values. The
 report gives each player's opening, economy and stalls by minute,
 production, defence, squads and fights, and what its commander did
-(docs/PLAN_FACTION_BALANCE.md §3.3).
+(internal/aikit/brains/utility/README.md §15).
 """
 import argparse
 import collections

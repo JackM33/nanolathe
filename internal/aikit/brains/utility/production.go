@@ -150,7 +150,7 @@ const (
 // plant (econ_family.go). A land factory's opening makes a combat unit or
 // two before its constructor and holds off early raids; forcing the
 // constructor first there lost the mirrors (the play review,
-// docs/PLAN_FACTION_BALANCE.md §3.3).
+// README §15).
 func seaOrAirFactory(s *shared, f *aikit.UnitInfo) bool {
 	fam := int32(famNone)
 	if int(f.Index) < len(s.facFam) {
@@ -316,7 +316,7 @@ func (pr *Production) produce(b *core.Board, budget int) {
 					// 930-value warships ahead of its naval constructor
 					// and an air plant two fighters, leaving the commander
 					// alone for five minutes (the play review,
-					// docs/PLAN_FACTION_BALANCE.md §3.3). A land factory
+					// README §15). A land factory
 					// keeps its opening (seaOrAirFactory).
 					need = max64(need, firstConsNeed)
 				}

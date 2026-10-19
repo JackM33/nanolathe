@@ -219,7 +219,7 @@ runs defaults); persona keys (`think`, `react`, `apm`, `attention`,
 | `breadth` | 15 | 0–15 | production breadth, a sum of parts: 1 combat variety, 2 cheap fast combat units in the mix, 4 mobile radar and jammers with the army, 8 assist builders for the factories (§13.16); 0 is the brain before §13.16 game for game |
 | `cloak` | 1 | 0–1 | switch: cloak-capable units, the commander included, cloak while threatened (or authored to start cloaked) and the energy store pays (§14.1) |
 | `gates` | 1 | 0–1 | switch: a Talon gate pair from the base to the front, dialed, carries the ground army (§14.2) |
-| `play` | 7 | 0–15 | the play review's changes (docs/PLAN_FACTION_BALANCE.md §3.3), each measured in mirrors against the brain without it, a sum of parts: 1 a factory whose army cannot reach the enemy is not the land constructor source while a land or hover factory that reaches is on offer, 2 the first constructor goes ahead of combat units at a shipyard or air plant while the commander is the only builder, 4 an extractor waits for energy coverage while the energy store is below half, 8 the launch value's army curve scaled by our income; 0 is the brain before the review |
+| `play` | 7 | 0–15 | the play review's changes (§15), each measured in mirrors against the brain without it, a sum of parts: 1 a factory whose army cannot reach the enemy is not the land constructor source while a land or hover factory that reaches is on offer, 2 the first constructor goes ahead of combat units at a shipyard or air plant while the commander is the only builder, 4 an extractor waits for energy coverage while the energy store is below half, 8 the launch value's army curve scaled by our income; 0 is the brain before the review |
 
 `naval=0,air=0,tech=0,layout=0,army=0` is the brain before §11–§12
 (verified identical, result JSON for result JSON, on a land and a water
@@ -2350,9 +2350,9 @@ others 44.9–54.6%.
 
 ### 13.16 Production breadth (A3: `breadth`)
 
-Unit A3 of the faction balance plan (docs/PLAN_FACTION_BALANCE.md §3.2),
-2026-10-17. Nanolathe Modern AI policy; the contract is
-docs/DESIGN_SESSIONS_AI_SAVE.md "Modern AI production variety". The plan's
+Made for the faction add-ons (DESIGN_MODS_MUTATORS §5.8), 2026-10-17.
+Nanolathe Modern AI policy; the contract is
+docs/DESIGN_SESSIONS_AI_SAVE.md "Modern AI production variety". A
 coverage census found the brain building 15–38 distinct units per side
 although its filters allowed 70–90% of each roster: the combat score picks
 the few most efficient units per factory, cheap fast units were only
@@ -2523,3 +2523,64 @@ tick with no gate, 3.0 ms with one, 9.9 ms with two and 33.7 ms with four
 (a loaded host). Arena games with a pair took 160–230 s of wall time
 against 30–70 s without, at 2.9–4.3 ms a tick against about 0.7.
 
+
+## 15. Play review (`play`, 2026-10-18)
+
+The faction add-ons (DESIGN_MODS_MUTATORS §5.8) asked whether the brain
+plays a side *well*, not only whether it can build its units. A traced
+arena match logs every unit finished and every finished unit lost with its
+class and value; `tools/ai-review` turns a game's result and trace into a
+text report (build order, income, stock and stalls by minute, army and
+defence by kind, idle builders and factories, squads and tasks from the
+brain's own explanation, fights, losses, the commander, the unbuilt
+roster), and `tools/ai-review-summary` compares the sides over a round. An
+LLM read the reports against a checklist of reasonable play — power before
+a stall, a factory early, an economy that grows, a sensible mix, defence in
+proportion, grouped attacks, a safe commander — with ARM against CORE as
+the reference for what this brain does with the stock sides.
+
+**Rounds.** Round 1: 40 full-length games at hard, The Lost Legacy and
+Rhyoss against ARM and CORE on 8 maps at ×0.5, ×1 and ×2 income, plus 8
+ARM-against-CORE references. Round 2: the same seeds plus 16 medium
+games. The reviews found symptoms well; their remedies were kept only when
+they won mirror games, and two that read well game by game lost theirs.
+
+**Latent bugs fixed, for every side:**
+- Water-only fire counted as ground fire, so a shore torpedo launcher was
+  bought as ground defence on land maps (model.go, defense_plan.go).
+- Enemy memory kept a mobile nanoframe at full strength: one bomber frame
+  read as an air force (aikit host.go).
+- The constructor floor acted at full ambition only, so a medium computer
+  could build with its commander alone (econ_growth.go).
+
+**Mirror results.** The same side against itself, the change on one
+player only, both slot orders, sides ARM, CORE, The Lost Legacy and Rhyoss
+in equal parts; the variant's points share with its 90% interval, 32
+games each:
+
+| Change | Result | Kept |
+|---|---|---|
+| Growth rules on (`growth=31`) | 45% ±10 | No |
+| First constructor ahead of combat units everywhere | 44% ±14 | No (removed) |
+| Extractors priced on income, not on the store | 20% ±12 | No (removed) |
+| First constructor ahead of combat units at a shipyard or air plant | 59% ±14 | Yes, part 2 |
+| Extractor waits for energy while the energy store is below half | 61% ±14 hard, 50% ±15 medium; opening stalls about halved | Yes, part 4 |
+| A factory whose army cannot reach the enemy is not the land constructor source while a land or hover factory that reaches is on offer | 56% ±14 | Yes, part 1 |
+| Launch value's army curve scaled by our income | 53% ±15 | No (part 8, off) |
+| Factories follow banked income (`army=23`) | 52% ±15 | No |
+
+`play` defaults to 7 (parts 1, 2 and 4); `play=0` is the brain before the
+review. Part 1 first counted an air plant as the factory that reaches; on
+Sail Away the commander chose one again and again, could never place it,
+and was left the only land builder, so air plants no longer count.
+
+**Left as found:** missile towers as the default tower (human data);
+clearing rocks and wrecks scores like an extractor because reclaim is
+income; The Pass stalemates (armies jam in the pass); a land factory chosen
+before the enemy start is known (reach averages over the possible starts);
+Argon's first factory about half a minute after ARM's (bigger footprints, a
+slower commander).
+
+**Open, general to every side:** armies that trickle or never push;
+anti-air counted over the whole army rather than near the base; constructors
+lost to raids not replaced at medium.

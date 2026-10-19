@@ -444,12 +444,17 @@ func (f *FS) MountGameDirectories(roots []string) error {
 // each joins its extension's tier and the tier's lexical order by file name,
 // and replaces a same-named archive of Dir, as copying it into the folder
 // would. Archives does not filter them. Official add-ons mount this way
-// (docs/DESIGN_MODS_MUTATORS.md §5.7).
+// (docs/DESIGN_MODS_MUTATORS.md §5.7). ExtraLayout, when set, gives the
+// content layout an Extra archive is presented under: its files in a
+// directory the layout renames answer under the layout's name, beside the
+// files of content authored that way. Faction add-ons mount so under a mod
+// that renames the retail directories (§5.8 "With a mod").
 type GameRoot struct {
-	Dir      string
-	Archives func(name string) bool
-	NoLoose  bool
-	Extra    []string
+	Dir         string
+	Archives    func(name string) bool
+	NoLoose     bool
+	Extra       []string
+	ExtraLayout func(full string) Layout
 }
 
 // MountGameRoots is MountGameDirectories for roots that may admit only some
@@ -460,7 +465,7 @@ func (f *FS) MountGameRoots(roots []GameRoot) error {
 	plan := DefaultRetailMountPlan()
 	span := int(max(plan.HPI, plan.UFO, plan.CCX, plan.GP3, plan.Loose)) * 10
 	for i, root := range roots {
-		if err := f.mountGameDirectoryFiltered(root.Dir, plan, i*span, root.Archives, !root.NoLoose, root.Extra); err != nil {
+		if err := f.mountGameDirectoryFiltered(root.Dir, plan, i*span, root.Archives, !root.NoLoose, root.Extra, root.ExtraLayout); err != nil {
 			return fmt.Errorf("mounting root %q: %w", root.Dir, err)
 		}
 	}
@@ -503,14 +508,17 @@ func (f *FS) MountGameDirectoryWithPlan(root string, plan MountPlan) error {
 }
 
 func (f *FS) mountGameDirectory(root string, plan MountPlan, basePriority int) error {
-	return f.mountGameDirectoryFiltered(root, plan, basePriority, nil, true, nil)
+	return f.mountGameDirectoryFiltered(root, plan, basePriority, nil, true, nil, nil)
 }
 
 // gameArchive is one archive a game directory mount plans: its file name,
 // which orders it, and where it is.
-type gameArchive struct{ name, full string }
+type gameArchive struct {
+	name, full string
+	layout     Layout
+}
 
-func (f *FS) mountGameDirectoryFiltered(root string, plan MountPlan, basePriority int, admit func(string) bool, loose bool, extra []string) error {
+func (f *FS) mountGameDirectoryFiltered(root string, plan MountPlan, basePriority int, admit func(string) bool, loose bool, extra []string, extraLayout func(string) Layout) error {
 	if err := plan.Validate(); err != nil {
 		return err
 	}
@@ -533,7 +541,11 @@ func (f *FS) mountGameDirectoryFiltered(root string, plan MountPlan, basePriorit
 	}
 	for _, full := range extra {
 		if IsArchiveName(full) {
-			archives = append(archives, gameArchive{name: filepath.Base(full), full: full})
+			archive := gameArchive{name: filepath.Base(full), full: full}
+			if extraLayout != nil {
+				archive.layout = extraLayout(full)
+			}
+			archives = append(archives, archive)
 		}
 	}
 	sort.Slice(archives, func(i, j int) bool {
@@ -565,7 +577,7 @@ func (f *FS) mountGameDirectoryFiltered(root string, plan MountPlan, basePriorit
 		case ".ufo":
 			tier = plan.UFO
 		}
-		_, err := f.MountArchive(entry.full, basePriority+int(tier)*10)
+		_, err := f.mountArchiveRehomed(entry.full, basePriority+int(tier)*10, entry.layout)
 		if err != nil {
 			// Only the container gate and an unavailable candidate open are
 			// discovery rejection [02 §2]. Indexing and later payload errors

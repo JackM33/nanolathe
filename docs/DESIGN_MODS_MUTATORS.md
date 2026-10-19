@@ -1036,7 +1036,7 @@ The Lost Legacy, Argon and later ones — are add-ons a player enables beside
 ARM and CORE, in any combination: none, one or several. Each is independent
 of the others and of the mod slot. A *unit pack* is the same kind of add-on
 adding units to the sides that exist, such as the units a release added to
-ARM and CORE. **Status: prototype on branch `faction-addons`; not on main.**
+ARM and CORE.
 
 **What a faction add-on is.** An ordinary add-on (§5.7): the same library,
 catalogue record, content digest, `addons` setting, `--addon` flag, Add-ons
@@ -1141,13 +1141,18 @@ authors saw it, and keeps only what the kept sides need:
   download entries between kept units, animation banks and sounds named by
   its weapons and features, and the side's interface art and fonts;
 - each reached item the release supplies byte-identically to the base
-  install is dropped and resolved from the base; an item reached only
+  install is dropped and resolved from the base, except weapons and
+  features: the package always carries its own copy of each weapon its units
+  fire and each feature they leave, so a mod that changes or drops a base
+  weapon or wreck changes no faction unit (below). An item reached only
   through an add-on archive, such as a bonus unit's wreck, is copied under
   the tag, so a faction never depends on another add-on;
-- each reached item the release supplies differently — a rebalanced base
-  weapon, a repainted base texture — and each new name the faction does not
-  own is renamed `<tag>_<name>` (shortened with a hash where a format bounds
-  its length), and every reference to it is rewritten. The faction owns a
+- each carried copy of a base definition, each reached item the release
+  supplies differently — a rebalanced base weapon, a repainted base
+  texture — and each new name the faction does not own is renamed
+  `<tag>_<name>` (shortened with a hash where a format bounds its length or
+  the release already gives that name to another definition), and every
+  reference to it is rewritten. The faction owns a
   name that starts with its tag or with one of its kept units' names; unit
   names themselves are kept, and the mount refuses an add-on whose unit
   names collide;
@@ -1183,24 +1188,75 @@ entry of that name in its page banks, else from the unit's `unitpics`
 picture mapped into the game palette, else from a render of the unit's own
 model the packager supplies (`-art`, made with `--shot-model`; The Lost
 Legacy's ARMSPEED has no picture of any kind). `talon-units-1.03` holds Talon's 47
-ARM and CORE units and `the-lost-legacy-units-1.0` The Lost Legacy's 35.
-They share no name, and `factionpack verify` checks the five factions and
-both packs together: no base definition changes but by rule 5, and each
-add-on composes the same entries alone as alongside the others.
+ARM and CORE units, `the-lost-legacy-units-1.0` The Lost Legacy's 35 and
+`chaos-space-units-0.8` TA: Chaos Space's 45. They share no name, and
+`factionpack verify` checks the factions and packs together: no base
+definition changes but by rule 5, and each add-on composes the same entries
+alone as alongside the others.
+
+Names fold as the overlay folds them, ASCII letters only
+[02 §2], so a release's Latin-1 names keep their bytes (Chaos Space's
+Ketzer fires `KETZER-GAUß` from `objects3d/Ketzer-Gauß.3do`). A recipe's
+`source.root` names the folder a release sits in inside its download, as
+`Chaos Space/` does.
 
 The result is one `<id>.ufo` written by the archive writer, an identity-only
-`nanolathe-mod.json` and a `FACTION-NANOLATHE.txt` naming the recipe, the
-release's SHA-256 and every rename. The converter never invents content: an
+`nanolathe-mod.json`, a `FACTION-NANOLATHE.txt` naming the recipe, the
+release's SHA-256 and every rename, and the release's own readmes the recipe
+names, as `RELEASE-<name>`, so its authors' credits travel with it. The converter never invents content: an
 authored reference that resolves nowhere stays as authored, and the support
 documents for each faction keep their recorded gaps.
 
-**With a mod.** Faction add-ons play with the base game only: while a mod
-is selected each is left unmounted with a startup notice, and the Add-ons
-card shows it left off. A mod's directory layout can hide a faction's
-files, its definitions can share a faction's names, which the compiler
-refuses outright, and a faction's references to base weapons and features
-would resolve to the mod's. Add-ons without a declaration keep §5.7's
-behaviour under a mod.
+**With a mod.** Faction add-ons and unit packs mount under a mod as §5.7's
+add-ons do, unless the mod's config sets `content.addons` to `false`. The
+isolation contract holds against the mod as against the base game: the
+mount leaves off, with a startup notice, an add-on that supplies a path the
+mod supplies or defines a unit or feature name the mod defines, and its
+trial compile, which mounts the mod, leaves off one whose other names
+collide with the mod's. Faction weapons take slots past every slot the mod
+authored.
+
+- *Layouts.* A mod whose config renames retail directories — ProTA, TA:
+  Escalation and TA Zero all do — reads `units` from `unitsE` and so would
+  hide every file a faction keeps under `units`. A declaring add-on's
+  archives are therefore presented under the running layout's directory
+  names (`vfs.GameRoot` `ExtraLayout`): the faction's `units/x.fbi` answers
+  as `unitsE/x.fbi`, beside the mod's own units, and is read through the
+  layout like them. Other add-ons mount as §5.7 says.
+- *What the mod changes.* A faction's units fire their own weapons and
+  leave their own wrecks (Packaging), so the mod changes none of them. The
+  models, textures, scripts, sounds, animations, movement classes and sound
+  categories a faction shares with the base game resolve by name, from the
+  mod where it replaces them.
+- *Composed entries.* Damage entries join the mod's weapons of those names.
+  An entry for a weapon the mod lacks, or for a unit the mod's table already
+  names, places nothing and the table's own entry stays. A menu entry
+  naming a builder the mod lacks places nothing, as everywhere.
+
+Checked with ProTA 4.8, TA: Escalation 10.2.0 and TA Zero alpha 5: Argon,
+Rhyoss, The Lost Legacy and its unit pack all mount, and a Modern computer
+plays The Lost Legacy under each.
+
+**Catalogue.** Hosted faction add-ons and unit packs are listed under the
+add-on catalogue's `factions` key, beside `addons`, with the same record
+fields. A build without faction support ignores the key, so it never offers
+one; this build reads both lists as one, and an id and version may appear in
+only one of them. The hosted set, converted from the releases as their
+authors published them:
+
+- Argon 2.6 beta;
+- Rhyoss as TA: Chaos Space 0.8 carries it (`rhyoss` `tacs-0.8`), with Chaos
+  Space's 45 ARM and CORE units as their own pack (`chaos-space-units`);
+- The Lost Legacy 1.0, with its 35 ARM and CORE units as their own pack.
+
+Chaos Space (BlueBurst, 2005) carries Monolithic Inc.'s Rhyoss with its
+units unchanged and the BugFix 1.7 versions of the base weapons they fire.
+The `rhyoss-1.0` recipe converts the 2003 release, preserved by Core Prime,
+and is not hosted; the two share every unit name, so the mount keeps one.
+Talon and Mynn have recipes but
+are not hosted: Talon's version-6 scripts need the COB support of the
+faction-ports work, and Mynn is incomplete (it has no underwater extractor,
+no hover or amphibious units and no naval anti-air).
 
 **Every gameplay mode.** A faction add-on is content, like §5.7's, and
 applies under Strict 3.1, Community 3.9 and Modern alike. Strict 3.1 with no
@@ -1215,7 +1271,13 @@ CTRL_F filter digit recall may apply, which is one of those sets
 (`internal/hud` `TypeFilterPasses`). Without a filter, recall selects every
 member whatever its ID.
 
-**Limits of the prototype.** Factions play with retail ARM and CORE, not
+**Balance (to do).** The factions are as their releases made them, against
+retail ARM and CORE. They are not balanced against each other or against ARM
+and CORE, and under the Modern AI they differ widely by map: Rhyoss leads on
+water-crossing maps and trails on open land. The measurement tools and
+balance patches made so far are on branch `faction-balance`, not on main.
+
+**Limits.** Factions play with retail ARM and CORE, not
 the changed copies their releases tuned against. A unit pack's units keep
 the stats their release gave them. Under Strict 3.1 a builder's list keeps
 retail's download cutoff, so ARMCSA and CORCSA offer 31 of their 32

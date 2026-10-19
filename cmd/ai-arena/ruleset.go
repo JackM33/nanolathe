@@ -44,8 +44,8 @@ func init() {
 	// "aikit-community-3.9" and "aikit-strict-3.1" are the harness on the
 	// other reserved bases: the same brains and full income under that
 	// mode's rules, every seam its base's. A Modern AI player plays in every
-	// mode (docs/DESIGN_SESSIONS_AI_SAVE.md "Modern AI computer player"), and
-	// faction balance is rechecked in each (docs/PLAN_FACTION_BALANCE.md §1).
+	// mode (docs/DESIGN_SESSIONS_AI_SAVE.md "Modern AI computer player"), so
+	// a measurement can be repeated in each.
 	for _, base := range []gameplay.Mode{gameplay.Community39, gameplay.Strict31} {
 		session.RegisterRuleSet("aikit-"+string(base), func() session.RuleSet {
 			return session.RuleSet{Base: base, Planner: aikit.HostPlanner{}, ComputerIncome: session.FullComputerIncome{}}

@@ -327,7 +327,7 @@ func (e *Economy) evalFactoryN(b *core.Board, u *aikit.OwnUnit, p *aikit.UnitInf
 	// makes land constructors and reaches the enemy: on sail away RHYOSS's
 	// first factory was the troop lab (reach 150‰), whose army stood at
 	// home all game, though its vehicle plant's hovers reach (the play
-	// review, docs/PLAN_FACTION_BALANCE.md §3.3).
+	// review, README §15).
 	consSource := sp.ReachMix != 0 && !si.water && makesLandCons(s, p) && !s.landConsFactory() &&
 		!(sp.Play&playReachCons != 0 && e.reachCons && (si.qualityR <= 0 || s.stranded(p)))
 	if si.qualityR <= 0 && !consSource {

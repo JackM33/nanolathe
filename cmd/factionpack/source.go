@@ -24,13 +24,13 @@ func newView(fs vfs.FSOps, entries []vfs.EntryInfo, layout vfs.Layout) *view {
 	v := &view{fs: fs, paths: map[string]string{}}
 	restore := map[string]string{}
 	for _, row := range layout.Names() {
-		restore[strings.ToLower(row[1])] = strings.ToLower(row[0])
+		restore[lower(row[1])] = lower(row[0])
 	}
 	for _, e := range entries {
 		if e.IsDir {
 			continue
 		}
-		p := strings.ToLower(e.Path)
+		p := lower(e.Path)
 		first, rest, ok := strings.Cut(p, "/")
 		if r, found := restore[first]; found && ok {
 			p = r + "/" + rest
@@ -55,7 +55,7 @@ func layoutHides(layout vfs.Layout, first string) bool {
 }
 
 func (v *view) has(p string) bool {
-	_, ok := v.paths[strings.ToLower(p)]
+	_, ok := v.paths[lower(p)]
 	return ok
 }
 
@@ -63,7 +63,7 @@ func (v *view) read(p string) ([]byte, bool) {
 	if !v.has(p) {
 		return nil, false
 	}
-	data, err := v.fs.ReadFileLimit(strings.ToLower(p), 256<<20)
+	data, err := v.fs.ReadFileLimit(lower(p), 256<<20)
 	if err != nil {
 		return nil, false
 	}
@@ -73,7 +73,7 @@ func (v *view) read(p string) ([]byte, bool) {
 // list returns the view's files under dir (recursively when deep) with the
 // suffix, sorted.
 func (v *view) list(dir, suffix string, deep bool) []string {
-	prefix := strings.ToLower(dir) + "/"
+	prefix := lower(dir) + "/"
 	var out []string
 	for p := range v.paths {
 		if !strings.HasPrefix(p, prefix) || !strings.HasSuffix(p, suffix) {
@@ -115,10 +115,10 @@ func indexSections(v *view, files []string) map[string]tdfSection {
 		}
 		parsed := map[string]*formats.Section{}
 		for _, s := range doc.Root.Sections() {
-			parsed[strings.ToLower(strings.TrimSpace(s.OriginalName))] = s
+			parsed[lower(strings.TrimSpace(s.OriginalName))] = s
 		}
 		for _, raw := range topSections(data) {
-			key := strings.ToLower(raw.Name)
+			key := lower(raw.Name)
 			if key == "" || parsed[key] == nil {
 				continue
 			}
@@ -141,12 +141,12 @@ func sectionsEqual(a, b *formats.Section) bool {
 func canonicalSection(s *formats.Section) string {
 	var parts []string
 	for _, it := range s.ResolvedAssignments() {
-		parts = append(parts, strings.ToLower(it.Key)+"="+strings.TrimSpace(it.Value))
+		parts = append(parts, lower(it.Key)+"="+strings.TrimSpace(it.Value))
 	}
 	sort.Strings(parts)
 	var subs []string
 	for _, sub := range s.Sections() {
-		subs = append(subs, strings.ToLower(sub.OriginalName)+"{"+canonicalSection(sub)+"}")
+		subs = append(subs, lower(sub.OriginalName)+"{"+canonicalSection(sub)+"}")
 	}
 	sort.Strings(subs)
 	return strings.Join(parts, ";") + "|" + strings.Join(subs, "")
@@ -160,7 +160,7 @@ func gafEntries(data []byte) map[string]*formats.GAFEntry {
 	}
 	out := map[string]*formats.GAFEntry{}
 	for i := range g.Entries {
-		out[strings.ToLower(g.Entries[i].Name)] = &g.Entries[i]
+		out[lower(g.Entries[i].Name)] = &g.Entries[i]
 	}
 	return out
 }
@@ -229,10 +229,29 @@ func buildTextureIndex(resolve func(string) ([]byte, bool), files []string) text
 // lookup resolves a model texture name; logo reports an entry the logo
 // bank supplies.
 func (ix textureIndex) lookup(name string) (entry *formats.GAFEntry, logo, ok bool) {
-	key := strings.ToLower(name)
+	key := lower(name)
 	if e, found := ix.primary[key]; found {
 		return e, false, true
 	}
 	e, found := ix.logos[key]
 	return e, found, found
+}
+
+// lower folds ASCII letters only, as the overlay folds logical paths
+// [02 §2]. A release's Latin-1 names keep their bytes: strings.ToLower
+// would turn TA: Chaos Space's Ketzer-Gau\xdf into U+FFFD, and the copy
+// would name a file nothing supplies.
+func lower(s string) string {
+	for i := 0; i < len(s); i++ {
+		if c := s[i]; c >= 'A' && c <= 'Z' {
+			b := []byte(s)
+			for j := i; j < len(b); j++ {
+				if b[j] >= 'A' && b[j] <= 'Z' {
+					b[j] += 'a' - 'A'
+				}
+			}
+			return string(b)
+		}
+	}
+	return s
 }

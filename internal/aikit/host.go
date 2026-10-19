@@ -923,7 +923,7 @@ func (h *Host) updateMemory(tick uint32) {
 		if !c.Built && c.Info.Role.Has(RoleMobile) {
 			// A mobile unit's nanoframe neither moves nor fires: counted
 			// whole, one bomber frame in an air plant read as an air force
-			// (the play review, docs/PLAN_FACTION_BALANCE.md §3.3). It is
+			// (the play review, internal/aikit/brains/utility/README.md §15). It is
 			// remembered once it is finished.
 			continue
 		}

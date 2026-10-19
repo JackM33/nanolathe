@@ -66,7 +66,7 @@ type Params struct {
 	Breadth     int32 // breadth: production breadth, a sum of parts (README §13.16)
 	Cloak       int32 // cloak: 1 = cloak-capable units cloak when threatened while energy pays (abil_cloak.go)
 	Gates       int32 // gates: 1 = a gate pair from the base to the front, dialed, carries the army (abil_gates.go)
-	Play        int32 // play: the play review's fixes, a sum of parts (docs/PLAN_FACTION_BALANCE.md §3.3)
+	Play        int32 // play: the play review's fixes, a sum of parts (README §15)
 }
 
 // ParamSpec documents one parameter.
@@ -133,7 +133,7 @@ var Specs = [...]ParamSpec{
 	{"breadth", 15, 0, 15, "production breadth, a sum of parts: 1 combat variety (shares within each factory, a per-game preference, an efficiency floor), 2 cheap fast combat units in the mix beyond the scout allowance, 4 mobile radar and jammers kept with the army, 8 mobile assist builders for the factories (README §13.16)"},
 	{"cloak", 1, 0, 1, "switch: cloak-capable units, the commander included, cloak while threatened (or authored to start cloaked) and the energy store can pay (DESIGN_SESSIONS_AI_SAVE \"Modern AI commands\")"},
 	{"gates", 1, 0, 1, "switch: a gate in the base and one toward the front once the army travels and income pays for both, the base gate dialed to the front one, ground units sent through it when that shortens their trip (DESIGN_SESSIONS_AI_SAVE \"Modern AI gates\")"},
-	{"play", 7, 0, 15, "the play review's changes, each measured in mirrors against the brain without it, a sum of parts: 1 a factory whose army cannot reach the enemy is not the land constructor source while a land or hover factory that reaches is on offer, 2 the first constructor goes ahead of combat units at a shipyard or air plant, 4 an extractor waits for energy coverage while the energy store is below half, 8 the launch value's army curve scaled by our income (docs/PLAN_FACTION_BALANCE.md §3.3)"},
+	{"play", 7, 0, 15, "the play review's changes, each measured in mirrors against the brain without it, a sum of parts: 1 a factory whose army cannot reach the enemy is not the land constructor source while a land or hover factory that reaches is on offer, 2 the first constructor goes ahead of combat units at a shipyard or air plant, 4 an extractor waits for energy coverage while the energy store is below half, 8 the launch value's army curve scaled by our income (README §15)"},
 }
 
 const numParams = len(Specs)

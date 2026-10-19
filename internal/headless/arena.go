@@ -87,8 +87,8 @@ type ArenaRequest struct {
 	// Values, when set, prices units for every score and value count by
 	// canonical unit key instead of the battle catalog's costs. A balance
 	// sweep scores every cost variant on one ruler: priced at its own costs,
-	// a discounted army would score less for the same strength
-	// (docs/PLAN_FACTION_BALANCE.md §5.7). Units it does not name keep their
+	// a discounted army would score less for the same strength. Units it does
+	// not name keep their
 	// catalog value.
 	Values map[string]int32
 	Log    io.Writer
@@ -622,7 +622,7 @@ type ArenaTrace struct {
 	Events   []ArenaEvent    `json:"events"`
 	Series   [][]ArenaSample `json:"series"`
 	// Log is every unit finished and every finished unit lost, in tick
-	// order, for the play review (docs/PLAN_FACTION_BALANCE.md §3.3).
+	// order, for the play review (internal/aikit/brains/utility/README.md §15).
 	Log []ArenaLogEntry `json:"log"`
 }
 

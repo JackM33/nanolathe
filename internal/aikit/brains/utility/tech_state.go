@@ -32,8 +32,8 @@ type techState struct {
 // commander may build only a weaker variant (Talon's commander builds an
 // armoured extractor at 0.8 of its constructors' plain one). A margin of one
 // would make every first-tier constructor advanced and every first factory a
-// tech-2 factory, held back by the tech timeline
-// (docs/PLAN_FACTION_BALANCE.md §3.1).
+// tech-2 factory, held back by the tech timeline: Talon built no factory in
+// a coverage census of twelve 30-minute games.
 func (s *shared) setupTech(k *aikit.Kit, com *aikit.UnitInfo) {
 	t := k.Table
 	var baseMex int32

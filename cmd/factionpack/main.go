@@ -49,6 +49,9 @@ type recipe struct {
 	Source struct {
 		File   string `json:"file"`
 		SHA256 string `json:"sha256"`
+		// Root is the release's folder inside the source, when its files
+		// sit under one rather than at the top; readmes are named from it.
+		Root string `json:"root,omitempty"`
 	} `json:"source"`
 	// UnitSides are the unit `side` values to keep, when they are more than
 	// the side records' names (a release may tag some of its units with a
@@ -61,7 +64,12 @@ type recipe struct {
 	// made for its computer players alone; what only they reach goes too,
 	// and builders' lists drop them as they drop any missing product.
 	OmitUnits []string `json:"omitUnits,omitempty"`
-	Notes     []string `json:"notes,omitempty"`
+	// Readmes are the release's own documents, by path in the release, copied
+	// to the package root as RELEASE-<name> so its authors' credits travel
+	// with the add-on; ".htm" becomes ".html", a root document the add-on
+	// library accepts.
+	Readmes []string `json:"readmes,omitempty"`
+	Notes   []string `json:"notes,omitempty"`
 }
 
 func main() {
@@ -114,10 +122,10 @@ func readRecipe(name string) (recipe, error) {
 	default:
 		return r, fmt.Errorf("%s: unknown kind %q", name, r.Kind)
 	}
-	if strings.ToLower(r.ID) != r.ID || strings.ContainsAny(r.ID, "/\\ ") {
+	if lower(r.ID) != r.ID || strings.ContainsAny(r.ID, "/\\ ") {
 		return r, fmt.Errorf("%s: id must be lowercase with no separators", name)
 	}
-	r.Tag = strings.ToLower(r.Tag)
+	r.Tag = lower(r.Tag)
 	return r, nil
 }
 
@@ -142,6 +150,9 @@ func run(recipePath, baseDir, source, outDir, artDir string) error {
 		}
 		source = dir
 	}
+	if r.Source.Root != "" {
+		source = filepath.Join(source, filepath.FromSlash(r.Source.Root))
+	}
 	files, notes, err := convert(r, baseDir, source, artDir)
 	if err != nil {
 		return err
@@ -149,7 +160,19 @@ func run(recipePath, baseDir, source, outDir, artDir string) error {
 	if !pinned {
 		notes = append([]string{"Source: a directory or an unpinned file; its bytes were not checked against the recipe's SHA-256."}, notes...)
 	}
-	return write(r, files, notes, outDir)
+	docs := map[string][]byte{}
+	for _, name := range r.Readmes {
+		data, err := os.ReadFile(filepath.Join(source, filepath.FromSlash(name)))
+		if err != nil {
+			return fmt.Errorf("readme %s: %w", name, err)
+		}
+		out := "RELEASE-" + path.Base(name)
+		if strings.EqualFold(path.Ext(out), ".htm") {
+			out += "l"
+		}
+		docs[out] = data
+	}
+	return write(r, files, notes, docs, outDir)
 }
 
 func checkSource(file, want string) error {
@@ -165,7 +188,7 @@ func checkSource(file, want string) error {
 	if _, err := io.Copy(h, f); err != nil {
 		return err
 	}
-	if got := hex.EncodeToString(h.Sum(nil)); got != strings.ToLower(want) {
+	if got := hex.EncodeToString(h.Sum(nil)); got != lower(want) {
 		return fmt.Errorf("%s: SHA-256 %s, the recipe pins %s", file, got, want)
 	}
 	return nil
@@ -241,7 +264,7 @@ func convert(r recipe, baseDir, source, artDir string) (map[string][]byte, []str
 	defer closeBase()
 	skip := map[string]bool{}
 	for _, name := range r.Exclude {
-		skip[strings.ToLower(name)] = true
+		skip[lower(name)] = true
 	}
 	// The install's own add-on archives alone: a unit pack leaves their
 	// units, such as Cavedog's bonus units, to the official add-ons (§5.7).
@@ -252,7 +275,7 @@ func convert(r recipe, baseDir, source, artDir string) (map[string][]byte, []str
 	defer closeBonus()
 	rel, closeRel, err := mountView([]vfs.GameRoot{
 		{Dir: baseDir, Archives: addonArchive, NoLoose: true},
-		{Dir: source, Archives: func(name string) bool { return !skip[strings.ToLower(name)] }},
+		{Dir: source, Archives: func(name string) bool { return !skip[lower(name)] }},
 	}, layout)
 	if err != nil {
 		return nil, nil, fmt.Errorf("release: %w", err)
@@ -320,7 +343,7 @@ func convert(r recipe, baseDir, source, artDir string) (map[string][]byte, []str
 	if err := p.copyTextureBanks(); err != nil {
 		return nil, nil, err
 	}
-	dir := "factions/" + strings.ToLower(r.ID) + "/"
+	dir := "factions/" + lower(r.ID) + "/"
 	p.files[dir+"sidedata.tdf"] = []byte(sides.text)
 	if !p.unitPack() {
 		if art, ok := p.sideButtons(sides); ok {
@@ -349,7 +372,7 @@ func convert(r recipe, baseDir, source, artDir string) (map[string][]byte, []str
 	}
 	emit("moveinfo.tdf", classes)
 	if len(p.out.features) > 0 {
-		p.files["features/"+strings.ToLower(r.ID)+"/"+strings.ToLower(r.ID)+".tdf"] = []byte(strings.Join(p.out.features, "\r\n\r\n") + "\r\n")
+		p.files["features/"+lower(r.ID)+"/"+lower(r.ID)+".tdf"] = []byte(strings.Join(p.out.features, "\r\n\r\n") + "\r\n")
 	}
 	notes := p.packageNotes(sides)
 	p.files[dir+"package.txt"] = []byte(strings.Join(notes, "\r\n") + "\r\n")
@@ -369,7 +392,7 @@ func moveClasses(rel, base *view) (map[string]tdfSection, map[string]tdfSection)
 				continue
 			}
 			name, ok := s.section.StringValue("Name", "")
-			key := strings.ToLower(strings.TrimSpace(name))
+			key := lower(strings.TrimSpace(name))
 			if !ok || key == "" {
 				continue
 			}
@@ -393,18 +416,18 @@ func (p *packer) selectUnits() error {
 		sides = p.r.Sides
 	}
 	for _, s := range sides {
-		want[strings.ToLower(s)] = true
+		want[lower(s)] = true
 	}
 	omit := map[string]bool{}
 	for _, name := range p.r.OmitUnits {
-		omit[strings.ToLower(strings.TrimSpace(name))] = true
+		omit[lower(strings.TrimSpace(name))] = true
 	}
 	for _, f := range p.base.list("units", ".fbi", false) {
 		if data, ok := p.base.read(f); ok {
 			if doc, err := formats.ParseTDF(data); err == nil {
 				if ui := doc.Root.Section("UNITINFO"); ui != nil {
 					name, _ := ui.StringValue("UnitName", "")
-					p.baseUnit[strings.ToLower(strings.TrimSpace(name))] = true
+					p.baseUnit[lower(strings.TrimSpace(name))] = true
 				}
 			}
 		}
@@ -420,12 +443,12 @@ func (p *packer) selectUnits() error {
 			continue
 		}
 		side, _ := ui.StringValue("side", "")
-		if !want[strings.ToLower(strings.TrimSpace(side))] {
+		if !want[lower(strings.TrimSpace(side))] {
 			continue
 		}
 		name, _ := ui.StringValue("UnitName", "")
 		name = strings.TrimSpace(name)
-		key := strings.ToLower(name)
+		key := lower(name)
 		if key == "" {
 			continue
 		}
@@ -444,7 +467,7 @@ func (p *packer) selectUnits() error {
 			}
 			return fmt.Errorf("kept unit %s is also a base unit; a faction cannot replace one", name)
 		}
-		if !strings.EqualFold(stemOf(f), name) {
+		if lower(stemOf(f)) != lower(name) {
 			p.notes = append(p.notes, fmt.Sprintf("unit %s was authored in %s; written as units/%s.fbi, the file the compiler reads", name, f, key))
 		}
 		p.kept[key] = tdfSection{file: f, text: string(data), section: ui}
@@ -518,7 +541,7 @@ func (p *packer) sides() (sideOutput, error) {
 				break
 			}
 			prefix, _ := s.StringValue("nameprefix", "")
-			out.baseSide[strings.ToLower(strings.TrimSpace(prefix))] = true
+			out.baseSide[lower(strings.TrimSpace(prefix))] = true
 		}
 	}
 	data, ok := p.rel.read("gamedata/sidedata.tdf")
@@ -531,11 +554,11 @@ func (p *packer) sides() (sideOutput, error) {
 	}
 	raw := map[string]rawSection{}
 	for _, s := range topSections(data) {
-		raw[strings.ToLower(s.Name)] = s
+		raw[lower(s.Name)] = s
 	}
 	want := map[string]bool{}
 	for _, s := range p.r.Sides {
-		want[strings.ToLower(s)] = true
+		want[lower(s)] = true
 	}
 	var b strings.Builder
 	n := 0
@@ -547,20 +570,20 @@ func (p *packer) sides() (sideOutput, error) {
 			break
 		}
 		sideName, _ := s.StringValue("name", "")
-		if !want[strings.ToLower(strings.TrimSpace(sideName))] {
+		if !want[lower(strings.TrimSpace(sideName))] {
 			continue
 		}
-		if taken[strings.ToLower(strings.TrimSpace(sideName))] {
+		if taken[lower(strings.TrimSpace(sideName))] {
 			p.notes = append(p.notes, fmt.Sprintf("%s (%s) left out: an earlier side record has that name", name, sideName))
 			continue
 		}
 		commander, _ := s.StringValue("commander", "")
-		if _, kept := p.kept[strings.ToLower(strings.TrimSpace(commander))]; !kept {
+		if _, kept := p.kept[lower(strings.TrimSpace(commander))]; !kept {
 			p.notes = append(p.notes, fmt.Sprintf("side %s left out: its commander %s is not a kept unit", sideName, commander))
 			continue
 		}
 		var ferr error
-		text := rewriteValues(sectionText(data, raw[strings.ToLower(name)]), map[string]func(string) string{
+		text := rewriteValues(sectionText(data, raw[lower(name)]), map[string]func(string) string{
 			"intgaf": keyFn(&ferr, p.animBank),
 			"font": keyFn(&ferr, func(v string) (string, error) {
 				out, err := p.file("fonts/"+v+".fnt", 60, nil)
@@ -577,7 +600,7 @@ func (p *packer) sides() (sideOutput, error) {
 		b.WriteString(renameSection(text, fmt.Sprintf("SIDE%d", n)))
 		b.WriteString("\r\n\r\n")
 		n++
-		taken[strings.ToLower(strings.TrimSpace(sideName))] = true
+		taken[lower(strings.TrimSpace(sideName))] = true
 		out.ordinals = append(out.ordinals, i)
 		out.names = append(out.names, strings.TrimSpace(sideName))
 		prefix, _ := s.StringValue("nameprefix", "")
@@ -590,10 +613,10 @@ func (p *packer) sides() (sideOutput, error) {
 	if canbuild := doc.Root.Section("CANBUILD"); canbuild != nil {
 		for _, builder := range canbuild.Sections() {
 			name := strings.TrimSpace(builder.OriginalName)
-			if _, kept := p.kept[strings.ToLower(name)]; !kept {
+			if _, kept := p.kept[lower(name)]; !kept {
 				// A unit pack's units the release added to a base builder's
 				// list go on that builder's menu (§5.8).
-				if p.unitPack() && p.baseUnit[strings.ToLower(name)] {
+				if p.unitPack() && p.baseUnit[lower(name)] {
 					for i := 1; ; i++ {
 						v, ok := builder.StringValue(fmt.Sprintf("canbuild%d", i), "")
 						if !ok {
@@ -627,7 +650,7 @@ func (p *packer) sides() (sideOutput, error) {
 // available reports a product a kept builder may still build: a kept unit
 // or a base unit.
 func (p *packer) available(name string) bool {
-	key := strings.ToLower(strings.TrimSpace(name))
+	key := lower(strings.TrimSpace(name))
 	if key == "" {
 		return false
 	}
@@ -641,7 +664,7 @@ func (p *packer) available(name string) bool {
 func (p *packer) unitFiles(sides sideOutput) error {
 	var prefixes []string
 	for _, prefix := range sides.prefixes {
-		key := strings.ToLower(prefix)
+		key := lower(prefix)
 		if key != "" && !sides.baseSide[key] {
 			prefixes = append(prefixes, key)
 		}
@@ -652,7 +675,7 @@ func (p *packer) unitFiles(sides sideOutput) error {
 	}
 	for _, dir := range []string{"scripts", "unitpics", "anims", "guis"} {
 		for _, f := range p.rel.list(dir, "", false) {
-			stem := strings.ToLower(stemOf(f))
+			stem := lower(stemOf(f))
 			match := false
 			for _, u := range units {
 				if strings.HasPrefix(stem, u) {
@@ -701,19 +724,19 @@ func (p *packer) downloads() error {
 		}
 		parsed := map[string]*formats.Section{}
 		for _, s := range doc.Root.Sections() {
-			parsed[strings.ToLower(strings.TrimSpace(s.OriginalName))] = s
+			parsed[lower(strings.TrimSpace(s.OriginalName))] = s
 		}
 		var kept []string
 		dropped := 0
 		for _, raw := range topSections(data) {
-			s := parsed[strings.ToLower(raw.Name)]
+			s := parsed[lower(raw.Name)]
 			if s == nil {
 				continue
 			}
 			builder, _ := s.StringValue("UNITMENU", "")
 			product, _ := s.StringValue("UNITNAME", "")
-			if _, ok := p.kept[strings.ToLower(strings.TrimSpace(builder))]; !ok || !p.available(product) {
-				if p.unitPack() && p.baseUnit[strings.ToLower(strings.TrimSpace(builder))] {
+			if _, ok := p.kept[lower(strings.TrimSpace(builder))]; !ok || !p.available(product) {
+				if p.unitPack() && p.baseUnit[lower(strings.TrimSpace(builder))] {
 					p.menuEntry(builder, product)
 				}
 				dropped++
@@ -760,8 +783,9 @@ func (p *packer) packageNotes(sides sideOutput) []string {
 }
 
 // write emits <out>/<id>-<version>/ with the identity-only metadata, the
-// archive and the notes, and the same three files as a zip beside it.
-func write(r recipe, files map[string][]byte, notes []string, outDir string) error {
+// archive, the notes and the release's documents, and the same files as a
+// zip beside it.
+func write(r recipe, files map[string][]byte, notes []string, docs map[string][]byte, outDir string) error {
 	name := r.ID + "-" + r.Version
 	dir := filepath.Join(outDir, name)
 	if _, err := os.Stat(dir); err == nil {
@@ -806,6 +830,13 @@ func write(r recipe, files map[string][]byte, notes []string, outDir string) err
 		"FACTION-NANOLATHE.txt": []byte(strings.Join(notes, "\n") + "\n"),
 	}
 	order := []string{"nanolathe-mod.json", ufoName, "FACTION-NANOLATHE.txt"}
+	docNames := make([]string, 0, len(docs))
+	for name, data := range docs {
+		contents[name] = data
+		docNames = append(docNames, name)
+	}
+	sort.Strings(docNames)
+	order = append(order, docNames...)
 	for _, f := range order {
 		if err := os.WriteFile(filepath.Join(dir, f), contents[f], 0o644); err != nil {
 			return err

@@ -219,7 +219,7 @@ func (s *shared) surplus() bool {
 // not an investment but the least economy any plan needs, so it acts at
 // every ambition: below full ambition the commander otherwise built alone
 // for most of a game whose map left no free safe spot (the play review,
-// docs/PLAN_FACTION_BALANCE.md §3.3).
+// README §15).
 func (s *shared) part(bit int32) bool {
 	if bit == gConsFloor {
 		return s.p.Growth&bit != 0

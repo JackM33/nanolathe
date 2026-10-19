@@ -34,6 +34,34 @@ func TestAddonManifestAdmitsContents(t *testing.T) {
 	}
 }
 
+// Faction add-ons are listed under their own key, which a build without
+// faction support ignores; this build offers them as add-ons, and an id and
+// version may appear under only one of the two keys (§5.8 "Catalogue").
+func TestAddonManifestReadsFactionsApart(t *testing.T) {
+	base, _ := url.Parse(DefaultAddonCatalogURL)
+	faction := addonManifest().Addons[0]
+	faction.ID, faction.Name = "xeno", "Xeno"
+	raw, _ := json.Marshal(map[string]any{"schema": 1, "addons": addonManifest().Addons, "factions": []Entry{faction}})
+	m, err := parseManifest(raw, base, originOf(base))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := m.OffersAddon("xeno", "original"); !ok || len(m.Addons) != 2 {
+		t.Fatalf("faction entry not offered: %+v", m.Addons)
+	}
+	var old struct {
+		Addons []Entry `json:"addons"`
+	}
+	if err := json.Unmarshal(raw, &old); err != nil || len(old.Addons) != 1 {
+		t.Fatalf("a reader of the add-ons key alone sees %+v (%v)", old.Addons, err)
+	}
+	faction.ID = "bonus"
+	raw, _ = json.Marshal(map[string]any{"schema": 1, "addons": addonManifest().Addons, "factions": []Entry{faction}})
+	if _, err := parseManifest(raw, base, originOf(base)); err == nil || !strings.Contains(err.Error(), "twice") {
+		t.Fatalf("an add-on under both keys: err %v", err)
+	}
+}
+
 func TestAddonManifestRefusals(t *testing.T) {
 	base, _ := url.Parse(DefaultAddonCatalogURL)
 	for _, tc := range []struct {

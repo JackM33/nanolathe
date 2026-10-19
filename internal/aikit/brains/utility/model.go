@@ -459,7 +459,7 @@ func (s *shared) eff(q *aikit.UnitInfo, aaNeed int64) int64 {
 // table) all of DPS counts. Water-only fire (WaterDPS: torpedoes) never
 // reaches a ground target either: TLL's shore torpedo launcher, a tower
 // that stands on land, was bought as ground defence on land maps without
-// this (the play review, docs/PLAN_FACTION_BALANCE.md §3.3).
+// this (the play review, README §15).
 func groundDPS(u *aikit.UnitInfo) int64 {
 	g := int64(u.DPS)
 	if u.Def == nil {

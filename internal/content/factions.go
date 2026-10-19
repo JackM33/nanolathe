@@ -195,10 +195,13 @@ type FactionDamage struct {
 // weapons' damage tables. A section names a base weapon as the weapon
 // catalog does, and each of its assignments is one unit=damage entry, read
 // with the integer accessor as a DAMAGE entry is [02 "Weapon record"]. Every
-// unit must be one the declaration's archive defines, the weapon must be the
-// base's, and the table must not already name the unit: an entry changes
-// only how a base weapon hits that add-on's units, so entries from different
-// add-ons never meet. The weapon's Hash stays its authored record's, as a
+// unit must be one the declaration's archive defines and no section may name
+// a faction weapon: an entry changes only how a base weapon hits that
+// add-on's units, so entries from different add-ons never meet. The entries
+// were authored against the base game, and a mod may lack the weapon or name
+// the unit in its table already; such an entry places nothing, and the
+// table's own entry stays (§5.8 "With a mod"). The weapon's Hash stays its
+// authored record's, as a
 // mutator's damage rewrite leaves it; the entries are returned for the
 // catalog hash, and the semantic digest reads the table itself.
 func composeFactionDamage(fs vfs.FSOps, weapons map[string]*WeaponDef, units map[string]*UnitDef) ([]FactionDamage, error) {
@@ -221,15 +224,18 @@ func composeFactionDamage(fs vfs.FSOps, weapons map[string]*WeaponDef, units map
 				continue
 			}
 			wd := weapons[CanonicalKey(name)]
-			if wd == nil || inFactionDeclaration(wd.Provenance) {
+			if wd != nil && inFactionDeclaration(wd.Provenance) {
 				return nil, fmt.Errorf("nanolathe: faction damage names no base weapon: logical path %s, providers searched [%s], expected a base weapon name: %s", prov.LogicalPath, prov.ProviderID, name)
 			}
 			for _, item := range section.ResolvedAssignments() {
 				if _, err := ownUnit(units, item.Key, prov); err != nil {
 					return nil, err
 				}
+				if wd == nil {
+					continue
+				}
 				if _, exists := wd.DamageOverride(item.Key); exists {
-					return nil, fmt.Errorf("nanolathe: faction damage replaces an entry: logical path %s, providers searched [%s, %s], expected a unit %s's table does not name: %s", prov.LogicalPath, prov.ProviderID, wd.Provenance.LogicalPath, wd.Name, item.Key)
+					continue
 				}
 				damage := section.IntValue(item.Key, 0)
 				wd.addDamage(item.OriginalKey, damage)

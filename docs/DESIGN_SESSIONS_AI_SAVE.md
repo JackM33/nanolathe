@@ -2510,8 +2510,8 @@ and the existing synchronous/asynchronous arena comparison.
 
 #### Modern AI damage hints
 
-**Nanolathe Modern AI policy** (faction balance stream A,
-[PLAN_FACTION_BALANCE §3.2](PLAN_FACTION_BALANCE.md#32-work-units)).
+**Nanolathe Modern AI policy** (made for the faction add-ons,
+[DESIGN_MODS_MUTATORS §5.8](DESIGN_MODS_MUTATORS.md#58-faction-add-ons)).
 
 **The problem.** The Modern AI's unit table rates a unit's firepower from
 its weapon records: damage × burst ÷ reload. A unit script can hold fire
@@ -2529,8 +2529,8 @@ integer from 0 to 1000, the share of the record rate the unit delivers.
   simulation never does, and Classic players and the engine ignore it.
 - Stock content authors none, so stock tables and every fingerprint lock
   are unchanged.
-- Faction packages carry it through their balance patches
-  (`factionconfigs/balance/<id>.json`), from match-up measurements.
+- The faction add-ons as released author none either; a measured value
+  would be content the faction's package carries.
 
 **Every credited rate is scaled.** The hint applies after every rate is
 known, including the anti-air credited from damage tables. A flak weapon
@@ -2541,8 +2541,8 @@ air defense, rated by its anti-air; every stock defense has ground DPS.
 
 #### Modern AI production variety
 
-**Nanolathe Modern AI policy** (faction balance stream A, unit A3,
-[PLAN_FACTION_BALANCE §3.2](PLAN_FACTION_BALANCE.md#32-work-units)). The
+**Nanolathe Modern AI policy** (made for the faction add-ons,
+[DESIGN_MODS_MUTATORS §5.8](DESIGN_MODS_MUTATORS.md#58-faction-add-ons)). The
 Modern computer player spreads its factory production over more of each
 roster, in every gameplay mode, including Strict 3.1. Like the other Modern
 AI policies it extends the per-player controller exception, not the rule
@@ -2647,8 +2647,8 @@ game.
 
 #### Modern AI upgrade modules
 
-**Nanolathe Modern AI policy** (faction balance stream A, unit A5,
-[PLAN_FACTION_BALANCE §3.2](PLAN_FACTION_BALANCE.md#32-work-units)). The
+**Nanolathe Modern AI policy** (made for the faction add-ons,
+[DESIGN_MODS_MUTATORS §5.8](DESIGN_MODS_MUTATORS.md#58-faction-add-ons)). The
 Modern computer player builds upgrade modules and keeps one of each upgrade
 they make, in every gameplay mode, including Strict 3.1. Like the other
 Modern AI policies it extends the per-player controller exception, not the
@@ -2731,8 +2731,8 @@ this think count; none during an energy stall).
 
 #### Modern AI commands
 
-**Nanolathe Modern AI policy** (faction balance stream A, unit A7,
-[PLAN_FACTION_BALANCE §3.2](PLAN_FACTION_BALANCE.md#32-work-units)). The
+**Nanolathe Modern AI policy** (made for the faction add-ons,
+[DESIGN_MODS_MUTATORS §5.8](DESIGN_MODS_MUTATORS.md#58-faction-add-ons)). The
 Modern computer player can switch, cloak and carry units, and cloaks its
 units when that helps, in every gameplay mode, including Strict 3.1. Like
 the other Modern AI policies it extends the per-player controller

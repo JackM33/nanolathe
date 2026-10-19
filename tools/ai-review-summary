@@ -7,7 +7,7 @@ Each ROUND_DIR/<game>/ holds result.json and trace.json (tools/ai-review).
 Prints, per side label, the median opening milestones, extractors and
 metal income by minute, the share of the first ten minutes spent stalled,
 army and defence value, production mix and results
-(docs/PLAN_FACTION_BALANCE.md §3.3).
+(internal/aikit/brains/utility/README.md §15).
 """
 import collections
 import glob

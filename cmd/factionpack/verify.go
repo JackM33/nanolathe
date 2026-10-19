@@ -33,7 +33,7 @@ func runVerify(args []string) error {
 		matches, _ := filepath.Glob(filepath.Join(dir, "*.ufo"))
 		for _, ufo := range matches {
 			archives = append(archives, ufo)
-			providers[strings.ToLower(filepath.Base(ufo))] = true
+			providers[lower(filepath.Base(ufo))] = true
 			single := vfs.New()
 			if _, err := single.MountArchive(ufo, 0); err != nil {
 				single.Close()
@@ -43,7 +43,7 @@ func runVerify(args []string) error {
 				if e.IsDir {
 					continue
 				}
-				key := strings.ToLower(e.Path)
+				key := lower(e.Path)
 				if prior, ok := owner[key]; ok {
 					single.Close()
 					return fmt.Errorf("%s and %s both supply %s", prior, dir, e.Path)
@@ -83,7 +83,7 @@ func runVerify(args []string) error {
 	}
 	addonUnit := func(name string) bool {
 		u := cat.Units[content.CanonicalKey(name)]
-		return u != nil && baseCat.Units[content.CanonicalKey(name)] == nil && providers[strings.ToLower(u.Provenance.ProviderID)]
+		return u != nil && baseCat.Units[content.CanonicalKey(name)] == nil && providers[lower(u.Provenance.ProviderID)]
 	}
 	for k, w := range baseCat.Weapons {
 		got := cat.Weapons[k]
@@ -168,7 +168,7 @@ func runVerify(args []string) error {
 	fmt.Printf("  %d unit weapon links resolve to no weapon; %d warnings\n", inactive, len(cat.Warnings))
 	placed := 0
 	for _, p := range cat.DownloadPlacements {
-		if strings.HasPrefix(strings.ToLower(p.Provenance.LogicalPath), content.FactionDir+"/") {
+		if strings.HasPrefix(lower(p.Provenance.LogicalPath), content.FactionDir+"/") {
 			placed++
 		}
 	}
@@ -288,7 +288,7 @@ func composedOf(cat *content.Catalog, own func(content.Provenance) bool) string 
 		}
 	}
 	for _, p := range cat.DownloadPlacements {
-		if own(p.Provenance) && strings.HasPrefix(strings.ToLower(p.Provenance.LogicalPath), content.FactionDir+"/") {
+		if own(p.Provenance) && strings.HasPrefix(lower(p.Provenance.LogicalPath), content.FactionDir+"/") {
 			lines = append(lines, fmt.Sprintf("menu %s %s", content.CanonicalKey(p.Builder), content.CanonicalKey(p.Product)))
 		}
 	}

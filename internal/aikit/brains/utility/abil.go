@@ -5,7 +5,7 @@ import (
 )
 
 // Abilities after building (docs/DESIGN_SESSIONS_AI_SAVE.md "Modern AI
-// commands" and "Modern AI gates"; PLAN_FACTION_BALANCE §3.2 A7): the units
+// commands" and "Modern AI gates"; README §14): the units
 // the economy has placed or production has made are used for what their
 // definitions let them do beyond moving and shooting. Cloak hides a unit
 // that is threatened while the energy store can pay for it (abil_cloak.go),

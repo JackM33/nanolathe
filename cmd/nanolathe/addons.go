@@ -53,6 +53,38 @@ type addonMount struct {
 	// off marks a running config that leaves add-ons off.
 	off   bool
 	notes []string
+	// factions are the archives of the mounted faction add-ons, presented
+	// under the running content's layout (factionLayout).
+	factions map[string]bool
+}
+
+// factionLayout is the layout each extra archive mounts under: the running
+// content's for a faction add-on's archives, so a mod that renames the
+// retail directories reads the faction's files beside its own, and none for
+// every other add-on (§5.7, §5.8 "With a mod").
+func factionLayout(layout vfs.Layout, factions map[string]bool) func(string) vfs.Layout {
+	if len(layout.Names()) == 0 || len(factions) == 0 {
+		return nil
+	}
+	return func(full string) vfs.Layout {
+		if factions[full] {
+			return layout
+		}
+		return vfs.Layout{}
+	}
+}
+
+// factionArchives are the archive paths of the faction add-ons in supplies.
+func factionArchives(supplies []addonSupply) map[string]bool {
+	out := map[string]bool{}
+	for _, s := range supplies {
+		if s.faction {
+			for _, p := range s.addon.Paths {
+				out[p] = true
+			}
+		}
+	}
+	return out
 }
 
 // resolveAddons decides which enabled add-ons a mount holds: none when the
@@ -60,8 +92,8 @@ type addonMount struct {
 // except one already in the base folder, which the install supplies itself,
 // one that defines a unit or feature name the base or the mod defines at
 // another path, one that supplies a logical path or defines a unit or
-// feature name an add-on earlier in the selection also does, and, while a
-// mod is selected, one with a faction declaration. A saved add-on that has
+// feature name an add-on earlier in the selection also does. A saved add-on
+// that has
 // gone is left out with a notice; one named by --addon fails the start, as
 // --mod does (§5.7, §5.8).
 func resolveAddons(opts Options, profile contentprofiles.Profile, baseRoots []string, mod *modlibrary.Mod) (addonMount, error) {
@@ -108,9 +140,6 @@ func resolveAddons(opts Options, profile contentprofiles.Profile, baseRoots []st
 		}
 		candidates = append(candidates, addon)
 	}
-	if mod != nil {
-		candidates = baseGameAddons(candidates, &out.notes)
-	}
 	if len(candidates) == 0 {
 		return out, nil
 	}
@@ -139,9 +168,9 @@ func resolveAddons(opts Options, profile contentprofiles.Profile, baseRoots []st
 				err = addonCollision(accepted, paths, names)
 			}
 		}
-		sides := 0
+		sides, declared := 0, false
 		if err == nil {
-			paths, sides, err = factionBaseCollision(others.fs, addon, paths)
+			paths, sides, declared, err = factionBaseCollision(others.fs, addon, paths)
 		}
 		if err == nil && sides > 0 {
 			if composedSides < 0 {
@@ -155,22 +184,23 @@ func resolveAddons(opts Options, profile contentprofiles.Profile, baseRoots []st
 			out.notes = append(out.notes, fmt.Sprintf("nanolathe: official add-on %s not mounted: %s", addon.Name, noticeReason(err)))
 			continue
 		}
-		accepted = append(accepted, addonSupply{addon: addon, paths: paths, names: names, faction: sides > 0})
+		accepted = append(accepted, addonSupply{addon: addon, paths: paths, names: names, faction: declared})
 		composedSides += sides
 	}
-	out.mounted = compilingAddons(profile, baseRoots, accepted, &out.notes)
+	out.mounted = compilingAddons(profile, baseRoots, mod, accepted, &out.notes)
+	out.factions = factionArchives(accepted)
 	return out, nil
 }
 
 // compilingAddons is the accepted add-ons less any faction add-on the
-// catalog compiler refuses: a declaration whose names collide in a table the
-// mount does not read, a side missing its font, or a reference nothing
-// supplies would otherwise stop every start, the main menu's included
-// (§5.8). With no faction add-on accepted nothing is compiled; with all of
+// catalog compiler refuses with the base and the mod: a declaration whose
+// names collide in a table the mount does not read, a side missing its font,
+// or a reference nothing supplies would otherwise stop every start, the main
+// menu's included (§5.8). With no faction add-on accepted nothing is compiled; with all of
 // them compiling, one compile is the cost. When the content without the
 // faction add-ons does not compile either, the faction add-ons are not to
 // blame and all stay, so the start reports the failure itself.
-func compilingAddons(profile contentprofiles.Profile, baseRoots []string, accepted []addonSupply, notes *[]string) []addonlibrary.Addon {
+func compilingAddons(profile contentprofiles.Profile, baseRoots []string, mod *modlibrary.Mod, accepted []addonSupply, notes *[]string) []addonlibrary.Addon {
 	all := make([]addonlibrary.Addon, 0, len(accepted))
 	var kept []addonlibrary.Addon
 	factions := false
@@ -182,7 +212,8 @@ func compilingAddons(profile contentprofiles.Profile, baseRoots []string, accept
 			kept = append(kept, s.addon)
 		}
 	}
-	if !factions || composeAddons(profile, baseRoots, all) == nil || composeAddons(profile, baseRoots, kept) != nil {
+	rehome := factionArchives(accepted)
+	if !factions || composeAddons(profile, baseRoots, mod, all, rehome) == nil || composeAddons(profile, baseRoots, mod, kept, rehome) != nil {
 		return all
 	}
 	for _, s := range accepted {
@@ -190,7 +221,7 @@ func compilingAddons(profile contentprofiles.Profile, baseRoots []string, accept
 			continue
 		}
 		trial := append(append([]addonlibrary.Addon(nil), kept...), s.addon)
-		if err := composeAddons(profile, baseRoots, trial); err != nil {
+		if err := composeAddons(profile, baseRoots, mod, trial, rehome); err != nil {
 			*notes = append(*notes, fmt.Sprintf("nanolathe: official add-on %s not mounted: the game data does not compile with it: %s", s.addon.Name, noticeReason(err)))
 			continue
 		}
@@ -209,23 +240,28 @@ func compilingAddons(profile contentprofiles.Profile, baseRoots []string, accept
 	return ordered
 }
 
-// composeAddons compiles the catalog of the base roots with addons mounted
-// as the start mounts them.
-func composeAddons(profile contentprofiles.Profile, baseRoots []string, addons []addonlibrary.Addon) error {
+// composeAddons compiles the catalog of the base roots and the mod with
+// addons mounted as the start mounts them, factions' archives under the
+// layout.
+func composeAddons(profile contentprofiles.Profile, baseRoots []string, mod *modlibrary.Mod, addons []addonlibrary.Addon, factions map[string]bool) error {
 	replaced := map[string]bool{}
 	for _, a := range addons {
 		for _, archive := range a.Archives {
 			replaced[strings.ToLower(archive.Name)] = true
 		}
 	}
-	roots := make([]vfs.GameRoot, 0, len(baseRoots))
+	roots := make([]vfs.GameRoot, 0, len(baseRoots)+1)
 	for i, dir := range baseRoots {
 		root := vfs.GameRoot{Dir: dir}
 		if i == 0 {
 			root.Archives = func(name string) bool { return !replaced[strings.ToLower(name)] }
 			root.Extra = addonExtras(addons)
+			root.ExtraLayout = factionLayout(profile.Layout(), factions)
 		}
 		roots = append(roots, root)
+	}
+	if mod != nil {
+		roots = append(roots, vfs.GameRoot{Dir: mod.Dir})
 	}
 	mounted := vfs.New()
 	defer mounted.Close()
@@ -242,7 +278,8 @@ type addonSupply struct {
 	addon addonlibrary.Addon
 	paths map[string]string
 	names addonlibrary.Names
-	// faction marks an add-on with a faction declaration (§5.8).
+	// faction marks an add-on with a faction declaration, a unit pack's
+	// included (§5.8).
 	faction bool
 }
 
@@ -267,12 +304,13 @@ func addonCollision(accepted []addonSupply, paths map[string]string, names addon
 // the base install or the mod also supplies: a faction never replaces a base
 // file (§5.8 isolation rule 1). An add-on without a declaration keeps §5.7's
 // name check alone. paths is the add-on's path set when already read; the
-// result is it, read here if a faction needed it, and the number of sides the
-// add-on declares.
-func factionBaseCollision(others vfs.FSOps, addon addonlibrary.Addon, paths map[string]string) (map[string]string, int, error) {
+// result is it, read here if a faction needed it, the number of sides the
+// add-on declares, and whether it has a declaration at all: a unit pack has
+// one and no sides.
+func factionBaseCollision(others vfs.FSOps, addon addonlibrary.Addon, paths map[string]string) (map[string]string, int, bool, error) {
 	factions, err := addonlibrary.Factions(addon)
 	if err != nil || len(factions) == 0 {
-		return paths, 0, err
+		return paths, 0, false, err
 	}
 	sides := 0
 	for _, f := range factions {
@@ -280,7 +318,7 @@ func factionBaseCollision(others vfs.FSOps, addon addonlibrary.Addon, paths map[
 	}
 	if paths == nil {
 		if paths, err = addonlibrary.Paths(addon); err != nil {
-			return nil, 0, err
+			return nil, 0, true, err
 		}
 	}
 	keys := make([]string, 0, len(paths))
@@ -290,10 +328,10 @@ func factionBaseCollision(others vfs.FSOps, addon addonlibrary.Addon, paths map[
 	sort.Strings(keys)
 	for _, key := range keys {
 		if info, err := others.Stat(key); err == nil && !info.IsDir {
-			return paths, 0, fmt.Errorf("the installed content already supplies %s", paths[key])
+			return paths, 0, true, fmt.Errorf("the installed content already supplies %s", paths[key])
 		}
 	}
-	return paths, sides, nil
+	return paths, sides, true, nil
 }
 
 // baseSideCount is how many sides the content without add-ons defines;
@@ -304,28 +342,6 @@ func baseSideCount(others vfs.FSOps) int {
 		return 0
 	}
 	return len(sides)
-}
-
-// baseGameAddons leaves out, with a notice each, the add-ons that carry a
-// faction declaration: while a mod is selected a faction add-on stays off,
-// since the mod's layout and its own definitions can hide the faction's
-// units or collide with its names, and the compiler refuses a duplicate
-// name outright, which would stop the start (§5.8). Add-ons without a
-// declaration mount under a mod as before (§5.7 "With a mod").
-func baseGameAddons(candidates []addonlibrary.Addon, notes *[]string) []addonlibrary.Addon {
-	kept := candidates[:0:0]
-	for _, addon := range candidates {
-		factions, err := addonlibrary.Factions(addon)
-		switch {
-		case err != nil:
-			*notes = append(*notes, fmt.Sprintf("nanolathe: official add-on %s not mounted: %s", addon.Name, noticeReason(err)))
-		case len(factions) > 0:
-			*notes = append(*notes, fmt.Sprintf("nanolathe: official add-on %s not mounted: faction add-ons play with the base game only", addon.Name))
-		default:
-			kept = append(kept, addon)
-		}
-	}
-	return kept
 }
 
 // installedAddon finds an installed add-on by id and version; an empty

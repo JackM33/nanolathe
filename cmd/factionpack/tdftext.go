@@ -113,7 +113,7 @@ var assignment = regexp.MustCompile(`(?i)(^|[\s{;])([A-Za-z0-9_]+)([ \t]*=[ \t]*
 func rewriteValues(text string, keys map[string]func(string) string) string {
 	return assignment.ReplaceAllStringFunc(text, func(m string) string {
 		sub := assignment.FindStringSubmatch(m)
-		fn, ok := keys[strings.ToLower(sub[2])]
+		fn, ok := keys[lower(sub[2])]
 		if !ok {
 			return m
 		}

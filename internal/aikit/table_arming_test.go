@@ -11,7 +11,7 @@ import (
 // aircraft, and an armed mobile unit authoring builder=1 that builds
 // nothing (Talon's Vanguard flak tank has both). Each is armed, at its
 // anti-air rate, and a combat unit or a defense; a real constructor stays a
-// builder (docs/PLAN_FACTION_BALANCE.md §3.2 A2).
+// builder.
 func TestDamageTableAntiAirIsArmed(t *testing.T) {
 	unit := func(key string) *content.UnitDef {
 		return &content.UnitDef{DefinitionHeader: content.DefinitionHeader{CanonicalKey: key}, UnitName: key, Side: "TAL", MaxDamage: 100, FootprintX: 2, FootprintZ: 2}

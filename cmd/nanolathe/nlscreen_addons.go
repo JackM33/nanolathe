@@ -387,13 +387,6 @@ func (s *nlScreen) addonsUnavailable() string {
 	return ""
 }
 
-// factionLeftOff reports whether the drafted mod leaves this row's add-on
-// off because it is a faction add-on, which plays with the base game only
-// (§5.8; resolveAddons).
-func (s *nlScreen) factionLeftOff(row nlAddonRow) bool {
-	return row.faction != "" && s.modAt(s.draft.mod) != nil
-}
-
 // addonsLeftOffBy names the drafted mod when its config leaves the official
 // add-ons off (§5.7 "With a mod"), "" otherwise.
 func (s *nlScreen) addonsLeftOffBy() string {
@@ -465,11 +458,6 @@ func (s *nlScreen) pollAddons() {
 // archives the add-on holds.
 func (s *nlScreen) addonSubText(row nlAddonRow) string {
 	if row.faction != "" {
-		if s.factionLeftOff(row) {
-			return s.ui.text(nlTextKey{kind: "addon faction off", a: row.faction}, func() string {
-				return row.faction + " · off under a mod: factions play with the base game only"
-			})
-		}
 		return row.faction
 	}
 	if row.names != "" {
@@ -551,7 +539,7 @@ func (s *nlScreen) heroAddons(screen *ebiten.Image, x, y, a float64) float64 {
 		if on {
 			screenkit.HGradient(screen, r, color.RGBA{40, 100, 44, uint8(170 * a)}, color.RGBA{16, 30, 16, uint8(90 * a)})
 		}
-		s.lamp(screen, r.X+18*u, r.Y+24*u, 6*u, nlGreen, row.inFolder || on && !leftOff && !s.factionLeftOff(row))
+		s.lamp(screen, r.X+18*u, r.Y+24*u, 6*u, nlGreen, row.inFolder || on && !leftOff)
 		tc := color.RGBA{200, 192, 160, 255}
 		if on {
 			tc = nlCream

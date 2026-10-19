@@ -224,7 +224,7 @@ func BuildTable(cat *content.Catalog, rules construction.Rules) *Table {
 // the aircraft it hits (Talon's flak tanks and towers), so summarize saw no
 // damage at all and left it unarmed — never produced as combat, never placed
 // as a defense. It now takes the roles an armed unit of its kind takes and is
-// no longer a scout (docs/PLAN_FACTION_BALANCE.md §3.2 A2). Its DPS stays
+// no longer a scout. Its DPS stays
 // zero: that weapon never fires at a target that is not airborne, so it is
 // worth its AirDPS where anti-air is wanted and nothing on the ground. A unit
 // with any other damage was armed already and is unchanged.
@@ -252,7 +252,7 @@ func (t *Table) armDamageTableAntiAir() {
 // builder=1 yet build nothing: classifyBuilder gave them no builder role,
 // and summarize had kept them out of combat for the flag alone. Talon's
 // Vanguard flak tank authors builder=1 with no worker time and no products
-// (docs/PLAN_FACTION_BALANCE.md §3.2 A2).
+// instead.
 func (t *Table) armIdleBuilders() {
 	for _, u := range t.Units {
 		def := u.Def
@@ -584,7 +584,7 @@ func summarize(key string, def *content.UnitDef, commander bool) *UnitInfo {
 // unit whose script holds its fire between shots (Talon's Salamander sleeps
 // two and a half seconds after each pair of shells against a 0.2-second
 // reload) is worth far less than its weapon records say, and the table would
-// rate it many times over (docs/PLAN_FACTION_BALANCE.md §3.2). The key is a
+// rate it many times over. The key is a
 // Nanolathe extension that only the Modern AI reads; the simulation never
 // does, and stock content authors none, so stock tables are unchanged
 // (docs/DESIGN_SESSIONS_AI_SAVE.md "Modern AI damage hints").
