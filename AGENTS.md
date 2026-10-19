@@ -207,7 +207,11 @@ Current policies: [terrain admission](docs/DESIGN_WEAPONS_PROJECTILES.md#231-mod
 [Survival infection hunters and infector waves](docs/DESIGN_SURVIVAL.md#modern-infection-hunters),
 [infector target preference](docs/DESIGN_WEAPONS_PROJECTILES.md#modern-infector-target-preference)
 and [Modern AI infector focus](docs/DESIGN_SESSIONS_AI_SAVE.md#modern-ai-infector-focus), and
-[Modern AI restriction caps](docs/DESIGN_SESSIONS_AI_SAVE.md#modern-ai-restriction-caps).
+[Modern AI restriction caps](docs/DESIGN_SESSIONS_AI_SAVE.md#modern-ai-restriction-caps), and
+[chosen start positions](docs/DESIGN_SESSIONS_AI_SAVE.md#modern-chosen-start-positions),
+[extra start positions](docs/DESIGN_SESSIONS_AI_SAVE.md#modern-extra-start-positions) and
+[allied sight](docs/DESIGN_SESSIONS_AI_SAVE.md#modern-allied-sight) (user-authorized
+2026-10-18; Strict 3.1 keeps retail's placement, refusal and sight).
 Retired from Modern by its traffic policy, and kept only as the pathfinding
 laboratory's baseline (`movement.OverlapRules`): re-route staggering, allied
 pass-through, jam release and pocket release. Do not restore them as parity

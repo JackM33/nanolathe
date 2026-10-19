@@ -814,8 +814,14 @@ history stays one grid per player (Q24); what a teammate sees also explores
 each member's own grid, as it does for Survival's survivors, so a teammate's
 view never draws as unexplored. Retail's sharing commands and alliance
 declarations add to it (§7.1). This is Nanolathe's online policy;
-retail never merges allies' sight by default `[03 §3.2]`. Single-player
-battles are unchanged.
+retail never merges allies' sight by default `[03 §3.2]`. Since 2026-10-18
+(user-authorized Nanolathe Modern policy) the host of a Modern or Community
+3.9 room may keep a skirmish room's teams' sight separate with the lobby's
+Allied Sight button, required configuration extension 18 (§8.6); the default shares it,
+as every earlier online skirmish did. A Strict 3.1 room offers no button and
+its configuration refuses the choice (`SeatRules.AlliedSightChoice`). A
+single-player skirmish shares a team's sight only with its own Allied Sight
+option (DESIGN_SESSIONS_AI_SAVE "Modern allied sight").
 
 **Sharing time (Q25).** Periodic explored-map shares run at their existing
 due site on the request tick, humans in canonical seat order, each copying
@@ -1344,8 +1350,52 @@ without NUL, at most N bytes, checked before allocation; `digest` is exactly
 order; duplicate or unsorted map keys are rejected. The whole configuration
 is at most 2 MiB. Its identity is SHA-256 of the literal UTF-8 domain
 `nanolathe/match-config/2` (no trailing NUL) followed by this positional
-encoding. There are no optional unknown fields or trailing bytes; adding a
-field requires a new version.
+encoding, including any extension records below. Fields 1–16 are frozen;
+additive fields use the extension tail rather than changing their layout
+or renumbering them. A configuration with no extensions retains its exact
+existing version-2 bytes and identity.
+
+**Configuration extensions (user-authorized 2026-10-19).** After field 16,
+an optional tail contains records `{ID u16, Flags u8, Size u32, Data[Size]}`
+in strictly ascending ID order, terminated by ID zero. IDs 1–16 remain
+reserved for the positional fields; extension IDs begin at 17. Bit 0 of
+Flags means required; every other bit is invalid. At most 128 records are
+admitted, each with at most 64 KiB of payload, within the existing 2 MiB
+configuration bound. An empty tail, missing terminator, duplicate or
+unsorted ID, or bytes after the terminator are noncanonical and refused.
+No tail is written when no extensions exist.
+
+Unknown optional records are descriptive metadata only: they are retained,
+deep-copied and included in the configuration identity, but change nothing
+the simulation computes. Unknown required records are refused by ID before
+composition, by readers and writers alike. Gameplay choices use required
+records with typed validation and application through the existing owning
+`RuleSet` seam. The assigned records are:
+
+| ID | Required payload and admission |
+|---|---|
+| 17. Chosen starts | Per seat in slot order, a `bool` set, followed when set by X and Z as two `u32` world pixels below 2^20. At least one seat must choose; omit the record when every start is Auto. Only a skirmish's human or computer row may choose, under `SeatRules.ChosenStarts` (DESIGN_SESSIONS_AI_SAVE "Modern chosen start positions"). |
+| 18. Allied sight | One `u8`: 1 separate or 2 shared. Omit for the inherited default: online skirmish teams share, single-player teams do not. Survival always shares and carries no choice. `SeatRules.AlliedSightChoice` must permit the record (DESIGN_SESSIONS_AI_SAVE "Modern allied sight"). |
+
+Both require flag bit 0; an optional spelling, malformed payload, trailing
+payload bytes or an explicit default is refused. The local API exposes
+`MatchSeat.Start` and `MatchConfigRequest.AlliedSight`; recognized raw records
+are projected into those fields during resolution and removed from the opaque
+`Extensions` slice. Supplying both spellings requires equal values. Encoding
+reconstructs the required records, followed by opaque metadata in ID order,
+so changing a typed choice cannot leave stale wire bytes behind. The combined
+record count retains the 128-record bound. Strict 3.1 refuses both choices
+through the existing `SeatRules` answers.
+
+No battle choice may reuse field 16, which names room content, or be marked
+optional so an older simulation silently ignores it. Main builds that do not
+implement these choices refuse required IDs 17/18 explicitly. Readers from
+before the extension contract refuse any nonempty tail; later readers can
+skip future optional metadata without a configuration-version bump. Existing
+v1 and original-v2 recordings keep their original bytes, identity domain and
+checksum validation (§10). Current default configurations retain main's
+version-2 encoding and identity; they add no extension tail. Changing a
+frozen field's meaning still needs a new schema.
 
 | Order / effective field | Representation and normalization |
 |---|---|
@@ -1696,9 +1746,40 @@ stream state at its start so it decodes alone: command, pump run
 reason: finished, left, recording stopped, room failed). Integers are the
 netproto version-1 primitives. A file that stops inside a chunk, or without
 its end entry, plays to its last whole chunk and is listed as incomplete.
-Version 2 added the header's add-ons, and a version-1 file is not read:
-released builds wrote version-1 battle configurations, which this build no
-longer decodes either.
+Version 2 added the header's add-ons. Readers accept both versions: version
+1 ends its fixed header after the start time and decodes its configuration
+as fields 1–15, retaining the exact canonical bytes and the
+`nanolathe/match-config/1` identity domain; version 2 includes field 16 and
+uses the version-2 domain. The legacy decoder is a replay-only entry point;
+live room decoding remains version 2. New recordings are written as version
+2; a header read from a version-1 file cannot simply be relabeled as version
+2 by the writer.
+
+**Extensible version-2 headers (user-authorized 2026-10-19).** The fixed
+prefix through the add-on list is frozen. New writers append records
+`{ID u16, Flags u8, Size u32, Data[Size]}` in strictly ascending nonzero ID
+order inside an area of at least 256 bytes. New metadata consumes this reserve
+before the area grows; the unused tail is zeroed, with at least one byte for
+the ID-zero terminator. Every byte after that terminator must be zero padding. The existing header
+size bounds the entire area and locates the first command chunk; no fixed
+offset into this reserve is a public field. Each payload is at most 64 KiB,
+at most 128 records are admitted, and the existing 4 MiB header ceiling
+still applies. Older version-2 files ending immediately after the add-on
+list remain readable. The chunk framing and command, pump and checksum
+entries are unchanged.
+
+Flag bit 0 means required and all other bits are invalid. There are no
+assigned header extension IDs yet. Unknown optional records are preserved
+as opaque bytes and skipped for playback; unknown required records name an
+unsupported replay feature and are refused by both reader and writer.
+Malformed lengths, duplicate or unsorted IDs, a missing terminator and
+nonzero padding are refused. New metadata uses an unused tagged record;
+it does not append another positional field or require a replay-format
+bump. Information needed to reproduce a battle belongs in a required
+configuration extension (§8.6), not an optional header annotation. A future
+incompatible stream or frozen-field change still needs a new format.
+Already released readers that predate this contract cannot acquire these
+rules without updating.
 A busy single-player battle takes about 4 KB a minute, half of it
 checksums.
 
@@ -1755,7 +1836,14 @@ change nothing a tick computes.
 **Later.** Pacing notes, chat and session events, rewind, sharing, and a
 canonical-checkpoint digest beside the unit checksums. Compatibility
 requires a simulation that reproduces the recording; there is no
-cross-release compatibility program (Q12, Q20).
+cross-release simulation compatibility program (Q12, Q20). File and
+configuration decoding compatibility does not change that boundary: v1
+playback retains content and identity admission and every recorded checksum,
+and stops at the first divergence rather than emulating an older AI or
+silently accepting a different battle. Authored fixtures from the original
+v1 writer lock single-player Strict and Modern and online playback, and an
+original v2 recording locks pre-extension compatibility. Optional header
+and configuration fields are also tested through actual playback.
 
 ## 11. Seats over time
 

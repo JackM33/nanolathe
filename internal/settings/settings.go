@@ -357,7 +357,22 @@ type Player struct {
 	// 2026-09-25). Normalize keeps "classic" and reads everything else as
 	// Modern, which the writer omits.
 	AI string `json:"ai,omitempty"`
+	// Start is where the row's commander was placed on Skirmish.StartMap, a
+	// Nanolathe Modern lobby choice with no retail registry value: absent
+	// leaves it to Location (docs/DESIGN_SESSIONS_AI_SAVE.md "Modern chosen
+	// start positions"). Normalize drops a point outside 0..StartLimit.
+	Start *StartPoint `json:"start,omitempty"`
 }
+
+// StartPoint is a chosen commander start in world pixels.
+type StartPoint struct {
+	X int `json:"x"`
+	Z int `json:"z"`
+}
+
+// StartLimit bounds a stored start point's coordinates, as
+// session.StartPointLimit does a battle's.
+const StartLimit = 1 << 20
 
 // PlayerAIClassic is the stored word of a row that plays the Classic AI; a
 // Modern row stores none.
@@ -366,15 +381,23 @@ const PlayerAIClassic = "classic"
 // Skirmish is the SKIRMISH.GUI setup: everything retail stores under the
 // Skirmish* value names plus the per-slot rows.
 type Skirmish struct {
-	Map            string   `json:"map"` // SkirmishMap, basename without extension
-	NumPlayers     int      `json:"numPlayers"`
-	Difficulty     int      `json:"difficulty"`
-	Location       int      `json:"location"`
-	CommanderDeath int      `json:"commanderDeath"`
-	Mapping        int      `json:"mapping"`
-	LineOfSight    int      `json:"lineOfSight"`
-	LOSType        int      `json:"losType"`
-	Players        []Player `json:"players"`
+	Map            string `json:"map"` // SkirmishMap, basename without extension
+	NumPlayers     int    `json:"numPlayers"`
+	Difficulty     int    `json:"difficulty"`
+	Location       int    `json:"location"`
+	CommanderDeath int    `json:"commanderDeath"`
+	Mapping        int    `json:"mapping"`
+	LineOfSight    int    `json:"lineOfSight"`
+	LOSType        int    `json:"losType"`
+	// AlliedSight is the Allied Sight option, a Nanolathe lobby choice with
+	// no retail registry value: teammates share sight and radar. Absent is
+	// false, retail's separate sight (docs/DESIGN_SESSIONS_AI_SAVE.md
+	// "Modern allied sight").
+	AlliedSight bool `json:"alliedSight,omitempty"`
+	// StartMap is the map the rows' start points were placed on; a load for
+	// another map drops them, since a point means nothing elsewhere.
+	StartMap string   `json:"startMap,omitempty"`
+	Players  []Player `json:"players"`
 }
 
 // ModSelection is the settings key `mod`: one mod's id and, optionally, its
@@ -1266,6 +1289,9 @@ func (s *Skirmish) Normalize() {
 			s.Players[i].AI = PlayerAIClassic
 		} else {
 			s.Players[i].AI = ""
+		}
+		if p := s.Players[i].Start; p != nil && (p.X < 0 || p.Z < 0 || p.X >= StartLimit || p.Z >= StartLimit) {
+			s.Players[i].Start = nil
 		}
 	}
 }

@@ -146,6 +146,11 @@ func newMatchConfigRequest(cfg SkirmishConfig, options SkirmishEntryOptions, roo
 		return MatchConfigRequest{}, matchFieldError("unitLimit", fmt.Sprintf("%d..%d", matchMinUnitLimit, matchMaxUnitLimit))
 	}
 	r.UnitLimit = uint16(cfg.UnitLimit)
+	// A single-player setup's allied sight, where the rule set offers the
+	// choice; an online room writes its own choice over this (onlineConfig).
+	if cfg.AlliedSight && !cfg.Survival.Enabled && seatRulesOf(set).AlliedSightChoice() {
+		r.AlliedSight = MatchAlliedSightShared
+	}
 	if cfg.Survival.Enabled {
 		r.SessionKind = MatchOnlineSurvival
 		r.SurvivalPace = cfg.Survival.Pace
@@ -154,6 +159,14 @@ func newMatchConfigRequest(cfg SkirmishConfig, options SkirmishEntryOptions, roo
 	}
 	if r.Seats, err = matchSeatsFromSetup(cfg, options, room, lobby); err != nil {
 		return MatchConfigRequest{}, err
+	}
+	// A chosen start is carried only where the rule set honours it, so a
+	// Strict 3.1 battle's configuration stays version 1 whatever the
+	// lobby rows still hold.
+	if !seatRulesOf(set).ChosenStarts() {
+		for i := range r.Seats {
+			r.Seats[i].Start = StartPoint{}
+		}
 	}
 	if r.ContentProfile, err = matchContentProfileFromEntry(room, options.ContentLimits); err != nil {
 		return MatchConfigRequest{}, err
@@ -204,6 +217,9 @@ func matchSeatsFromSetup(cfg SkirmishConfig, options SkirmishEntryOptions, room 
 		if p.AllyGroup < 0 || p.AllyGroup > SkirmishDefaultAllyGroup {
 			return nil, matchFieldError(path+".allyGroup", "0..5")
 		}
+		if p.Start.Set && (p.Start.X < 0 || p.Start.Z < 0 || p.Start.X >= StartPointLimit || p.Start.Z >= StartPointLimit) {
+			return nil, matchFieldError(path+".start", fmt.Sprintf("coordinates 0..%d", StartPointLimit-1))
+		}
 		if p.Metal < 0 || p.Metal > math.MaxInt32 || p.Energy < 0 || p.Energy > math.MaxInt32 {
 			return nil, matchFieldError(path+".metal, energy", "finalized resources 0..2147483647")
 		}
@@ -221,6 +237,7 @@ func matchSeatsFromSetup(cfg SkirmishConfig, options SkirmishEntryOptions, room 
 			s.Metal, s.Energy = 0, 0
 		case p.IsHuman():
 			s.Role = MatchRoleHuman
+			s.Start = p.Start
 			s.Participant = room.Participants[i]
 			s.BuilderOptions = RuleSetForMode(cfg.Gameplay).Orders.DefaultBuilderOptions()
 			if options.BuilderOptions != nil {
@@ -231,6 +248,7 @@ func matchSeatsFromSetup(cfg SkirmishConfig, options SkirmishEntryOptions, room 
 			s.Participant = room.Participants[i]
 		default:
 			s.Role = MatchRoleComputer
+			s.Start = p.Start
 			s.HostSeat = uint8(local)
 			s.ComputerKind = p.AI
 			s.Difficulty = difficulty

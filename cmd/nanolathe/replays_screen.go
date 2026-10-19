@@ -516,6 +516,8 @@ func replayFileProblem(err error) string {
 	switch {
 	case errors.Is(err, replay.ErrUnsupportedVersion):
 		return "a newer version of Nanolathe recorded it."
+	case errors.Is(err, replay.ErrUnsupportedFeature):
+		return "it needs replay features this version does not support."
 	case errors.Is(err, replay.ErrCorrupt), errors.Is(err, replay.ErrTruncated):
 		return "the file is damaged."
 	case errors.Is(err, fs.ErrNotExist):
@@ -549,7 +551,7 @@ func replayOpenProblem(err error) string {
 
 // replayModOf is the mod a replay was recorded with.
 func replayModOf(l replayListing) (session.MatchMod, error) {
-	config, err := session.DecodeMatchConfig(l.Header.Config)
+	config, err := l.Header.Configuration()
 	if err != nil {
 		return session.MatchMod{}, err
 	}
