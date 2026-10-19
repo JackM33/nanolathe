@@ -1420,13 +1420,14 @@ func shuffleEligibleStarts(crt *rng.CRT, order []int) {
 //
 // **Nanolathe Modern policy (user-authorized 2026-10-18).** A player who
 // chose a point begins there, and every authored start within
-// chosenStartClaim world pixels of a chosen point is taken by it, so no
-// other commander begins on top of a chosen one. The other players share the
-// authored starts left: under fixed starts each keeps its own number when
-// that start exists and is free, and the rest take the lowest free starts in
-// slot order; under random starts the lowest free starts, one per remaining
-// player, are dealt by a Fisher–Yates shuffle on the same loading CRT. The
-// CRT is the disposable loading stream, so the simulation stream is
+// chosenStartClaim world pixels of a chosen point is taken by it. Placement
+// also reserves the remaining authored commanders' footprints, so terrain
+// relocation cannot put a chosen commander on a later Auto commander. The
+// other players share the authored starts left: under fixed starts each keeps
+// its own number when that start exists and is free, and the rest take the
+// lowest free starts in slot order; under random starts the lowest free
+// starts, one per remaining player, are dealt by a Fisher–Yates shuffle on
+// the same loading CRT. This disposable stream leaves the simulation stream
 // untouched either way. Too few free starts is this build's error
 // (docs/DESIGN_SESSIONS_AI_SAVE.md "Modern chosen start positions").
 //
@@ -1604,10 +1605,13 @@ const (
 // region passes the spawn checks. With no candidate in the region it tries
 // the region's cell nearest the map centre. The simulation stream is not
 // read.
-func (s *Session) generateExtraStarts(cfg SkirmishConfig, eligible, extra []int, assignment map[int]int, points map[int][2]int32, starts []mission.Special, crt *rng.CRT) error {
+func (s *Session) generateExtraStarts(cfg SkirmishConfig, eligible, extra []int, assignment map[int]int, points map[int][2]int32, starts []mission.Special, crt *rng.CRT, reserved []world.FootprintRect) error {
 	if s.World == nil || len(extra) == 0 {
 		return nil
 	}
+	// Candidate searches reserve earlier generated footprints as well as the
+	// authored commanders, even though allocation has not begun yet.
+	reserved = slices.Clone(reserved)
 	var taken [][2]int32
 	for _, slot := range eligible {
 		if id, ok := assignment[slot]; ok {
@@ -1674,10 +1678,15 @@ func (s *Session) generateExtraStarts(cfg SkirmishConfig, eligible, extra []int,
 		}
 		placed := false
 		for _, c := range found {
-			if px, _, pz, ok := s.survivalFindCell(def, cls, region, c.x, c.z, chosenStartReach); ok {
+			if px, _, pz, ok := s.skirmishStartCell(def, cls, region, c.x, c.z, reserved); ok {
 				p := [2]int32{int32(px >> 16), int32(pz >> 16)}
 				points[slot] = p
 				taken = append(taken, p)
+				rect, err := s.skirmishStartFootprint(def, px, pz)
+				if err != nil {
+					return err
+				}
+				reserved = append(reserved, rect)
 				placed = true
 				break
 			}
@@ -1691,8 +1700,8 @@ func (s *Session) generateExtraStarts(cfg SkirmishConfig, eligible, extra []int,
 
 // chosenStartClaim is how near, in world pixels, an authored start must be
 // to a chosen point for the point to take it: 24 cells, well inside the
-// spacing of any stock map's starts, so a commander placed at or beside an
-// authored start is never joined there by another (Nanolathe Modern policy).
+// spacing of any stock map's starts. Final placement also excludes the
+// remaining authored commanders' footprints (Nanolathe Modern policy).
 const chosenStartClaim = 24 * 16
 
 // startClaimed reports whether a chosen point lies within chosenStartClaim
@@ -1720,16 +1729,81 @@ const chosenStartReach = survivalSpawnReach
 // chosenStartPosition moves a chosen point onto the map and to the nearest
 // cell, outward ring by ring, where the commander passes the spawn command's
 // placement checks: its movement class's slope and water limits, its
-// footprint and the units and features already there
-// (checkSpawnPlacement). Commanders placed earlier are already there, so two
-// players who chose one point begin side by side.
-func (s *Session) chosenStartPosition(def *content.UnitDef, p [2]int32) (x, y, z numeric.Fixed, ok bool) {
+// footprint, the units and features already there and reserved commander
+// footprints (checkSpawnPlacement; Nanolathe Modern policy). Reservations
+// include future Auto commanders and earlier chosen or generated commanders.
+func (s *Session) chosenStartPosition(def *content.UnitDef, p [2]int32, reserved ...world.FootprintRect) (x, y, z numeric.Fixed, ok bool) {
 	if s.World == nil {
 		return 0, 0, 0, false
 	}
 	cx := min(max(p[0]/16, 0), s.World.CellW-1)
 	cz := min(max(p[1]/16, 0), s.World.CellH-1)
-	return s.survivalFindCell(def, nil, 0, cx, cz, chosenStartReach)
+	return s.skirmishStartCell(def, nil, 0, cx, cz, reserved)
+}
+
+// skirmishStartFootprint uses the same cell rectangle as the spawn checks.
+// Reserving it changes no terrain, unit allocation, resource or RNG state.
+func (s *Session) skirmishStartFootprint(def *content.UnitDef, x, z numeric.Fixed) (world.FootprintRect, error) {
+	fx, fz := world.FootprintForUnit(s.Catalog, def)
+	extent, err := world.NewFootprintExtent(fx, fz)
+	var rect world.FootprintRect
+	if err == nil {
+		cx, cz := world.PlacementAnchor(x, z, fx, fz)
+		rect, err = world.NewFootprintRect(world.NewFootprintAnchor(cx, cz), extent)
+	}
+	if err != nil {
+		return world.FootprintRect{}, fmt.Errorf("nanolathe: skirmish start footprint: logical path %s, providers searched [catalog], expected a valid commander footprint: %w", def.UnitName, err)
+	}
+	return rect, nil
+}
+
+// skirmishStartCell keeps Survival's ring and within-ring search order, with
+// the additional Modern start reservation check. Authored commanders are
+// reserved before this search because they retain retail's exact coordinates
+// even when they will be allocated after a chosen or generated commander
+// (docs/DESIGN_SESSIONS_AI_SAVE.md "Modern chosen start positions").
+func (s *Session) skirmishStartCell(def *content.UnitDef, c *survivalClass, id, x, z int32, reserved []world.FootprintRect) (numeric.Fixed, numeric.Fixed, numeric.Fixed, bool) {
+	for rad := int32(0); rad <= chosenStartReach; rad++ {
+		for cz := z - rad; cz <= z+rad; cz++ {
+			for cx := x - rad; cx <= x+rad; cx++ {
+				if cx != x-rad && cx != x+rad && cz != z-rad && cz != z+rad {
+					continue
+				}
+				if c != nil {
+					got := c.regions.At(cx, cz)
+					if got == 0 || (id != 0 && got != id) {
+						continue
+					}
+				} else if cx < 0 || cz < 0 || cx >= s.World.CellW || cz >= s.World.CellH {
+					continue
+				}
+				wx := numeric.Fixed((cx*16 + 8) << 16)
+				wz := numeric.Fixed((cz*16 + 8) << 16)
+				wy := max(s.World.HeightAt(wx, wz), 0)
+				px, py, pz, reason := s.checkSpawnPlacement(def, wx, wy, wz)
+				if reason != "" {
+					continue
+				}
+				rect, err := s.skirmishStartFootprint(def, px, pz)
+				if err != nil {
+					continue
+				}
+				blocked := false
+				for _, other := range reserved {
+					if rect.Width() != 0 && rect.Depth() != 0 && other.Width() != 0 && other.Depth() != 0 &&
+						rect.MinX() < other.MaxX() && other.MinX() < rect.MaxX() &&
+						rect.MinZ() < other.MaxZ() && other.MinZ() < rect.MaxZ() {
+						blocked = true
+						break
+					}
+				}
+				if !blocked {
+					return px, py, pz, true
+				}
+			}
+		}
+	}
+	return 0, 0, 0, false
 }
 
 func skirmishReconstructUnits(s *Session, cfg SkirmishConfig, m *mission.Mission) error {
@@ -1810,12 +1884,6 @@ func skirmishReconstructUnits(s *Session, cfg SkirmishConfig, m *mission.Mission
 	if err != nil {
 		return err
 	}
-	// Players the map has no start for begin at generated starts (Nanolathe
-	// Modern policy); they join the chosen points, which the commander loop
-	// places on the nearest standable cell.
-	if err := s.generateExtraStarts(cfg, eligible, extra, permMap, points, starts, &crt); err != nil {
-		return err
-	}
 	// Community schema units target authored START POSITIONS rather than player
 	// numbers. Snapshot the inverse table after the source's neutral-unit
 	// random-start correction, and prepare the deferred queue. Strict resets to
@@ -1826,6 +1894,35 @@ func skirmishReconstructUnits(s *Session, cfg SkirmishConfig, m *mission.Mission
 	// initial CP-UD-3 attempt does not require the commander definition that the
 	// attempt suppresses; every other row keeps the strict fallback requirement.
 	if err := validateSkirmishCommanders(s.Catalog, cfg, s, permMap); err != nil {
+		return err
+	}
+	var reserved []world.FootprintRect
+	if len(points) != 0 || len(extra) != 0 {
+		for _, slot := range eligible {
+			id, assigned := permMap[slot]
+			if !assigned || communitySchemaSuppressesCommander(s, slot, id) {
+				continue
+			}
+			for _, sp := range starts {
+				if int(sp.ID) != id {
+					continue
+				}
+				def, err := skirmishCommander(s.Catalog, cfg.Players[slot].Side, slot)
+				if err != nil {
+					return err
+				}
+				rect, err := s.skirmishStartFootprint(def, numeric.Fixed(sp.X)<<16, numeric.Fixed(sp.Z)<<16)
+				if err != nil {
+					return err
+				}
+				reserved = append(reserved, rect)
+				break
+			}
+		}
+	}
+	// Generated candidates and final point placements exclude every authored
+	// commander's footprint, including those allocated later in slot order.
+	if err := s.generateExtraStarts(cfg, eligible, extra, permMap, points, starts, &crt, reserved); err != nil {
 		return err
 	}
 	// With pre-determined starts the lobby shows every player which start
@@ -1882,11 +1979,16 @@ func skirmishReconstructUnits(s *Session, cfg SkirmishConfig, m *mission.Mission
 			if commanderErr != nil {
 				return commanderErr
 			}
-			px, py, pz, ok := s.chosenStartPosition(def, p)
+			px, py, pz, ok := s.chosenStartPosition(def, p, reserved...)
 			if !ok {
 				return fmt.Errorf("nanolathe: chosen start has no room: logical path %s, providers searched [terrain], expected a cell within %d of (%d,%d) where slot %d's commander can stand", cfg.MapName, chosenStartReach, p[0], p[1], playerIdx)
 			}
 			s.createSkirmishCommander(def, playerIdx, px, py, pz)
+			rect, err := s.skirmishStartFootprint(def, px, pz)
+			if err != nil {
+				return err
+			}
+			reserved = append(reserved, rect)
 			continue
 		}
 		perm, has := permMap[playerIdx]

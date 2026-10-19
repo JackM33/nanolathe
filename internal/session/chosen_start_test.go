@@ -3,13 +3,16 @@ package session
 import (
 	"bytes"
 	"crypto/sha256"
+	"fmt"
 	"strings"
 	"testing"
 
 	"github.com/nanolathe-gg/nanolathe/internal/community"
+	"github.com/nanolathe-gg/nanolathe/internal/economy"
 	"github.com/nanolathe-gg/nanolathe/internal/mission"
 	"github.com/nanolathe-gg/nanolathe/internal/sim/numeric"
 	"github.com/nanolathe-gg/nanolathe/internal/sim/rng"
+	"github.com/nanolathe-gg/nanolathe/internal/world"
 )
 
 // Chosen start points (docs/DESIGN_SESSIONS_AI_SAVE.md "Modern chosen
@@ -166,6 +169,136 @@ func TestChosenPointPlacesTheCommander(t *testing.T) {
 		w := want[u.Owner]
 		if u.X != numeric.Fixed(w[0])<<16 || u.Z != numeric.Fixed(w[1])<<16 {
 			t.Fatalf("player %d commander at (%d,%d), want (%d,%d)", u.Owner, u.X>>16, u.Z>>16, w[0], w[1])
+		}
+	}
+}
+
+// Only a distant island is standable. The original click claims no authored
+// start, but its nearest standable cell is Auto's start. Auto must keep its
+// exact point, and chosen commanders must avoid its entire footprint even
+// though it will be allocated later (Modern policy).
+func TestChosenRelocationAvoidsLaterAuto(t *testing.T) {
+	for _, footprint := range [][2]int32{{1, 1}, {3, 2}} {
+		t.Run(fmt.Sprintf("%dx%d", footprint[0], footprint[1]), func(t *testing.T) {
+			for _, chosenPlayers := range []int{1, 2} {
+				s := strictNewSessionWithUnits(t, 0, 7, 11)
+				s.Rules.Seats = ModernSeats{}
+				s.Catalog.Movement["testmove"].FootprintX = footprint[0]
+				s.Catalog.Movement["testmove"].FootprintZ = footprint[1]
+				for z := int32(0); z < s.World.CellH; z++ {
+					for x := int32(0); x < s.World.CellW; x++ {
+						cell := s.World.PlotAt(x, z)
+						cell.SetMinHeight(0)
+						cell.SetMaxHeight(255)
+						if x >= 24 && x <= 30 && z >= 18 && z <= 23 {
+							cell.SetMinHeight(10)
+							cell.SetMaxHeight(10)
+						}
+					}
+				}
+				cfg := wu19178Config()
+				cfg.NumPlayers = chosenPlayers + 1
+				for slot := 0; slot < cfg.NumPlayers; slot++ {
+					s.Econ.Players[slot] = economy.Player{Exists: true, ControllerState: 2, EndGameCountdown: -1}
+					s.Econ.Players[slot].Stock = [2]float32{100, 200}
+					if slot < chosenPlayers {
+						cfg.Players[slot].Start = StartPoint{Set: true, X: 8, Z: 8}
+					}
+				}
+				def, _ := s.Catalog.Unit("armcom")
+				px, _, pz, ok := s.chosenStartPosition(def, [2]int32{8, 8})
+				if !ok {
+					t.Fatal("fixture has no standable cell")
+				}
+				auto := mission.Special{Kind: 1, ID: int32(chosenPlayers), X: int16(px >> 16), Z: int16(pz >> 16)}
+				if startClaimed(auto, []int{0}, map[int][2]int32{0: {8, 8}}) {
+					t.Fatal("fixture must put Auto outside the original click's claim")
+				}
+				beforeCRT := s.CrtRNG().Draws()
+				beforeSim := s.SimRNG().Draws()
+				if err := skirmishReconstructUnits(s, cfg, wu19178Mission(auto)); err != nil {
+					t.Fatal(err)
+				}
+				assertStartFootprintsDisjoint(t, s, cfg.NumPlayers)
+				for slot := 0; slot < cfg.NumPlayers; slot++ {
+					if got := s.Econ.Players[slot].Stock; got != [2]float32{100, 200} {
+						t.Fatalf("placement changed player %d's resources to %v", slot, got)
+					}
+				}
+				for _, u := range s.Units.Iter() {
+					if int(u.Owner) == chosenPlayers && (u.X != px || u.Z != pz) {
+						t.Fatalf("Auto moved from (%d,%d) to (%d,%d)", px>>16, pz>>16, u.X>>16, u.Z>>16)
+					}
+				}
+				control := strictNewSessionWithUnits(t, 0, 7, 11)
+				controlBefore := control.SimRNG().Draws()
+				for slot := 0; slot < cfg.NumPlayers; slot++ {
+					def, err := skirmishCommander(control.Catalog, cfg.Players[slot].Side, slot)
+					if err != nil {
+						t.Fatal(err)
+					}
+					if _, err := control.Units.Create(def, uint8(slot), 0, 0, 0); err != nil {
+						t.Fatal(err)
+					}
+				}
+				if got, want := s.SimRNG().Draws()-beforeSim, control.SimRNG().Draws()-controlBefore; got != want {
+					t.Fatalf("placement consumed %d simulation draws, want allocator's %d", got, want)
+				}
+				if s.CrtRNG().Draws() != beforeCRT {
+					t.Fatal("placement read the retained CRT stream")
+				}
+			}
+		})
+	}
+}
+
+// Reservations belong only to chosen/generated placement. An ordinary Modern
+// setup and Strict's bypass retain even overlapping authored footprints and
+// their exact authored coordinates [08 R-ENTRY-01 §5].
+func TestStartReservationsLeaveRetailPlacementUnchanged(t *testing.T) {
+	for _, strict := range []bool{false, true} {
+		s := strictNewSessionWithUnits(t, 0, 7, 11)
+		s.Catalog.Movement["testmove"].FootprintX = 3
+		s.Catalog.Movement["testmove"].FootprintZ = 2
+		cfg := wu19178Config()
+		s.Rules.Seats = ModernSeats{}
+		if strict {
+			s.Rules.Seats = StrictSeats{}
+			cfg.Players[0].Start = StartPoint{Set: true, X: 8, Z: 8}
+		}
+		m := wu19178Mission(
+			mission.Special{Kind: 1, ID: 0, X: 392, Z: 296},
+			mission.Special{Kind: 1, ID: 1, X: 408, Z: 296},
+		)
+		if err := skirmishReconstructUnits(s, cfg, m); err != nil {
+			t.Fatal(err)
+		}
+		for _, u := range s.Units.Iter() {
+			sp := m.Specials[u.Owner]
+			if u.X != numeric.Fixed(sp.X)<<16 || u.Z != numeric.Fixed(sp.Z)<<16 {
+				t.Fatalf("strict=%v: player %d moved from authored (%d,%d) to (%d,%d)", strict, u.Owner, sp.X, sp.Z, u.X>>16, u.Z>>16)
+			}
+		}
+	}
+}
+
+func assertStartFootprintsDisjoint(t *testing.T, s *Session, players int) {
+	t.Helper()
+	occupied := map[[2]int32]uint8{}
+	if got := len(s.Units.Iter()); got != players {
+		t.Fatalf("created %d commanders, want %d", got, players)
+	}
+	for _, u := range s.Units.Iter() {
+		fx, fz := world.FootprintForUnit(s.Catalog, u.Def)
+		x, z := world.PlacementAnchor(u.X, u.Z, fx, fz)
+		for dz := int32(0); dz < fz; dz++ {
+			for dx := int32(0); dx < fx; dx++ {
+				cell := [2]int32{x + dx, z + dz}
+				if owner, found := occupied[cell]; found {
+					t.Fatalf("players %d and %d overlap at cell %v", owner, u.Owner, cell)
+				}
+				occupied[cell] = u.Owner
+			}
 		}
 	}
 }

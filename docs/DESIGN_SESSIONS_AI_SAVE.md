@@ -2535,7 +2535,7 @@ replaces retail's step:
 
 1. Each slot that chose a point begins there. Every authored start within
    `chosenStartClaim` (24 cells, 384 world pixels) of a chosen point is
-   claimed by it, so no other commander begins on top of a chosen one.
+   claimed by it before the remaining starts are assigned.
 2. The others share the authored starts left, by the Location word.
    **Fixed:** each keeps its own number when that start exists and is
    unclaimed; the rest take the lowest free starts in slot order.
@@ -2547,9 +2547,17 @@ replaces retail's step:
    cell, ring by ring out to 48 cells, where the commander passes the spawn
    command's placement checks — its movement class's slope and water
    limits, its footprint and the units and features already there
-   (`chosenStartPosition`, the search Survival's spawns use). Commanders are
-   created in slot order, so two players who chose one point begin side by
-   side. No cell within reach is this build's error.
+   (`chosenStartPosition`, in the same ring and within-ring order Survival's
+   spawns use). The search also excludes reserved commander footprints:
+   every assigned authored commander is reserved before allocation, and
+   each chosen or generated commander's resolved footprint joins the
+   reservations in slot order. An authored commander keeps its exact point
+   even when allocated later, so relocation beyond the original click's
+   claim cannot put a chosen commander on top of it. Two players who chose
+   one point begin side by side. Reservations change no world state, RNG
+   draws, resource effects or commander allocation order; a setup without
+   chosen or generated starts keeps retail's placement. No cell within
+   reach is this build's error.
 
 The Modern AI is told the start owners (`ai.Manager.StartOwners`) under fixed
 starts when nobody chose a point; a chosen point is not an authored start,
@@ -2579,6 +2587,11 @@ retail's draw count), `TestChosenPointsUnderFixedLocation` (a point claims
 the authored start beside it), `TestChosenPointsUnderRandomLocation` (the
 deal replayed from the CRT definition),
 `TestChosenPointsRefuseWhatTheMapCannotSeat`, `TestChosenPointPlacesTheCommander`,
+`TestChosenRelocationAvoidsLaterAuto` (terrain relocation onto a later Auto
+start, full footprint separation with shared chosen points, and unchanged
+simulation draws, retained CRT and resources),
+`TestStartReservationsLeaveRetailPlacementUnchanged` (ordinary Modern and
+Strict's bypass retain exact authored positions),
 `TestChosenStartsEncodeAsConfigurationVersion2`,
 `TestChosenStartsRoundTripTheLocalAdapter`,
 `TestTheSettingsFileKeepsEachRowsStartPoint`, `TestPlaceStartsFollowsTheRules`
@@ -2617,9 +2630,13 @@ included, so a setup within the map's starts is unchanged. Then:
    generated — taking the first whose nearest cell in that region passes the
    spawn command's placement checks. With no candidate in the region the
    region's cell nearest the map centre is tried; no cell at all is this
-   build's error.
+   build's error. Candidate searches exclude the assigned authored
+   commanders' reserved footprints and earlier generated footprints, so
+   terrain relocation cannot select a later Auto commander's cell.
 3. The generated start joins the chosen points, and battle entry creates
-   the commander on the nearest standable cell as it does for those.
+   the commander on the nearest standable cell as it does for those,
+   excluding every authored commander and each earlier resolved commander
+   by its full footprint, including when chosen and generated starts mix.
 
 The simulation stream is not read, and the same seed generates the same
 starts. A battle with a generated start publishes no start owners to the
@@ -2634,7 +2651,9 @@ positions (DESIGN_MULTIPLAYER §6.6).
 starts first, then generation, and retail's assignment without the policy),
 `TestExtraPlayersBeginAtGeneratedStarts` (four players on a two-start
 synthetic map: the generated starts are apart from every other, repeat with
-the seed, and Strict 3.1 keeps the missing-start fatal) and, on the retail
+the seed, and Strict 3.1 keeps the missing-start fatal),
+`TestGeneratedStartsAvoidLaterAuto` (a region-centre fallback beside a later
+Auto commander, with and without chosen starts) and, on the retail
 corpus, `TestEightPlayersOnASmallMapRetail` (eight players on Luschinfloggen:
 Strict's preflight refuses, Modern composes eight commanders at least 128
 pixels apart, the same with the same seed).

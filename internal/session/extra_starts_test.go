@@ -5,6 +5,7 @@ import (
 
 	"github.com/nanolathe-gg/nanolathe/internal/economy"
 	"github.com/nanolathe-gg/nanolathe/internal/mission"
+	"github.com/nanolathe-gg/nanolathe/internal/sim/numeric"
 	"github.com/nanolathe-gg/nanolathe/internal/sim/rng"
 )
 
@@ -132,5 +133,43 @@ func TestExtraPlayersBeginAtGeneratedStarts(t *testing.T) {
 	}
 	if (StrictSeats{}).ExtraStarts() || !(ModernSeats{}).ExtraStarts() {
 		t.Fatal("the reserved sets answer the extra-starts question wrongly")
+	}
+}
+
+// The region's centre-nearest cell is a later Auto player's authored start,
+// and every random candidate lies outside the region. Generated players must
+// search past that reserved footprint, then remain disjoint when chosen and
+// generated commanders are allocated together in slot order (Modern policy).
+func TestGeneratedStartsAvoidLaterAuto(t *testing.T) {
+	for _, chosen := range []bool{false, true} {
+		s, cfg, _ := extraStartsSession(t, ModernSeats{})
+		for z := int32(0); z < s.World.CellH; z++ {
+			for x := int32(0); x < s.World.CellW; x++ {
+				cell := s.World.PlotAt(x, z)
+				cell.SetMinHeight(0)
+				cell.SetMaxHeight(255)
+				if x >= 26 && x <= 29 && z >= 20 && z <= 23 {
+					cell.SetMinHeight(10)
+					cell.SetMaxHeight(10)
+				}
+			}
+		}
+		if chosen {
+			cfg.Players[0].Start = StartPoint{Set: true, X: 8, Z: 8}
+		}
+		m := wu19178Mission(mission.Special{Kind: 1, ID: 3, X: 26*16 + 8, Z: 20*16 + 8})
+		beforeCRT := s.CrtRNG().Draws()
+		if err := skirmishReconstructUnits(s, cfg, m); err != nil {
+			t.Fatalf("chosen=%v: %v", chosen, err)
+		}
+		assertStartFootprintsDisjoint(t, s, cfg.NumPlayers)
+		for _, u := range s.Units.Iter() {
+			if u.Owner == 3 && (u.X != numeric.Fixed(m.Specials[0].X)<<16 || u.Z != numeric.Fixed(m.Specials[0].Z)<<16) {
+				t.Fatalf("chosen=%v: Auto moved to (%d,%d)", chosen, u.X>>16, u.Z>>16)
+			}
+		}
+		if s.CrtRNG().Draws() != beforeCRT {
+			t.Fatalf("chosen=%v: placement read the retained CRT stream", chosen)
+		}
 	}
 }
