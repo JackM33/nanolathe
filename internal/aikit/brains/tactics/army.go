@@ -12,6 +12,8 @@
 package tactics
 
 import (
+	"cmp"
+	"slices"
 	"strconv"
 
 	"github.com/nanolathe-gg/nanolathe/internal/aikit"
@@ -491,6 +493,7 @@ type Army struct {
 	tmp       []int32
 	tmp2      []int32
 	tmp3      []int32
+	recruit   []int32 // recruitHomeGuard scratch
 	order     [numSq]int32
 	wpBuf     [][2]int32 // route compression (routeInto)
 	goals     []goalRec
@@ -802,6 +805,10 @@ func (a *Army) membership(b *core.Board) {
 	a.tmp3 = a.tmp3[:0] // withdrawn aircraft and ships going to their own rally
 	a.stuckN = 0
 	defendNeed := a.defendNeed(b)
+	// A standing guard may be activated after the main squad is already
+	// full: fill it from units at hand rather than wait for new ones, which
+	// could leave it active and empty while the whole army attacks.
+	a.recruitHomeGuard(b, defendNeed)
 	for _, i := range b.Combat {
 		u := &o.Own[i]
 		info := u.Info
@@ -875,11 +882,6 @@ func (a *Army) membership(b *core.Board) {
 			s.surf.addDPS(info, int64(u.HP), int64(a.cls(info).surfDPS))
 		}
 	}
-	// A standing guard may have been activated after the main squad was
-	// already full; move existing members into it rather than waiting for
-	// newly produced units. Without this the squad can stay active and
-	// empty while the whole army attacks elsewhere.
-	a.recruitHomeGuard(b, defendNeed)
 	for id := int32(1); id < numSq; id++ {
 		a.summarize(b, &a.sq[id])
 	}
@@ -912,45 +914,52 @@ func (a *Army) membership(b *core.Board) {
 	}
 }
 
-// recruitHomeGuard moves existing main-squad members into an active,
-// under-strength home guard. It runs after membership assigned new units
-// and before summarize; moving a tag is enough, the next order pass follows
-// the squad's own state. The main squad and then the raid squad give units
-// until the guard reaches its needed value, bounded by defendShare.
+// recruitHomeGuard re-tags main and raid squad members into an active
+// home guard that is short of its needed value, nearest home first, so the
+// guard is filled by units already at hand rather than called back from an
+// offensive. It runs before membership places units by tag, so each squad's
+// force total counts every unit once.
 func (a *Army) recruitHomeGuard(b *core.Board, need int64) {
-	d := &a.sq[sqDefend]
-	if !d.active || need <= 0 {
+	if !a.sq[sqDefend].active || need <= 0 {
 		return
 	}
+	o := b.O
 	have := int64(0)
-	for _, i := range d.members {
-		if u := &b.O.Own[i]; u.Info != nil {
+	a.recruit = a.recruit[:0]
+	for _, i := range b.Combat {
+		u := &o.Own[i]
+		if u.Info == nil {
+			continue
+		}
+		switch u.Tag {
+		case sqDefend:
 			have += int64(u.Info.Value)
+		case sqMain, sqRaid:
+			a.recruit = append(a.recruit, i)
 		}
 	}
 	if have >= need {
 		return
 	}
-	for _, id := range [...]int32{sqMain, sqRaid} {
-		src := &a.sq[id]
-		keep := src.members[:0]
-		for _, i := range src.members {
-			u := &b.O.Own[i]
-			if have < need && u.Info != nil {
-				u.Tag = sqDefend
-				if b.K != nil {
-					b.K.SetTag(u.H, sqDefend)
-				}
-				d.members = append(d.members, i)
-				have += int64(u.Info.Value)
-				continue
-			}
-			keep = append(keep, i)
+	slices.SortFunc(a.recruit, func(x, y int32) int {
+		ux, uy := &o.Own[x], &o.Own[y]
+		dx := aikit.Dist2(ux.X, ux.Z, b.HomeX, b.HomeZ)
+		dy := aikit.Dist2(uy.X, uy.Z, b.HomeX, b.HomeZ)
+		if c := cmp.Compare(dx, dy); c != 0 {
+			return c
 		}
-		src.members = keep
+		return cmp.Compare(x, y)
+	})
+	for _, i := range a.recruit {
 		if have >= need {
 			break
 		}
+		u := &o.Own[i]
+		u.Tag = sqDefend
+		if b.K != nil {
+			b.K.SetTag(u.H, sqDefend)
+		}
+		have += int64(u.Info.Value)
 	}
 }
 
