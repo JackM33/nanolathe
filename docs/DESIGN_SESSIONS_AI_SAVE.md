@@ -2039,8 +2039,9 @@ not new gameplay rules, and use the ordinary order and construction paths.
   new `long_growth` switch (default 1) supplies parts 1/2/4/8 to the lower
   personas at the fallback; `long_growth=0` retains the old ambition gate
   for the configured `growth` bits. Below the fallback minute the lower
-  personas keep their tier caps and constructor floor. The tier curves still scale the counts by
-  the persona's ambition, so Easy's earlier plan is unchanged.
+  personas keep their tier caps and constructor floor. The tier curves
+  still scale the counts by the persona's ambition, so Easy's earlier plan
+  is unchanged.
 - *Idle builder cap.* Ordinary constructor production stops while two or
   more builders are already idle. Advanced constructors are exempt, because
   the tech plan's first advanced constructor is wanted even beside idle
