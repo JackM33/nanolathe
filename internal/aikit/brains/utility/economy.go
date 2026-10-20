@@ -285,7 +285,7 @@ func (e *Economy) rescueFactory(b *core.Board) bool {
 		n := 0
 		for _, bi := range b.Builders {
 			u := &o.Own[bi]
-			if u.Order != aikit.OrderIdle || u.Info.Role.Has(aikit.RoleCommander) {
+			if u.Order != aikit.OrderIdle || u.Info.Role.Has(aikit.RoleCommander) || !canGuard(u.Info) {
 				continue
 			}
 			if aikit.Dist2(u.X, u.Z, f.X, f.Z) <= 1200*1200 {
@@ -303,7 +303,7 @@ func (e *Economy) rescueFactory(b *core.Board) bool {
 	e.helpers = e.helpers[:0]
 	for _, bi := range b.Builders {
 		u := &o.Own[bi]
-		if u.Order != aikit.OrderIdle || u.Info.Role.Has(aikit.RoleCommander) {
+		if u.Order != aikit.OrderIdle || u.Info.Role.Has(aikit.RoleCommander) || !canGuard(u.Info) {
 			continue
 		}
 		if aikit.Dist2(u.X, u.Z, f.X, f.Z) > 1200*1200 {
@@ -375,16 +375,15 @@ func (e *Economy) rescueRepair(b *core.Board) bool {
 	return true
 }
 
+// commitHelpers records the group order on exactly the builders it went
+// to (e.helpers).
 func (e *Economy) commitHelpers(b *core.Board, kind commitKind, target pool.Handle, x, z int32) {
-	o := b.O
-	for _, bi := range b.Builders {
-		u := &o.Own[bi]
-		if u.H == target || u.Order != aikit.OrderIdle || u.Info.Role.Has(aikit.RoleCommander) {
+	for _, h := range e.helpers {
+		i := b.Index(h)
+		if i < 0 {
 			continue
 		}
-		if aikit.Dist2(u.X, u.Z, x, z) > 1200*1200 {
-			continue
-		}
+		u := &b.O.Own[i]
 		c := e.s.commitOf(u)
 		*c = commitment{def: u.Info, gen: u.Gen, kind: kind, spot: -1, target: target, x: x, z: z, tick: e.s.tick}
 	}
@@ -1226,6 +1225,9 @@ func (e *Economy) evalAssist(b *core.Board, u *aikit.OwnUnit, cm *commitment, d 
 	}
 	need := mul(cov, armyF)
 	if need == 0 {
+		return
+	}
+	if !canGuard(u.Info) {
 		return
 	}
 	best := cand{kind: cGuard, spot: -1}

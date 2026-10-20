@@ -39,7 +39,7 @@ func newBreadthFixture(p Params) *breadthFixture {
 		Def: &content.UnitDef{RadarDistance: 1200, SightDistance: 300}}
 	f.jam = &aikit.UnitInfo{Key: "jam", Role: mob | aikit.RoleScout | aikit.RoleJammer, Metal: 90, HP: 400, Speed: 30,
 		Def: &content.UnitDef{RadarDistanceJam: 400, SightDistance: 300}}
-	f.fark = &aikit.UnitInfo{Key: "fark", Role: mob, Metal: 300, Energy: 1000, HP: 800, BuildPower: 180, Speed: 60, Def: &content.UnitDef{Builder: true}}
+	f.fark = &aikit.UnitInfo{Key: "fark", Role: mob, Metal: 300, Energy: 1000, HP: 800, BuildPower: 180, Speed: 60, Def: &content.UnitDef{Builder: true, CanGuard: true}}
 	f.necro = &aikit.UnitInfo{Key: "necro", Role: mob, Metal: 300, Energy: 1000, HP: 800, BuildPower: 180, Speed: 40, Def: &content.UnitDef{Builder: true, CanResurrect: true}}
 	f.mlv = &aikit.UnitInfo{Key: "mlv", Role: mob | aikit.RoleBuilder, Metal: 170, HP: 1200, BuildPower: 100, Speed: 26,
 		Builds: []*aikit.UnitInfo{mine}, Def: &content.UnitDef{Builder: true}}

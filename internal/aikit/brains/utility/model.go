@@ -141,6 +141,13 @@ func onPad(f *aikit.OwnUnit, x, z int32) bool {
 	return x >= f.X-hx && x <= f.X+hx && z >= f.Z-hz && z <= f.Z+hz
 }
 
+// canGuard reports whether a unit accepts Guard (code 7): a definition
+// authored canguard=0 refuses it, so no layer should spend an action on
+// one. A unit without a compiled definition (unit tests) is taken as able.
+func canGuard(info *aikit.UnitInfo) bool {
+	return info.Def == nil || info.Def.CanGuard
+}
+
 // domainOf indexes shared.idleCons: 1 for a builder that must stand in
 // water, 0 for every other (land, hover and air builders can take land
 // work). An idle naval constructor is no reason to withhold a land one.
