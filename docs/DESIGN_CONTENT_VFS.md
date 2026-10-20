@@ -1029,8 +1029,7 @@ battle-table read — and `content.LimitsFromProfile` converts a profile, keepin
 the retail value for any count the profile leaves unset.
 `content.CompileWithOptions(fs, content.Options{Limits: ...})` is the entry
 point that takes them; `Compile` and any options that leave the counts unset
-keep the retail baseline, so every caller that has not resolved a profile
-admits exactly the content it always did. The two single-family battle-table
+keep the baseline limits above. The two single-family battle-table
 entry points take the limits directly — `content.CompileLOSTables(fs, limits)`
 and `content.CompileMeteor(fs, limits)`, with `content.RetailLimits()` as the
 baseline — while the map census is reached only through the catalog compile.
@@ -1055,7 +1054,7 @@ fallback census, battle terrain, battle minimap and menu preview. A ranged
 catalog census is unaffected, because it reads two short header ranges and
 never the whole terrain. Consequently a listed map can still exceed the cap
 when opened; range support must not bypass the full-load cap. The resolved
-base game's profile uses 128 MiB and the four hosted mods' configs use 64 MiB.
+base game's profile uses 128 MiB and the hosted mods' configs use 64 MiB.
 The base caps are sized for the installs players run rather than a stock 3.1
 one: TA Unofficial Patch 3.9.02's `gamedata/los.tdf` is 2,377,872 bytes, and
 community map packs carry terrain files up to about 65 MiB, where a TNT with
