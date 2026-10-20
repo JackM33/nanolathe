@@ -85,6 +85,7 @@ func (a *app) serviceIdleAudio() {
 	if delay := a.options.IdleService(a.c.IsFocused()); delay > 0 {
 		a.idle.timer = time.AfterFunc(delay, func() {
 			a.idle.maintenance.Store(true)
+			//lint:ignore SA1019 Minimum FPS mode needs an explicit native event wake for host audio.
 			ebiten.ScheduleFrame()
 		})
 	}
@@ -120,7 +121,7 @@ func (a *app) wakePresentation() {
 	a.pipe.lastDrawAt, a.pipe.tickAt = time.Time{}, time.Time{}
 	a.pipe.period, a.pipe.launchPeriod, a.pipe.hasTick = 0, 0, false
 	a.ledger = updateLedger{}
-	ebiten.SetFPSMode(ebiten.FPSModeVsyncOn)
+	ebiten.SetVsyncEnabled(true)
 }
 
 func (a *app) restPresentation() {
@@ -146,6 +147,7 @@ func (a *app) restPresentation() {
 	a.idle.sleeping = true
 	// This deprecated API still supplies the desktop event wait; screen
 	// retention alone avoids raster work but does not stop Update/Draw calls.
+	//lint:ignore SA1019 Screen retention does not provide the native event wait required here.
 	ebiten.SetFPSMode(ebiten.FPSModeVsyncOffMinimum)
 	a.serviceIdleAudio()
 }
