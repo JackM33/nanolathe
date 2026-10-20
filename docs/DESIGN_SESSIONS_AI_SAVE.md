@@ -2039,93 +2039,73 @@ is the retail baseline and every fingerprint lock runs Classic.
   background think whose result equals the synchronous one
   ([DESIGN_GAMEPLAY_RULES](DESIGN_GAMEPLAY_RULES.md#the-modern-ai-controller)).
 
-**Long-game and low-action corrections (2026-10-19).** Nanolathe Modern AI
-policy, from the play-test replay of a 2 h 57 min six-player Crooked Creek
-battle. The replay's Modern seats were Easy (APM 25, Attention 1, Ambition
-35) and all three ended with 40-44 builders, 36-41 of them idle, a crowded
-base whose factory exits took 84% of all spawn attempts blocked, and five to
-eight extractors after 2 h 24. The corrections are decisions of the brain,
-not new gameplay rules, and use the ordinary order and construction paths.
+**Long games, low action budgets and teams.** Nanolathe Modern AI policy.
+These are decisions of the brain, not gameplay rules: they use the
+ordinary order and construction paths and add no rule seam, simulation
+RNG draw or per-tick state.
 
-- *Long-game growth fallback.* `growth` (the human economy shape: extraction
-  territory, tech-2 timeline, constructors per extractor, factories per
-  income) now acts for every ambition from minute 20, not only at full
-  ambition. The shipped `growth=16` is the constructor floor alone, so the
-  new `long_growth` switch (default 1) supplies parts 1/2/4/8 to the lower
-  personas at the fallback; `long_growth=0` retains the old ambition gate
-  for the configured `growth` bits. Below the fallback minute the lower
-  personas keep their tier caps and constructor floor. The tier curves
-  still scale the counts by the persona's ambition, so Easy's earlier plan
-  is unchanged.
-- *Idle builder cap.* Ordinary constructor production stops while two or
-  more idle economy constructors are already waiting. The commander is not
-  one of them, so an idle commander beside one idle constructor does not
-  stop the factory that would give both work. Advanced constructors are
-  exempt, because the tech plan's first advanced constructor is wanted even
-  beside idle ordinary builders.
-- *Idle builder rescue.* When at least two constructed builders are idle,
-  the economy spends one action on the first available work: a group Guard
-  of a producing factory; a group Repair of a damaged own or allied unit or
-  an unfinished frame; or one builder's Clear of a nearby reclaimable
-  feature. The guard runs from the start; repair and clear wait for minute
-  20, because their group action competes with the opening economy's only
-  builder action. This is the human box-select and right-click, not one
-  action per builder; it lets a low-APM persona use a large builder pool and
-  assist factory production, repair a base, or reclaim a lane. The commander
-  is left out of every group. The rescue runs after failures from the previous
-  think are processed, so it cannot hide a failed site from backoff,
-  placement-failure counts or stuck-builder detection.
-- *Builder action reserve.* The economy no longer reserves one action for
-  the army unconditionally and one per short-queue factory. It reserves an
-  army action only while the base is threatened and at most one for a
-  factory with an empty, unstalled queue; a stalled pad does not cost the
-  builders the action that could open it. At the Easy persona's one-action budget the
-  old form left nothing for a builder.
-- *Factory pads and dead factories.* A pad clear moves the parked units to a
-  builder rally behind home instead of one footprint plus 128 wu along the
-  factory's exit, which was still inside the built-up base or on another
-  pad. A factory written off as dead is cleared too: if its exit opens its
-  queue resumes instead of being lost for the rest of the battle. A stalled
-  pad gets one builder Unblock before two clear attempts; the executor is a
-  no-op when the exit is already open. The growth factory cap also reads
-  spawn success: while at least two pads are stalled and at least half the
-  factories are stalled, another factory is not added until an existing pad
-  produces again.
-- *Personality scaling.* A persona below full ambition scales its drawn and
-  named personality traits by its ambition; an explicitly pinned trait
-  stays exact. The old full-strength draw could give a 35%-ambition ally
-  towers -86, expansion -42 and heavy -68, which is not a smaller plan but a
-  different, weaker one.
-- *Standing home guard.* From minute 20 the tactics army keeps a 10% home
-  guard even before an incident, at every attention; the defend squad
-  previously needed Attention 3 and a nonzero threat memory. An active but
-  under-strength guard recruits existing main-squad members instead of
-  waiting for newly produced units, so production stopping cannot leave it
-  active and empty. The guard is bounded by the existing 15% defend share.
-- *Allied assets.* Allied buildings and builders in sight count as assets
-  for incidents and home defence, so a team's army can answer an attack on
-  an ally's base even though it cannot command the ally. Own army value and
+- *Idle builders.* Ordinary constructor production stops while two or more
+  idle economy constructors of the product's domain are already waiting:
+  builders that must stand in water are counted apart from all others, and
+  the commander is not counted. Advanced constructors stay on the tech
+  plan. While at least two builders are idle the economy also spends one
+  action on a group order, the human box-select and right-click: a Guard of
+  the producing factory with the most idle builders within 1200 wu, and from
+  minute 20, when no factory takes them, a Repair of the damaged own or
+  allied unit or unfinished frame with the most. The commander and builders
+  that cannot guard are left out, and the group runs after the previous
+  think's failed builds are processed, so it hides no failed site from
+  backoff, placement-failure counts or stuck-builder detection. Reclaiming
+  stays a per-builder decision, which rests after a clear that found
+  nothing.
+- *Action reserve.* The economy reserves one action for the army only while
+  the base is threatened, and at most one for a factory with an empty,
+  unstalled queue, so a one-action persona's builders are not left
+  waiting behind the army and production.
+- *Long-game growth.* `growth` acts for every ambition from minute 20, not
+  only at full ambition; the `long_growth` switch (default 1) supplies its
+  expansion, tech-2, constructor-ratio and factory parts to the lower
+  personas then, and `long_growth=0` keeps the full-ambition gate. The tier
+  curves still scale the counts by ambition, so a lower persona's plan
+  before minute 20 is unchanged.
+- *Factory pads.* A pad clear moves every unit parked on a stalled pad,
+  and idle units in the short lane in front of it, in one group move to a
+  rally behind home, a quarter of the way from home away from the enemy.
+  A factory written off as walled in is cleared too, so its queue resumes
+  if its exit opens. A stalled pad gets one builder Unblock before two
+  clear attempts; the executor does nothing when the exit is open. While
+  at least two pads are stalled and at least half the factories are,
+  growth adds no factory.
+- *Standing home guard.* From minute 20 the tactics army keeps 10% of its
+  value at home at every attention, within the 15% defend share; the guard
+  otherwise forms only at Attention 3 after an incident. An under-strength
+  guard is filled from main and raid squad members nearest home.
+- *Allied assets.* Allied buildings and builders in sight are assets for
+  incidents and home defence, so a team's army answers an attack on an
+  ally's base although it cannot command the ally. Own army value and
   strength stay own-only.
-- *Resolver diagnostics.* `ApplyStats` now splits `FailResolve` by command
-  kind and by the first actor's authored role (commander, builder, combat).
-  This is diagnostic state only; the command paths, simulation and hashes
-  are unchanged.
+- *Guard capability.* A definition authored `canguard=0` refuses Guard
+  (code 7), so no layer sends it one: a support unit that cannot guard
+  follows its ward by moving when it stands idle more than 900 wu away,
+  and the economy's guard candidate, the group guard and the assist
+  builders skip such builders.
+- *Resolver diagnostics.* `ApplyStats` breaks `FailResolve` down by command
+  kind and by the first actor's role (commander, builder, combat).
+  Diagnostic state only.
 
-Strict 3.1 with only Classic players is unchanged: these are Modern AI
-decisions, not rule seams, and add no RNG, per-tick state, or new order
-surface. Every fingerprint lock continues to run Classic.
+Strict 3.1 with only Classic players is unchanged, and every fingerprint
+lock but the Modern AI's own runs Classic.
 
 Tests: `utility.TestGrowthLongGameFallback`,
 `utility.TestIdleBuildersStopConstructorProduction`,
 `utility.TestIdleBuildersGroupGuardAFactory`,
 `utility.TestIdleBuildersRepairDamagedBuilding`,
-`utility.TestIdleBuilderClearsFeature`,
 `utility.TestIdleRepairFallbackStartsAfterOpening`,
 `utility.TestFailedBuildBeforeIdleRescue`,
+`utility.TestPadLaneCoversShortExit`,
 `tactics.TestStandingGuardAtLowAttention`,
 `tactics.TestStandingGuardRecruitsMainSquad`,
-`utility.TestLowAmbitionPersonalityTraitsScale`,
-`utility.TestPadLaneCoversShortExit`,
+`tactics.TestSupportWithoutGuardFollowsByMoving`,
 `aikit.TestFailResolveBreakdown`.
 
 **Radar coverage.** Nanolathe Modern policy (user-requested correction,

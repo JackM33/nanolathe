@@ -55,7 +55,8 @@ switch changes.)
 
 Each think it first detects failures and retreats, then scores options for
 up to `Attention` builders (rotating start), within the APM budget left
-after reserving one action for the army and one per factory with room.
+after reserving one action for the army while the base is threatened and
+one for a factory with an empty, unstalled queue.
 
 | candidate | considerations (multiplied) |
 |---|---|
@@ -69,11 +70,13 @@ after reserving one action for the army and one per factory with room.
 | assist nanoframe | resource slack `lin(min(covM, covE), 500, 1400)` × priority (factory 1500, economy 1000, defense 1000+danger, other 700) × travel |
 | guard factory | `lin(covM, 900, 2500)` × army share × travel — only factories that are producing |
 
-The idle-builder rescue guards a producing factory from the first minute;
-its group repair and feature clear wait until minute 20 because their one
-action competes with the opening economy. After that they run in the same
-order: producing factory, damaged own/allied unit or frame, reclaimable
-feature. The commander is never moved by the rescue.
+With two or more builders idle, one action moves a group of them (the
+idle-builder rescue): a Guard of the producing factory with the most idle
+builders within 1200 wu, and from minute 20, when no factory takes them, a
+Repair of the damaged own or allied unit or unfinished frame with the
+most. The repair waits for minute 20 because its action competes with the
+opening economy. The commander and builders authored `canguard=0` are
+never in a guard group; reclaiming stays the per-builder clear candidate.
 
 With the `expand` switch (off by default, §13.10), from minute
 `expand_from` an extractor site is scored with a metal need of at least
@@ -1083,10 +1086,9 @@ The benchmark's recommendation (d): human land-map winners hold 0.57 /
 util+tac plateaus near 14), build one factory per ~14 metal/s of income
 with the second around minute 8 (util+tac twice as many), and 73% of
 winners have a tech-2 factory, at a median minute 12. `growth` is a sum
-of parts, at full ambition and — Nanolathe Modern AI policy from the
-2026-10-19 long-game replay — at every ambition from minute 20 (before
-that, easy and medium keep their tier caps, style.go; the tier curves
-still scale the counts by ambition):
+of parts, at full ambition and, as Nanolathe Modern AI policy, at every
+ambition from minute 20 (before that, easy and medium keep their tier
+caps, style.go; the tier curves still scale the counts by ambition):
 
 | part | what it does |
 |---|---|

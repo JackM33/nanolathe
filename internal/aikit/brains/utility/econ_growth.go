@@ -132,8 +132,8 @@ func (s *shared) countDefs(defs []int32) int64 {
 // feed back into the target), plus one builder per spots_per_con
 // claimable free spots, at most expandCons. It acts at full ambition and,
 // after growthFallbackMinute, at every ambition (Nanolathe Modern AI
-// long-game policy; DESIGN_SESSIONS_AI_SAVE "Long-game and low-action
-// corrections").
+// long-game policy; DESIGN_SESSIONS_AI_SAVE "Long games, low action
+// budgets and teams").
 func (s *shared) consTarget() int64 {
 	ratio := consPerMexLo + lin(int64(s.tick), 12*1800, 20*1800)*(consPerMexHi-consPerMexLo)/one
 	ratio = ratio * lin(int64(s.tick), growFrom*1800, 12*1800) / one
