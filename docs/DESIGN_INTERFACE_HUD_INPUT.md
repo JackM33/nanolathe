@@ -856,6 +856,11 @@ is the kill/loss flash, armed only while the interface bit is set
 `[07 R-HUD-04 §1]`.
 Names come from the committed player record: default computer names use
 compiled side metadata, while explicit player names remain intact.
+As Nanolathe host presentation, the panel appends the compiled faction name
+when it differs from the player's name, for example `Player (TLL)`. It resolves
+the faction from the committed side ordinal, including after loading, in every
+gameplay mode. A computer already named `TLL` keeps that concise label. This
+changes only the drawn label, with no player-record or save-format change.
 After loading, distinct registration ranks and reconstructed default names
 come from the session restore boundary (DESIGN_SESSIONS_AI_SAVE §2).
 
