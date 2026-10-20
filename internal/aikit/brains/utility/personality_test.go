@@ -69,6 +69,13 @@ func TestLowAmbitionPersonalityTraitsScale(t *testing.T) {
 	if ps.trait[TraitTowers] != -80 {
 		t.Errorf("pinned tower trait = %d, want -80", ps.trait[TraitTowers])
 	}
+	// A named personality is the player's choice: its centres stand.
+	v = DefaultVariety()
+	v.Personality, v.Jitter = Personalities[0].Name, false
+	ps.draw(k, &v, &p)
+	if ps.trait != Personalities[0].centre {
+		t.Errorf("named %s traits = %v, want its centres %v", Personalities[0].Name, ps.trait, Personalities[0].centre)
+	}
 }
 
 // The personality draws after the style, lead and jitter draws: turning it
