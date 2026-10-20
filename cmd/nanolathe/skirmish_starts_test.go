@@ -86,3 +86,20 @@ func TestPlaceStartsFollowsTheRules(t *testing.T) {
 		t.Fatal("clearChosenStarts kept a point")
 	}
 }
+
+// setSetupMap is how the setup's map changes, from the map picker, the
+// online room's picker and the deletion of the selected downloaded map: a
+// different map clears the chosen points, and the same map, in any letter
+// case, keeps them.
+func TestSetSetupMapClearsPointsOnlyForAnotherMap(t *testing.T) {
+	g := &gameShell{setup: newSkirmishMenuConfig("Ashap Plateau")}
+	g.setup.Players[0].Start = session.StartPoint{Set: true, X: 300, Z: 400}
+	g.setSetupMap("ashap plateau")
+	if !g.setup.Players[0].Start.Set || g.setup.MapName != "ashap plateau" {
+		t.Fatalf("the same map dropped the point: %q %+v", g.setup.MapName, g.setup.Players[0].Start)
+	}
+	g.setSetupMap("Another Map")
+	if g.setup.Players[0].Start.Set || g.setup.MapName != "Another Map" {
+		t.Fatalf("another map kept the point: %q %+v", g.setup.MapName, g.setup.Players[0].Start)
+	}
+}

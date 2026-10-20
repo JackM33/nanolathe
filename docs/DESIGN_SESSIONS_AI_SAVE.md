@@ -2958,8 +2958,9 @@ takes no authored start, so no schema placement replaces its commander.
 (DESIGN_INTERFACE_HUD_INPUT §2.6 "Start positions") and the settings file
 (`start` per row with the map the points were placed on, `startMap`) carry
 it to `skirmishConfigForStart`, which keeps it with its row through the
-compaction; a point belongs to its map, so choosing another map clears the
-points, and a settings file whose points name another map loads them as
+compaction; a point belongs to its map, so any change of the setup's map,
+including the fallback after the selected downloaded map is deleted, clears
+the points, and a settings file whose points name another map loads them as
 Auto. Replays carry it as required extension 17 of configuration version 2
 (DESIGN_MULTIPLAYER §8.6); a configuration with no choice keeps its
 existing version-2 bytes and identity. A save needs none: the bank already holds the
