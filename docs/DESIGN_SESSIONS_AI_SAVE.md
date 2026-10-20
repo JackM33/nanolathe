@@ -2062,6 +2062,17 @@ RNG draw or per-tick state.
   the base is threatened, and at most one for a factory with an empty,
   unstalled queue, so a one-action persona's builders are not left
   waiting behind the army and production.
+- *Commander safety.* The commander's retreat test runs before both
+  reserves and takes the think's action when it fires, so a one-action
+  persona can pull it home while the base is under attack. It fires
+  more than 350 wu from home, or below 60% health, where enemy threat is
+  at least half `threat_half` and outweighs own armed power. No commander
+  work site (a build, an extractor, a tower, a gate or a reclaim) is
+  offered beyond 350 wu of home where that test already holds. The leash
+  is `com_radius` or, when farther, the distance from home to the
+  second-nearest land metal spot, fixed when home is: at a start chosen
+  away from the map's metal the commander, the opening's only builder,
+  otherwise had no extractor it could build.
 - *Production batches.* A persona below 100 APM (Easy and Medium) queues a
   chosen combat unit two at a time with one action, within any
   restriction cap; builders, scouts and every product of a faster persona
@@ -2110,6 +2121,9 @@ Tests: `utility.TestGrowthLongGameFallback`,
 `utility.TestFailedBuildBeforeIdleRescue`,
 `utility.TestPadLaneCoversShortExit`,
 `utility.TestLowAPMCombatBatch`,
+`utility.TestCommanderRetreatsBeforeReserves`,
+`utility.TestCommanderAvoidsThreatenedSites`,
+`utility.TestCommanderLeashReachesMetal`,
 `tactics.TestStandingGuardAtLowAttention`,
 `tactics.TestStandingGuardRecruitsMainSquad`,
 `tactics.TestSupportWithoutGuardFollowsByMoving`,

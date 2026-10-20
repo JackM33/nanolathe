@@ -53,10 +53,19 @@ think.
 (§3–§5 describe the brain with the §11 switches off; §11 lists what each
 switch changes.)
 
-Each think it first detects failures and retreats, then scores options for
-up to `Attention` builders (rotating start), within the APM budget left
-after reserving one action for the army while the base is threatened and
-one for a factory with an empty, unstalled queue.
+Each think it first checks the commander's retreat, then reserves one
+action for the army while the base is threatened and one for a factory
+with an empty, unstalled queue, then detects failures and the other
+builders' retreats, and scores options for up to `Attention` builders
+(rotating start) within the APM budget left.
+
+The commander retreats home when it is more than 350 wu out, or below
+60% health, where enemy threat is at least half `threat_half` and
+outweighs own armed power; no commander work site is offered beyond
+350 wu of home where that test already holds. Its leash is `com_radius`
+or, when farther, the distance from home to the second-nearest land metal
+spot, so a start chosen away from the metal still gets its opening
+extractors.
 
 | candidate | considerations (multiplied) |
 |---|---|
@@ -206,7 +215,7 @@ runs defaults); persona keys (`think`, `react`, `apm`, `attention`,
 | `att_min` | 800 | 100–6000 | minimum wave value |
 | `att_grow` | 150 | 0–1000 | wave value added per minute |
 | `att_ratio` | 130 | 50–400 | wave value as percent of estimated enemy army |
-| `com_radius` | 900 | 300–3000 | commander leash from home (world units) |
+| `com_radius` | 900 | 300–3000 | commander leash from home (world units), stretched to the second-nearest land metal spot (§3) |
 | `spots_per_con` | 3 | 1–12 | free safe spots per builder before more builders are wanted |
 | `fac_time` | 100 | 20–600 | seconds by which the first factory is fully urgent |
 | `w_air` | 100 | 0–1000 | air plant desire (percent of its anti-air-damped suitability) |
@@ -2110,7 +2119,7 @@ metal store empty.
 |---|---|
 | 1 makers last | no metal maker is started while a free, safe extractor spot on our side stands open that a builder of ours can reach and fit (`shared.freeSafe`: free on the board, not blocked after a failure, territory ≥ 600‰, threat below `threat_half`; with the terrain model, reachable by a builder class that can make an extractor that fits it; the commander only within its leash) |
 | 2 energy follows metal | no energy building and no energy storage is started while the energy store is at least nine tenths full and not draining: income covers expense, or metal is short (coverage below nominal), when the expense read is only requested. The opening lead (energy before the first extractor, first three minutes) is exempt. A builder with nothing worth building assists, guards, reclaims or waits |
-| 4 home spots | when the ambition extractor cap binds, spots within the commander's leash of home (`com_radius`, which ambition scales: 846 wu at medium, 724 at easy) stay in the plan; only spots beyond it wait for the tier curve, and makers wait as before |
+| 4 home spots | when the ambition extractor cap binds, spots within the commander's leash of home (`com_radius`, which ambition scales: 846 wu at medium, 724 at easy; §3 stretches it to the second-nearest land spot) stay in the plan; only spots beyond it wait for the tier curve, and makers wait as before |
 
 At ambition 100 there is no cap, so hard plays parts 1 and 2. `metal=0`
 is the brain before this section, game for game (checked: identical
