@@ -244,7 +244,7 @@ func TestIdleBuildersStopConstructorProduction(t *testing.T) {
 	f.pr.s.cons = 0
 	f.pr.s.freeSafe = 60
 	f.pr.s.idleBuilders = 2
-	f.pr.s.idleCons = 2
+	f.pr.s.idleCons = [2]int32{2, 0}
 	f.pr.produce(b, 4)
 	if got := f.offered(f.con); got == pCons {
 		t.Error("idle builders did not stop constructor production")
@@ -252,12 +252,18 @@ func TestIdleBuildersStopConstructorProduction(t *testing.T) {
 	// The commander is an idle builder too, but not an idle economy
 	// constructor: one idle commander and one idle constructor must not stop
 	// the factory that would give them work.
-	f.pr.s.idleBuilders, f.pr.s.idleCons = 2, 0
+	f.pr.s.idleBuilders, f.pr.s.idleCons = 2, [2]int32{}
 	f.pr.produce(b, 4)
 	if got := f.offered(f.con); got != pCons {
 		t.Errorf("one idle constructor plus commander: constructor offered as %d, want constructor", got)
 	}
-	f.pr.s.idleBuilders, f.pr.s.idleCons = 0, 0
+	f.pr.s.idleBuilders, f.pr.s.idleCons = 0, [2]int32{}
+	f.pr.s.idleCons = [2]int32{0, 2}
+	f.pr.produce(b, 4)
+	if got := f.offered(f.con); got != pCons {
+		t.Errorf("two idle naval constructors: land constructor offered as %d, want constructor", got)
+	}
+	f.pr.s.idleCons = [2]int32{}
 	f.pr.produce(b, 4)
 	if got := f.offered(f.con); got != pCons {
 		t.Errorf("no idle builders: constructor offered as %d, want constructor", got)

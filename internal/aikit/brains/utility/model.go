@@ -141,6 +141,16 @@ func onPad(f *aikit.OwnUnit, x, z int32) bool {
 	return x >= f.X-hx && x <= f.X+hx && z >= f.Z-hz && z <= f.Z+hz
 }
 
+// domainOf indexes shared.idleCons: 1 for a builder that must stand in
+// water, 0 for every other (land, hover and air builders can take land
+// work). An idle naval constructor is no reason to withhold a land one.
+func domainOf(si *staticInfo) int {
+	if si.water {
+		return 1
+	}
+	return 0
+}
+
 // shared is the state the three policies share: static tables, the
 // per-think economic and enemy model, commitments and the action budget.
 type shared struct {
@@ -203,8 +213,8 @@ type shared struct {
 	cons           int32 // mobile builders able to build economy (built)
 	consPending    int32
 	builders       int32
-	idleBuilders   int32 // built builders with no productive order this think
-	idleCons       int32 // built economy constructors with no productive order
+	idleBuilders   int32    // built builders with no productive order this think
+	idleCons       [2]int32 // built economy constructors with no productive order: [0] land, [1] water (staticInfo.water)
 	freeSafe       int32
 	ownAA          int64
 	scouts         int32
@@ -709,7 +719,7 @@ func (s *shared) observe(b *core.Board) {
 	s.touched = s.touched[:0]
 	s.bpFac, s.bpBld, s.upkeepE, s.mexUpkeep, s.firmE, s.windE = 0, 0, 0, 0, 0, 0
 	s.cons, s.consPending, s.ownAA, s.scouts, s.armyCount, s.airScouts = 0, 0, 0, 0, 0, 0
-	s.idleBuilders, s.idleCons = 0, 0
+	s.idleBuilders, s.idleCons = 0, [2]int32{}
 	s.mexBuilt = 0
 	var consFrames int32
 	for i := range o.Own {
@@ -746,8 +756,8 @@ func (s *shared) observe(b *core.Board) {
 			}
 			if u.Order == aikit.OrderIdle {
 				s.idleBuilders++
-				if s.info[info.Index].canEco && !r.Has(aikit.RoleCommander) {
-					s.idleCons++
+				if si := &s.info[info.Index]; si.canEco && !r.Has(aikit.RoleCommander) {
+					s.idleCons[domainOf(si)]++
 				}
 			}
 		}
