@@ -37,6 +37,9 @@ func TestRetailDefeatedScorePanelCapture(t *testing.T) {
 				rows[i] = frame.PlayerRow{Present: true, Controller: 2, Name: fmt.Sprintf("Player %d", i+1), Logo: uint8(i), LiveUnits: i % 2, Kills: 13 * i, Losses: 7 * i, Rank: uint8(i)}
 			}
 			rows[0].Controller = 1 // an eliminated local row also stays readable
+			if count == 3 {
+				rows[0].Name, rows[1].Name, rows[2].Name = "Player", "TALON", "Rumad"
+			}
 			c, h, b := scorePanelFixtureWith(t, false, rows, 0, count)
 			b.sess.Gameplay = mode
 			h.modalFont = loadGAFFontOptional(cs.fs, "anims/hattfont12.gaf", "score capture font")
