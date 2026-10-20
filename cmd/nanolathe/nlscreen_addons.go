@@ -34,7 +34,8 @@ import (
 type nlAddonRow struct {
 	known knownAddon
 	// inFolder marks an add-on whose archives sit byte-identical in the base
-	// install's folder: the install supplies it, so it has no switch.
+	// install's folder: the install supplies it, so it has no switch. A
+	// model pack still needs an installed selection to apply its model tier.
 	inFolder bool
 	// units are the units its archives define, read from the archives
 	// themselves when they are at hand (installed or in the folder), so they
@@ -46,6 +47,9 @@ type nlAddonRow struct {
 	// declaration (docs/DESIGN_MODS_MUTATORS.md §5.8): its sides and how
 	// many units they have, shown in place of the unit names.
 	faction string
+	// models marks an audited model-only payload, which replaces models
+	// rather than adding units (§5.7).
+	models bool
 }
 
 // nlAddonUnit is one unit an add-on's archives define: its unit name, its
@@ -168,6 +172,12 @@ func nlAddonRowsOf(known []knownAddon, root string) []nlAddonRow {
 			row.names = strings.Join(names, ", ")
 			if factions, err := addonlibrary.Factions(addonlibrary.Addon{Paths: paths}); err == nil {
 				row.faction = nlFactionText(factions)
+			}
+			row.models, _ = addonlibrary.ModelsOnly(addonlibrary.Addon{Paths: paths})
+			if row.models && !addonlibrary.ReplacesBase(addonlibrary.Addon{Archives: k.archives}) {
+				// A folder copy alone has the UFO tier, below the patch;
+				// keep the installed switch or catalogue Get available (§5.7).
+				row.inFolder = false
 			}
 		}
 		rows = append(rows, row)
@@ -316,7 +326,7 @@ func (s *nlScreen) addonsCard() nlCard {
 			})
 		},
 		desc: func(*nlDraft, int) string {
-			return "Cavedog's bonus units and extra factions beside Arm and Core, in any combination. Factions play with the original game only."
+			return "Bonus units, community fixes, model replacements and extra factions, enabled beside the selected mod."
 		},
 		scene: func(*nlDraft, int) string { return "armor" },
 	}
@@ -459,6 +469,9 @@ func (s *nlScreen) pollAddons() {
 func (s *nlScreen) addonSubText(row nlAddonRow) string {
 	if row.faction != "" {
 		return row.faction
+	}
+	if row.models {
+		return "Model replacements"
 	}
 	if row.names != "" {
 		return row.names

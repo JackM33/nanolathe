@@ -521,6 +521,12 @@ A unit is not blitted from a sprite. It is composed into its own indexed image
 with a per-pixel **height key**, and that image is blitted. The split across
 `model_*.go` follows the stages:
 
+Piece visibility is independent of hierarchy: a hidden transform parent still
+positions its visible descendants `[03 §2.4.1]`. Both eager classic composition
+and deferred modern geometry use this same admission rule. Malformed cyclic
+ancestor chains and their descendants remain suppressed as a Nanolathe host
+safety policy; that policy does not describe retail behavior on cyclic input.
+
 * `model.go` — the compiled 3DO in presentation form, the piece walk, the
   shaded/unshaded renderer selection.
 * `model_compose.go` — per-primitive dispatch and the winding cull. Bit 0 of
