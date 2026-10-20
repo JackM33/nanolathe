@@ -132,6 +132,12 @@ func (a *app) restPresentation() {
 	if a.options.IdleAllowed != nil {
 		eligible = eligible && a.options.IdleAllowed()
 	}
+	if !eligible {
+		// An active modern frame may already have launched its recorder. Only
+		// the paused path is quiescent enough to inspect client draw inputs.
+		a.idle.valid = false
+		return
+	}
 	if !a.idle.ready(time.Now(), eligible, a.c.IsFocused(), a.c.PresentationDigest()) {
 		return
 	}
