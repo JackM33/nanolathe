@@ -146,7 +146,7 @@ func TestNLScreenAddonSwitchPointer(t *testing.T) {
 	defer screen.Deallocate()
 	draw := func() {
 		s.hits.Begin()
-		s.heroAddons(screen, 100, 200, 1)
+		s.heroAddons(screen, 100, 200, 900, 1)
 		s.hits.End()
 	}
 	click := func(x, y float64) {
