@@ -2064,10 +2064,12 @@ not new gameplay rules, and use the ordinary order and construction paths.
   builder rally behind home instead of one footprint plus 128 wu along the
   factory's exit, which was still inside the built-up base or on another
   pad. A factory written off as dead is cleared too: if its exit opens its
-  queue resumes instead of being lost for the rest of the battle. The
-  growth factory cap also reads spawn success: while at least two pads are
-  stalled and at least half the factories are stalled, another factory is
-  not added until an existing pad produces again.
+  queue resumes instead of being lost for the rest of the battle. A stalled
+  pad gets one builder Unblock before two clear attempts; the executor is a
+  no-op when the exit is already open. The growth factory cap also reads
+  spawn success: while at least two pads are stalled and at least half the
+  factories are stalled, another factory is not added until an existing pad
+  produces again.
 - *Personality scaling.* A persona below full ambition scales its drawn and
   named personality traits by its ambition; an explicitly pinned trait
   stays exact. The old full-strength draw could give a 35%-ambition ally
@@ -2101,6 +2103,7 @@ Tests: `utility.TestGrowthLongGameFallback`,
 `tactics.TestStandingGuardAtLowAttention`,
 `tactics.TestStandingGuardRecruitsMainSquad`,
 `utility.TestLowAmbitionPersonalityTraitsScale`,
+`utility.TestPadLaneCoversShortExit`,
 `aikit.TestFailResolveBreakdown`.
 
 **Radar coverage.** Nanolathe Modern policy (user-requested correction,
