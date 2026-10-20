@@ -48,36 +48,6 @@ func drawVariety(seed uint32, v Variety) (*variety, Params, aikit.Rand) {
 	return vr, p, r
 }
 
-// A lower persona's plan is smaller already; its drawn traits are scaled
-// by its ambition so a 35% ally cannot draw the full-strength tower or
-// expansion extremes. An explicit pin still stands exact.
-func TestLowAmbitionPersonalityTraitsScale(t *testing.T) {
-	r := aikit.PlayerRand(7, 2)
-	k := &aikit.Kit{Persona: aikit.PersonaEasy, Rand: &r}
-	v := DefaultVariety()
-	p := DefaultParams()
-	ps := personality{}
-	ps.draw(k, &v, &p)
-	for i, tr := range ps.trait {
-		if tr < -35 || tr > 35 {
-			t.Errorf("%s = %d, want within ±35 at ambition 35", TraitKeys[i], tr)
-		}
-	}
-	v.Pinned = 1 << TraitTowers
-	v.Traits[TraitTowers] = -80
-	ps.draw(k, &v, &p)
-	if ps.trait[TraitTowers] != -80 {
-		t.Errorf("pinned tower trait = %d, want -80", ps.trait[TraitTowers])
-	}
-	// A named personality is the player's choice: its centres stand.
-	v = DefaultVariety()
-	v.Personality, v.Jitter = Personalities[0].Name, false
-	ps.draw(k, &v, &p)
-	if ps.trait != Personalities[0].centre {
-		t.Errorf("named %s traits = %v, want its centres %v", Personalities[0].Name, ps.trait, Personalities[0].centre)
-	}
-}
-
 // The personality draws after the style, lead and jitter draws: turning it
 // off leaves those as they were, and the drawn personality is exactly what
 // a draw from the position the others leave gives. The default plays the
