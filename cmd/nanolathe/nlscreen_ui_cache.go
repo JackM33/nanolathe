@@ -1,6 +1,7 @@
 package main
 
 import (
+	"math"
 	"strconv"
 	"strings"
 	"sync"
@@ -21,6 +22,7 @@ type nlUICache struct {
 	ids      map[nlIDKey]string
 	texts    map[nlTextKey]string
 	wraps    map[nlWrapKey][]string
+	fits     map[nlFitKey]nlFittedText
 	upper    map[string]string
 	mutators map[content.Mutators]string
 }
@@ -119,6 +121,50 @@ func (c *nlUICache) wrap(f *screenkit.Font, text string, st screenkit.Style, wid
 	lines := f.Wrap(text, st, width)
 	c.wraps[k] = lines
 	return lines
+}
+
+type nlFitKey struct {
+	nlWrapKey
+	minSize float64
+}
+
+type nlFittedText struct {
+	text string
+	size float64
+}
+
+// fit keeps a single line inside its column: shrink to minSize, then elide
+// whole runes. Keep the measured result, including the font and scale, just
+// as wrap does (DESIGN_INTERFACE_HUD_INPUT §3.17).
+func (c *nlUICache) fit(f *screenkit.Font, text string, st screenkit.Style, width, minSize float64) (string, screenkit.Style) {
+	k := nlFitKey{nlWrapKey{f, text, st.Size, st.Tracking, width, st.Upper}, minSize}
+	if fit, ok := c.fits[k]; ok {
+		st.Size = fit.size
+		return fit.text, st
+	}
+	if w := f.Measure(text, st); w > width {
+		st.Size = max(minSize, st.Size*max(0, width)/w)
+		// Measuring sums glyph advances, so rounding the scaled size can
+		// leave a line a fraction of a pixel over its exact-fit width.
+		for st.Size > minSize && f.Measure(text, st) > width {
+			st.Size = max(minSize, math.Nextafter(st.Size, 0))
+		}
+		if f.Measure(text, st) > width {
+			runes := []rune(text)
+			for len(runes) > 0 && f.Measure(strings.TrimSpace(string(runes))+"…", st) > width {
+				runes = runes[:len(runes)-1]
+			}
+			text = strings.TrimSpace(string(runes)) + "…"
+			if f.Measure(text, st) > width {
+				text = ""
+			}
+		}
+	}
+	if c.fits == nil || len(c.fits) >= 512 {
+		c.fits = map[nlFitKey]nlFittedText{}
+	}
+	c.fits[k] = nlFittedText{text, st.Size}
+	return text, st
 }
 
 // drawWrapped is Font.DrawWrapped over the kept lines: the same baselines,

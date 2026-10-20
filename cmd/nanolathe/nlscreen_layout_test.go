@@ -1,9 +1,11 @@
 package main
 
 import (
+	"fmt"
 	"strconv"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/nanolathe-gg/nanolathe/internal/modfetch"
@@ -154,5 +156,89 @@ func TestNLScreenCatalogScrollsAndFitsSummaries(t *testing.T) {
 	draw()
 	if !hotIDs(s, screenkit.Rect{W: 1560, H: 900})[s.ui.id("catalog-get", "", len(entries)-1, -1)] {
 		t.Fatal("the wheel did not bring the last mod's Download into view")
+	}
+}
+
+// A modified build's longer revision must leave every tab's full pointer
+// target exposed, including with an image wordmark.
+func TestNLScreenRevisionLeavesTabsExposed(t *testing.T) {
+	s, _ := layoutScreen(t)
+	oldLabel := buildRevisionLabel
+	t.Cleanup(func() { buildRevisionLabel = oldLabel })
+	wordmark := ebiten.NewImage(135, 25)
+	t.Cleanup(wordmark.Deallocate)
+	for _, size := range [][2]int{{640, 480}, {986, 796}, {1280, 800}, {1560, 900}, {1920, 1080}, {2560, 1080}} {
+		t.Run(fmt.Sprintf("%dx%d", size[0], size[1]), func(t *testing.T) {
+			nlScreenW, nlScreenH = float64(size[0]), float64(size[1])
+			screen := ebiten.NewImage(size[0], size[1])
+			defer screen.Deallocate()
+			for _, art := range []*ebiten.Image{nil, wordmark} {
+				s.art.wordmark = art
+				for _, label := range []string{"dev build", "700e52a", "700e52a modified", "ddddddd modified"} {
+					buildRevisionLabel = func() string { return label }
+					s.hits.Begin()
+					s.drawHeader(screen, s.pages())
+					s.hits.End()
+					widths := map[string]float64{}
+					for x := 0.125; x < s.w(); x += 0.25 {
+						s.hits.Update(screenkit.Input{X: x, Y: 50 * s.u()}, 0)
+						widths[s.hits.Hot()] += 0.25
+					}
+					for _, p := range s.pages() {
+						want := s.fonts.Display.Measure(p.title, screenkit.Style{Size: 16 * s.u(), Tracking: 0.14, Upper: true}) + 20*s.u()
+						got := widths[s.ui.id("tab-", p.key, -1, -1)]
+						if got < want-0.5 || got > want+0.5 {
+							t.Errorf("revision %q, wordmark %v: tab %s exposes %.2f of %.2f pixels", label, art != nil, p.key, got, want)
+						}
+					}
+				}
+			}
+		})
+	}
+}
+
+// Use the text runs the carousel actually draws: long Effects names and a
+// restriction tally must fit the compact column on small and large canvases.
+func TestNLScreenCompactCardTextStaysInColumn(t *testing.T) {
+	s, _ := layoutScreen(t)
+	var restrictions []string
+	for i := range 48 {
+		restrictions = append(restrictions, fmt.Sprintf("unit%d=%d", i, i%2))
+	}
+	s.draft.restrictions = strings.Join(restrictions, ",")
+	for _, size := range [][2]int{{640, 480}, {1560, 900}, {1920, 1080}} {
+		t.Run(fmt.Sprintf("%dx%d", size[0], size[1]), func(t *testing.T) {
+			nlScreenW, nlScreenH = float64(size[0]), float64(size[1])
+			screen := ebiten.NewImage(size[0], size[1])
+			defer screen.Deallocate()
+			s.ui.fits = nil
+			s.src = nlSource{mod: "TA: Escalation", base: s.draft, rec: s.draft}
+			s.src.base.pres.PlacementWeaponRanges = 1 - s.draft.pres.PlacementWeaponRanges
+			for _, page := range s.pages() {
+				if page.key == "effects" || page.key == "mutators" {
+					s.drawCarousel(screen, page, 0, 1)
+				}
+			}
+			foundName, foundValue, foundSource := false, false, false
+			for k, run := range s.ui.fits {
+				foundName = foundName || k.text == "PLACEMENT WEAPON RINGS"
+				foundValue = foundValue || k.text == "24 removed, 24 capped"
+				foundSource = foundSource || k.text == s.src.mod
+				st := screenkit.Style{Size: run.size, Tracking: k.tracking, Upper: k.upper}
+				if w := k.font.Measure(run.text, st); w > k.width+1e-6 {
+					t.Errorf("%q reaches %.2f pixels in %.2f of room", run.text, w, k.width)
+				}
+				if !utf8.ValidString(run.text) || run.size < k.minSize || run.size > k.size {
+					t.Errorf("invalid fitted run for %q: %+v", k.text, run)
+				}
+				st.Size = k.minSize
+				if k.font.Measure(k.text, st) <= k.width && run.text != k.text {
+					t.Errorf("%q was shortened even though it fits at the minimum size", k.text)
+				}
+			}
+			if !foundName || !foundValue || !foundSource {
+				t.Fatal("the overflowing name, restriction tally and source tag were not fitted")
+			}
+		})
 	}
 }

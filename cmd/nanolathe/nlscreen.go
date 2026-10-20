@@ -1458,6 +1458,18 @@ func (s *nlScreen) drawChrome(screen *ebiten.Image, card nlCard) {
 
 func (s *nlScreen) drawHeader(screen *ebiten.Image, pages []nlPage) {
 	u := s.u()
+	aw, bw, bh, pw := 150*u, 120*u, 44*u, 140*u
+	ax := s.w() - 56*u - aw
+	px := ax - 28*u - bw - pw
+	f := s.fonts.Display
+	tabStyle := screenkit.Style{Size: 16 * u, Tracking: 0.14, Upper: true, Shadow: 0.1}
+	tabWidth := 0.0
+	for _, p := range pages {
+		tabWidth += f.Measure(p.title, tabStyle) + 34*u
+	}
+	// The final tab's hit target extends ten units past its text. Reserve
+	// that target and a gap before Presets before fitting the revision.
+	tabWidth -= 24 * u
 	x := 56 * u
 	if wm := s.art.wordmark; wm != nil {
 		b := wm.Bounds()
@@ -1467,11 +1479,13 @@ func (s *nlScreen) drawHeader(screen *ebiten.Image, pages []nlPage) {
 	} else {
 		x += s.fonts.Display.Draw(screen, "NANOLATHE", x, 60*u, screenkit.Style{Size: 34 * u, Tracking: 0.08, Top: nlGoldTop, Bottom: nlGoldBottom, Shadow: 0.06}) + 14*u
 	}
-	// The running build's revision, small beside the wordmark.
-	x += s.fonts.Body.Draw(screen, buildRevisionLabel(), x, 60*u, screenkit.Style{Size: 12 * u, Tracking: 0.04, Top: nlDim, Shadow: 0.1}) + 50*u
-	f := s.fonts.Display
+	// Modified builds carry a longer label; it shares the available header
+	// width without moving a tab under the action buttons
+	// (DESIGN_INTERFACE_HUD_INPUT §3.17).
+	revision, revisionStyle := s.ui.fit(s.fonts.Body, buildRevisionLabel(), screenkit.Style{Size: 12 * u, Tracking: 0.04, Top: nlDim, Shadow: 0.1}, px-14*u-tabWidth-x-24*u, 10*u)
+	x += s.fonts.Body.Draw(screen, revision, x, 60*u, revisionStyle) + 24*u
 	for i, p := range pages {
-		st := screenkit.Style{Size: 16 * u, Tracking: 0.14, Upper: true, Shadow: 0.1}
+		st := tabStyle
 		id := s.ui.id("tab-", p.key, -1, -1)
 		hover := s.hits.HoverAmount(id)
 		switch {
@@ -1490,16 +1504,13 @@ func (s *nlScreen) drawHeader(screen *ebiten.Image, pages []nlPage) {
 	}
 	// Apply and Back on the right.
 	dirty := s.changed
-	aw, bw, bh := 150*u, 120*u, 44*u
-	ax := s.w() - 56*u - aw
 	label := "Apply"
 	if dirty > 0 {
 		label = s.ui.text(nlTextKey{kind: "apply", i: dirty}, func() string { return fmt.Sprintf("Apply  %d", dirty) })
 	}
 	s.button(screen, "apply", screenkit.Rect{X: ax, Y: 24 * u, W: aw, H: bh}, label, true, dirty > 0, func() { s.apply() })
 	s.button(screen, "back", screenkit.Rect{X: ax - 14*u - bw, Y: 24 * u, W: bw, H: bh}, "Back", false, false, func() { s.hide() })
-	pw := 140 * u
-	s.button(screen, "presets", screenkit.Rect{X: ax - 28*u - bw - pw, Y: 24 * u, W: pw, H: bh}, "Presets", false, false, func() {
+	s.button(screen, "presets", screenkit.Rect{X: px, Y: 24 * u, W: pw, H: bh}, "Presets", false, false, func() {
 		s.dialog, s.presetScopes, s.presetName = "presets", [3]bool{true, true, true}, ""
 	})
 }
@@ -2746,11 +2757,15 @@ func (s *nlScreen) drawCard(screen *ebiten.Image, c *nlCard, r screenkit.Rect, v
 	}
 	df := s.fonts.Display
 	name := s.ui.upperCase(c.label)
-	size := 16 * u
-	for size > 9*u && df.Measure(name, screenkit.Style{Size: size, Tracking: 0.08}) > nameW {
-		size -= 0.5 * u
+	name, nameStyle := s.ui.fit(df, name, screenkit.Style{Size: 16 * u, Tracking: 0.08, Top: alphaC(nlCream, a), Shadow: 0.1}, nameW, 9*u)
+	df.Draw(screen, name, tx, nameY, nameStyle)
+	drawValue := func(value string) {
+		st := screenkit.Style{Size: 10.5 * u, Top: alphaC(nlGreenText, a)}
+		if compact {
+			value, st = s.ui.fit(s.fonts.Body, value, st, r.X+r.W-14*u-tx, 9*u)
+		}
+		s.fonts.Body.Draw(screen, value, tx, valueY, st)
 	}
-	df.Draw(screen, name, tx, nameY, screenkit.Style{Size: size, Tracking: 0.08, Top: alphaC(nlCream, a), Shadow: 0.1})
 	// Mini lamps on the value row: the meter's segments, the layers up to
 	// the chosen one, or one lamp per option.
 	n := len(c.steps)
@@ -2782,8 +2797,8 @@ func (s *nlScreen) drawCard(screen *ebiten.Image, c *nlCard, r screenkit.Rect, v
 			}
 			parts = c.parts[0].steps[c.parts[0].get(&s.draft)] + " · orders " + orders
 		}
-		s.fonts.Body.Draw(screen, parts, tx, valueY, screenkit.Style{Size: 10.5 * u, Top: alphaC(nlGreenText, a)})
-		s.drawCardSource(screen, c, r, a)
+		drawValue(parts)
+		s.drawCardSource(screen, c, img, a)
 		if changed {
 			s.lamp(screen, r.X+r.W-16*u, r.Y+22*u, 5*u, nlAmber, true)
 		}
@@ -2828,9 +2843,9 @@ func (s *nlScreen) drawCard(screen *ebiten.Image, c *nlCard, r screenkit.Rect, v
 	if c.kind == nlResolution {
 		value = resolutionLabel(s.draft.resolution)
 	}
-	s.fonts.Body.Draw(screen, value, tx, valueY, screenkit.Style{Size: 10.5 * u, Top: alphaC(nlGreenText, a)})
+	drawValue(value)
 	if c.kind != nlAddons {
-		s.drawCardSource(screen, c, r, a)
+		s.drawCardSource(screen, c, img, a)
 	}
 	if changed {
 		s.lamp(screen, r.X+r.W-16*u, r.Y+22*u, 5*u, nlAmber, true)

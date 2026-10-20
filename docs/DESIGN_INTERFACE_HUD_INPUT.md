@@ -5050,7 +5050,8 @@ changed cards) head the screen. Beside the wordmark, small and dim, is the
 build's short source revision: the commit a development build records, or the
 one the source installer places beside the executable, marked *modified* when
 the tree held uncommitted changes, and *dev build* when the build records
-none. Under the wordmark one line names the
+none. The label fits the space left by the tabs and action buttons, so a
+modified revision cannot cover a tab. Under the wordmark one line names the
 content, rules, renderer, mutators and unit restrictions a battle started now
 would use, each part a jump to its card. The focused card fills the left: kicker, title, one
 control of its kind (lamp meter, throw switch, stepper, the three rule
@@ -5059,7 +5060,11 @@ renderer note, chips and *Compare*. The page's cards run along the bottom;
 the focused one lifts. A page with more cards than one row holds (*Mutators*)
 lays them out in two rows of compact cards in the same height, each picture
 beside its name, value and lamps, so every card is on the screen; a compact
-card lifts half as far. Arrow keys choose and change, Tab pages, Space
+card lifts half as far. Card names and compact values shrink within their
+text columns, then end in an ellipsis if the minimum size still cannot fit.
+Source tags and locks stay over the picture, with long tags fitted to its
+width, so they cannot cover a compact card's name.
+Arrow keys choose and change, Tab pages, Space
 compares, Enter applies, Esc goes back. The content list shows every
 installed mod with its version, its rule lock and whether it brings its own
 controls, and scrolls past five rows.
