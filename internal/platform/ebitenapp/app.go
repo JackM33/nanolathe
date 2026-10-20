@@ -50,6 +50,7 @@ const (
 // and the client's business is the pixels it hands over.
 type app struct {
 	paused pausedWorld
+	idle   idlePresentation
 	c      *client.Client
 	img    *ebiten.Image
 	// mode selects the executor Draw presents through. gpu is the modern
@@ -180,6 +181,13 @@ type app struct {
 // RunOptions are the window's host-side settings, none of which the client or
 // the simulation can observe.
 type RunOptions struct {
+	// IdleAllowed excludes host transitions that need polling, such as a
+	// background load or the post-battle sequence. Nil permits paused clients.
+	IdleAllowed func() bool
+	// IdleService services host audio while a paused window waits for input.
+	// It returns the delay until its next poll, zero when none is needed, and
+	// must not step the client or simulation or mutate the rendered surface.
+	IdleService func(focused bool) time.Duration
 	// Stats enables periodic and final host pipeline/cadence diagnostics on
 	// stderr. F11 captures retain their counters independently of this option.
 	Stats bool
@@ -226,6 +234,11 @@ type RunOptions struct {
 // Modern may defer a host body to the Draw tail, preserving the record/submit
 // pipeline (§13.10). Its sample is queued until that body actually runs.
 func (a *app) Update() error {
+	resting, wakingInput := a.serviceResting()
+	if resting {
+		return nil
+	}
+	a.wakePresentation()
 	a.trace.beginUpdate()
 	if a.trace != nil && a.trace.started {
 		a.trace.row.paceLead, a.trace.row.paceHeld = a.paceLead, int64(a.paceHeld/time.Microsecond)
@@ -261,7 +274,14 @@ func (a *app) Update() error {
 		a.syncPointerCapture()
 		a.hostInput.add(sampledInput{timestamp: a.scaledInputNow()})
 	} else {
-		a.hostInput.add(readInput(a.scaledInputNow()))
+		var sample sampledInput
+		if wakingInput != nil {
+			sample = *wakingInput
+		} else {
+			sample = readInput(a.scaledInputNow())
+		}
+		a.idle.observeInput(time.Now(), sample)
+		a.hostInput.add(sample)
 	}
 	a.inputPolls++
 	if a.options.Stats {
@@ -541,6 +561,10 @@ func (a *app) scaledInputNow() uint32 {
 // Draw presents one composed frame. The image is recreated only when the
 // logical size changes; WritePixels replaces its contents wholesale.
 func (a *app) Draw(screen *ebiten.Image) {
+	if a.idle.sleeping {
+		return
+	}
+	defer a.restPresentation()
 	if !a.reportedGraphics {
 		a.reportedGraphics = true
 		var info ebiten.DebugInfo
@@ -1120,6 +1144,11 @@ func (a *app) observeFullscreen(fullscreen bool) {
 // Layout keeps the logical resolution fixed; Ebitengine letterboxes if the
 // window is resized.
 func (a *app) Layout(outsideWidth, outsideHeight int) (int, int) {
+	outside := [2]int{outsideWidth, outsideHeight}
+	if a.idle.outside != outside {
+		a.idle.layoutChanged = a.idle.sleeping
+		a.idle.outside = outside
+	}
 	// Ebitengine lays the game out first in every frame, before it takes the
 	// frame's input: this is where a paced frame begins (framePacer).
 	arrived := time.Now()
@@ -1299,6 +1328,7 @@ func Run(c *client.Client, mode RendererMode, options RunOptions) error {
 	game.c.SetWorkerThreadSetup(RaiseCurrentThread)
 	defer game.c.SetDebugDeviceCapture(nil)
 	defer game.paused.clear()
+	defer game.idle.stopTimer()
 	width, height := game.desiredWindowSize()
 	game.windowW, game.windowH = width, height
 	// From here on this process owns a window: every window-API call below, and
