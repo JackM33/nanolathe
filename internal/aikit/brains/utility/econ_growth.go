@@ -103,11 +103,15 @@ func (s *shared) growth() bool {
 	return ambition(&s.k.Persona) >= 100 || s.longGrowth()
 }
 
-// longGrowth reports whether the lower personas' long-game fallback is on.
-// It is separate from growth so part() can tell a configured growth bit
-// from one added by the fallback.
+// longGrowth reports whether the lower personas' long-game fallback is on:
+// after growthFallbackMinute, while the metal store is capLiftPercent full,
+// metal the lower plan is not spending. Growing on a store that is not
+// banking took that metal from the army in the middle game, where a team's
+// weakest seat was overrun. It is separate from growth so part() can tell
+// a configured growth bit from one added by the fallback.
 func (s *shared) longGrowth() bool {
-	return s.p.LongGrowth != 0 && ambition(&s.k.Persona) < 100 && s.tick >= growthFallbackMinute*1800
+	return s.p.LongGrowth != 0 && ambition(&s.k.Persona) < 100 && s.tick >= growthFallbackMinute*1800 &&
+		s.mCap > 0 && s.mStock*100 >= s.mCap*capLiftPercent
 }
 
 // setupGrowth lists the factory definitions (setup).

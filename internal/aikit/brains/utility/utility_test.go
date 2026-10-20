@@ -265,6 +265,7 @@ func TestGrowthLongGameFallback(t *testing.T) {
 	// fallback a medium persona must not expand or tech; after it the
 	// fallback supplies parts 1/2/4/8 without changing the configured bits.
 	s := &shared{p: Params{Growth: gConsFloor, LongGrowth: 1}, k: &aikit.Kit{Persona: aikit.PersonaMed}}
+	s.mCap, s.mStock = 1000, 900 // banking
 	s.tick = (growthFallbackMinute - 1) * 1800
 	if s.part(gExpand) || s.part(gTech) || s.part(gConstructors) || s.part(gFactories) {
 		t.Error("medium growth acted before the fallback minute")
@@ -273,6 +274,13 @@ func TestGrowthLongGameFallback(t *testing.T) {
 	if !s.part(gExpand) || !s.part(gTech) || !s.part(gConstructors) || !s.part(gFactories) {
 		t.Error("medium growth did not receive the fallback parts at the fallback minute")
 	}
+	// Only metal the lower plan is not spending: with the store below
+	// capLiftPercent the fallback waits.
+	s.mStock = 500
+	if s.part(gExpand) || s.part(gFactories) {
+		t.Error("the fallback acted without a banking metal store")
+	}
+	s.mStock = 900
 	if s.part(gConsFloor) != true {
 		t.Error("the configured constructor floor disappeared")
 	}

@@ -2067,11 +2067,13 @@ RNG draw or per-tick state.
   restriction cap; builders, scouts and every product of a faster persona
   are queued one at a time.
 - *Long-game growth.* `growth` acts for every ambition from minute 20, not
-  only at full ambition; the `long_growth` switch (default 1) supplies its
-  expansion, tech-2, constructor-ratio and factory parts to the lower
-  personas then, and `long_growth=0` keeps the full-ambition gate. The tier
-  curves still scale the counts by ambition, so a lower persona's plan
-  before minute 20 is unchanged.
+  only at full ambition, while the metal store is 80% full: the
+  `long_growth` switch (default 1) then supplies its expansion, tech-2,
+  constructor-ratio and factory parts to the lower personas, so metal
+  their smaller plan leaves banked is invested and metal the army needs
+  is not. `long_growth=0` keeps the full-ambition gate. The tier curves
+  still scale the counts by ambition, so a lower persona's plan before
+  minute 20 is unchanged.
 - *Factory pads.* A pad clear moves every unit parked on a stalled pad,
   and idle units in the short lane in front of it, in one group move to a
   rally behind home, a quarter of the way from home away from the enemy.
