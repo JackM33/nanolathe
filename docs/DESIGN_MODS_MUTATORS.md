@@ -1013,11 +1013,12 @@ textures are added, and a selected mod's own files retain precedence.
 
 **Catalogue and library.** The catalogue is
 `https://nanolathe.gg/addons/manifest.json`: schema 1, an `addons` array of
-the mod catalogue's record fields (§5.1), a `fixes` array beside it for
-fix add-ons, and a `models` array for model-only add-ons. Each entry has a `contents`
+the mod catalogue's record fields (§5.1), including model-only add-ons,
+and a `fixes` array beside it for fix add-ons. Each entry has a `contents`
 array naming every archive it holds with its byte size and SHA-256. A build
-without the corresponding fix or model-layer support ignores that key, so
-it never offers an add-on requiring mounting behavior it does not implement.
+without fix support ignores the `fixes` key. Model add-ons remain visible
+in the ordinary catalogue (user-authorized 2026-10-19); their audited payload
+selects the model layer in supporting builds.
 Archives are assets of the website repository's `addons` release, one
 `<id>-<version>.zip` per add-on holding the archives, root
 documentation and an identity-only schema-1 `nanolathe-mod.json`.
@@ -1041,7 +1042,8 @@ library, so a capture reproduces from its command line. Installing an
 add-on enables it. Enabling, disabling or installing one reloads content in
 process, as a mod switch does (§4.4). An add-on whose archives all sit
 byte-identical in the base install's folder is shown as already in the
-install, with no switch.
+install, with no switch, except a model-only add-on: its installed selection
+is required to place it above the patch, so its row keeps the switch or *Get*.
 
 **Layers and mounting.** An add-on's archives mount as if they sat in the
 base install's folder: a content archive joins its extension's tier, in the
@@ -1092,13 +1094,16 @@ without them.
 **Saves, replays and online play.** The enabled add-ons are part of the
 match selection (§3). The sidecar records the add-ons mounted from the
 library (§7.2), and a load restores exactly them through the content reload;
-one the base folder holds needs no switch, and a recorded add-on this install
+one the base folder holds needs no switch, except a model-only add-on whose
+installed selection restores its model tier. A recorded add-on this install
 has nowhere refuses the load, naming it and where to get it. A replay plays
 with the add-ons its battle had: a single-player replay's header lists them
 (DESIGN_MULTIPLAYER §10, replay format version 2) and the Replays screen
 reloads onto them first, and an online replay's room content names them. An
 online room lists them as room content, and a seat that lacks one fetches it
-in the lobby (DESIGN_MULTIPLAYER §16.8).
+in the lobby (DESIGN_MULTIPLAYER §16.8). Room mounts keep each add-on's archives
+grouped to audit its layer, including folder copies, and apply the same model
+and faction tiers and active content layout as offline mounts.
 
 ### 5.8 Faction add-ons
 
@@ -1800,8 +1805,10 @@ in two columns, so that no list competes with another for space (D14):
   one row per official add-on the library holds or the catalogue offers
   (§5.7). Each row has its switch; *Get* while it is not installed, with the
   download's size and then its progress; or *Already in your install*, with
-  no switch, when the base folder holds its archives. A row whose archives
-  are at hand names their units and shows their build pictures. The card's
+  no switch, when the base folder holds its archives (except model add-ons,
+  which keep the switch or *Get* to restore their model tier). A row whose archives
+  are at hand names their units and shows their build pictures; a model-only
+  row says *Model replacements*. The card's
   note says when the drafted mod leaves add-ons off. The card asks the
   catalogue only when first shown (§5.2) and, with no catalogue and nothing
   installed, says the catalogue is unavailable. The switches belong to the
