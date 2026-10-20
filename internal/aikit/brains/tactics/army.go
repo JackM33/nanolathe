@@ -708,7 +708,12 @@ func (a *Army) activate(b *core.Board) {
 		rOn, rOff = a.P.RaidOn, a.P.RaidOn*raidOffValue/raidOnValue
 	}
 	on(sqRaid, a.P.Raid && att >= 2, rOn, rOff)
-	on(sqDefend, a.P.Defend && att >= 3 && a.threatMemory > 0, defendOnValue, defendOffValue)
+	// A standing home guard exists before the first incident. The old
+	// squad activated only after the threat memory became nonzero, so a
+	// long-game ally could send every unit on an offensive and leave its
+	// base to static towers until an enemy raid had already landed.
+	standingGuard := b.Tick >= standingGuardFrom
+	on(sqDefend, a.defendSquadAllowed(att, a.threatMemory, standingGuard), defendOnValue, defendOffValue)
 	// With the air forces on, anti-air keeps escorting for a while after
 	// enemy aircraft were last seen (the host forgets mobiles after a
 	// minute; bombers come back).
@@ -720,6 +725,16 @@ func (a *Army) activate(b *core.Board) {
 	on(sqStrike, a.P.Air, 0, 0)
 	on(sqNaval, a.P.Naval, 0, 0)
 	on(sqAmph, a.landCut(b), 0, 0)
+}
+
+// defendSquadAllowed reports whether the home guard may activate: an
+// incident at Attention 3 or more, or the standing guard after minute 20
+// even at Easy's Attention 1 and Medium's 2.
+func (a *Army) defendSquadAllowed(attention int32, threat int64, standing bool) bool {
+	if !a.P.Defend {
+		return false
+	}
+	return standing || (attention >= 3 && threat > 0)
 }
 
 // threatTicks is the time constant of the threat memory's fade.
@@ -746,6 +761,12 @@ const (
 	raidOffValue   = 900
 	defendOnValue  = 800
 	defendOffValue = 500
+	// standingGuardFrom is when the home guard stops waiting for an
+	// incident, and standingGuardShare the army value it keeps at home.
+	// Both are Nanolathe Modern policy: a long team skirmish needs a
+	// reaction force even before the first raid.
+	standingGuardFrom  = 20 * 1800
+	standingGuardShare = 10
 )
 
 func isAAUnit(info *aikit.UnitInfo) bool {
@@ -854,6 +875,11 @@ func (a *Army) membership(b *core.Board) {
 			s.surf.addDPS(info, int64(u.HP), int64(a.cls(info).surfDPS))
 		}
 	}
+	// A standing guard may have been activated after the main squad was
+	// already full; move existing members into it rather than waiting for
+	// newly produced units. Without this the squad can stay active and
+	// empty while the whole army attacks elsewhere.
+	a.recruitHomeGuard(b, defendNeed)
 	for id := int32(1); id < numSq; id++ {
 		a.summarize(b, &a.sq[id])
 	}
@@ -886,6 +912,48 @@ func (a *Army) membership(b *core.Board) {
 	}
 }
 
+// recruitHomeGuard moves existing main-squad members into an active,
+// under-strength home guard. It runs after membership assigned new units
+// and before summarize; moving a tag is enough, the next order pass follows
+// the squad's own state. The main squad and then the raid squad give units
+// until the guard reaches its needed value, bounded by defendShare.
+func (a *Army) recruitHomeGuard(b *core.Board, need int64) {
+	d := &a.sq[sqDefend]
+	if !d.active || need <= 0 {
+		return
+	}
+	have := int64(0)
+	for _, i := range d.members {
+		if u := &b.O.Own[i]; u.Info != nil {
+			have += int64(u.Info.Value)
+		}
+	}
+	if have >= need {
+		return
+	}
+	for _, id := range [...]int32{sqMain, sqRaid} {
+		src := &a.sq[id]
+		keep := src.members[:0]
+		for _, i := range src.members {
+			u := &b.O.Own[i]
+			if have < need && u.Info != nil {
+				u.Tag = sqDefend
+				if b.K != nil {
+					b.K.SetTag(u.H, sqDefend)
+				}
+				d.members = append(d.members, i)
+				have += int64(u.Info.Value)
+				continue
+			}
+			keep = append(keep, i)
+		}
+		src.members = keep
+		if have >= need {
+			break
+		}
+	}
+}
+
 // withdrawPoint is where a damaged unit goes: aircraft to the air rally
 // and ships to the fleet's gather point when those forces are on (own is
 // then true), everything else home.
@@ -902,10 +970,15 @@ func (a *Army) withdrawPoint(b *core.Board, info *aikit.UnitInfo) (int32, int32,
 	return b.HomeX, b.HomeZ, false
 }
 
-// defendNeed sizes the home guard: the recent threat, bounded by a share
-// of the army.
+// defendNeed sizes the home guard: the recent threat, or the standing
+// share once the battle is long, bounded by the defendShare maximum.
 func (a *Army) defendNeed(b *core.Board) int64 {
 	need := a.threatMemory
+	if b.Tick >= standingGuardFrom {
+		if floor := int64(b.ArmyValue) * standingGuardShare / 100; floor > need {
+			need = floor
+		}
+	}
 	if limit := int64(b.ArmyValue) * defendShare / 100; need > limit {
 		need = limit
 	}

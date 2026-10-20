@@ -234,6 +234,36 @@ func (f *breadthFixture) offered(q *aikit.UnitInfo) commitKind {
 	return notOffered
 }
 
+// Production stops offering constructors once builders are already idle.
+// The economy can still use the pool; another constructor only crowds the
+// base and blocks factory exits.
+func TestIdleBuildersStopConstructorProduction(t *testing.T) {
+	f := newBreadthFixture(DefaultParams())
+	b := f.produceBoard()
+	f.pr.s.p.WCons = 100
+	f.pr.s.cons = 0
+	f.pr.s.freeSafe = 60
+	f.pr.s.idleBuilders = 2
+	f.pr.s.idleCons = 2
+	f.pr.produce(b, 4)
+	if got := f.offered(f.con); got == pCons {
+		t.Error("idle builders did not stop constructor production")
+	}
+	// The commander is an idle builder too, but not an idle economy
+	// constructor: one idle commander and one idle constructor must not stop
+	// the factory that would give them work.
+	f.pr.s.idleBuilders, f.pr.s.idleCons = 2, 0
+	f.pr.produce(b, 4)
+	if got := f.offered(f.con); got != pCons {
+		t.Errorf("one idle constructor plus commander: constructor offered as %d, want constructor", got)
+	}
+	f.pr.s.idleBuilders, f.pr.s.idleCons = 0, 0
+	f.pr.produce(b, 4)
+	if got := f.offered(f.con); got != pCons {
+		t.Errorf("no idle builders: constructor offered as %d, want constructor", got)
+	}
+}
+
 // Beyond the scout allowance a cheap fast unit is a combat candidate
 // while cheap fast units are under 30% of the factory's combat units, and
 // never with the fast part off.

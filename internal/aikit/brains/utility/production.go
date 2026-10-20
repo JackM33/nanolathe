@@ -55,6 +55,14 @@ type Production struct {
 // finding anything new.
 const maxScouts = 3
 
+// constructorIdleStop is the number of idle economy constructors at which
+// production stops offering ordinary constructors (advanced constructors stay
+// on the tech plan). The commander is not one: an idle commander beside one
+// idle constructor must not stop the factory that would give them work. The live economy may still have a project for them next
+// think; until it does, another one only adds to the base crowd that
+// blocks factory pads.
+const constructorIdleStop = 2
+
 func (pr *Production) Init(b *core.Board) {
 	pr.s.setup(b.K)
 	// Core runs production's Init after the strategy's, so the preference
@@ -88,44 +96,87 @@ func (pr *Production) Plan(b *core.Board) {
 	s.spendAPM(k.Emitted())
 }
 
+// builderRally is a point behind home, away from the factories' forward
+// lanes, where units cleared from a pad can stand until the economy gives
+// them work. The old destination was one factory footprint plus 128 wu
+// along +Z, which is still in the built-up base and can be the next
+// factory's exit.
+func builderRally(b *core.Board) (int32, int32) {
+	if b == nil || b.K == nil || b.K.Map == nil {
+		return 0, 0
+	}
+	m := b.K.Map
+	dx, dz := b.HomeX-b.EnemyX, b.HomeZ-b.EnemyZ
+	x := clampWorld(b.HomeX+dx/4, m.WorldW)
+	z := clampWorld(b.HomeZ+dz/4, m.WorldH)
+	return x, z
+}
+
 // clearPads moves own units parked on the pad of a factory that has
 // stopped starting units out along its exit lane (+Z, the side the executor
 // keeps clear). It returns the actions used.
+// padLaneCells is how many cells beyond a factory's front edge count as the
+// pad's short exit lane for parked units.
+const padLaneCells = 4
+
+// onPadLane reports whether a point lies in the short exit lane directly in
+// front of a factory (the +Z side the executor keeps clear).
+func onPadLane(f *aikit.OwnUnit, x, z int32) bool {
+	if f == nil || f.Info == nil {
+		return false
+	}
+	fx, fz := f.Info.FootX, f.Info.FootZ
+	x0 := (f.X/16 - fx/2 - 1) * 16
+	x1 := (f.X/16 - fx/2 + fx + 1) * 16
+	z0 := (f.Z/16 - fz/2 + fz) * 16
+	z1 := z0 + padLaneCells*16
+	return x >= x0 && x < x1 && z >= z0 && z < z1
+}
+
 func (pr *Production) clearPads(b *core.Board, budget int) int {
+	if budget <= 0 {
+		return 0
+	}
 	s := pr.s
 	o := b.O
-	used := 0
+	pr.buf = pr.buf[:0]
+	seen := make(map[pool.Handle]bool)
 	for _, fi := range b.Factories {
-		if used >= budget {
-			break
-		}
 		f := &o.Own[fi]
 		fs := s.fstateOf(f)
 		if !fs.blocked || s.tick-fs.lastClear < 300 {
 			continue
 		}
-		pr.buf = pr.buf[:0]
-		for i := range o.Own {
-			u := &o.Own[i]
-			if u.Built && u.Info.Role.Has(aikit.RoleMobile) && onPad(f, u.X, u.Z) {
-				pr.buf = append(pr.buf, u.H)
-			}
-		}
 		fs.lastClear = s.tick
 		if fs.clears < 250 {
 			fs.clears++
 		}
-		if len(pr.buf) == 0 || fs.dead {
-			continue
+		for i := range o.Own {
+			u := &o.Own[i]
+			if !u.Built || !u.Info.Role.Has(aikit.RoleMobile) || seen[u.H] {
+				continue
+			}
+			// A parked unit just outside the footprint can block the same
+			// exit. Only idle units are moved: a unit crossing the lane on an
+			// order is not parked on the pad.
+			if !onPad(f, u.X, u.Z) && !(u.Order == aikit.OrderIdle && onPadLane(f, u.X, u.Z)) {
+				continue
+			}
+			seen[u.H] = true
+			pr.buf = append(pr.buf, u.H)
 		}
-		m := b.K.Map
-		ex := f.X
-		ez := clampWorld(f.Z+f.Info.FootZ*8+128, m.WorldH)
-		b.K.Move(pr.buf, ex, ez, false)
-		pr.cleared++
-		used++
 	}
-	return used
+	if len(pr.buf) == 0 {
+		return 0
+	}
+	// One group move clears every blocked pad this think. Moving them to
+	// the builder rally behind home, not one factory lane further, keeps
+	// them out of the next pad; a dead factory is cleared too, so its queue
+	// can resume instead of being lost for the rest of the game.
+	rx, rz := builderRally(b)
+	b.K.Move(pr.buf, rx, rz, false)
+	pr.cleared++
+	return 1
 }
 
 // firstConsNeed is the least need of a constructor while we have none.
@@ -289,6 +340,16 @@ func (pr *Production) produce(b *core.Board, budget int) {
 				c.kind = pInterceptor
 				c.score = pr.interceptorScore(b, q)
 			case si.canEco:
+				// A builder without work already is not a reason to make
+				// another: the long-game report's ally queued constructors
+				// with 40 idle, while the economy had no action budget left
+				// to assign them. Stop at the first idle builder pair; the
+				// economy can still use the ones it has. Advanced
+				// constructors are left alone: the tech plan's first one is
+				// wanted even beside idle ordinary builders.
+				if s.idleCons >= constructorIdleStop && !si.advCon {
+					break
+				}
 				drain := max64(int64(q.BuildPower)*s.rMB/1000, 1)
 				gap := clamp((desiredEco-ecoCap)*1000/drain, 0, 1200)
 				room := expand
