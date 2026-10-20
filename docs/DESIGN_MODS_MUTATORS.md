@@ -98,6 +98,7 @@ To keep the two apart, code for this feature never uses the bare identifier
 | D20 | (2026-10-16) Nanolathe hosts Cavedog's official bonus units and maps. The units are an add-on the player enables apart from the mod slot, so any mod can still be selected beside them; the maps join the community map catalogue (§5.7). |
 | D21 | (2026-10-16) Third-party factions are add-ons the player enables in any combination beside ARM and CORE, each independent of the others and of the mod slot, never replacing another's content or identities (§5.8). |
 | D22 | (2026-10-18) Nanolathe hosts Switeck's TA Bugfix 1.7b6 as the fix add-on `switecks-bugfix`, listed under the add-on catalogue's `fixes` key. A fix add-on replaces the base patch archive and mounts after the content add-ons and before faction add-ons; it may repair the Cavedog content it replaces (§5.7). |
+| D23 | (2026-10-19) Nanolathe packages the Evolva models as `evolva-models`: UH40 supplies a model whenever present, with missing filenames filled from 2004, then 2003, then 2002. Model-only add-ons mount after content and fix add-ons and before factions and the selected mod; they replace models without occupying the mod slot (§5.7). |
 
 D9–D13 were proposed in review and accepted with the rest of the design
 direction. D14 is the maintainer's layout for the screen. D13's offer was
@@ -930,7 +931,7 @@ with the reference install held none of the bonus units. Nanolathe hosts the con
 base game, apart from the mod slot, so a player can enable it and still
 select any mod.
 
-**What is hosted.** Two add-ons. `cavedog-bonus-units` version `original`
+**What is hosted.** `cavedog-bonus-units` version `original`
 holds six original archives byte for byte:
 
 | Archive | Unit | Side | Role |
@@ -995,12 +996,28 @@ this file in any way that is legal … I relenquish all ownership of this
 file"), and the maintainer authorized hosting on 2026-10-18 (D22); the
 Cavedog bytes it carries remain Cavedog's.
 
+`evolva-models` version `1` (user-authorized 2026-10-19, D23), displayed as
+**Evolva models**, is Nanolathe's compilation of the supplied Evolva model
+packs. For each case-insensitive model filename, the first available source
+in UH40, 2004, 2003, 2002 order wins; an older release fills only missing
+filenames. Selected model bytes are unchanged. The pinned inputs and their
+evidence scope are recorded in
+[Evolva model packages](../research/extensions/evolva-models.md).
+`cmd/modelpack` and `modelconfigs/evolva-models-1.json` build
+`EvolvaModels.ufo`, holding only `objects3d/*.3do`, beside identity-only
+metadata, credits and a per-file source list. The compilation contains 182
+models, including 97 unit-model filenames and 85 wreck-model filenames; ten
+unit-model names are absent from the reference install. These are supplied
+models, not added unit definitions. No scripts, unit statistics, weapons or
+textures are added, and a selected mod's own files retain precedence.
+
 **Catalogue and library.** The catalogue is
 `https://nanolathe.gg/addons/manifest.json`: schema 1, an `addons` array of
-the mod catalogue's record fields (§5.1) and a `fixes` array beside it for
-fix add-ons, each entry with a `contents`
+the mod catalogue's record fields (§5.1), a `fixes` array beside it for
+fix add-ons, and a `models` array for model-only add-ons. Each entry has a `contents`
 array naming every archive it holds with its byte size and SHA-256. A build
-without fix support ignores the key, so it never offers one.
+without the corresponding fix or model-layer support ignores that key, so
+it never offers an add-on requiring mounting behavior it does not implement.
 Archives are assets of the website repository's `addons` release, one
 `<id>-<version>.zip` per add-on holding the archives, root
 documentation and an identity-only schema-1 `nanolathe-mod.json`.
@@ -1033,8 +1050,12 @@ that tier by file name `[02 §2]` (DESIGN_CONTENT_VFS C1); a patch-tier
 revision archive (`rev*.GP3` and the like) joins the patch tier and replaces
 the folder archive of the same name, as copying the add-on's in would. The
 add-on layers mount in one order whatever the selection says: content
-add-ons, then a fix add-on, then faction add-ons, which mount one tier above
-the patch (§5.8). The selected mod still mounts last and wins every
+add-ons, then a fix add-on, then model-only add-ons, then faction add-ons.
+A model-only add-on is identified from its archive paths: at least one file,
+with every file below `objects3d/` and ending in `.3do`; a faction declaration
+or patch-tier revision keeps its existing category. Model archives mount
+one tier above the patch, and factions two tiers above it (§5.8), both below
+the base install's loose files. The selected mod still mounts last and wins every
 path it supplies, and the map library still mounts below the base install.
 On the reference GOG Commander Pack install no hosted content archive supplies a
 logical path the base game also supplies, except Comet Catcher's map, which The Core
@@ -1044,7 +1065,9 @@ Add-ons keep apart as §5.8's isolation contract says: in layer then selection
 order, a later add-on that supplies a logical path, or defines a unit or
 feature name, an earlier one also does is left off with a notice — except
 that a fix add-on may replace the content add-ons mounted before it, because
-it repairs them. A fix add-on is also exempt from the name-at-another-path
+it repairs them. A model-only add-on may replace model paths supplied by
+earlier content and fix add-ons; two conflicting model add-ons remain
+alternatives, with the earlier selection retained. A fix add-on is also exempt from the name-at-another-path
 check against the base and the mod: it repairs the base content wholesale, so
 it may keep a definition in a differently named file, as Switeck's merged
 corpse files do.
@@ -1056,7 +1079,10 @@ a startup notice naming it, when the base or the mod defines one of its
 unit or feature names at another path, as §5.6 refuses differing same-name
 features; a fix add-on is not, because it repairs the base content
 wholesale. The Mods & Mutators screen says when the running mod leaves an
-add-on off.
+add-on off. Model-only archives follow the running content layout, like
+faction archives, so a mod that renames the model directory still reads the
+replacement models at its configured path; the mod's own files remain above
+them.
 
 **Every gameplay mode.** An add-on is content, as it is in retail's folder,
 so it applies under Strict 3.1, Community 3.9 and Modern alike. Strict 3.1
@@ -1149,8 +1175,8 @@ Faction add-ons install like any add-on: from the catalogue with *Get*,
 or from a local package with `--install-addon <zip|dir>`, which, like
 `--install-mod`, installs without enabling; `--addon` or the Add-ons card
 enables it. The card names a faction row's sides and unit count. Faction
-archives mount one tier above the patch, after any fix add-on (§5.7
-"Layers and mounting"), so a fix never shadows one; the base install's loose
+archives mount two tiers above the patch, after fix and model-only add-ons (§5.7
+"Layers and mounting"), so those layers never shadow one; the base install's loose
 files and the selected mod still mount above them. Besides
 §5.7's checks against the base and the mod, the mount keeps enabled add-ons
 apart from each other — in layer then selection order, a later add-on that
@@ -1867,6 +1893,7 @@ leaves the line empty (DESIGN_INTERFACE_HUD_INPUT §2.6).
 | `internal/modlibrary` | data directory layout, metadata and the mod's config (§4.2), installed listing, selection resolution (mod → root, config, minimum, preset), extraction and validation, receipts. No network. | both commands |
 | `internal/maplibrary` | separate installed-map root and map-only payload validation, reusing modlibrary extraction and receipts. No network. | desktop command |
 | `internal/addonlibrary` | the official add-on root, archive-only payload validation against the catalogue's contents, the installed listing, an add-on's content digest, recognizing a copy already in the base folder, and the unit and feature names an add-on defines (§5.7), reusing modlibrary extraction and receipts. No network. The desktop command mounts the add-ons through `vfs.GameRoot.Extra`. | desktop command |
+| `cmd/modelpack` | model-only add-on preparation: pinned source ZIPs, first-source-per-filename selection, unchanged model bytes in an archive, deterministic package metadata and per-file provenance (§5.7). No network or battle state. | packaging command |
 | `internal/modfetch` | mod, map and add-on manifest fetch and cache, downloads with resume and progress. The content-download package that imports `net/http`; multiplayer WebSocket HTTP is isolated in `internal/relay` (DESIGN_MULTIPLAYER §16.5.6). | `cmd/nanolathe` only |
 | `internal/content` | `Factor`, `Mutators`, `ApplyMutators`, the mutated catalog identity; `Restrictions`, `CheckRestrictions`, `ApplyRestrictions` and the restricted identity (§15.2) | session, commands |
 | `internal/save` | the sidecar type and its read/write, separate from the bank's bytes | session, commands |
