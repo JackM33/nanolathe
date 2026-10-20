@@ -105,6 +105,35 @@ type ApplyStats struct {
 	// because the product's cap was reached in the reaction window (also
 	// counted in Stale; capReached).
 	Capped int32 `json:"capped,omitempty"`
+	// FailKinds and FailActors break FailResolve down by command kind and by
+	// the first actor's authored role. They are diagnostics only.
+	FailKinds  [int(CmdDecloak)]int32 `json:"fail_kinds,omitempty"`
+	FailActors [3]int32               `json:"fail_actors,omitempty"`
+}
+
+const (
+	failActorCommander = iota
+	failActorBuilder
+	failActorCombat
+)
+
+// noteResolve records one resolver refusal. The actor is the first actor the
+// command still had when it was applied; nil or a definition without a role
+// is counted as combat so the three classes still sum to FailResolve.
+func (s *ApplyStats) noteResolve(kind CmdKind, actor *units.Unit) {
+	if i := int(kind) - 1; i >= 0 && i < len(s.FailKinds) {
+		s.FailKinds[i]++
+	}
+	a := failActorCombat
+	if actor != nil && actor.Def != nil {
+		switch {
+		case actor.Def.Commander:
+			a = failActorCommander
+		case actor.Def.Builder:
+			a = failActorBuilder
+		}
+	}
+	s.FailActors[a]++
 }
 
 // FailReason indexes ApplyStats.Reasons.
@@ -542,11 +571,15 @@ func (e *executor) exec(c *Command, b *batch, tick uint32, w *units.World) bool 
 	}
 	issued := false
 	actors := 0
+	var first *units.Unit
 	for i := c.first; i < c.first+c.count; i++ {
 		u := e.actorOK(w, b.actors[i], b.inst[i])
 		if u == nil {
 			e.checkpointReject()
 			continue
+		}
+		if first == nil {
+			first = u
 		}
 		actors++
 		q := orders.BindQueueBinding(u, e.m.OrderBinding)
@@ -596,6 +629,7 @@ func (e *executor) exec(c *Command, b *batch, tick uint32, w *units.World) bool 
 			e.stats.Reasons[FailNoActor]++
 		} else {
 			e.stats.Reasons[FailResolve]++
+			e.stats.noteResolve(c.Kind, first)
 		}
 	}
 	return issued
@@ -646,11 +680,15 @@ func (e *executor) execState(c *Command, b *batch, tick uint32, w *units.World) 
 	}
 	issued := false
 	actors := 0
+	var first *units.Unit
 	for i := c.first; i < c.first+c.count; i++ {
 		u := e.actorOK(w, b.actors[i], b.inst[i])
 		if u == nil || !switchApplies(c.Kind, u.Def) {
 			e.checkpointReject()
 			continue
+		}
+		if first == nil {
+			first = u
 		}
 		actors++
 		q := orders.BindQueueBinding(u, e.m.OrderBinding)
@@ -675,6 +713,7 @@ func (e *executor) execState(c *Command, b *batch, tick uint32, w *units.World) 
 			e.stats.Reasons[FailNoActor]++
 		} else {
 			e.stats.Reasons[FailResolve]++
+			e.stats.noteResolve(c.Kind, first)
 		}
 	}
 	return issued
@@ -858,6 +897,7 @@ func (e *executor) execReplace(c *Command, b *batch, tick uint32, w *units.World
 		e.checkpointReject()
 		e.stats.Failed++
 		e.stats.Reasons[FailResolve]++
+		e.stats.noteResolve(c.Kind, u)
 		return false
 	}
 	q.PurgeUnprotected()

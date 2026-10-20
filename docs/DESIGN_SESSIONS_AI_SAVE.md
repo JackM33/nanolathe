@@ -2039,6 +2039,82 @@ is the retail baseline and every fingerprint lock runs Classic.
   background think whose result equals the synchronous one
   ([DESIGN_GAMEPLAY_RULES](DESIGN_GAMEPLAY_RULES.md#the-modern-ai-controller)).
 
+**Long games, low action budgets and teams.** Nanolathe Modern AI policy.
+These are decisions of the brain, not gameplay rules: they use the
+ordinary order and construction paths and add no rule seam, simulation
+RNG draw or per-tick state.
+
+- *Idle builders.* Ordinary constructor production stops while two or more
+  idle economy constructors of the product's domain are already waiting:
+  builders that must stand in water are counted apart from all others, and
+  the commander is not counted. Advanced constructors stay on the tech
+  plan. While at least two builders are idle the economy also spends one
+  action on a group order, the human box-select and right-click: a Guard of
+  the producing factory with the most idle builders within 1200 wu, and from
+  minute 20, when no factory takes them, a Repair of the damaged own or
+  allied unit or unfinished frame with the most. The commander and builders
+  that cannot guard are left out, and the group runs after the previous
+  think's failed builds are processed, so it hides no failed site from
+  backoff, placement-failure counts or stuck-builder detection. Reclaiming
+  stays a per-builder decision, which rests after a clear that found
+  nothing.
+- *Action reserve.* The economy reserves one action for the army only while
+  the base is threatened, and at most one for a factory with an empty,
+  unstalled queue, so a one-action persona's builders are not left
+  waiting behind the army and production.
+- *Production batches.* A persona below 100 APM (Easy and Medium) queues a
+  chosen combat unit two at a time with one action, within any
+  restriction cap; builders, scouts and every product of a faster persona
+  are queued one at a time.
+- *Long-game growth.* `growth` acts for every ambition from minute 20, not
+  only at full ambition, while the metal store is 80% full: the
+  `long_growth` switch (default 1) then supplies its expansion, tech-2,
+  constructor-ratio and factory parts to the lower personas, so metal
+  their smaller plan leaves banked is invested and metal the army needs
+  is not. `long_growth=0` keeps the full-ambition gate. The tier curves
+  still scale the counts by ambition, so a lower persona's plan before
+  minute 20 is unchanged.
+- *Factory pads.* A pad clear moves every unit parked on a stalled pad,
+  and idle units in the short lane in front of it, in one group move to a
+  rally behind home, a quarter of the way from home away from the enemy.
+  A factory written off as walled in is cleared too, so its queue resumes
+  if its exit opens. A stalled pad gets one builder Unblock before two
+  clear attempts; the executor does nothing when the exit is open. While
+  at least two pads are stalled and at least half the factories are,
+  growth adds no factory.
+- *Standing home guard.* From minute 20 the tactics army keeps 10% of its
+  value at home at every attention, within the 15% defend share; the guard
+  otherwise forms only at Attention 3 after an incident. An under-strength
+  guard is filled from main and raid squad members nearest home.
+- *Allied assets.* Allied buildings and builders in sight are assets for
+  incidents and home defence, so a team's army answers an attack on an
+  ally's base although it cannot command the ally. Own army value and
+  strength stay own-only.
+- *Guard capability.* A definition authored `canguard=0` refuses Guard
+  (code 7), so no layer sends it one: a support unit that cannot guard
+  follows its ward by moving when it stands idle more than 900 wu away,
+  and the economy's guard candidate, the group guard and the assist
+  builders skip such builders.
+- *Resolver diagnostics.* `ApplyStats` breaks `FailResolve` down by command
+  kind and by the first actor's role (commander, builder, combat).
+  Diagnostic state only.
+
+Strict 3.1 with only Classic players is unchanged, and every fingerprint
+lock but the Modern AI's own runs Classic.
+
+Tests: `utility.TestGrowthLongGameFallback`,
+`utility.TestIdleBuildersStopConstructorProduction`,
+`utility.TestIdleBuildersGroupGuardAFactory`,
+`utility.TestIdleBuildersRepairDamagedBuilding`,
+`utility.TestIdleRepairFallbackStartsAfterOpening`,
+`utility.TestFailedBuildBeforeIdleRescue`,
+`utility.TestPadLaneCoversShortExit`,
+`utility.TestLowAPMCombatBatch`,
+`tactics.TestStandingGuardAtLowAttention`,
+`tactics.TestStandingGuardRecruitsMainSquad`,
+`tactics.TestSupportWithoutGuardFollowsByMoving`,
+`aikit.TestFailResolveBreakdown`.
+
 **Radar coverage.** Nanolathe Modern policy (user-requested correction,
 2026-09-26): the utility economy offers a radar only when its request point
 is at least the larger of its authored radar range and each nearby own

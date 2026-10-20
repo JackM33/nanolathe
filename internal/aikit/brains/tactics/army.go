@@ -12,6 +12,8 @@
 package tactics
 
 import (
+	"cmp"
+	"slices"
 	"strconv"
 
 	"github.com/nanolathe-gg/nanolathe/internal/aikit"
@@ -491,6 +493,7 @@ type Army struct {
 	tmp       []int32
 	tmp2      []int32
 	tmp3      []int32
+	recruit   []int32 // recruitHomeGuard scratch
 	order     [numSq]int32
 	wpBuf     [][2]int32 // route compression (routeInto)
 	goals     []goalRec
@@ -708,7 +711,12 @@ func (a *Army) activate(b *core.Board) {
 		rOn, rOff = a.P.RaidOn, a.P.RaidOn*raidOffValue/raidOnValue
 	}
 	on(sqRaid, a.P.Raid && att >= 2, rOn, rOff)
-	on(sqDefend, a.P.Defend && att >= 3 && a.threatMemory > 0, defendOnValue, defendOffValue)
+	// A standing home guard exists before the first incident. The old
+	// squad activated only after the threat memory became nonzero, so a
+	// long-game ally could send every unit on an offensive and leave its
+	// base to static towers until an enemy raid had already landed.
+	standingGuard := b.Tick >= standingGuardFrom
+	on(sqDefend, a.defendSquadAllowed(att, a.threatMemory, standingGuard), defendOnValue, defendOffValue)
 	// With the air forces on, anti-air keeps escorting for a while after
 	// enemy aircraft were last seen (the host forgets mobiles after a
 	// minute; bombers come back).
@@ -720,6 +728,16 @@ func (a *Army) activate(b *core.Board) {
 	on(sqStrike, a.P.Air, 0, 0)
 	on(sqNaval, a.P.Naval, 0, 0)
 	on(sqAmph, a.landCut(b), 0, 0)
+}
+
+// defendSquadAllowed reports whether the home guard may activate: an
+// incident at Attention 3 or more, or the standing guard after minute 20
+// even at Easy's Attention 1 and Medium's 2.
+func (a *Army) defendSquadAllowed(attention int32, threat int64, standing bool) bool {
+	if !a.P.Defend {
+		return false
+	}
+	return standing || (attention >= 3 && threat > 0)
 }
 
 // threatTicks is the time constant of the threat memory's fade.
@@ -746,6 +764,12 @@ const (
 	raidOffValue   = 900
 	defendOnValue  = 800
 	defendOffValue = 500
+	// standingGuardFrom is when the home guard stops waiting for an
+	// incident, and standingGuardShare the army value it keeps at home.
+	// Both are Nanolathe Modern policy: a long team skirmish needs a
+	// reaction force even before the first raid.
+	standingGuardFrom  = 20 * 1800
+	standingGuardShare = 10
 )
 
 func isAAUnit(info *aikit.UnitInfo) bool {
@@ -781,6 +805,10 @@ func (a *Army) membership(b *core.Board) {
 	a.tmp3 = a.tmp3[:0] // withdrawn aircraft and ships going to their own rally
 	a.stuckN = 0
 	defendNeed := a.defendNeed(b)
+	// A standing guard may be activated after the main squad is already
+	// full: fill it from units at hand rather than wait for new ones, which
+	// could leave it active and empty while the whole army attacks.
+	a.recruitHomeGuard(b, defendNeed)
 	for _, i := range b.Combat {
 		u := &o.Own[i]
 		info := u.Info
@@ -886,6 +914,55 @@ func (a *Army) membership(b *core.Board) {
 	}
 }
 
+// recruitHomeGuard re-tags main and raid squad members into an active
+// home guard that is short of its needed value, nearest home first, so the
+// guard is filled by units already at hand rather than called back from an
+// offensive. It runs before membership places units by tag, so each squad's
+// force total counts every unit once.
+func (a *Army) recruitHomeGuard(b *core.Board, need int64) {
+	if !a.sq[sqDefend].active || need <= 0 {
+		return
+	}
+	o := b.O
+	have := int64(0)
+	a.recruit = a.recruit[:0]
+	for _, i := range b.Combat {
+		u := &o.Own[i]
+		if u.Info == nil {
+			continue
+		}
+		switch u.Tag {
+		case sqDefend:
+			have += int64(u.Info.Value)
+		case sqMain, sqRaid:
+			a.recruit = append(a.recruit, i)
+		}
+	}
+	if have >= need {
+		return
+	}
+	slices.SortFunc(a.recruit, func(x, y int32) int {
+		ux, uy := &o.Own[x], &o.Own[y]
+		dx := aikit.Dist2(ux.X, ux.Z, b.HomeX, b.HomeZ)
+		dy := aikit.Dist2(uy.X, uy.Z, b.HomeX, b.HomeZ)
+		if c := cmp.Compare(dx, dy); c != 0 {
+			return c
+		}
+		return cmp.Compare(x, y)
+	})
+	for _, i := range a.recruit {
+		if have >= need {
+			break
+		}
+		u := &o.Own[i]
+		u.Tag = sqDefend
+		if b.K != nil {
+			b.K.SetTag(u.H, sqDefend)
+		}
+		have += int64(u.Info.Value)
+	}
+}
+
 // withdrawPoint is where a damaged unit goes: aircraft to the air rally
 // and ships to the fleet's gather point when those forces are on (own is
 // then true), everything else home.
@@ -902,10 +979,15 @@ func (a *Army) withdrawPoint(b *core.Board, info *aikit.UnitInfo) (int32, int32,
 	return b.HomeX, b.HomeZ, false
 }
 
-// defendNeed sizes the home guard: the recent threat, bounded by a share
-// of the army.
+// defendNeed sizes the home guard: the recent threat, or the standing
+// share once the battle is long, bounded by the defendShare maximum.
 func (a *Army) defendNeed(b *core.Board) int64 {
 	need := a.threatMemory
+	if b.Tick >= standingGuardFrom {
+		if floor := int64(b.ArmyValue) * standingGuardShare / 100; floor > need {
+			need = floor
+		}
+	}
 	if limit := int64(b.ArmyValue) * defendShare / 100; need > limit {
 		need = limit
 	}

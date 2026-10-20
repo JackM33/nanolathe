@@ -87,12 +87,13 @@ const retreatTicks = 450
 
 // Economy assigns idle builders by scoring every candidate build.
 type Economy struct {
-	s     *shared
-	one   [1]pool.Handle
-	ring  [8]decision
-	next  int
-	rot   int
-	fails int32
+	s       *shared
+	one     [1]pool.Handle
+	helpers []pool.Handle
+	ring    [8]decision
+	next    int
+	rot     int
+	fails   int32
 	// scratch per decision
 	bestQ, bestDef int64
 	bestQR         int64         // best reach-weighted factory quality on offer (switches on)
@@ -133,20 +134,30 @@ func (e *Economy) Init(b *core.Board) { e.s.setup(b.K) }
 func (e *Economy) Plan(b *core.Board) {
 	s := e.s
 	o := b.O
-	// Keep one action for the army and one per factory that will want one.
-	budget := int(s.budget) - 1
+	// Keep one action for the army only while the base is threatened, and
+	// one for a factory with an empty queue. The old form reserved one for
+	// the army unconditionally and one per short-queue factory (up to two):
+	// at the Easy persona's one-action budget that left nothing for a
+	// builder, which is how a forty-builder pool sat on Standby all game.
+	budget := int(s.budget)
+	if b.NearHomeThreat > 0 && budget > 0 {
+		budget--
+	}
+	if budget > 0 {
+		budget -= e.strategic.service(b, budget)
+	}
 	nf := 0
 	for _, fi := range b.Factories {
-		if o.Own[fi].QueueLen < 2 && nf < 2 {
-			nf++
+		f := &o.Own[fi]
+		fs := s.fstateOf(f)
+		if f.QueueLen == 0 && !fs.blocked && !fs.dead {
+			nf = 1
+			break
 		}
 	}
 	budget -= nf
 	if att := int(b.K.Persona.Attention); budget > att {
 		budget = att
-	}
-	if budget > 0 {
-		budget -= e.strategic.service(b, budget)
 	}
 	// A build issued last think that left its builder idle failed to place.
 	// When the batch it went out in reports a search that found no site, a
@@ -201,6 +212,12 @@ func (e *Economy) Plan(b *core.Board) {
 			budget -= e.unblock(b, budget)
 		}
 	}
+	// Only after the failures above have consumed the previous think's
+	// build commitments: grouping an idle builder must not hide a failed
+	// site from the backoff, placement-failure and stuck-builder paths.
+	if budget > 0 && e.rescueIdle(b) {
+		budget--
+	}
 	e.rot++
 	for j := 0; j < n && budget > 0; j++ {
 		i := b.Builders[(j+e.rot)%n]
@@ -224,6 +241,151 @@ func (e *Economy) Plan(b *core.Board) {
 		if e.decide(b, u, c, reassess) {
 			budget--
 		}
+	}
+}
+
+// rescueIdle spends one action to put idle builders to work. At a low APM
+// the per-builder loop can issue only one assignment per think, so a pool
+// of idle constructors otherwise never drains. It tries, in order: a
+// producing factory (group Guard), then a damaged own or allied unit or a
+// nanoframe (group Repair). The commander is left out of every group.
+// Reclaiming stays with the per-builder decision (evalClear), which scores
+// a clear by what it yields and rests clearing after one that found
+// nothing: a group fallback has no such check, and an executor refusal
+// would repeat every think.
+func (e *Economy) rescueIdle(b *core.Board) bool {
+	s := e.s
+	if s.idleBuilders < 2 {
+		return false
+	}
+	if e.rescueFactory(b) {
+		return true
+	}
+	// Repairing is useful after the opening, but its group command competes
+	// with the one action a low-APM persona has for economy. Leave it off
+	// until the long game; factory aid above still runs.
+	if s.tick < growthFallbackMinute*1800 {
+		return false
+	}
+	return e.rescueRepair(b)
+}
+
+// rescueFactory groups idle builders on the nearest producing factory.
+func (e *Economy) rescueFactory(b *core.Board) bool {
+	s := e.s
+	o := b.O
+	best := int32(-1)
+	bestN := 0
+	for _, fi := range b.Factories {
+		f := &o.Own[fi]
+		fs := s.fstateOf(f)
+		if f.QueueLen == 0 || fs.blocked || fs.dead {
+			continue
+		}
+		n := 0
+		for _, bi := range b.Builders {
+			u := &o.Own[bi]
+			if u.Order != aikit.OrderIdle || u.Info.Role.Has(aikit.RoleCommander) || !canGuard(u.Info) {
+				continue
+			}
+			if aikit.Dist2(u.X, u.Z, f.X, f.Z) <= 1200*1200 {
+				n++
+			}
+		}
+		if n > bestN {
+			best, bestN = fi, n
+		}
+	}
+	if best < 0 || bestN < 2 {
+		return false
+	}
+	f := &o.Own[best]
+	e.helpers = e.helpers[:0]
+	for _, bi := range b.Builders {
+		u := &o.Own[bi]
+		if u.Order != aikit.OrderIdle || u.Info.Role.Has(aikit.RoleCommander) || !canGuard(u.Info) {
+			continue
+		}
+		if aikit.Dist2(u.X, u.Z, f.X, f.Z) > 1200*1200 {
+			continue
+		}
+		e.helpers = append(e.helpers, u.H)
+	}
+	if len(e.helpers) < 2 {
+		return false
+	}
+	b.K.Guard(e.helpers, f.H, false)
+	e.commitHelpers(b, cGuard, f.H, f.X, f.Z)
+	return true
+}
+
+// rescueRepair groups idle builders on a damaged own or allied unit, or on
+// an unfinished frame. A full-health target is left alone: the resolver
+// would reject the repair.
+func (e *Economy) rescueRepair(b *core.Board) bool {
+	o := b.O
+	best := pool.Handle(0)
+	bestN := 0
+	var bx, bz int32
+	consider := func(h pool.Handle, info *aikit.UnitInfo, x, z, hp, maxHP int32, built bool) {
+		if info == nil || built && (hp <= 0 || hp >= maxHP) {
+			return
+		}
+		n := 0
+		for _, bi := range b.Builders {
+			u := &o.Own[bi]
+			if u.H == h || u.Order != aikit.OrderIdle || u.Info.Role.Has(aikit.RoleCommander) {
+				continue
+			}
+			if aikit.Dist2(u.X, u.Z, x, z) <= 1200*1200 {
+				n++
+			}
+		}
+		if n > bestN {
+			best, bestN, bx, bz = h, n, x, z
+		}
+	}
+	for i := range o.Own {
+		u := &o.Own[i]
+		consider(u.H, u.Info, u.X, u.Z, u.HP, u.MaxHP, u.Built)
+	}
+	for i := range o.Allies {
+		u := &o.Allies[i]
+		consider(u.H, u.Info, u.X, u.Z, u.HP, u.MaxHP, u.Built)
+	}
+	if best == 0 || bestN < 2 {
+		return false
+	}
+	e.helpers = e.helpers[:0]
+	for _, bi := range b.Builders {
+		u := &o.Own[bi]
+		if u.H == best || u.Order != aikit.OrderIdle || u.Info.Role.Has(aikit.RoleCommander) {
+			continue
+		}
+		if aikit.Dist2(u.X, u.Z, bx, bz) > 1200*1200 {
+			continue
+		}
+		e.helpers = append(e.helpers, u.H)
+	}
+	if len(e.helpers) < 2 {
+		return false
+	}
+	b.K.Repair(e.helpers, best, false)
+	e.commitHelpers(b, cAssist, best, bx, bz)
+	return true
+}
+
+// commitHelpers records the group order on exactly the builders it went
+// to (e.helpers).
+func (e *Economy) commitHelpers(b *core.Board, kind commitKind, target pool.Handle, x, z int32) {
+	for _, h := range e.helpers {
+		i := b.Index(h)
+		if i < 0 {
+			continue
+		}
+		u := &b.O.Own[i]
+		c := e.s.commitOf(u)
+		*c = commitment{def: u.Info, gen: u.Gen, kind: kind, spot: -1, target: target, x: x, z: z, tick: e.s.tick}
 	}
 }
 
@@ -1063,6 +1225,9 @@ func (e *Economy) evalAssist(b *core.Board, u *aikit.OwnUnit, cm *commitment, d 
 	}
 	need := mul(cov, armyF)
 	if need == 0 {
+		return
+	}
+	if !canGuard(u.Info) {
 		return
 	}
 	best := cand{kind: cGuard, spot: -1}

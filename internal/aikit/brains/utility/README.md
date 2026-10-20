@@ -55,7 +55,8 @@ switch changes.)
 
 Each think it first detects failures and retreats, then scores options for
 up to `Attention` builders (rotating start), within the APM budget left
-after reserving one action for the army and one per factory with room.
+after reserving one action for the army while the base is threatened and
+one for a factory with an empty, unstalled queue.
 
 | candidate | considerations (multiplied) |
 |---|---|
@@ -68,6 +69,14 @@ after reserving one action for the army and one per factory with room.
 | radar | time ramp (1–3 min) × `half(3 × count)` × affordability × travel × threat; veto within the larger authored radar radius of an own stationary sensor or live build reservation, across definitions |
 | assist nanoframe | resource slack `lin(min(covM, covE), 500, 1400)` × priority (factory 1500, economy 1000, defense 1000+danger, other 700) × travel |
 | guard factory | `lin(covM, 900, 2500)` × army share × travel — only factories that are producing |
+
+With two or more builders idle, one action moves a group of them (the
+idle-builder rescue): a Guard of the producing factory with the most idle
+builders within 1200 wu, and from minute 20, when no factory takes them, a
+Repair of the damaged own or allied unit or unfinished frame with the
+most. The repair waits for minute 20 because its action competes with the
+opening economy. The commander and builders authored `canguard=0` are
+never in a guard group; reclaiming stays the per-builder clear candidate.
 
 With the `expand` switch (off by default, §13.10), from minute
 `expand_from` an extractor site is scored with a metal need of at least
@@ -115,11 +124,13 @@ Stability and bookkeeping:
 ## 4. Production layer (factories)
 
 Factories with fewer than two queued products (one building + one queued)
-get one product each, within the APM budget. A factory whose pad has held
-no nanoframe for 20 s while its queue is not empty is *blocked*: own units
-parked on the pad are moved out along the +Z exit lane (every 10 s); after
-three clears it is written off from spend capacity and its type's field
-rotates.
+get one product each, within the APM budget; a persona below 100 APM
+queues a combat unit two at a time. A factory whose pad has held no
+nanoframe for 20 s while its queue is not empty is *blocked*: own units
+parked on the pad, and idle ones in the short lane in front of it, are
+moved in one group to a rally behind home (every 10 s); after three clears
+it is written off from spend capacity and its type's field rotates, and
+its pad is still cleared so its queue can resume.
 
 | candidate | considerations |
 |---|---|
@@ -209,7 +220,8 @@ runs defaults); persona keys (`think`, `react`, `apm`, `attention`,
 | `reach_mix` | 1 | 0–1 | switch: reach over the plausible enemy starts; stranded factories make a home guard only (§13.1, §13.8) |
 | `fleet` | 1 | 0–1 | switch: against an enemy navy, heavier hulls, light boats kept to a few (§13.2, §13.8) |
 | `tidal_field` | 1 | 0–1 | switch: water economy in fields, later shipyards on a ring, clear of the yards (§13.3) |
-| `growth` | 16 | 0–31 | human economy shape at full ambition, a sum of parts: 1 expansion, 2 tech-2 timeline, 4 constructors per extractor, 8 factories per income, 16 constructor floor, which acts at every ambition (§13.4) |
+| `growth` | 16 | 0–31 | human economy shape at full ambition and at every ambition after minute 20, a sum of parts: 1 expansion, 2 tech-2 timeline, 4 constructors per extractor, 8 factories per income, 16 constructor floor, which acts at every ambition (§13.4) |
+| `long_growth` | 1 | 0–1 | switch: after minute 20, while the metal store is 80% full, the lower personas also play growth's expansion, tech-2, constructor-ratio and factory parts; 0 leaves the old ambition gate in place |
 | `fac_first` | 0 | 0–5 | first factory family: 0 none, 1 kbot lab, 2 vehicle plant, 3 air plant, 4 shipyard, 5 drawn per game (§13.5) |
 | `w_fac_first` | 300 | 100–1000 | percent by which other factories rate below the chosen family's until one of it is owned (§13.5) |
 | `expand` | 0 | 0–31 | mid-game expansion, a sum of parts: 1 extractors on the expansion pace, 2 constructors follow the expansion, 4 failed spots held until seen empty, 8 contested spots behind our army, 16 factories follow the income while metal banks (§13.10) |
@@ -1076,21 +1088,29 @@ The benchmark's recommendation (d): human land-map winners hold 0.57 /
 util+tac plateaus near 14), build one factory per ~14 metal/s of income
 with the second around minute 8 (util+tac twice as many), and 73% of
 winners have a tech-2 factory, at a median minute 12. `growth` is a sum
-of parts, at full ambition only (easy and medium keep their tier caps,
-style.go):
+of parts, at full ambition and, as Nanolathe Modern AI policy, at every
+ambition from minute 20 (before that, easy and medium keep their tier
+caps, style.go; the tier curves still scale the counts by ambition):
 
 | part | what it does |
 |---|---|
 | 1 expansion | extraction territory full to two thirds of the way to the enemy base (contested spots become claimable), extractor travel half-life doubling from minute 10 to 20, extractor sites scored with a metal need of at least 600‰ while energy is not short, and helpers (guarding, assisting) leave for a new building that beats their help without the hysteresis margin, helping factories from a lower metal coverage |
 | 2 tech 2 | the tech timeline to ¾ of `tech_time` (minute 12) on a 12–24 metal/s income gate, held back by pressure on the base or an enemy army estimate of 1.5–3× ours (not from 0.9×), first tech-2 factory rated at least nominal |
 | 4 constructors | while metal is a surplus (coverage ≥ 1.1 or the store banking), constructors to 0.55 per finished extractor at minute 12 rising to 0.75 by 20 (ramped in from minute 8), plus one per `spots_per_con` claimable free spots (at most two); below it wanted outright, beyond it at a third, a fifth... |
-| 8 factories | another factory only while fewer than one per 14 metal/s of income, or two from minute 8 (the first tech-2 factory exempt; a store 80% full lifts the cap; walled-in factories do not count) |
+| 8 factories | another factory only while fewer than one per 14 metal/s of income, or two from minute 8 (the first tech-2 factory exempt; a store 80% full lifts the cap; walled-in factories do not count; with at least two stalled pads and half the factories stalled, no more until one produces again) |
 | 16 constructor floor | one constructor from minute 5, two from minute 8, on any map and at every ambition |
 
 The investments of parts 1, 4 and 8 (the helper rule aside) wait for
 `growSafe`: from minute 8 (the opening and the first push are the
 brain's own), while our army is at least the estimated enemy army and
 the base is not under pressure.
+
+`long_growth` (default 1) is the long-game switch for the other parts:
+before minute 20 the lower personas ignore parts 1, 2, 4 and 8, and from
+minute 20 the switch supplies all of them while the metal store is 80%
+full (metal the smaller plan is not spending); 0 restores the old
+full-ambition gate for those configured bits. `growth=0` disables every part, the
+constructor floor included.
 
 **The floor (16) is the default.** On The Pass (four metal spots) the
 expansion room is zero and the economy share of a ~7 metal/s income is

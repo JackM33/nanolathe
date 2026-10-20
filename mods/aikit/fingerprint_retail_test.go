@@ -52,7 +52,7 @@ import (
 // build is a lockstep defect, never a reason to update.
 const (
 	lockModernAITicks     = onlineModernSpan
-	lockModernAIRun       = "bf19958f529eb5763a8af42237d54f032827929a74dd3f23b5844b5049b7f872"
+	lockModernAIRun       = "32ac520f4a5de1345caad33a0ac444a1cbcd859be509859db77ffbf794c5ee21"
 	lockModernAIRehearsal = "15b9dfe98d242faf6a8811e701d35b1d1478a78a284f51f7d6ad7d565edc2dbc"
 )
 
