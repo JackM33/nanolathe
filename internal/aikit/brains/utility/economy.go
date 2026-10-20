@@ -258,6 +258,12 @@ func (e *Economy) rescueIdle(b *core.Board) bool {
 	if e.rescueFactory(b) {
 		return true
 	}
+	// Repairing and reclaiming are useful after the opening, but their group
+	// commands compete with the one action a low-APM persona has for economy.
+	// Leave them off until the long game; factory aid above still runs.
+	if s.tick < growthFallbackMinute*1800 {
+		return false
+	}
 	if e.rescueRepair(b) {
 		return true
 	}

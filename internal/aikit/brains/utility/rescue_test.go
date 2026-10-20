@@ -58,3 +58,21 @@ func TestIdleBuilderClearsFeature(t *testing.T) {
 		t.Fatalf("clear commitments = %d, want one", cleared)
 	}
 }
+
+// Repair and reclaim fallbacks wait for the long game: until minute 20 their
+// group action competes with the opening economy's only builder action.
+func TestIdleRepairFallbackStartsAfterOpening(t *testing.T) {
+	w := newMetalWorld(DefaultParams(), aikit.PersonaEasy)
+	w.d.con.Def = &content.UnitDef{CanReclamate: true}
+	base := w.metalBase()
+	base[3].HP = 10
+	base = append(base, own(6, w.d.con, 720, 720), own(7, w.d.con, 740, 700))
+	w.thinkWith(10*1800, base, metalAmpleRes, energyFullRes)
+	if w.e.rescueIdle(w.b) {
+		t.Fatal("repair fallback acted before the long game")
+	}
+	w.thinkWith(21*1800, base, metalAmpleRes, energyFullRes)
+	if !w.e.rescueIdle(w.b) {
+		t.Fatal("repair fallback did not act after the opening")
+	}
+}

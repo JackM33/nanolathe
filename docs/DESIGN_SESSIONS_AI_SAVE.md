@@ -2052,10 +2052,12 @@ not new gameplay rules, and use the ordinary order and construction paths.
   the economy spends one action on the first available work: a group Guard
   of a producing factory; a group Repair of a damaged own or allied unit or
   an unfinished frame; or one builder's Clear of a nearby reclaimable
-  feature. This is the human box-select and right-click, not one action per
-  builder; it lets a low-APM persona use a large builder pool and assist
-  factory production, repair a base, or reclaim a lane. The commander is
-  left out of every group. The rescue runs after failures from the previous
+  feature. The guard runs from the start; repair and clear wait for minute
+  20, because their group action competes with the opening economy's only
+  builder action. This is the human box-select and right-click, not one
+  action per builder; it lets a low-APM persona use a large builder pool and
+  assist factory production, repair a base, or reclaim a lane. The commander
+  is left out of every group. The rescue runs after failures from the previous
   think are processed, so it cannot hide a failed site from backoff,
   placement-failure counts or stuck-builder detection.
 - *Builder action reserve.* The economy no longer reserves one action for
@@ -2103,6 +2105,7 @@ Tests: `utility.TestGrowthLongGameFallback`,
 `utility.TestIdleBuildersGroupGuardAFactory`,
 `utility.TestIdleBuildersRepairDamagedBuilding`,
 `utility.TestIdleBuilderClearsFeature`,
+`utility.TestIdleRepairFallbackStartsAfterOpening`,
 `utility.TestFailedBuildBeforeIdleRescue`,
 `tactics.TestStandingGuardAtLowAttention`,
 `tactics.TestStandingGuardRecruitsMainSquad`,

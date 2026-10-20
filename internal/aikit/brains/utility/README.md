@@ -69,6 +69,12 @@ after reserving one action for the army and one per factory with room.
 | assist nanoframe | resource slack `lin(min(covM, covE), 500, 1400)` × priority (factory 1500, economy 1000, defense 1000+danger, other 700) × travel |
 | guard factory | `lin(covM, 900, 2500)` × army share × travel — only factories that are producing |
 
+The idle-builder rescue guards a producing factory from the first minute;
+its group repair and feature clear wait until minute 20 because their one
+action competes with the opening economy. After that they run in the same
+order: producing factory, damaged own/allied unit or frame, reclaimable
+feature. The commander is never moved by the rescue.
+
 With the `expand` switch (off by default, §13.10), from minute
 `expand_from` an extractor site is scored with a metal need of at least
 1000‰ while our extractors trail the top human tier's curve, and while
