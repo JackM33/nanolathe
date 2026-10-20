@@ -505,7 +505,9 @@ func (s *nlScreen) addonVersionText(row nlAddonRow) string {
 // its download's progress, or "Already in your install". Beneath an add-on
 // whose archives are at hand its units' build pictures show, read from those
 // archives, so they show before the add-on is mounted.
-func (s *nlScreen) heroAddons(screen *ebiten.Image, x, y, a float64) float64 {
+// The list ends at bottom: more rows than fit there scroll, as the content
+// list does, so the cards beneath never cover a row.
+func (s *nlScreen) heroAddons(screen *ebiten.Image, x, y, bottom, a float64) float64 {
 	u := s.u()
 	s.wantAddons()
 	l := &s.addonList
@@ -530,17 +532,30 @@ func (s *nlScreen) heroAddons(screen *ebiten.Image, x, y, a float64) float64 {
 		stripH = 50 * u
 	}
 	strip := func(row nlAddonRow) bool { return stripH > 0 && len(row.units) > 0 }
+	shown := len(rows)
+	if stripH == 0 {
+		notes := 0.0
+		if loading {
+			notes += 24 * u
+		}
+		if l.failure != "" {
+			notes += 24 * u
+		}
+		shown = max(1, min(shown, int((bottom-notes-box.Y-12*u)/rowH)))
+	}
 	box.H = 12 * u
-	for _, row := range rows {
+	for _, row := range rows[:shown] {
 		box.H += rowH
 		if strip(row) {
 			box.H += stripH
 		}
 	}
+	s.addonScroll.layout(len(rows), shown, box)
 	s.well(screen, box, a)
 	job := addonDownload.view()
 	ry := box.Y + 6*u
-	for i, row := range rows {
+	for i := s.addonScroll.top; i < s.addonScroll.top+shown; i++ {
+		row := rows[i]
 		k := row.known
 		h := rowH
 		if strip(row) {
@@ -632,6 +647,7 @@ func (s *nlScreen) heroAddons(screen *ebiten.Image, x, y, a float64) float64 {
 			}
 		}
 	}
+	s.drawScrollbar(screen, "addon", &s.addonScroll, box)
 	y = box.Y + box.H
 	if loading {
 		bf.Draw(screen, "Checking the add-on catalogue…", x+4*u, y+18*u, screenkit.Style{Size: 11 * u, Top: alphaC(nlDim, a), Shadow: 0.1})

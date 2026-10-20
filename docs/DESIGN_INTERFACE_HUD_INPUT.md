@@ -5046,13 +5046,25 @@ rebuilt every frame. This is host presentation policy and changes nothing drawn.
 **Layout.** One unit is `min(height/900, width/1560)` pixels, so a 4:3
 window keeps the header on one line. A tab row (*Game*, *Mutators*,
 *Graphics*, *Effects*, *Controls*) and *Back* / *Apply* (with the count of
-changed cards) head the screen; under the wordmark one line names the
+changed cards) head the screen. Beside the wordmark, small and dim, is the
+build's short source revision: the commit a development build records, or the
+one the source installer places beside the executable, marked *modified* when
+the tree held uncommitted changes, and *dev build* when the build records
+none. The label fits the space left by the tabs and action buttons, so a
+modified revision cannot cover a tab. Under the wordmark one line names the
 content, rules, renderer, mutators and unit restrictions a battle started now
 would use, each part a jump to its card. The focused card fills the left: kicker, title, one
 control of its kind (lamp meter, throw switch, stepper, the three rule
 layers, side-by-side choices, or the content list), a description, a lock or
 renderer note, chips and *Compare*. The page's cards run along the bottom;
-the focused one lifts. Arrow keys choose and change, Tab pages, Space
+the focused one lifts. A page with more cards than one row holds (*Mutators*)
+lays them out in two rows of compact cards in the same height, each picture
+beside its name, value and lamps, so every card is on the screen; a compact
+card lifts half as far. Card names and compact values shrink within their
+text columns, then end in an ellipsis if the minimum size still cannot fit.
+Source tags and locks stay over the picture, with long tags fitted to its
+width, so they cannot cover a compact card's name.
+Arrow keys choose and change, Tab pages, Space
 compares, Enter applies, Esc goes back. The content list shows every
 installed mod with its version, its rule lock and whether it brings its own
 controls, and scrolls past five rows.
@@ -5064,6 +5076,10 @@ of view. Fractional wheel travel accumulates, and each whole unit moves one
 row. The wheel target includes the scrollbar column. A track press centres
 the thumb on the pointer; a thumb drag retains the original grab offset and
 continues outside the track, clamped to the first and last viewports.
+The Add-ons list and the *Get more mods* catalogue show the rows that fit and
+scroll the same way: the Add-ons list ends above the lifted cards, leaving
+room for the card's description and note, and the catalogue fills its dialog
+above *Close*.
 Action buttons and key caps borrow the base game's `BUTTONS0` raised and pressed
 frames. Their borders retain their native proportions and their interiors fill
 the settings rectangles; caption placement and the existing hit targets survive.

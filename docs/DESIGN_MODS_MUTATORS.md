@@ -1811,7 +1811,8 @@ in two columns, so that no list competes with another for space (D14):
   row says *Model replacements*. The card's
   note says when the drafted mod leaves add-ons off. The card asks the
   catalogue only when first shown (§5.2) and, with no catalogue and nothing
-  installed, says the catalogue is unavailable. The switches belong to the
+  installed, says the catalogue is unavailable. More rows than fit above the
+  cards scroll. The switches belong to the
   screen's *Apply*, and a *Get* that installs switches its add-on on. The
   Mods & Mutators window has no add-on rows.
 - *Apply* writes the settings for both columns. When the mod or the add-ons
@@ -1848,7 +1849,10 @@ manifest (§5.2); when that fails, it shows the cached manifest and its age.
 It lists every manifest entry whose id, version and case-insensitive archive
 hash do not match an install, with name, version, download size and summary.
 The Nanolathe screen's catalogue instead keeps matching rows visible as
-*Installed*. A changed hash offers *Download* again under the original version;
+*Installed*. Its summaries wrap within the room left of the row's button, at
+most two lines with the second cut by an ellipsis, and the catalogue scrolls
+when it holds more mods than fit
+([DESIGN_INTERFACE_HUD_INPUT §3.17](DESIGN_INTERFACE_HUD_INPUT.md#317-the-nanolathe-screen)). A changed hash offers *Download* again under the original version;
 both screens disable the mounted version with *Switch mods before updating*.
 *Download* on a row starts §5.3, with a progress bar; while the archive transfers
 the button reads *Cancel*. One download and install runs at
