@@ -90,8 +90,7 @@ func RestoreRetailBattleCore(stage *RetailBattleStage) error {
 		if p.Index < 0 || p.Index >= len(s.Econ.Players) {
 			return fmt.Errorf("session: retail restore: player %d outside configured slots", p.Index)
 		}
-		p.ApplyToEconomy(&s.Econ.Players[p.Index])
-		s.Econ.Players[p.Index].Exists = true
+		s.restoreRetailPlayer(p)
 		// The `Player%i` account's `Side` item is that slot's player-table side
 		// ordinal, restored into the low byte with 0 for a missing or mistyped
 		// item [08 "Player records"]. It is the restore-side source of the

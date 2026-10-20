@@ -91,6 +91,12 @@ Every post-entry reader — commander identity, alliance, the score rows, the
 save's `Player%i` account — reads the player record `[08 R-SKIR-01 §2]`
 `[08 "Player records"]`.
 
+Computer registration uses each compiled `SideDef.Name`, including a mod's
+replacement of base side ordinals 0/1. Stock ARM/CORE definitions keep retail's
+`Arm`/`Core` spelling. These labels follow content in every gameplay mode,
+including faction composition (DESIGN_MODS_MUTATORS §5.8); explicit player
+names remain independent of that default.
+
 ## 2. Packages and key types
 
 The save/load directory is `savegame` beneath the resolved installation root,
@@ -631,6 +637,15 @@ storage items are the storage-bonus **operands** and its storage flag the
 bonus enable bit; the derived capacities are not persisted — a restored
 player's capacity is rebuilt from its units plus the restored bonus at its
 first settlement pass `[08 "Player records"]` `[05 R-ECO-01 §4]`.
+
+Names and score-panel ranks have no item in that closed account. Staging and
+core restoration initialize each saved slot's registration rank to its slot
+index and fill an empty skirmish name from its restored controller and side.
+This keeps every qualifying row available, including an eliminated player and
+non-contiguous saved slots, without extending the bank. Whether retail later
+reorders the initial ranks from restored kill counts remains the existing
+research unknown; the current placeholder retains registration order until a
+credited kill shifts it `[08 R-SKIR-01 §2]` `[07 R-HUD-04 §1]`.
 
 `PlayersMeta` is the rest of the `Players` account: the `Human Player` integer
 and the `GameTime` box. **The load default for `Human Player` is `10`, no
