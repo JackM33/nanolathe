@@ -1105,14 +1105,17 @@ action buttons keep the native 80×20 size. The 20-pixel rows are spaced 28
 pixels apart so both instruction lines remain above the action buttons
 with all ten players shown.
 While open the window takes every pointer and key event, so nothing beneath
-reacts. Choosing another map clears the points, since a point belongs to its
-map. The map picker's preview marks the selected map's start positions for
+reacts. Any change of the setup's map clears the points, since a point
+belongs to its map: the map picker's choice, and the fallback that replaces
+the selected downloaded map when it is deleted (`setSetupMap`). The map
+picker's preview marks the selected map's start positions for
 the current rows with small bevelled squares. The points persist with the
 rows (`start`, with `startMap`), are restored only for the selected installed
 map (a missing saved map drops its points), and travel to battle as `SkirmishPlayer.Start`
 ([DESIGN_SESSIONS_AI_SAVE "Modern chosen start positions"](DESIGN_SESSIONS_AI_SAVE.md#modern-chosen-start-positions)).
 Tests: `TestTheSettingsFileKeepsEachRowsStartPoint`,
-`TestMissingSavedMapDropsChosenStarts`, `TestPlaceStartsFollowsTheRules`
+`TestMissingSavedMapDropsChosenStarts`, `TestSetSetupMapClearsPointsOnlyForAnotherMap`,
+`TestMapRemovalProtectsWinningRetailModAndManualRoots`, `TestPlaceStartsFollowsTheRules`
 and `TestSkirmishScreenPlacesStartsOnTheMapRetail`, which with
 `NANOLATHE_SHOT_DIR` set writes the open window and the map picker as PNGs.
 

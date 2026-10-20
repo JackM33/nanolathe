@@ -438,11 +438,7 @@ func (g *gameShell) activateGadget(name string) {
 			g.leaveMapPicker()
 		case "LOAD", "MAPNAMES":
 			if len(g.maps) != 0 && g.mapIdx >= 0 && g.mapIdx < len(g.maps) {
-				// Chosen start points belong to the map they were placed on.
-				if !strings.EqualFold(g.setup.MapName, g.maps[g.mapIdx]) {
-					g.clearChosenStarts()
-				}
-				g.setup.MapName = g.maps[g.mapIdx]
+				g.setSetupMap(g.maps[g.mapIdx])
 				g.saveSettings()
 				g.leaveMapPicker()
 			}

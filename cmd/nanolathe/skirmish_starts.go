@@ -11,6 +11,7 @@ package main
 
 import (
 	"strconv"
+	"strings"
 
 	"github.com/nanolathe-gg/nanolathe/formats"
 	"github.com/nanolathe-gg/nanolathe/internal/client"
@@ -99,6 +100,16 @@ func (g *gameShell) clearChosenStarts() {
 	for i := range g.setup.Players {
 		g.setup.Players[i].Start = session.StartPoint{}
 	}
+}
+
+// setSetupMap makes name the setup's map. Every path that changes the map
+// goes through it, so chosen points never outlive their map: a different
+// map clears them, and the same map, in any letter case, keeps them.
+func (g *gameShell) setSetupMap(name string) {
+	if !strings.EqualFold(g.setup.MapName, name) {
+		g.clearChosenStarts()
+	}
+	g.setup.MapName = name
 }
 
 // startPlacer is the open Place Starts window. selected is a shown row, or
