@@ -23,6 +23,31 @@ const (
 // in production plus one queued), so choices track the situation.
 const queueDepth = 2
 
+// lowAPM is the action rate below which a persona queues combat units in
+// batches of lowAPMBatch (Easy is 25, Medium 60, Hard 150).
+const (
+	lowAPM      = 100
+	lowAPMBatch = 2
+)
+
+// batchOf is how many of the chosen product one Produce order queues. A
+// persona short of actions queues combat units two at a time, as a player
+// short of clicks queues several: at one action per unit, Easy's factories
+// took a large share of its action budget and stood empty while the army
+// and the builders waited for the same actions. Builders, scouts and other
+// products stay one at a time so their counts track the plan, and a
+// restriction cap is never overrun.
+func batchOf(k *aikit.Kit, best *cand) int32 {
+	n := int32(1)
+	if best.kind == pCombat && k.Persona.APM > 0 && k.Persona.APM < lowAPM {
+		n = lowAPMBatch
+	}
+	if a := k.Allowance(best.prod); a < n {
+		n = max(a, 1)
+	}
+	return n
+}
+
 // factoryReg remembers the last product this brain queued at a factory.
 type factoryReg struct {
 	def  *aikit.UnitInfo
@@ -473,13 +498,16 @@ func (pr *Production) produce(b *core.Board, budget int) {
 			continue
 		}
 		best := &d.top[0]
-		k.Produce(f.H, best.prod, 1)
+		n := batchOf(k, best)
+		k.Produce(f.H, best.prod, n)
 		budget--
 		r := pr.regOf(f)
 		r.prod, r.tick = best.prod, s.tick
-		s.count[best.prod.Index]++
+		s.count[best.prod.Index] += n
 		if brOn {
-			pr.br.noteQueued(best.prod, best.kind)
+			for range n {
+				pr.br.noteQueued(best.prod, best.kind)
+			}
 		}
 		switch best.kind {
 		case pInterceptor:
@@ -489,9 +517,9 @@ func (pr *Production) produce(b *core.Board, budget int) {
 			armyFirst = s.armyFirst(pr, pending)
 			ecoCap += int64(best.prod.BuildPower) * s.rMB / 1000
 		case pCombat:
-			s.armyCount++
+			s.armyCount += n
 			scoutWait = false
-			pr.combatQueued++
+			pr.combatQueued += n
 			armyFirst = s.armyFirst(pr, pending)
 		case pScout:
 			if best.prod.Role.Has(aikit.RoleCombat) {

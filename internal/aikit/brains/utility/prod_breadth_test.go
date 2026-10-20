@@ -380,3 +380,25 @@ func TestAssistBuilders(t *testing.T) {
 		t.Errorf("idle lab: %d orders, memory %+v; want help for the frame", n, f.pr.br.mem[b.O.Own[1].H])
 	}
 }
+
+// A persona short of actions queues combat units two at a time; builders
+// and every product of a persona with actions to spare stay one at a time.
+func TestLowAPMCombatBatch(t *testing.T) {
+	q := &aikit.UnitInfo{Key: "tank"}
+	for _, tc := range []struct {
+		persona aikit.Persona
+		kind    commitKind
+		want    int32
+	}{
+		{aikit.PersonaEasy, pCombat, 2},
+		{aikit.PersonaMed, pCombat, 2},
+		{aikit.PersonaHard, pCombat, 1},
+		{aikit.PersonaEasy, pCons, 1},
+		{aikit.PersonaEasy, pScout, 1},
+	} {
+		k := &aikit.Kit{Persona: tc.persona}
+		if got := batchOf(k, &cand{kind: tc.kind, prod: q}); got != tc.want {
+			t.Errorf("%s kind %d: batch %d, want %d", tc.persona.Name, tc.kind, got, tc.want)
+		}
+	}
+}
