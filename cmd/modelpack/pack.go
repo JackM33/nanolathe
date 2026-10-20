@@ -201,8 +201,7 @@ func writePackage(r recipe, contents map[string][]byte, out string) error {
 	var packed bytes.Buffer
 	zw := zip.NewWriter(&packed)
 	for _, p := range paths {
-		hdr := &zip.FileHeader{Name: p, Method: zip.Store}
-		hdr.SetModTime(time.Date(1980, time.January, 1, 0, 0, 0, 0, time.UTC))
+		hdr := &zip.FileHeader{Name: p, Method: zip.Store, Modified: time.Date(1980, time.January, 1, 0, 0, 0, 0, time.UTC)}
 		hdr.SetMode(0o644)
 		w, err := zw.CreateHeader(hdr)
 		if err != nil {
