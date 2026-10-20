@@ -2043,9 +2043,11 @@ not new gameplay rules, and use the ordinary order and construction paths.
   still scale the counts by the persona's ambition, so Easy's earlier plan
   is unchanged.
 - *Idle builder cap.* Ordinary constructor production stops while two or
-  more builders are already idle. Advanced constructors are exempt, because
-  the tech plan's first advanced constructor is wanted even beside idle
-  ordinary builders.
+  more idle economy constructors are already waiting. The commander is not
+  one of them, so an idle commander beside one idle constructor does not
+  stop the factory that would give both work. Advanced constructors are
+  exempt, because the tech plan's first advanced constructor is wanted even
+  beside idle ordinary builders.
 - *Idle builder rescue.* When at least two constructed builders are idle,
   the economy spends one action on the first available work: a group Guard
   of a producing factory; a group Repair of a damaged own or allied unit or
@@ -2059,7 +2061,8 @@ not new gameplay rules, and use the ordinary order and construction paths.
 - *Builder action reserve.* The economy no longer reserves one action for
   the army unconditionally and one per short-queue factory. It reserves an
   army action only while the base is threatened and at most one for a
-  factory with an empty queue. At the Easy persona's one-action budget the
+  factory with an empty, unstalled queue; a stalled pad does not cost the
+  builders the action that could open it. At the Easy persona's one-action budget the
   old form left nothing for a builder.
 - *Factory pads and dead factories.* A pad clear moves the parked units to a
   builder rally behind home instead of one footprint plus 128 wu along the

@@ -148,7 +148,9 @@ func (e *Economy) Plan(b *core.Board) {
 	}
 	nf := 0
 	for _, fi := range b.Factories {
-		if o.Own[fi].QueueLen == 0 {
+		f := &o.Own[fi]
+		fs := s.fstateOf(f)
+		if f.QueueLen == 0 && !fs.blocked && !fs.dead {
 			nf = 1
 			break
 		}

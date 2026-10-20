@@ -55,9 +55,10 @@ type Production struct {
 // finding anything new.
 const maxScouts = 3
 
-// constructorIdleStop is the number of idle builders at which production
-// stops offering ordinary constructors (advanced constructors stay on the
-// tech plan). The live economy may still have a project for them next
+// constructorIdleStop is the number of idle economy constructors at which
+// production stops offering ordinary constructors (advanced constructors stay
+// on the tech plan). The commander is not one: an idle commander beside one
+// idle constructor must not stop the factory that would give them work. The live economy may still have a project for them next
 // think; until it does, another one only adds to the base crowd that
 // blocks factory pads.
 const constructorIdleStop = 2
@@ -346,7 +347,7 @@ func (pr *Production) produce(b *core.Board, budget int) {
 				// economy can still use the ones it has. Advanced
 				// constructors are left alone: the tech plan's first one is
 				// wanted even beside idle ordinary builders.
-				if s.idleBuilders >= constructorIdleStop && !si.advCon {
+				if s.idleCons >= constructorIdleStop && !si.advCon {
 					break
 				}
 				drain := max64(int64(q.BuildPower)*s.rMB/1000, 1)
