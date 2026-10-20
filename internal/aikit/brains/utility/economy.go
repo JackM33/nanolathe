@@ -247,9 +247,12 @@ func (e *Economy) Plan(b *core.Board) {
 // rescueIdle spends one action to put idle builders to work. At a low APM
 // the per-builder loop can issue only one assignment per think, so a pool
 // of idle constructors otherwise never drains. It tries, in order: a
-// producing factory (group Guard), a damaged own or allied unit or a
-// nanoframe (group Repair), then a nearby reclaimable feature (one Clear).
-// The commander is left out of every group.
+// producing factory (group Guard), then a damaged own or allied unit or a
+// nanoframe (group Repair). The commander is left out of every group.
+// Reclaiming stays with the per-builder decision (evalClear), which scores
+// a clear by what it yields and rests clearing after one that found
+// nothing: a group fallback has no such check, and an executor refusal
+// would repeat every think.
 func (e *Economy) rescueIdle(b *core.Board) bool {
 	s := e.s
 	if s.idleBuilders < 2 {
@@ -258,16 +261,13 @@ func (e *Economy) rescueIdle(b *core.Board) bool {
 	if e.rescueFactory(b) {
 		return true
 	}
-	// Repairing and reclaiming are useful after the opening, but their group
-	// commands compete with the one action a low-APM persona has for economy.
-	// Leave them off until the long game; factory aid above still runs.
+	// Repairing is useful after the opening, but its group command competes
+	// with the one action a low-APM persona has for economy. Leave it off
+	// until the long game; factory aid above still runs.
 	if s.tick < growthFallbackMinute*1800 {
 		return false
 	}
-	if e.rescueRepair(b) {
-		return true
-	}
-	return e.rescueClear(b)
+	return e.rescueRepair(b)
 }
 
 // rescueFactory groups idle builders on the nearest producing factory.
@@ -375,45 +375,6 @@ func (e *Economy) rescueRepair(b *core.Board) bool {
 	return true
 }
 
-// rescueClear sends one idle builder to clear the nearest reclaimable
-// feature. Clear is a one-builder command, so this is the last fallback
-// when no factory, damaged target or frame can take the pool.
-func (e *Economy) rescueClear(b *core.Board) bool {
-	s := e.s
-	o := b.O
-	var f *aikit.Feature
-	for i := range o.Features {
-		feature := &o.Features[i]
-		if !feature.Reclaimable {
-			continue
-		}
-		if f == nil || aikit.Dist2(feature.X, feature.Z, b.HomeX, b.HomeZ) < aikit.Dist2(f.X, f.Z, b.HomeX, b.HomeZ) {
-			f = feature
-		}
-	}
-	if f == nil {
-		return false
-	}
-	builder := int32(-1)
-	for _, bi := range b.Builders {
-		u := &o.Own[bi]
-		if u.Order != aikit.OrderIdle || u.Info.Role.Has(aikit.RoleCommander) || u.Info.Def == nil || !u.Info.Def.CanReclamate {
-			continue
-		}
-		if builder < 0 || aikit.Dist2(u.X, u.Z, f.X, f.Z) < aikit.Dist2(o.Own[builder].X, o.Own[builder].Z, f.X, f.Z) {
-			builder = bi
-		}
-	}
-	if builder < 0 {
-		return false
-	}
-	u := &o.Own[builder]
-	b.K.Clear(u.H, f.X, f.Z, clearRadius)
-	c := s.commitOf(u)
-	*c = commitment{def: u.Info, gen: u.Gen, kind: cClear, x: f.X, z: f.Z, tick: s.tick}
-	return true
-}
-
 func (e *Economy) commitHelpers(b *core.Board, kind commitKind, target pool.Handle, x, z int32) {
 	o := b.O
 	for _, bi := range b.Builders {
@@ -425,7 +386,7 @@ func (e *Economy) commitHelpers(b *core.Board, kind commitKind, target pool.Hand
 			continue
 		}
 		c := e.s.commitOf(u)
-		*c = commitment{def: u.Info, gen: u.Gen, kind: kind, target: target, x: x, z: z, tick: e.s.tick}
+		*c = commitment{def: u.Info, gen: u.Gen, kind: kind, spot: -1, target: target, x: x, z: z, tick: e.s.tick}
 	}
 }
 

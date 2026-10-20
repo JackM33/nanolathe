@@ -33,34 +33,8 @@ func TestIdleBuildersRepairDamagedBuilding(t *testing.T) {
 	}
 }
 
-// With no factory, damaged target or frame, one idle reclamator clears a
-// nearby feature. Clear is a single-builder command, so exactly one
-// commitment is expected.
-func TestIdleBuilderClearsFeature(t *testing.T) {
-	w := newMetalWorld(DefaultParams(), aikit.PersonaEasy)
-	w.d.con.Def = &content.UnitDef{CanReclamate: true}
-	base := w.metalBase()
-	base = append(base, own(6, w.d.con, 720, 720))
-	w.thinkWith(30*60, base, metalAmpleRes, energyFullRes)
-	w.obs.Features = []aikit.Feature{{X: 640, Z: 620, Reclaimable: true}}
-	if !w.e.rescueClear(w.b) {
-		t.Fatal("reclaimable feature was not picked up by the idle-builder fallback")
-	}
-	var cleared int
-	for i := range w.obs.Own {
-		u := &w.obs.Own[i]
-		c := w.e.s.commitOf(u)
-		if c.kind == cClear {
-			cleared++
-		}
-	}
-	if cleared != 1 {
-		t.Fatalf("clear commitments = %d, want one", cleared)
-	}
-}
-
-// Repair and reclaim fallbacks wait for the long game: until minute 20 their
-// group action competes with the opening economy's only builder action.
+// The repair fallback waits for the long game: until minute 20 its group
+// action competes with the opening economy's only builder action.
 func TestIdleRepairFallbackStartsAfterOpening(t *testing.T) {
 	w := newMetalWorld(DefaultParams(), aikit.PersonaEasy)
 	w.d.con.Def = &content.UnitDef{CanReclamate: true}
