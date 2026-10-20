@@ -175,6 +175,7 @@ type shared struct {
 	waterX     int32
 	waterZ     int32
 	homeLocked bool
+	comReach   int64 // home to the comLeashSpots-th nearest land metal spot (comLeash)
 
 	// Per think.
 	tick      uint32
@@ -988,6 +989,7 @@ func (s *shared) observePlaces(b *core.Board) {
 			}
 		}
 		s.haveWater = best >= 0
+		s.comReach = spotReach(m, hx, hz, comLeashSpots)
 	}
 	// Danger at own buildings and the building nearest the enemy.
 	s.dangerNow = 0

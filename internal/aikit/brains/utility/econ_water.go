@@ -62,7 +62,7 @@ func (s *shared) freeSafeN(b *core.Board) {
 		s.setupConsSpot(m)
 	}
 	nw := consWords(len(s.consDefs))
-	leash := int64(s.p.ComRadius) * int64(s.p.ComRadius)
+	leash := s.comLeash() * s.comLeash()
 	for i := range m.Spots {
 		sp := &m.Spots[i]
 		if b.Spots[i] != core.SpotFree || s.spotBlock[i] > s.tick {

@@ -1,6 +1,8 @@
 package utility
 
 import (
+	"slices"
+
 	"github.com/nanolathe-gg/nanolathe/internal/aikit"
 	"github.com/nanolathe-gg/nanolathe/internal/aikit/core"
 	"github.com/nanolathe-gg/nanolathe/internal/pool"
@@ -565,12 +567,39 @@ func (s *shared) comDanger(b *core.Board, x, z int32) bool {
 	return t >= int64(s.p.ThreatHalf)/2 && t > int64(b.OwnPower.At(x, z))
 }
 
+// comLeashSpots is how many land metal spots the commander's leash always
+// reaches. At a start chosen away from the map's metal, the nearest spot
+// can lie beyond com_radius: the commander, the opening's only builder,
+// then built no extractor, and with no spot a builder could work the
+// economy wanted no constructor either.
+const comLeashSpots = 2
+
+// comLeash is the commander's leash from home: com_radius, stretched to the
+// comLeashSpots-th nearest land metal spot.
+func (s *shared) comLeash() int64 { return max64(int64(s.p.ComRadius), s.comReach) }
+
+// spotReach is the distance from x, z to the k-th nearest land metal spot
+// (the farthest one when the map has fewer).
+func spotReach(m *aikit.MapInfo, x, z int32, k int) int64 {
+	var d []int64
+	for i := range m.Spots {
+		if sp := &m.Spots[i]; !sp.Water {
+			d = append(d, aikit.Dist2(sp.X, sp.Z, x, z))
+		}
+	}
+	if len(d) == 0 {
+		return 0
+	}
+	slices.Sort(d)
+	return aikit.ISqrt64(d[min(len(d), k)-1]) + 1
+}
+
 // comOff reports a work site the commander may not take: beyond its leash
 // of home, or away from home where its retreat test already holds (it
 // would walk into the fight it then has to leave).
 func (s *shared) comOff(b *core.Board, x, z int32) bool {
 	d := aikit.Dist2(x, z, b.HomeX, b.HomeZ)
-	if d > int64(s.p.ComRadius)*int64(s.p.ComRadius) {
+	if l := s.comLeash(); d > l*l {
 		return true
 	}
 	return d > comAway*comAway && s.comDanger(b, x, z)

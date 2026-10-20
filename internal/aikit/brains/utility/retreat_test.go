@@ -66,3 +66,23 @@ func TestCommanderAvoidsThreatenedSites(t *testing.T) {
 		t.Fatal("a site beyond the leash was offered")
 	}
 }
+
+// At a start with no metal inside com_radius the commander's leash reaches
+// the second-nearest land spot, so the opening's only builder has
+// extractors to build; spots beyond that stay off its list.
+func TestCommanderLeashReachesMetal(t *testing.T) {
+	w := newMetalWorld(DefaultParams(), aikit.PersonaEasy)
+	m := w.k.Map
+	m.Spots = m.Spots[:0]
+	for _, xz := range [][2]int32{{1500, 512}, {512, 1520}, {1700, 1700}} {
+		m.Spots = append(m.Spots, aikit.MetalSpot{CellX: xz[0]/16 - 1, CellZ: xz[1]/16 - 1, X: xz[0], Z: xz[1], Metal: 400})
+	}
+	w.thinkWith(1800, []aikit.OwnUnit{own(1, w.d.com, 512, 512)}, metalAmpleRes, energyFullRes)
+	s := w.e.s
+	if s.comOff(w.b, 1500, 512) || s.comOff(w.b, 512, 1520) {
+		t.Fatalf("leash %d does not reach the two nearest spots", s.comLeash())
+	}
+	if !s.comOff(w.b, 1700, 1700) {
+		t.Fatalf("leash %d reaches the third spot", s.comLeash())
+	}
+}
