@@ -405,3 +405,13 @@ func TestConstructorFloor(t *testing.T) {
 		}
 	}
 }
+
+func TestPadLaneCoversShortExit(t *testing.T) {
+	f := &aikit.OwnUnit{X: 1000, Z: 1000, Info: &aikit.UnitInfo{FootX: 6, FootZ: 6}}
+	if !onPadLane(f, 1000, 1050) || !onPadLane(f, 940, 1040) {
+		t.Error("short exit lane did not cover the pad front")
+	}
+	if onPadLane(f, 1000, 1000) || onPadLane(f, 1000, 1120) {
+		t.Error("pad lane covered the footprint or the far lane")
+	}
+}
