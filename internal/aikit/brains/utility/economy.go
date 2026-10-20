@@ -1,6 +1,8 @@
 package utility
 
 import (
+	"slices"
+
 	"github.com/nanolathe-gg/nanolathe/internal/aikit"
 	"github.com/nanolathe-gg/nanolathe/internal/aikit/core"
 	"github.com/nanolathe-gg/nanolathe/internal/pool"
@@ -139,7 +141,13 @@ func (e *Economy) Plan(b *core.Board) {
 	// the army unconditionally and one per short-queue factory (up to two):
 	// at the Easy persona's one-action budget that left nothing for a
 	// builder, which is how a forty-builder pool sat on Standby all game.
+	// The commander's retreat comes before both: losing it loses the game,
+	// and while enemies are near home the reserves would leave a one-action
+	// persona nothing for it.
 	budget := int(s.budget)
+	if b.Commander >= 0 && budget > 0 && e.retreat(b, b.Commander) {
+		budget--
+	}
 	if b.NearHomeThreat > 0 && budget > 0 {
 		budget--
 	}
@@ -527,9 +535,9 @@ func (e *Economy) retreat(b *core.Board, i int32) bool {
 	th := int64(s.p.ThreatHalf)
 	var danger bool
 	if u.Info.Role.Has(aikit.RoleCommander) {
-		away := aikit.Dist2(u.X, u.Z, b.HomeX, b.HomeZ) > 350*350
+		away := aikit.Dist2(u.X, u.Z, b.HomeX, b.HomeZ) > comAway*comAway
 		hurt := u.HP*100 < u.MaxHP*60
-		danger = t >= th/2 && t > own && (away || hurt)
+		danger = s.comDanger(b, u.X, u.Z) && (away || hurt)
 	} else {
 		danger = t >= th && t > own*2
 	}
@@ -546,6 +554,55 @@ func (e *Economy) retreat(b *core.Board, i int32) bool {
 	d.top[0] = cand{kind: cRetreat, x: b.HomeX, z: b.HomeZ, score: t, f: [4]int64{t, own}}
 	d.n, d.chosen = 1, 0
 	return true
+}
+
+// comAway is how far from home the commander counts as away: beyond it, an
+// enemy threat that outweighs own armed power sends it home.
+const comAway = 350
+
+// comDanger is the commander's retreat test at x, z: an enemy threat of at
+// least half threat_half that outweighs own armed power there.
+func (s *shared) comDanger(b *core.Board, x, z int32) bool {
+	t := int64(b.Threat.At(x, z))
+	return t >= int64(s.p.ThreatHalf)/2 && t > int64(b.OwnPower.At(x, z))
+}
+
+// comLeashSpots is how many land metal spots the commander's leash always
+// reaches. At a start chosen away from the map's metal, the nearest spot
+// can lie beyond com_radius: the commander, the opening's only builder,
+// then built no extractor, and with no spot a builder could work the
+// economy wanted no constructor either.
+const comLeashSpots = 2
+
+// comLeash is the commander's leash from home: com_radius, stretched to the
+// comLeashSpots-th nearest land metal spot.
+func (s *shared) comLeash() int64 { return max64(int64(s.p.ComRadius), s.comReach) }
+
+// spotReach is the distance from x, z to the k-th nearest land metal spot
+// (the farthest one when the map has fewer).
+func spotReach(m *aikit.MapInfo, x, z int32, k int) int64 {
+	var d []int64
+	for i := range m.Spots {
+		if sp := &m.Spots[i]; !sp.Water {
+			d = append(d, aikit.Dist2(sp.X, sp.Z, x, z))
+		}
+	}
+	if len(d) == 0 {
+		return 0
+	}
+	slices.Sort(d)
+	return aikit.ISqrt64(d[min(len(d), k)-1]) + 1
+}
+
+// comOff reports a work site the commander may not take: beyond its leash
+// of home, or away from home where its retreat test already holds (it
+// would walk into the fight it then has to leave).
+func (s *shared) comOff(b *core.Board, x, z int32) bool {
+	d := aikit.Dist2(x, z, b.HomeX, b.HomeZ)
+	if l := s.comLeash(); d > l*l {
+		return true
+	}
+	return d > comAway*comAway && s.comDanger(b, x, z)
 }
 
 func (e *Economy) record(u *aikit.OwnUnit) *decision {
@@ -731,7 +788,7 @@ func (e *Economy) evalMex(b *core.Board, u *aikit.OwnUnit, bs *builderState, d *
 		if int32(i) == bs.blockSpot && bs.blockUntil > s.tick {
 			continue
 		}
-		if com && aikit.Dist2(sp.X, sp.Z, b.HomeX, b.HomeZ) > int64(p.ComRadius)*int64(p.ComRadius) {
+		if com && s.comOff(b, sp.X, sp.Z) {
 			continue
 		}
 		if s.outOfPlan(b, sp.X, sp.Z) {
@@ -915,7 +972,7 @@ func (e *Economy) place(b *core.Board, u *aikit.OwnUnit, c *cand) (travel, thr i
 	p := &s.p
 	c.x, c.z = e.siteFor(b, u, c.prod, c.kind)
 	c.spot = -1
-	if u.Info.Role.Has(aikit.RoleCommander) && aikit.Dist2(c.x, c.z, b.HomeX, b.HomeZ) > int64(p.ComRadius)*int64(p.ComRadius) {
+	if u.Info.Role.Has(aikit.RoleCommander) && s.comOff(b, c.x, c.z) {
 		return 0, 0, false
 	}
 	dist := int64(aikit.Dist(u.X, u.Z, c.x, c.z))
