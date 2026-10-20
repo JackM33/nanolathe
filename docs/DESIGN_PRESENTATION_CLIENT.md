@@ -278,6 +278,26 @@ cadence, input polling cost and paused-cache stderr readouts. Polling cost is
 elapsed wall time, not process CPU time. Default sessions are quiet; the F11
 bundle keeps these counters regardless of terminal logging.
 
+**Paused idle host policy (2026-10-19 playtest).** On desktop, a paused battle
+waits for native window/input events after one second without input or changes
+to its camera, displayed resources or message cursors. This allows panel
+transitions and camera blending to settle. Losing focus permits the paused
+window to wait immediately. The host retains the complete presented surface;
+neither the client step nor the GPU replay runs while waiting. Input, focus,
+resize and exposure events wake it; the first service processes input once,
+without accumulating missed host steps. Cosmetic cursor/overlay animation holds
+until wake. Opening effects, native screens/overlays and diagnostic frame traces
+keep their normal cadence, as do loading and post-battle transitions. A separate
+lightweight audio callback services track completion at most one second late
+and music timers at their next deadline, without stepping or redrawing battle.
+Running battles keep their existing scheduling,
+including online lockstep. Browser presentation keeps its existing loop.
+
+The adapter uses Ebitengine's desktop minimum FPS mode for its native event
+wait. Retaining the screen alone skips raster work but still calls the loop at
+display refresh. This is host scheduling policy, independent of gameplay mode
+and authoritative pause/RNG behavior [I6].
+
 **Nanolathe host presentation policy (user-authorized).** Windowed presentation
 keeps the selected display dimensions throughout menus, loading, battle and
 results. The logical front-end canvas remains the established 640×480
