@@ -337,10 +337,13 @@ func (g *gameShell) removeLibraryMap(logical string, target modlibrary.Mod) erro
 	}
 
 	if slices.IndexFunc(g.maps, func(s string) bool { return strings.EqualFold(s, g.setup.MapName) }) < 0 {
-		g.setup.MapName = ""
+		// The fallback is another map, so the removed map's chosen start
+		// points go with it.
+		replacement := ""
 		if len(g.maps) > 0 {
-			g.setup.MapName = g.maps[g.mapIdx]
+			replacement = g.maps[g.mapIdx]
 		}
+		g.setSetupMap(replacement)
 	}
 	mapDownload.mu.Lock()
 	mapDownload.outcome, mapDownload.unseen = "", false

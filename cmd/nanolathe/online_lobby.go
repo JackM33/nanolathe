@@ -1344,7 +1344,7 @@ func (g *gameShell) openOnlineMapPicker() {
 		return
 	}
 	r.choosingMap = true
-	g.setup.MapName = r.settings.mapName
+	g.setSetupMap(r.settings.mapName)
 	g.syncMapIndex()
 	g.mapReturn = modeMenuSkirmish
 	g.openMenu(modeMenuMap)
