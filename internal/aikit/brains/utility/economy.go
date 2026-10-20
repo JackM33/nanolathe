@@ -139,7 +139,13 @@ func (e *Economy) Plan(b *core.Board) {
 	// the army unconditionally and one per short-queue factory (up to two):
 	// at the Easy persona's one-action budget that left nothing for a
 	// builder, which is how a forty-builder pool sat on Standby all game.
+	// The commander's retreat comes before both: losing it loses the game,
+	// and while enemies are near home the reserves would leave a one-action
+	// persona nothing for it.
 	budget := int(s.budget)
+	if b.Commander >= 0 && budget > 0 && e.retreat(b, b.Commander) {
+		budget--
+	}
 	if b.NearHomeThreat > 0 && budget > 0 {
 		budget--
 	}
