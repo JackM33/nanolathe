@@ -261,17 +261,27 @@ func TestFleetLightBoats(t *testing.T) {
 // a 35%-ambition ally otherwise never expands or techs in a three-hour
 // battle.
 func TestGrowthLongGameFallback(t *testing.T) {
-	s := &shared{p: Params{Growth: gExpand}, k: &aikit.Kit{Persona: aikit.PersonaMed}}
+	// The shipped Growth value is the constructor floor only. Before the
+	// fallback a medium persona must not expand or tech; after it the
+	// fallback supplies parts 1/2/4/8 without changing the configured bits.
+	s := &shared{p: Params{Growth: gConsFloor, LongGrowth: 1}, k: &aikit.Kit{Persona: aikit.PersonaMed}}
 	s.tick = (growthFallbackMinute - 1) * 1800
-	if s.part(gExpand) {
+	if s.part(gExpand) || s.part(gTech) || s.part(gConstructors) || s.part(gFactories) {
 		t.Error("medium growth acted before the fallback minute")
 	}
 	s.tick = growthFallbackMinute * 1800
-	if !s.part(gExpand) {
-		t.Error("medium growth did not act at the fallback minute")
+	if !s.part(gExpand) || !s.part(gTech) || !s.part(gConstructors) || !s.part(gFactories) {
+		t.Error("medium growth did not receive the fallback parts at the fallback minute")
+	}
+	if s.part(gConsFloor) != true {
+		t.Error("the configured constructor floor disappeared")
+	}
+	s.p.LongGrowth = 0
+	if s.part(gExpand) {
+		t.Error("long_growth=0 acted at the fallback minute")
 	}
 	s.p.Growth = 0
-	if s.part(gExpand) {
+	if s.part(gConsFloor) || s.part(gExpand) {
 		t.Error("growth=0 acted at the fallback minute")
 	}
 }
@@ -299,6 +309,11 @@ func TestGrowthTargets(t *testing.T) {
 	if s.factoryFull() {
 		t.Error("two factories at 42 metal/s: room for a third")
 	}
+	s.blockedFacs = 2
+	if !s.factoryFull() {
+		t.Error("stalled pads did not stop another factory")
+	}
+	s.blockedFacs = 0
 	s.mInc, s.armyRatio = 20000, 1500
 	if s.factoryFull() {
 		t.Error("behind in army: the cap does not bind")

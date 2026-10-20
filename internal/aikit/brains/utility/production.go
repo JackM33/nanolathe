@@ -114,6 +114,24 @@ func builderRally(b *core.Board) (int32, int32) {
 // clearPads moves own units parked on the pad of a factory that has
 // stopped starting units out along its exit lane (+Z, the side the executor
 // keeps clear). It returns the actions used.
+// padLaneCells is how many cells beyond a factory's front edge count as the
+// pad's short exit lane for parked units.
+const padLaneCells = 4
+
+// onPadLane reports whether a point lies in the short exit lane directly in
+// front of a factory (the +Z side the executor keeps clear).
+func onPadLane(f *aikit.OwnUnit, x, z int32) bool {
+	if f == nil || f.Info == nil {
+		return false
+	}
+	fx, fz := f.Info.FootX, f.Info.FootZ
+	x0 := (f.X/16 - fx/2 - 1) * 16
+	x1 := (f.X/16 - fx/2 + fx + 1) * 16
+	z0 := (f.Z/16 - fz/2 + fz) * 16
+	z1 := z0 + padLaneCells*16
+	return x >= x0 && x < x1 && z >= z0 && z < z1
+}
+
 func (pr *Production) clearPads(b *core.Board, budget int) int {
 	if budget <= 0 {
 		return 0
@@ -134,7 +152,13 @@ func (pr *Production) clearPads(b *core.Board, budget int) int {
 		}
 		for i := range o.Own {
 			u := &o.Own[i]
-			if !u.Built || !u.Info.Role.Has(aikit.RoleMobile) || !onPad(f, u.X, u.Z) || seen[u.H] {
+			if !u.Built || !u.Info.Role.Has(aikit.RoleMobile) || seen[u.H] {
+				continue
+			}
+			// A parked unit just outside the footprint can block the same
+			// exit. Only idle units are moved: a unit crossing the lane on an
+			// order is not parked on the pad.
+			if !onPad(f, u.X, u.Z) && !(u.Order == aikit.OrderIdle && onPadLane(f, u.X, u.Z)) {
 				continue
 			}
 			seen[u.H] = true

@@ -127,6 +127,34 @@ func TestIdleBuildersGroupGuardAFactory(t *testing.T) {
 	}
 }
 
+// A failed build from the previous think is recorded before idle builders
+// are grouped: the rescue's Guard commitment must not hide the failure from
+// the backoff, placement-failure and stuck-builder paths.
+func TestFailedBuildBeforeIdleRescue(t *testing.T) {
+	w := newMetalWorld(DefaultParams(), aikit.PersonaEasy)
+	base := w.metalBase()
+	fac := base[2]
+	fac.QueueLen = 2
+	base[2] = fac
+	base = append(base, own(6, w.d.con, 710, 690), own(7, w.d.con, 690, 730))
+	w.thinkWith(20*1800, base, metalAmpleRes, energyFullRes)
+	w.e.s.lastThink = 20 * 1800
+	for _, h := range []pool.Handle{2, 6, 7} {
+		for i := range w.obs.Own {
+			u := &w.obs.Own[i]
+			if u.H != h {
+				continue
+			}
+			c := w.e.s.commitOf(u)
+			*c = commitment{def: u.Info, gen: u.Gen, kind: cFactory, prod: w.d.sol, spot: -1, tick: w.e.s.lastThink}
+		}
+	}
+	w.e.Plan(w.b)
+	if w.e.fails == 0 {
+		t.Fatal("failed build was not processed before the idle-builder rescue")
+	}
+}
+
 // Part 1: no maker while a free safe spot stands open; with every spot
 // taken the maker is the metal left to buy. metal=0 builds it anyway.
 func TestMakersWaitForFreeSpots(t *testing.T) {

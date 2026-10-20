@@ -713,7 +713,7 @@ func (a *Army) activate(b *core.Board) {
 	// long-game ally could send every unit on an offensive and leave its
 	// base to static towers until an enemy raid had already landed.
 	standingGuard := b.Tick >= standingGuardFrom
-	on(sqDefend, a.P.Defend && att >= 3 && (a.threatMemory > 0 || standingGuard), defendOnValue, defendOffValue)
+	on(sqDefend, a.defendSquadAllowed(att, a.threatMemory, standingGuard), defendOnValue, defendOffValue)
 	// With the air forces on, anti-air keeps escorting for a while after
 	// enemy aircraft were last seen (the host forgets mobiles after a
 	// minute; bombers come back).
@@ -725,6 +725,16 @@ func (a *Army) activate(b *core.Board) {
 	on(sqStrike, a.P.Air, 0, 0)
 	on(sqNaval, a.P.Naval, 0, 0)
 	on(sqAmph, a.landCut(b), 0, 0)
+}
+
+// defendSquadAllowed reports whether the home guard may activate: an
+// incident at Attention 3 or more, or the standing guard after minute 20
+// even at Easy's Attention 1 and Medium's 2.
+func (a *Army) defendSquadAllowed(attention int32, threat int64, standing bool) bool {
+	if !a.P.Defend {
+		return false
+	}
+	return standing || (attention >= 3 && threat > 0)
 }
 
 // threatTicks is the time constant of the threat memory's fade.
@@ -865,6 +875,11 @@ func (a *Army) membership(b *core.Board) {
 			s.surf.addDPS(info, int64(u.HP), int64(a.cls(info).surfDPS))
 		}
 	}
+	// A standing guard may have been activated after the main squad was
+	// already full; move existing members into it rather than waiting for
+	// newly produced units. Without this the squad can stay active and
+	// empty while the whole army attacks elsewhere.
+	a.recruitHomeGuard(b, defendNeed)
 	for id := int32(1); id < numSq; id++ {
 		a.summarize(b, &a.sq[id])
 	}
@@ -894,6 +909,48 @@ func (a *Army) membership(b *core.Board) {
 		one := a.tmp[:0]
 		one = append(one, i)
 		a.issue(b, one, okMove, wx, wz, 0, true)
+	}
+}
+
+// recruitHomeGuard moves existing main-squad members into an active,
+// under-strength home guard. It runs after membership assigned new units
+// and before summarize; moving a tag is enough, the next order pass follows
+// the squad's own state. The main squad and then the raid squad give units
+// until the guard reaches its needed value, bounded by defendShare.
+func (a *Army) recruitHomeGuard(b *core.Board, need int64) {
+	d := &a.sq[sqDefend]
+	if !d.active || need <= 0 {
+		return
+	}
+	have := int64(0)
+	for _, i := range d.members {
+		if u := &b.O.Own[i]; u.Info != nil {
+			have += int64(u.Info.Value)
+		}
+	}
+	if have >= need {
+		return
+	}
+	for _, id := range [...]int32{sqMain, sqRaid} {
+		src := &a.sq[id]
+		keep := src.members[:0]
+		for _, i := range src.members {
+			u := &b.O.Own[i]
+			if have < need && u.Info != nil {
+				u.Tag = sqDefend
+				if b.K != nil {
+					b.K.SetTag(u.H, sqDefend)
+				}
+				d.members = append(d.members, i)
+				have += int64(u.Info.Value)
+				continue
+			}
+			keep = append(keep, i)
+		}
+		src.members = keep
+		if have >= need {
+			break
+		}
 	}
 }
 

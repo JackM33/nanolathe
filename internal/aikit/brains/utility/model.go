@@ -284,6 +284,7 @@ type shared struct {
 	yardCls     [maxFields]uint64 // per yard site: the classes that reach it from home (tidal_field)
 	mexBuilt    int32             // own finished extractors
 	deadFacs    int32             // own factories written off (exit walled in)
+	blockedFacs int32             // own factories with a stalled pad this think
 	facDefs     []int32           // factory definitions (growth)
 	facFam      []int8            // per definition: a factory's family (fac_first)
 	firstFam    int32             // this game's first-factory family, famNone for none (fac_first)
@@ -666,10 +667,14 @@ func (s *shared) observeFactories(b *core.Board) {
 			s.bpFac -= int64(f.Info.BuildPower)
 		}
 	}
-	s.deadFacs = 0
+	s.deadFacs, s.blockedFacs = 0, 0
 	for _, fi := range b.Factories {
-		if s.fstateOf(&o.Own[fi]).dead {
+		fs := s.fstateOf(&o.Own[fi])
+		if fs.dead {
 			s.deadFacs++
+		}
+		if fs.blocked && !fs.dead {
+			s.blockedFacs++
 		}
 	}
 }

@@ -100,7 +100,14 @@ func (s *shared) growth() bool {
 	if s.p.Growth == 0 {
 		return false
 	}
-	return ambition(&s.k.Persona) >= 100 || s.tick >= growthFallbackMinute*1800
+	return ambition(&s.k.Persona) >= 100 || s.longGrowth()
+}
+
+// longGrowth reports whether the lower personas' long-game fallback is on.
+// It is separate from growth so part() can tell a configured growth bit
+// from one added by the fallback.
+func (s *shared) longGrowth() bool {
+	return s.p.LongGrowth != 0 && ambition(&s.k.Persona) < 100 && s.tick >= growthFallbackMinute*1800
 }
 
 // setupGrowth lists the factory definitions (setup).
@@ -167,13 +174,20 @@ func (s *shared) mexTravelHalf() int64 {
 // income: one per facIncome of metal income, or two from minute 8. A
 // metal store capLiftPercent full while income covers expense lifts the
 // cap: the factories, helped by the builders, cannot spend what comes in.
-// A factory written off (its exit walled in) does not count.
+// A factory written off (its exit walled in) does not count. So do not
+// keep adding factories while several pads are stalled: every copy would
+// add to the blockage instead of output. This is the spawn-success cap,
+// separate from the income cap above.
 func (s *shared) factoryFull() bool {
 	if !s.part(gFactories) || !s.growSafe() || (s.mCap > 0 && s.mStock*100 >= s.mCap*capLiftPercent && s.mInc >= s.mExp) {
 		return false
 	}
+	n := s.countDefs(s.facDefs) - int64(s.deadFacs)
+	if n > 0 && s.blockedFacs >= 2 && int64(s.blockedFacs)*2 >= n {
+		return true
+	}
 	allowed := max64(1000+lin(int64(s.tick), secondFacAt*30-900, secondFacAt*30)*1000/one, s.mInc*1000/facIncome)
-	return (s.countDefs(s.facDefs)-int64(s.deadFacs))*1000 >= allowed
+	return n*1000 >= allowed
 }
 
 // mexNeed is the metal need an extractor site is scored with: with growth
@@ -239,5 +253,15 @@ func (s *shared) part(bit int32) bool {
 	if bit == gConsFloor {
 		return s.p.Growth&bit != 0
 	}
-	return s.growth() && s.p.Growth&bit != 0
+	if !s.growth() {
+		return false
+	}
+	if s.p.Growth&bit != 0 {
+		return true
+	}
+	// The shipped Growth value is the constructor floor (16), which acts at
+	// every ambition. Without this fallback the default lower personas
+	// would still never expand or tech after an hour; long_growth=0 keeps
+	// the explicitly configured bits only.
+	return s.longGrowth() && bit&(gExpand|gTech|gConstructors|gFactories) != 0
 }
