@@ -2062,6 +2062,10 @@ RNG draw or per-tick state.
   the base is threatened, and at most one for a factory with an empty,
   unstalled queue, so a one-action persona's builders are not left
   waiting behind the army and production.
+- *Production batches.* A persona below 100 APM (Easy and Medium) queues a
+  chosen combat unit two at a time with one action, within any
+  restriction cap; builders, scouts and every product of a faster persona
+  are queued one at a time.
 - *Long-game growth.* `growth` acts for every ambition from minute 20, not
   only at full ambition; the `long_growth` switch (default 1) supplies its
   expansion, tech-2, constructor-ratio and factory parts to the lower
@@ -2103,6 +2107,7 @@ Tests: `utility.TestGrowthLongGameFallback`,
 `utility.TestIdleRepairFallbackStartsAfterOpening`,
 `utility.TestFailedBuildBeforeIdleRescue`,
 `utility.TestPadLaneCoversShortExit`,
+`utility.TestLowAPMCombatBatch`,
 `tactics.TestStandingGuardAtLowAttention`,
 `tactics.TestStandingGuardRecruitsMainSquad`,
 `tactics.TestSupportWithoutGuardFollowsByMoving`,

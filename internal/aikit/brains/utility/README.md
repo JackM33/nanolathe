@@ -124,11 +124,13 @@ Stability and bookkeeping:
 ## 4. Production layer (factories)
 
 Factories with fewer than two queued products (one building + one queued)
-get one product each, within the APM budget. A factory whose pad has held
-no nanoframe for 20 s while its queue is not empty is *blocked*: own units
-parked on the pad are moved out along the +Z exit lane (every 10 s); after
-three clears it is written off from spend capacity and its type's field
-rotates.
+get one product each, within the APM budget; a persona below 100 APM
+queues a combat unit two at a time. A factory whose pad has held no
+nanoframe for 20 s while its queue is not empty is *blocked*: own units
+parked on the pad, and idle ones in the short lane in front of it, are
+moved in one group to a rally behind home (every 10 s); after three clears
+it is written off from spend capacity and its type's field rotates, and
+its pad is still cleared so its queue can resume.
 
 | candidate | considerations |
 |---|---|
