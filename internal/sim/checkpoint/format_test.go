@@ -65,7 +65,7 @@ func writeAuthoredCapture(t *testing.T, identity Identity, out io.Writer, change
 func TestCaptureAuthoredByteAndHashVectors(t *testing.T) {
 	// The stream is authored independently of Encoder. Digest vectors were
 	// computed with Python hashlib over these bytes and the specified domains.
-	wantBytes := "4e4c4350535441540400" +
+	wantBytes := "4e4c4350535441540500" +
 		"000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f" +
 		"202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f" +
 		"0d00" +
@@ -73,21 +73,21 @@ func TestCaptureAuthoredByteAndHashVectors(t *testing.T) {
 		"020000030000040000" +
 		"0500010200000003000000726f7700000000" +
 		"0600000700000800000900000a00000b00000c00000d0000"
-	const wantFull = "739665903c5f8cad76601f019c25a7526819f4bc2b302b809365310b97aef38e"
+	const wantFull = "ed661e0b2a8e5f5598b15268bf5f08ed8827b1b302d0646b9cbc3a0490b88dad"
 	wantOwners := [OwnerCount]string{
-		"9edd92c0c38362efa8e67ba9ef5af84c93bdb445132643246f263bde09967c5c",
-		"489de5e1b9d0f408d1d0abb3e23ed4bb4a564cceddbd664899a799d2dd32da73",
-		"2d129b8192d1e01f9e6db9effaabbdbabffe11baa0ddcc3ad993d868509cadbf",
-		"6ade6c15d28c636330fb9c5f75e7d32986222c9eac5dfc4580e36baf19226fd8",
-		"d3bcfe65421ce83befe995044a7f562a6d70f276fd0a55f5e4572210d146b3ca",
-		"91607925f8983db0ae0e0f0840bdeb2f3db191abd9334af9c4a3ebabf3749293",
-		"651c390b5fb54f2eb1a37f5f64dbcffd410b436cd38a378caeb33b7c95b430d1",
-		"4380fa7c224937828ece65df83eb71da6f178cc3438b9e619ac151d3c750c822",
-		"9f0c9be3600a338dd7c0682e0a7eb3321322c56033f17437acf478d55c343129",
-		"25c1a01841dab0ff5927610d408030996279ea41c9133bab8c8638bb3c34c0a2",
-		"4f86b0ae5d83fc2baee5c8f6379731d06d7bddeb43591e5aa9ef1c8258f63aa8",
-		"a8f32ca9761fdaaa4e6741761cbfdfb02bafb71c9dabd8ef3be9ffab42b26535",
-		"9d69bb08f2c7b4584739c9fb602298249ad01e401ddd2910e2a73853b10dc2ac",
+		"45f76a446cecafa275c75f0b7955428b0c94eed45311e9dfd1bf9dc4eabbd8e6",
+		"6b46f3ed73d94f13444acc19597e7a03ecaaada31601978d4c2a68081c87af39",
+		"b2274d1795c2bf42ba30eb9488f41e6148bd4dfe659ad21ca71a6c54d2a76fd4",
+		"29def647015ebc8a0aab055a2f78167d53da2bfd2733130d05f952a923a880c1",
+		"347ed95277b3c9838fdd55c09648b2929556522cb874e224db55a2539f1e3acc",
+		"405bd1abab3929b47d48eed685c6ed365d08a9a83aa3319b02b77de02092ace4",
+		"bf1590f7b53e9f166e4bb73b0a66e72df1d7520be04cf1bcb3e3d1248c75768c",
+		"c4d694a22389278eb9079f13de13c116795d80081d938e46bd9d78bf924da749",
+		"e34d8a1dcc3309704537c26f71c6028c3b98032cea44de616b51d71b66b4a338",
+		"947440751ffc06ed75c4c648d18ada546525724b9438be5e09d71b3fd3807ecd",
+		"98e7f6587b649bed9c960130bb041190ce9a77b0c2f0fd0078b78af13ee42be7",
+		"0eb2f733ac4fef404bac5342f39f676a9984bdff6fa3e93ff973587b0814b313",
+		"0649ab54193ec1172c7ba54bfdd2bec63cdf8fb348d5182b224d298efbe8d728",
 	}
 	var out bytes.Buffer
 	got := writeAuthoredCapture(t, authoredIdentity(), &out, false)
@@ -286,7 +286,7 @@ func TestCaptureHashBuffersPreserveSectionBytes(t *testing.T) {
 		t.Fatal(err)
 	}
 	expected.WriteString("NLCPSTAT")
-	expected.Write([]byte{4, 0})
+	expected.Write([]byte{5, 0})
 	expected.Write(identity.Content[:])
 	expected.Write(identity.Config[:])
 	expected.Write([]byte{13, 0})
@@ -307,7 +307,7 @@ func TestCaptureHashBuffersPreserveSectionBytes(t *testing.T) {
 		expected.Write(section.Bytes())
 		var domain bytes.Buffer
 		domain.WriteString("NLCPSECT")
-		domain.Write([]byte{4, 0})
+		domain.Write([]byte{5, 0})
 		domain.Write(identity.Content[:])
 		domain.Write(identity.Config[:])
 		domain.Write(section.Bytes())
