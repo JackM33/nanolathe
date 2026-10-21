@@ -115,3 +115,30 @@ func TestModernFeatureTerrainPopulationAndMapBound(t *testing.T) {
 		t.Fatal("map bounds or replacement changed")
 	}
 }
+
+// Canonical capture identifies the selected policy and refuses unreviewed or
+// typed-nil leaves before touching any simulation state.
+func TestFeaturePoolCheckpointPolicyTags(t *testing.T) {
+	for _, tc := range []struct {
+		rules Rules
+		want  uint8
+	}{{nil, 0}, {StrictRules{}, 1}, {&StrictRules{}, 1}, {CommunityRules{}, 2}, {&CommunityRules{}, 2}, {ModernRules{}, 3}, {&ModernRules{}, 3}} {
+		got, err := CheckpointRulesKind(tc.rules)
+		if err != nil || got != tc.want {
+			t.Fatalf("%T tag=%d error=%v", tc.rules, got, err)
+		}
+	}
+	type unknown struct{ ModernRules }
+	for _, rules := range []Rules{(*StrictRules)(nil), (*CommunityRules)(nil), (*ModernRules)(nil), unknown{}} {
+		if _, err := CheckpointRulesKind(rules); err == nil {
+			t.Fatalf("admitted %T", rules)
+		}
+	}
+	s, c, _ := featureCheckpointFixture(t)
+	before := featureCheckpointBytes(t, s, c)
+	s.Rules = ModernRules{}
+	after := featureCheckpointBytes(t, s, c)
+	if string(before) == string(after) {
+		t.Fatal("canonical payload omitted feature policy")
+	}
+}

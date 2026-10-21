@@ -1,5 +1,7 @@
 package features
 
+import "fmt"
+
 // Rules owns live-feature admission. Construction cannot own this decision:
 // map population, fire and successor placement also allocate feature records.
 // The session binds this stateless policy through its existing RuleSet
@@ -31,6 +33,20 @@ func (s *Service) arenaLimit() int {
 		cells = len(s.Terrain.Plot)
 	}
 	return rules.ArenaLimit(cells)
+}
+
+// ValidateRestoreCapacity refuses an expanded save before restoring any row.
+// Sprite event restoration can otherwise retain a resting sprite when its
+// event allocation refuses, which would silently truncate an expanded Modern
+// image under Strict/Community. Valid retail images fit the original arena.
+func (s *Service) ValidateRestoreCapacity(records int) error {
+	if s == nil || records < 0 {
+		return fmt.Errorf("nanolathe: feature restore capacity invalid: logical path save/Features, providers searched [feature pool rules], expected a present service and nonnegative record count")
+	}
+	if limit := s.arenaLimit(); records > limit {
+		return fmt.Errorf("nanolathe: feature restore capacity exceeded (%d records): logical path save/Features, providers searched [feature pool rules], expected at most %d live records", records, limit)
+	}
+	return nil
 }
 
 // CheckpointRulesKind identifies reviewed stateless policies without invoking

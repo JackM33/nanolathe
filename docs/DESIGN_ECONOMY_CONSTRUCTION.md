@@ -1199,7 +1199,10 @@ neither deletes records nor consumes randomness or resources.
 Saves retain their existing count and record encodings; a Modern load must
 restore every record above 2,048 and allow further placement. Loading such an
 image under Strict/Community may fail existing placement admission and must
-not report a successful truncated load. Save-sidecar mode selection stays
+not report a successful truncated load. Restore preflights the serialized
+3D plus animating record count before placement or ignition draws: a refused
+sprite-event restore would otherwise leave a resting sprite and report success.
+Valid retail images remain within the original bound. Save-sidecar mode selection stays
 unchanged. Multiplayer and replay use the agreed rule set, map and ordinary
 allocation order; no host memory estimate, local preference, wall clock or
 network message selects capacity. Checkpoint schema 5 includes the concrete
