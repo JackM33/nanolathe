@@ -16,6 +16,7 @@ import (
 	"github.com/nanolathe-gg/nanolathe/internal/construction"
 	"github.com/nanolathe-gg/nanolathe/internal/content"
 	"github.com/nanolathe-gg/nanolathe/internal/economy"
+	"github.com/nanolathe-gg/nanolathe/internal/features"
 	"github.com/nanolathe-gg/nanolathe/internal/gameplay"
 	"github.com/nanolathe-gg/nanolathe/internal/movement"
 	"github.com/nanolathe-gg/nanolathe/internal/orders"
@@ -53,6 +54,7 @@ type RuleSet struct {
 	Orders       orders.Rules
 	Construction construction.Rules
 	Economy      economy.Rules
+	FeaturePool  features.Rules
 	UnitLimit    UnitLimitRules
 	ScriptPorts  ScriptPortRules
 	// Movement is the movement system's policy seam: what a rejected step
@@ -270,6 +272,7 @@ func StrictRuleSet() RuleSet {
 		Orders:         orders.StrictRules{},
 		Construction:   construction.StrictRules{},
 		Economy:        economy.StrictRules{},
+		FeaturePool:    features.StrictRules{},
 		UnitLimit:      StrictUnitLimit{},
 		ScriptPorts:    StrictScriptPorts{},
 		Movement:       movement.StrictRules{},
@@ -294,6 +297,7 @@ func CommunityRuleSet() RuleSet {
 		Orders:         &orders.CommunityRules{},
 		Construction:   &construction.CommunityRules{},
 		Economy:        economy.CommunityRules{},
+		FeaturePool:    features.CommunityRules{},
 		UnitLimit:      ModernUnitLimit{},
 		ScriptPorts:    CommunityScriptPorts{},
 		Movement:       &movement.CommunityRules{},
@@ -320,6 +324,7 @@ func ModernRuleSet() RuleSet {
 		Orders:       &orders.ModernRules{},
 		Construction: &construction.ModernRules{},
 		Economy:      economy.ModernRules{},
+		FeaturePool:  features.ModernRules{},
 		UnitLimit:    ModernUnitLimit{},
 		ScriptPorts:  ModernScriptPorts{},
 		Movement:     &movement.ModernRules{},
@@ -471,6 +476,9 @@ func completeRuleSet(name string, set RuleSet) RuleSet {
 	if set.Construction == nil {
 		set.Construction = base.Construction
 	}
+	if set.FeaturePool == nil {
+		set.FeaturePool = base.FeaturePool
+	}
 	if set.Economy == nil {
 		set.Economy = base.Economy
 	}
@@ -591,6 +599,9 @@ func (s *Session) BindRules(set RuleSet) {
 
 func (s *Session) bindRuleServices(set RuleSet) {
 	s.Rules = set
+	if s.Features != nil {
+		s.Features.Rules = set.FeaturePool
+	}
 	if s.Econ != nil {
 		s.Econ.Rules = set.Economy
 		if !s.economyActivityHoldsAllowed() {

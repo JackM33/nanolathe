@@ -1990,6 +1990,7 @@ func createAndBindServices(s *Session) error {
 			s.appendStripGeothermalSteam([3]numeric.Fixed{x, y, z})
 		}, s.checkpointBindingAuthority())
 		s.bindFeatureStripProducers()
+		s.RebindRules() // bind feature admission before terrain population
 		s.Features.PopulateFromTerrain()
 	} else if s.Features.Terrain != s.World {
 		return fmt.Errorf("session: Features.Terrain mismatch")
@@ -2001,6 +2002,7 @@ func createAndBindServices(s *Session) error {
 			}, s.checkpointBindingAuthority())
 		}
 		s.bindFeatureStripProducers()
+		s.RebindRules() // bind feature admission before terrain population
 		s.Features.PopulateFromTerrain()
 	}
 	// The two art-backed feature seams — BurnFrameGeometry and SequenceFrames —
