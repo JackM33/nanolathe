@@ -13,8 +13,8 @@ import (
 // for a small target 2,300 wu away as 40 units walked in unseen). The army
 // stands a third of the way toward the force, among the towers. A force
 // beyond the warning radius, one too small to matter, one the base holds,
-// and one the army is already fighting leave the army alone, as does
-// warn=0.
+// one the army is already fighting and one no nearer home than the army
+// leave the army alone, as does warn=0.
 func TestApproachCallsArmyHome(t *testing.T) {
 	const home = 1000
 	gun := &aikit.UnitInfo{Index: 0, DPS: 50, HP: 1000, Value: 100, Range: 300, Role: aikit.RoleMobile | aikit.RoleCombat}
@@ -26,6 +26,7 @@ func TestApproachCallsArmyHome(t *testing.T) {
 		blips    bool
 		towers   int
 		fighting bool
+		mainZ    int32 // the army's distance out; 0 is 3000
 		off      bool
 		called   bool
 	}{
@@ -35,6 +36,7 @@ func TestApproachCallsArmyHome(t *testing.T) {
 		{name: "a raiding pair", enemyX: home + 1800, n: 2},
 		{name: "towers hold it", enemyX: home + 1800, n: 10, towers: 4},
 		{name: "already fighting it", enemyX: home + 1800, n: 10, fighting: true},
+		{name: "army not away", enemyX: home + 1800, n: 10, mainZ: 2300},
 		{name: "warn=0", enemyX: home + 1800, n: 10, off: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -42,7 +44,11 @@ func TestApproachCallsArmyHome(t *testing.T) {
 			a.P.Warn = !tc.off
 			a.classes = make([]uclass, 2)
 			a.asset = aikit.NewGrid(m)
-			o := &aikit.Obs{Own: []aikit.OwnUnit{{Info: gun, Built: true, Tag: sqMain, X: home, Z: home + 2300}}}
+			mainZ := tc.mainZ
+			if mainZ == 0 {
+				mainZ = 3000
+			}
+			o := &aikit.Obs{Own: []aikit.OwnUnit{{Info: gun, Built: true, Tag: sqMain, X: home, Z: home + mainZ}}}
 			for i := 0; i < tc.n; i++ {
 				c := aikit.Contact{Owner: 2, X: tc.enemyX, Z: home + int32(i)*20, HPPct: 100, Visible: true, Built: true, Info: gun}
 				if tc.blips {
@@ -57,6 +63,7 @@ func TestApproachCallsArmyHome(t *testing.T) {
 			}
 			s := &a.sq[sqMain]
 			s.active, s.members = true, []int32{0}
+			s.cx, s.cz = home, home+mainZ
 			s.state, s.tx, s.tz = stApproach, home, home+4000
 			if tc.fighting {
 				s.state, s.tx, s.tz = stEngage, tc.enemyX, home

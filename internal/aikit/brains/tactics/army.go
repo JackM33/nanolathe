@@ -1308,9 +1308,11 @@ const approachHold = 1500
 // home and an approaching enemy force (findApproach) that the towers, the
 // commander and the home guard cannot hold by themselves. A squad already
 // answering an incident this think keeps it, and the main army keeps a
-// fight it is having with that force. The point is a third of the way out,
-// inside the base's towers, so the army meets the attack with their support
-// rather than marching out to it alone.
+// fight it is having with that force; a main army no more than approachAway
+// farther from home than the force is not away, and is left to meet it.
+// The point is a third of the way out, inside the base's towers, so the
+// army meets the attack with their support rather than marching out to it
+// alone.
 func (a *Army) answerApproach(b *core.Board) {
 	if !a.approachOn {
 		return
@@ -1336,6 +1338,9 @@ func (a *Army) answerApproach(b *core.Board) {
 		if s.state == stEngage && aikit.Dist2(s.tx, s.tz, in.x, in.z) <= approachFight*approachFight {
 			continue // already fighting the approaching force
 		}
+		if id == sqMain && aikit.Dist(s.cx, s.cz, b.HomeX, b.HomeZ) <= aikit.Dist(in.x, in.z, b.HomeX, b.HomeZ)+approachAway {
+			continue // already as near home as the force: not away
+		}
 		if a.P.Naval && !a.reachable(b, s, px, pz) {
 			continue
 		}
@@ -1351,6 +1356,12 @@ func (a *Army) answerApproach(b *core.Board) {
 		}
 	}
 }
+
+// approachAway is how much farther from home than the approaching force
+// the main army must be to be called back: an army already between home
+// and the force is where it should be, and recalling it would pin it at
+// home while an enemy army waits nearby.
+const approachAway = 600
 
 // approachFight is how near a squad's engagement must be to the
 // approaching force's centre to count as fighting it.
