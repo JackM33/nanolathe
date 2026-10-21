@@ -1161,7 +1161,12 @@ document carries them.
   selection and interface, so it never darkens the selection overlays or the
   HUD `[03 §1]`. Strips 0, 1, 3 and 8 have no producer anywhere in retail and
   hold no object in any session; their walks are no-ops and nothing may be
-  attached to them `[03 R-FX-02 §5]`.
+  attached to them `[03 R-FX-02 §5]`. The effect service routes every
+  admission as the event buffer does, including the COB-explosion and
+  debris-impact producers that admit to it directly, so an effect with no
+  strip route is drawn from the fixed pool after pass A and never left on
+  the zero strip, where features and units would paint over it
+  `[03 R-STRIP-01 §3]`.
   Weapon-smoke puffs pass the per-particle coverage gate before the shared
   composer records their sprites, so classic and modern both hide smoke outside
   sight. Geothermal steam skips that gate `[03 R-FX-01 §3]`
