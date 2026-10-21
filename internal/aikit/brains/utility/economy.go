@@ -1206,9 +1206,10 @@ func (e *Economy) evalRadar(b *core.Board, u *aikit.OwnUnit, p *aikit.UnitInfo) 
 // warning reads radar contacts). From radarHomeFrom, the first radar over
 // home is wanted radarHomeNeed permille instead of the ordinary at most
 // 1000, enough to come before routine energy and extractors but not before
-// a tower the base urgently needs.
+// a tower the base urgently needs. It waits for minute 10: sooner, it took
+// a low-APM opening's builders from its first extractors.
 const (
-	radarHomeFrom = 3 * 1800
+	radarHomeFrom = 10 * 1800
 	radarHomeNeed = 4000
 )
 

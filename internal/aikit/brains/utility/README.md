@@ -75,7 +75,7 @@ extractors.
 | storage | overflow (store ≥ 70% full × coverage 1.2–3.0) × `half(count)` × travel × threat |
 | factory | unmet army spending: (spendable × (100−EcoShare)% − factory capacity incl. planned) / this factory's drain; first-factory urgency rising to 3000 by `fac_time`; × suitability (best product efficiency vs the best factory on offer × air plant exposure `half(enemy AA, 3000)` × same-type `half(count, 1.5)` × tech-2 readiness `w_tech × lin(metal income, 12, 30/s)`) × affordability `half(cost ÷ supply, 90 s)` × travel |
 | defense | danger (decayed threat at our most threatened building, or a late-game baseline at the front; anti-air towers answer seen aircraft) × efficiency vs the best tower × `half(towers within 500 wu)` × affordability × travel |
-| radar | time ramp (1–3 min) × `half(3 × count)` × affordability × travel × threat; veto within the larger authored radar radius of an own stationary sensor or live build reservation, across definitions |
+| radar | time ramp (1–3 min) × `half(3 × count)` × affordability × travel × threat; veto within the larger authored radar radius of an own stationary sensor or live build reservation, across definitions. From minute 10, while that test finds no sensor over home, need 4000 and the site a quarter of the way from home to the front (`radar_home`) |
 | assist nanoframe | resource slack `lin(min(covM, covE), 500, 1400)` × priority (factory 1500, economy 1000, defense 1000+danger, other 700) × travel |
 | guard factory | `lin(covM, 900, 2500)` × army share × travel — only factories that are producing |
 
@@ -241,6 +241,7 @@ runs defaults); persona keys (`think`, `react`, `apm`, `attention`,
 | `cloak` | 1 | 0–1 | switch: cloak-capable units, the commander included, cloak while threatened (or authored to start cloaked) and the energy store pays (§14.1) |
 | `gates` | 1 | 0–1 | switch: a Talon gate pair from the base to the front, dialed, carries the ground army (§14.2) |
 | `play` | 7 | 0–15 | the play review's changes (§15), each measured in mirrors against the brain without it, a sum of parts: 1 a factory whose army cannot reach the enemy is not the land constructor source while a land or hover factory that reaches is on offer, 2 the first constructor goes ahead of combat units at a shipyard or air plant while the commander is the only builder, 4 an extractor waits for energy coverage while the energy store is below half, 8 the launch value's army curve scaled by our income; 0 is the brain before the review |
+| `radar_home` | 1 | 0–1 | switch: from minute 10, while no stationary radar stands, is under way or is assigned over home, one there is wanted at need 4000 instead of the ordinary at most 1000, a quarter of the way from home to the front instead of halfway between the front and the rally point; 0 is the forward radar alone |
 
 `naval=0,air=0,tech=0,layout=0,army=0` is the brain before §11–§12
 (verified identical, result JSON for result JSON, on a land and a water

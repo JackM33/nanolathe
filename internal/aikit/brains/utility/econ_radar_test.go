@@ -125,7 +125,7 @@ func TestRadarRebuildAfterLoss(t *testing.T) {
 	}
 }
 
-// A base with no radar over it wants one at home from minute 3, ahead of
+// A base with no radar over it wants one at home from minute 10, ahead of
 // routine building; once one covers home, a further radar is the ordinary
 // forward one. radar_home=0 keeps the forward radar and its ordinary need.
 func TestRadarOverHome(t *testing.T) {
@@ -137,10 +137,10 @@ func TestRadarOverHome(t *testing.T) {
 		atHome bool
 		urgent bool
 	}{
-		{name: "uncovered home", on: true, tick: 6 * 1800, atHome: true, urgent: true},
-		{name: "before minute 3", on: true, tick: 2 * 1800},
-		{name: "home covered", on: true, tick: 6 * 1800, cover: true},
-		{name: "switch off", tick: 6 * 1800},
+		{name: "uncovered home", on: true, tick: 12 * 1800, atHome: true, urgent: true},
+		{name: "before minute 10", on: true, tick: 8 * 1800},
+		{name: "home covered", on: true, tick: 12 * 1800, cover: true},
+		{name: "switch off", tick: 12 * 1800},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			p := DefaultParams()

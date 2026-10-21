@@ -2108,6 +2108,14 @@ RNG draw or per-tick state.
   it, the main army keeps a fight within 1200 wu of the force, and a main
   army no more than 600 wu farther from home than the force is left to
   meet it. `warn=0` turns it off.
+- *Radar over home.* From minute 10, while no stationary radar stands, is
+  under way or is assigned within reach of home, the economy wants one
+  there at need 4000 instead of the ordinary at most 1000, a quarter of
+  the way from home to the front rather than halfway between the front
+  and the rally point. It comes before routine energy and extractors but
+  not before a tower the base urgently needs, and a lost one is wanted
+  again. It is what lets the approach warning see an army coming.
+  `radar_home=0` keeps the forward radar alone.
 - *Allied assets.* Allied buildings and builders in sight are assets for
   incidents and home defence, so a team's army answers an attack on an
   ally's base although it cannot command the ally. Own army value and
@@ -2135,6 +2143,7 @@ Tests: `utility.TestGrowthLongGameFallback`,
 `utility.TestCommanderRetreatsBeforeReserves`,
 `utility.TestCommanderAvoidsThreatenedSites`,
 `utility.TestCommanderLeashReachesMetal`,
+`utility.TestRadarOverHome`,
 `tactics.TestStandingGuardAtLowAttention`,
 `tactics.TestStandingGuardRecruitsMainSquad`,
 `tactics.TestApproachCallsArmyHome`,
