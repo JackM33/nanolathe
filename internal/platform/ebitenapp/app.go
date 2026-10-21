@@ -154,6 +154,10 @@ type app struct {
 	// exitPending records an exit request seen from a Draw tail, where a
 	// Termination cannot be returned; the next Update call returns it.
 	exitPending bool
+	// closeRequested is when the window's close button was pressed. The
+	// client is told, so the game can save a live battle and request the
+	// exit; windowCloseGrace bounds the wait for that.
+	closeRequested time.Time
 	// bodies counts update bodies run, for the pipeline readout's cadence
 	// sanity line: bodies per second must stay at the update rate however the
 	// deferral moves them.
@@ -240,7 +244,8 @@ func (a *app) Update() error {
 		a.c.JoinPreRecord()
 		return err
 	}
-	if a.exitPending || a.trace.expired() || ebiten.IsWindowBeingClosed() {
+	a.serviceWindowClose()
+	if a.exitPending || a.trace.expired() {
 		a.c.JoinPreRecord()
 		return a.terminate()
 	}
@@ -1314,7 +1319,8 @@ func Run(c *client.Client, mode RendererMode, options RunOptions) error {
 		ebiten.SetWindowResizingMode(ebiten.WindowResizingModeEnabled)
 	}
 	ebiten.SetWindowSize(width, height)
-	// Native close requests use the same audio shutdown as menu/battle exits.
+	// The close button is the game's to answer (serviceWindowClose); the exit
+	// it ends in runs terminate's audio shutdown, as menu and battle exits do.
 	ebiten.SetWindowClosingHandled(true)
 	ebiten.SetFullscreen(options.Fullscreen)
 	if title := c.Title(); title != "" {

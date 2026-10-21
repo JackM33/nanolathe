@@ -59,7 +59,7 @@ wave composition or add a faction build tree.
 | ID | Decision |
 |---|---|
 | D1 | Survival runs under **every** gameplay mode, Strict 3.1 included. It is a scenario composed from existing mechanisms, not a gameplay rule (§3). |
-| D2 | **No saving.** A Survival battle exists only live; if you die, you die, as in an online match. |
+| D2 | **Saving** (revised 2026-10-21, issue #146). A Survival battle first existed only live. It now saves like any skirmish, with its wave director in the save's sidecar (§11). |
 | D3 | The mode is called **Survival**. |
 | D4 | The human starts at or near the map centre, optionally with one or two allied computer players; waves arrive from random directions, grow and rise in tech level; there is no victory, and the score is kept from kills, losses, damage and time alive (refined by D10). Each wave is distinct and is followed by downtime to build, expand and repair. |
 | D5 | Survival is a separate entry on the single-player menu whose setup reuses the skirmish screen in a Survival configuration (§9). |
@@ -779,13 +779,46 @@ committed result, never in a tick or a draw call.
 - The headless report's scenario kind is `survival`, with the Survival
   counters and the last wave reached. This is how the director is tested.
 
-## 11. No saving
+## 11. Saving
 
-- The battle options window greys the Save Game button, and the save action
-  is refused for a Survival session at the session boundary as well.
-- The results screen's save button is already campaign-only.
-- There is no quicksave or autosave to gate. Loading a save from the menu is
-  unaffected.
+A Survival battle saves like any skirmish (D2): through Save Game, the
+autosave and the quick save (DESIGN_SESSIONS_AI_SAVE §5). The retail bank
+holds the world: units, features (the extra deposits are features) and the
+economy. The save's sidecar holds the wave director,
+`session.SurvivalRecord`:
+
+- the setup record (rows, rule words and the Survival switches), so a
+  restored battle restarts as the saved one began;
+- the attacker and the survivors, the start site, the extra-deposit counts,
+  and each survivor's last settlement word;
+- the phase and its deadline, the wave number, the planned wave with its
+  picks named by pool key, the spawn cursor, the last spawn and the next
+  retarget sweep;
+- the active wave's units, and each commanded attacker with its target and
+  infection attempt, by pool slot (a save keeps every unit in its slot);
+- the score: waves survived, wave points, the clean flag, the per-slot
+  counters, each live attacker's damage total and the wave history;
+- the survivors' scenario record, with every published warning.
+
+A load rebuilds the director before any unit is restored, as battle entry
+does:
+- the wave pool from the catalog (a pick whose unit the rebuilt pool lacks
+  is dropped);
+- the tuning from the pace;
+- the shared vision team;
+- the terrain region labels, in entry order;
+- each survivor manager's scenario record.
+
+Nothing draws from either stream. A shunned infection victim is forgotten,
+since allocation serials are not saved; the skip lasts at most ten seconds
+anyway. The record leaves the sidecar schema alone, as the Modern AI record
+does. The results screen's save button stays campaign-only.
+
+Tests:
+- `TestSurvivalDirectorSurvivesASaveRoundTrip` saves mid-wave and plays the
+  restored director to the next wave.
+- `TestSurvivalRecordAccountsForEveryDirectorField` fails when the director
+  gains a field that the record neither saves nor rebuilds.
 
 ## 12. Verification
 
@@ -808,7 +841,8 @@ committed result, never in a tick or a draw call.
   same numbers as before; the existing fingerprint locks do not move.
 - **End.** An attacker with no live units never arms victory; local defeat
   ends the battle; the attacker has no result row.
-- **No save.** A save request in a Survival session is refused.
+- **Save.** A Survival battle saved mid-wave loads with its director where
+  it stood and plays on (§11).
 - **Score.** Hits on one unit, split between shooters, sum to exactly its
   cost and overkill earns nothing; only a cleared wave earns the fast-clear
   bonus, and an earlier clear earns more.
@@ -834,7 +868,7 @@ tiers and pool (§5), the director (§6), the §7 values, no victory, the result
 gates, the counters and the team score with priced damage and wave bonuses
 (§8), the HUD wave and score lines and the result lines, `--survival`, `--survival-buddies`, `--survival-pace`,
 `--survival-no-air` and `--survival-no-naval` on both commands with the
-`survival` report block (§10), and the save refusal (§11). Tests: planner
+`survival` report block (§10), and the director's save and load (§11). Tests: planner
 determinism, budget, tiers and switches, region labelling, the retail tier
 walk, and a retail battle that ends in defeat and replays under Modern and
 Strict 3.1.
@@ -907,7 +941,8 @@ what the human is told.
 Only the Modern AI controller reads the record. It is set outside any
 tick and draws nothing; a Classic buddy's step carries it dormant, so no
 fingerprint moves, and a battle that is not Survival never has one.
-Survival cannot be saved (§11), so the save sidecar carries none of it.
+A save carries it with the director (§11), and a load gives it back to
+every survivor's manager.
 
 **Threads.** A published warning never changes and the list is replaced
 whole (an atomic pointer), and the brain asks for the warnings published

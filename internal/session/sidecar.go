@@ -48,6 +48,11 @@ func SaveSidecar(s *Session) save.Sidecar {
 			out.AI = data
 		}
 	}
+	if rec := RecordSurvival(s); rec != nil {
+		if data, err := json.Marshal(rec); err == nil {
+			out.Survival = data
+		}
+	}
 	if s.Catalog != nil {
 		out.Catalog = s.Catalog.Hash
 		out.ContentManifest = s.Catalog.Manifest

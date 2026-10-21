@@ -1705,6 +1705,36 @@ changing the distance branches and their RNG effects `[08 R-AI-01 §3]`
   name's own strip is unchanged (`v1.2 final` still saves as `v1.SAV`), in
   every gameplay mode; only the host prefix is excluded from the strip.
 
+* **Autosave, quick save and quick load (user-authorized 2026-10-21, issue
+  #146).** Retail has none of them.
+  - **Autosave on leaving.** Leaving a live skirmish, campaign or Survival
+    battle — the window's close button, or Exit Game or Main Menu in the
+    battle menu — first writes it to the `Autosave` slot. It goes through
+    the ordinary bank and sidecar writer, as Save Game would.
+  - **Periodic autosave.** A live battle is also written to `Autosave`
+    every ten minutes of game time. A paused game's clock does not run.
+  - **Quick save and quick load.** Ctrl+F11 writes the `Quicksave` slot and
+    Ctrl+F12 loads it.
+  - **What writes nothing.** A battle whose result has latched, an online
+    battle and a replay's playback write nothing.
+  - **Where.** These writes go only into a host-selected save directory
+    (`--save-dir`, which the installer's launcher always passes). Without
+    one, the save directory is `SAVEGAME` inside the game folder, which
+    nothing writes unasked.
+  - **The close button.** The window backend hands the close button to the
+    game. The game autosaves after the simulation join, then requests the
+    exit. A game that does not answer within five seconds closes anyway.
+  - **Continuing.** The load dialog opens with the newest save selected;
+    the list stays sorted oldest first `[08 R-SAVE-02 §1]`. So continuing
+    an interrupted battle is Load Game, then OK.
+  - **Tests.** In `cmd/nanolathe`: `TestLeavingALiveBattleWritesTheAutosave`,
+    `TestSurvivalBattleAutosavesAndLoadsAsSurvival`,
+    `TestLoadDialogOpensOnTheNewestSave`, `TestQuickSaveKeys`,
+    `TestQuickSaveThenQuickLoad`, `TestPeriodicAutosave`,
+    `TestSaveSlotsNeedAHostSaveDirectory` and
+    `TestSaveSlotsStayInADottedSaveDirectory`. In `ebitenapp`:
+    `TestWindowCloseIsHandedToTheGameThenForced`.
+
 * **Malformed building yard text uses the shared bounded parser.** AI placement
   applies the same occupied remainder as human placement and occupancy when a
   compiled building's yard text is exhausted, including an absent key. The

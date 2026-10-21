@@ -2733,6 +2733,7 @@ The rows below are the battle hotkey census
 | Ctrl+S | select the own selectable units on screen, replacing |
 | Ctrl+Z | select every own unit sharing a selected definition |
 | Ctrl+F5..F8 / F5..F8 | store and recall camera bookmarks 0..3, both playing `SelectSquad` |
+| Ctrl+F11 / Ctrl+F12 | quick save to the `Quicksave` slot and quick load from it (DESIGN_SESSIONS_AI_SAVE §5); no retail binding |
 | F1 without Shift | open `UNITINFOx.GUI` for the hovered unit or the hovered build button's product |
 | F3 | glide to the message source |
 | F4 | the interface-flags bit that pins the score panel open and arms the kill/loss flash `[07 R-HUD-04 §1]` |

@@ -148,6 +148,10 @@ type Sidecar struct {
 	// kept as raw JSON so this package stays ignorant of its shape; absent
 	// when the battle had no computer player.
 	AI json.RawMessage `json:"ai,omitempty"`
+	// Survival is a Survival battle's wave director
+	// (session.SurvivalRecord, docs/DESIGN_SURVIVAL.md §11), raw like AI;
+	// absent in every other battle. It leaves the schema alone, as AI does.
+	Survival json.RawMessage `json:"survival,omitempty"`
 	// AlliedSight records that a skirmish's teams shared sight and radar
 	// (docs/DESIGN_SESSIONS_AI_SAVE.md "Modern allied sight"); absent when
 	// they did not. Like `ai` it leaves the schema alone: a build that does

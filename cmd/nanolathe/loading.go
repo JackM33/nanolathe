@@ -305,6 +305,10 @@ func (g *gameShell) loadRetailSavePath(path string) error {
 		if err := validateRecordedAIOverrides(deps.AIControllers); err != nil {
 			return err
 		}
+		// A Survival battle's wave director (docs/DESIGN_SURVIVAL.md §11).
+		if deps.Survival, err = session.SidecarSurvival(sidecar.Survival); err != nil {
+			return err
+		}
 	}
 	loaded, err := session.LoadRetailSavePath(path, deps)
 	if err != nil {
@@ -380,6 +384,9 @@ func (g *gameShell) loadRetailSavePath(path string) error {
 		g.installCampaignSelection(*campaign)
 	}
 	g.importedRetailBattle = true
+	// The post-battle return goes to the setup screen the saved battle came
+	// from: Survival's for a restored Survival battle.
+	g.lastBattleSurvival = sess.IsSurvival()
 	if hasSidecar {
 		g.selectFromSidecar(selection, modPlan.selection, sess)
 	}

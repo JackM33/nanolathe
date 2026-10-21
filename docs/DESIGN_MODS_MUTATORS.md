@@ -1687,7 +1687,10 @@ record naming a parameter this build does not know refuses the load.
 `alliedSight: true`, present when a skirmish battle's teams shared sight and
 radar (DESIGN_SESSIONS_AI_SAVE "Modern allied sight"), makes the load rebuild
 those teams; like `ai` it leaves the schema alone, so an older build loads the
-bank with sight kept separate.
+bank with sight kept separate. `survival`, present when the battle is a
+Survival battle, is the wave director's record (`session.SurvivalRecord`,
+DESIGN_SURVIVAL §11). It is also kept as raw JSON and leaves the schema
+alone; a record of another version refuses the load.
 
 ### 7.3 Loading
 
