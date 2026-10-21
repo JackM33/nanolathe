@@ -121,6 +121,22 @@ type squad struct {
 	// soft: the main squad is out on a raid the hold allowed (a soft raid
 	// or a probe) and turns back like a raider (harass.go).
 	soft bool
+	// Walls (walls.go): stuck holds the members left out of the squad as
+	// stuck this think; nearSince is when the members at a wall stopped
+	// gaining ground, with the front's distance to the target then (nearD);
+	// walled marks a squad held there, since when, the strength it had then
+	// and the last think it was still held; wallX, wallZ is the piece it
+	// breaks (wallPiece), watched from tick wallAt; breachLast is when the
+	// squad was walled or a piece last fell, and fellX, fellZ that piece.
+	stuck               []int32
+	nearSince           uint32
+	nearD               int32
+	walled, wallPiece   bool
+	wallSince, wallSeen uint32
+	wallAt, breachLast  uint32
+	wallStr             int64
+	wallX, wallZ        int32
+	fellX, fellZ        int32
 }
 
 // Retreat reasons (Explain).
@@ -129,9 +145,10 @@ const (
 	whyRatio
 	whySpent
 	whyBlind
+	whyWall
 )
 
-var whyNames = [...]string{"", "ratio", "spent", "blind"}
+var whyNames = [...]string{"", "ratio", "spent", "blind", "wall"}
 
 // Order kinds recorded per unit.
 const (
@@ -139,6 +156,8 @@ const (
 	okMove
 	okPatrol
 	okAttack
+	okBreach // attack the ground at a wall piece (walls.go)
+	okHold   // wait out of fire behind a breach (walls.go)
 )
 
 // unitMem is the policy's per-unit memory, indexed by handle and reset
@@ -266,6 +285,9 @@ type Params struct {
 	// findApproach; warn=0 restores the army that answers only incidents
 	// at its assets).
 	Warn bool
+	// Walls lets an engaged ground squad held at wall pieces break through
+	// them (walls.go; walls=0 restores the squad that stands at the wall).
+	Walls bool
 	// Temper, when set, gives the army a per-game character once, at
 	// Init: the strategy's drawn personality (posture.go). ParamsFrom
 	// leaves it nil, which is no temper.
@@ -276,7 +298,7 @@ type Params struct {
 func DefaultParams() Params {
 	return Params{Route: true, Micro: true, Raid: true, Defend: true, Escort: true, Budget: true, Air: true, Naval: true,
 		Posture: true, AggrSlope: defaultAggrSlope, Passage: true, Unseen: true,
-		Harass: true, HarassUnits: harassUnits, HarassValue: harassValue, Probe: true, Tour: true, Warn: true}
+		Harass: true, HarassUnits: harassUnits, HarassValue: harassValue, Probe: true, Tour: true, Warn: true, Walls: true}
 }
 
 // ParamsFrom reads ablation switches from player-spec parameters.
@@ -298,6 +320,7 @@ func ParamsFrom(kv map[string]string) Params {
 	p.Probe = !off("probe")
 	p.Tour = !off("tour")
 	p.Warn = !off("warn")
+	p.Walls = !off("walls")
 	if v, err := strconv.Atoi(kv["hn"]); err == nil && v > 0 {
 		p.HarassUnits = int32(v)
 	}
@@ -407,12 +430,15 @@ type Army struct {
 
 	stuckN int32 // members standing still far from their orders
 
+	enemyWalls []aikit.Wall // this think's listed wall pieces that are not ours (walls.go)
+
 	stats struct {
 		launched, engaged, skirmish, retreatFight, retreatEarly, cleared, defended, withdrawn, focus int64
 		intercepts, strikes, strikeKills, strikeAborts                                               int64
 		passage                                                                                      int64 // waiting points moved out of a passage
 		waits, waitPassage                                                                           int64 // thinks the main squad waited gathered, in a passage
 		warned                                                                                       int64 // thinks the main squad was called home by an approaching force
+		walled, breached, breachOrders                                                               int64 // squads held at walls, pieces fallen, fire orders at pieces (walls.go)
 	}
 	// Main-squad offensives and the posture's hold (Report and Explain
 	// instrumentation; never read by a decision).
@@ -807,6 +833,7 @@ func (a *Army) membership(b *core.Board) {
 	for id := range a.sq {
 		s := &a.sq[id]
 		s.members = s.members[:0]
+		s.stuck = s.stuck[:0]
 		s.total = force{}
 		s.surf = force{}
 		s.ngroups = 0
@@ -880,6 +907,7 @@ func (a *Army) membership(b *core.Board) {
 		// squad until it moves again.
 		if a.stuck(b, u, um) {
 			a.stuckN++
+			a.sq[tag].stuck = append(a.sq[tag].stuck, i)
 			continue
 		}
 		s := &a.sq[tag]
@@ -1469,6 +1497,9 @@ func (a *Army) needs(b *core.Board, i int32, kind uint8, x, z int32, t pool.Hand
 	u := &b.O.Own[i]
 	um := a.unit(u)
 	same := um.ordKind == kind && um.ordT == t && um.ordG == tg && aikit.Dist2(um.ordX, um.ordZ, x, z) <= 160*160
+	if kind == okBreach {
+		same = um.ordKind == okBreach && um.ordX == x && um.ordZ == z // pieces stand 32 wu apart
+	}
 	if !same && kind == okPatrol && um.ordKind == okAttack && aikit.Dist2(um.ordX, um.ordZ, x, z) <= 160*160 {
 		// A focus-fire attack carries this patrol queued behind it.
 		same = true
@@ -1479,7 +1510,7 @@ func (a *Army) needs(b *core.Board, i int32, kind uint8, x, z int32, t pool.Hand
 	if b.Tick < um.ordTick+b.K.Persona.Reaction+4 || u.Order != aikit.OrderIdle {
 		return false
 	}
-	if kind == okMove && aikit.Dist2(u.X, u.Z, x, z) <= 250*250 {
+	if (kind == okMove || kind == okHold) && aikit.Dist2(u.X, u.Z, x, z) <= 250*250 {
 		return false // arrived
 	}
 	if um.retries >= 2 && b.Tick < um.ordTick+600 {
