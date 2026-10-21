@@ -2634,6 +2634,52 @@ teammate holds as many of that type); the Classic control,
 ([DESIGN_MODS_MUTATORS §15.11](DESIGN_MODS_MUTATORS.md#1511-verification));
 and the existing synchronous/asynchronous arena comparison.
 
+#### Modern AI page products
+
+**Nanolathe Modern AI policy, user-authorized 2026-10-20** (Switeck's TA
+Bugfix left the CORE Modern AI without a radar tower). Like the other Modern
+AI policies it applies in every gameplay mode, including Strict 3.1, and adds
+no rule seam.
+
+**Baseline.** A build page's product gadget builds the product it names, and
+CANBUILD is no whitelist for it [07 §9]: a human builds whatever the
+selected unit's authored pages install. Each rule's membership is unchanged
+([Modern authored build membership](DESIGN_ECONOMY_CONSTRUCTION.md#modern-authored-build-membership)),
+and it remains what the Classic AI, the HUD's resource shortcuts and every
+other reader use. Switeck's patch strips from `sidedata.tdf` the entries it
+expects download records to supply, while its pages still install them
+([Extended build menus](../research/extensions/build-menus.md#canbuild-entries-left-to-the-build-pages)),
+so a membership-only AI misses products a human can build.
+
+**Policy.** The catalog records each builder menu's `InstalledProducts`: in
+the builder's numbered pages `guis/<n>1.GUI`, `guis/<n>2.GUI`, … up to the
+first missing one, every button gadget carrying the product-slot attribute
+(`commonattribs` bit 4) whose name resolves to a definition, in page and
+gadget order. A slot that a download record patches is skipped, since the
+record's product replaces its name; page 0 is the orders state and installs
+none, and a page that does not parse installs nothing. The Modern AI's unit
+table appends these products to the rule's membership, each once, so they are
+candidates for every layer that reads a builder's products. Mission
+restrictions prune the list with the others; a definition a restriction
+removes has no table entry.
+
+**Identity.** Only the Modern AI reads the list, so the frozen content
+identity carries it as the AI-family entry `modern/installed-products`,
+present when a computer row chose the Modern AI
+([DESIGN_MULTIPLAYER §8.7](DESIGN_MULTIPLAYER.md#87-frozen-content-and-build-contracts-for-u4u5)).
+A battle without one keeps the identity, and the replays, it had.
+
+**Boundaries and verification.** No random draw, resource charge, rule seam
+or saved state is added; the table is rebuilt from the battle catalog.
+Classic players and the HUD never read the list, so no fingerprint lock
+moves. Tests: `content.TestInstalledProductsReadAuthoredPages` (product
+gadgets on authored pages, with patched slots, page 0, pages after a gap,
+order buttons, unmarked and unresolved names excluded),
+`content.TestFrozenInputsCarryInstalledProductsForModernAI` (the entry joins
+the identity only with a Modern computer) and
+`aikit.TestTableAddsPageInstalledProducts` (the table appends them after
+the membership, once, under every rule).
+
 #### Modern AI damage hints
 
 **Nanolathe Modern AI policy** (made for the faction add-ons,

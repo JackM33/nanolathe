@@ -209,6 +209,7 @@ Current policies: [terrain admission](docs/DESIGN_WEAPONS_PROJECTILES.md#231-mod
 [infector target preference](docs/DESIGN_WEAPONS_PROJECTILES.md#modern-infector-target-preference)
 and [Modern AI infector focus](docs/DESIGN_SESSIONS_AI_SAVE.md#modern-ai-infector-focus), and
 [Modern AI restriction caps](docs/DESIGN_SESSIONS_AI_SAVE.md#modern-ai-restriction-caps), and
+[Modern AI page products](docs/DESIGN_SESSIONS_AI_SAVE.md#modern-ai-page-products), and
 [chosen start positions](docs/DESIGN_SESSIONS_AI_SAVE.md#modern-chosen-start-positions),
 [extra start positions](docs/DESIGN_SESSIONS_AI_SAVE.md#modern-extra-start-positions) and
 [allied sight](docs/DESIGN_SESSIONS_AI_SAVE.md#modern-allied-sight) (user-authorized

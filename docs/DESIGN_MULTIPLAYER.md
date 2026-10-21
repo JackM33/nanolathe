@@ -1488,7 +1488,7 @@ Provider, path and size diagnostics are returned separately and excluded.
 | COB/model | Every admitted unit's resolved program and missing/fallback state, units not yet created included; the parsed model hierarchy, piece origins, authoritative geometry and derived heights. Never a filename alone. |
 | SimArt | Canonical sequence names and defined misses, ordered frame geometry and holds, and feature animation metadata the simulation consumes. |
 | Map | The exact selected OTA/TNT inputs and schema, plus scenario inputs actually consumed. |
-| AI | The selected profile and default-fallback state, with ordered directives and argument order (repeated multipliers do not commute). |
+| AI | The selected profile and default-fallback state, with ordered directives and argument order (repeated multipliers do not commute). When a Modern computer plays, also the products each builder's own build pages install, which only that controller reads (`modern/installed-products`). |
 | Extensions/mutators | The effective Community table and the applied mutator vector, tied to the prepared clone; a mutator is never applied twice. |
 
 **Build manifest.** The common build manifest uses domain

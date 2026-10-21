@@ -834,6 +834,7 @@ func prepareSkirmishInputs(fs vfs.FSOps, cat *content.Catalog, cfg SkirmishConfi
 	// The frozen selection records the set beside the mutators; the prepared
 	// catalog already carries its effect (§15.5).
 	request.Restrictions = options.Restrictions
+	request.ModernAI = hasModernComputer(cfg)
 	inputs, err := freezeSkirmishInputs(sources, request)
 	if err != nil {
 		return skirmishEntry{}, fmt.Errorf("session: skirmish content: %w", err)
