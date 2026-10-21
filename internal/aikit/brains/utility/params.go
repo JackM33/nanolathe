@@ -69,6 +69,8 @@ type Params struct {
 	Gates       int32 // gates: 1 = a gate pair from the base to the front, dialed, carries the army (abil_gates.go)
 	Play        int32 // play: the play review's fixes, a sum of parts (README §15)
 	RadarHome   int32 // radar_home: 1 = a radar over home is urgent from minute 10 and stands at home
+	WallBuild   int32 // wall_build: 1 = wall segments in front of ground towers (econ_walls.go)
+	WallFrom    int32 // wall_from: minute from which wall segments are built
 }
 
 // ParamSpec documents one parameter.
@@ -138,6 +140,8 @@ var Specs = [...]ParamSpec{
 	{"gates", 1, 0, 1, "switch: a gate in the base and one toward the front once the army travels and income pays for both, the base gate dialed to the front one, ground units sent through it when that shortens their trip (DESIGN_SESSIONS_AI_SAVE \"Modern AI gates\")"},
 	{"play", 7, 0, 15, "the play review's changes, each measured in mirrors against the brain without it, a sum of parts: 1 a factory whose army cannot reach the enemy is not the land constructor source while a land or hover factory that reaches is on offer, 2 the first constructor goes ahead of combat units at a shipyard or air plant, 4 an extractor waits for energy coverage while the energy store is below half, 8 the launch value's army curve scaled by our income (README §15)"},
 	{"radar_home", 1, 0, 1, "switch: from minute 10, while no stationary radar stands, is under way or is assigned over home, one there is urgent (need 4000 instead of 1000) and stands a quarter of the way to the front instead of halfway between the front and the rally point (DESIGN_SESSIONS_AI_SAVE \"Long games, low action budgets and teams\")"},
+	{"wall_build", 1, 0, 1, "switch: with the defense plan, from minute wall_from a constructor with nothing better to do builds three wall pieces across the approach in front of a completed ground tower in a zone enemy ground forces have approached, one segment per tower and per 90 s (DESIGN_SESSIONS_AI_SAVE \"Modern AI walls\")"},
+	{"wall_from", 12, 0, 120, "minute from which wall_build builds segments"},
 }
 
 const numParams = len(Specs)
@@ -152,7 +156,7 @@ func (p *Params) slots() [numParams]*int32 {
 		&p.SpotsPerCon, &p.FacTime, &p.WAir, &p.Naval, &p.Air, &p.Tech, &p.TechTime, &p.TechIncome, &p.WUpgrade, &p.Layout, &p.WReclaim,
 		&p.ReachMix, &p.Fleet, &p.TidalField, &p.Growth, &p.LongGrowth, &p.FacFirst, &p.WFacFirst, &p.Expand, &p.ExpandFrom, &p.Army, &p.Metal, &p.FacBackoff,
 		&p.Breadth,
-		&p.Cloak, &p.Gates, &p.Play, &p.RadarHome,
+		&p.Cloak, &p.Gates, &p.Play, &p.RadarHome, &p.WallBuild, &p.WallFrom,
 	}
 }
 

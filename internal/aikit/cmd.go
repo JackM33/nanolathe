@@ -38,6 +38,7 @@ const (
 	CmdDeactivate                    // the Deactivate state order: switched off
 	CmdCloak                         // the Cloak_On state order: cloak requested
 	CmdDecloak                       // the Cloak_Off state order: the request cleared
+	CmdBreach                        // code 12 on the wall pieces nearest a point (walls.go)
 )
 
 // stateOrders names the state order each of the four switch commands pushes,
@@ -78,6 +79,10 @@ type batch struct {
 	// units, 0 for the default. The host keeps one batch for its life and
 	// reset leaves this alone, so a setting holds until the brain changes it.
 	rowNear int32
+	// watch holds the points this think asked Obs.Walls to cover
+	// (Kit.WatchWalls), nWatch how many.
+	watch  [maxWallWatch][2]int32
+	nWatch int
 }
 
 func (b *batch) reset() {
@@ -85,6 +90,7 @@ func (b *batch) reset() {
 	b.actors = b.actors[:0]
 	b.inst = b.inst[:0]
 	b.pending = false
+	b.nWatch = 0
 }
 
 // ApplyStats counts what happened to a batch.
@@ -105,10 +111,12 @@ type ApplyStats struct {
 	// because the product's cap was reached in the reaction window (also
 	// counted in Stale; capReached).
 	Capped int32 `json:"capped,omitempty"`
+	// Breaches counts the wall-reclaim orders given (walls.go).
+	Breaches int32 `json:"breaches,omitempty"`
 	// FailKinds and FailActors break FailResolve down by command kind and by
 	// the first actor's authored role. They are diagnostics only.
-	FailKinds  [int(CmdDecloak)]int32 `json:"fail_kinds,omitempty"`
-	FailActors [3]int32               `json:"fail_actors,omitempty"`
+	FailKinds  [int(CmdBreach)]int32 `json:"fail_kinds,omitempty"`
+	FailActors [3]int32              `json:"fail_actors,omitempty"`
 }
 
 const (
@@ -496,6 +504,7 @@ func (e *executor) apply(b *batch, tick uint32, w *units.World, persona *Persona
 	e.lastTick = tick
 	e.rowNear = b.rowNear
 	e.refreshFeatures(tick)
+	e.refreshWalls(b, tick)
 	for i := range b.cmds {
 		c := &b.cmds[i]
 		func() {
@@ -547,6 +556,8 @@ func (e *executor) exec(c *Command, b *batch, tick uint32, w *units.World) bool 
 		return e.execUnblock(c, b, tick, w)
 	case CmdClear:
 		return e.execClear(c, b, tick, w)
+	case CmdBreach:
+		return e.execBreach(c, b, tick, w)
 	case CmdActivate, CmdDeactivate, CmdCloak, CmdDecloak:
 		return e.execState(c, b, tick, w)
 	}

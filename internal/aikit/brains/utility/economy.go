@@ -103,6 +103,8 @@ type Economy struct {
 	def            defPlan       // the proactive defense plan's state (defense*.go)
 	strategic      strategicPlan // stockpile ammunition and deliberate ground targets
 	ab             abilities     // cloak and the gate network (abil*.go)
+	br             breachState   // constructors sent to enemy walls (econ_breach.go)
+	wl             wallState     // wall segments ordered (econ_walls.go)
 	// fac_backoff: factory site searches that found no site lately.
 	facOff     [facOffSlots]facBackoff
 	facOffNext int
@@ -214,6 +216,8 @@ func (e *Economy) Plan(b *core.Board) {
 		}
 	}
 	budget -= e.abilities(b, budget) // cloak and gates (abil.go)
+	budget -= e.breach(b, budget)    // a wall the army is held at (econ_breach.go)
+	budget -= e.walls(b, budget)     // wall segments in front of towers (econ_walls.go)
 	if s.p.Layout != 0 {
 		e.clearFailures(b)
 		if budget > 0 {
@@ -527,7 +531,7 @@ func (e *Economy) retreat(b *core.Board, i int32) bool {
 	s := e.s
 	u := &b.O.Own[i]
 	c := s.commitOf(u)
-	if c.kind == cRetreat && s.tick-c.tick < retreatTicks {
+	if c.kind == cRetreat && s.tick-c.tick < retreatTicks || s.breaching(u, c) {
 		return false
 	}
 	t := int64(b.Threat.At(u.X, u.Z))
