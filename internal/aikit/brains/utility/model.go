@@ -44,6 +44,7 @@ type staticInfo struct {
 	t2        bool              // tech-2 factory: makes an advanced constructor
 	hull      bool              // naval combat product (fleet)
 	light     bool              // light boat: a quarter of its shipyard's heaviest hull or less (fleet)
+	wall      bool              // a wall piece (aikit.WallPiece; econ_walls.go)
 }
 
 // commitKind is what a builder was last told to do.
@@ -67,9 +68,11 @@ const (
 	cClear   // reclaiming wrecks and street features
 	cModule  // an upgrade module (upgrades.go)
 	cGate    // a gate of the gate network (abil_gates.go)
+	cBreach  // reclaiming an enemy wall the army is held at (econ_breach.go)
+	cWall    // a wall segment in front of a tower (econ_walls.go)
 )
 
-var commitNames = [...]string{"none", "mex", "energy", "maker", "storage", "factory", "defense", "radar", "strategic", "upgrade", "assist", "guard", "retreat", "unblock", "clear", "module", "gate"}
+var commitNames = [...]string{"none", "mex", "energy", "maker", "storage", "factory", "defense", "radar", "strategic", "upgrade", "assist", "guard", "retreat", "unblock", "clear", "module", "gate", "breach", "wall"}
 
 func (c commitKind) build() bool { return c >= cMex && c <= cUpgrade || c == cModule || c == cGate }
 
@@ -342,6 +345,7 @@ func (s *shared) setup(k *aikit.Kit) {
 		si.water = d != nil && d.MinWaterDepth > 0
 		si.costMeq = int64(u.Metal) + int64(u.Energy)*10/er
 		si.aaOnly = u.AirDPS > 0 && u.AirDPS*2 >= u.DPS
+		si.wall = aikit.WallPiece(u)
 		si.gndDPS = groundDPS(u)
 		si.combat = u.Role.Has(aikit.RoleCombat) && !u.Role.Any(aikit.RoleKamikaze|aikit.RoleNaval|aikit.RoleTransport) && !si.water
 		if u.Role.Has(aikit.RoleMobile) && u.Role.Has(aikit.RoleBuilder) {
