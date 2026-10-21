@@ -67,6 +67,19 @@ or, when farther, the distance from home to the second-nearest land metal
 spot, so a start chosen away from the metal still gets its opening
 extractors.
 
+At a start with one spot inside `com_radius` and a richer one beyond it
+(Ashap Plateau's first start: 114 and 1065 wu away) the stretch lets the
+commander walk to the far spot first, about half a minute, and build the
+near one after. Two alternatives were measured on 2026-10-21 in mirrors
+on Ashap Plateau, The Pass, Sherwood and Lake Shore (seeds 81–92, 96 games
+per persona): stretching only when no spot lies inside `com_radius`
+scored 51.6 / 52.1 / 44.8 % at Easy / Medium / Hard, and holding the
+leash at `com_radius` while a spot inside it is free (near spot first)
+scored 50.0 / 50.0 / 47.9 %. At that Ashap start at Hard the far-first
+order won 49.5 of 60 games, near-first 40 of 60 (96 more games on seeds
+101–148), and stretching only without a spot inside 6 of 12. Neither
+alternative was kept.
+
 | candidate | considerations (multiplied) |
 |---|---|
 | extractor at every free spot | metal need × return (spot metal × extraction / cost) × travel `half(dist/speed, travel_half)` × territory × route threat `half(Threat.LineMax(builder→spot), threat_half)` (squared for the commander) — cheap terms first, the route query only when the bound can still win |
