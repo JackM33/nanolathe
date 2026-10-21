@@ -862,6 +862,9 @@ func (e *Economy) siteFor(b *core.Board, u *aikit.OwnUnit, p *aikit.UnitInfo, ki
 		return clampWorld(x, b.K.Map.WorldW), clampWorld(z, b.K.Map.WorldH)
 	case cRadar:
 		x, z = (s.frontX+b.RallyX)/2, (s.frontZ+b.RallyZ)/2
+		if e.homeRadar(b, p) {
+			x, z = b.HomeX+(s.frontX-b.HomeX)/4, b.HomeZ+(s.frontZ-b.HomeZ)/4
+		}
 		return clampWorld(x, b.K.Map.WorldW), clampWorld(z, b.K.Map.WorldH)
 	case cMaker, cStorage:
 		x, z = s.sideX, s.sideZ
@@ -1185,6 +1188,9 @@ func (e *Economy) evalRadar(b *core.Board, u *aikit.OwnUnit, p *aikit.UnitInfo) 
 	if need == 0 || p.Radar <= 0 {
 		return c
 	}
+	if e.homeRadar(b, p) {
+		need = radarHomeNeed
+	}
 	travel, thr, ok := e.place(b, u, &c)
 	if !ok || e.radarCovered(b, &c) {
 		return c
@@ -1193,6 +1199,31 @@ func (e *Economy) evalRadar(b *core.Board, u *aikit.OwnUnit, p *aikit.UnitInfo) 
 	c.score = mul(mul(mul(mul(int64(s.p.WRadar)*10, need), aff), travel), thr)
 	c.f = [4]int64{need, aff, travel, thr}
 	return c
+}
+
+// A base with no radar over it sees an army only when the army is inside
+// it: radar is what warns the army to come home (the tactics' approach
+// warning reads radar contacts). From radarHomeFrom, the first radar over
+// home is wanted radarHomeNeed permille instead of the ordinary at most
+// 1000, enough to come before routine energy and extractors but not before
+// a tower the base urgently needs. It waits for minute 10: sooner, it took
+// a low-APM opening's builders from its first extractors.
+const (
+	radarHomeFrom = 10 * 1800
+	radarHomeNeed = 4000
+)
+
+// homeRadar reports whether radar product p is wanted at home: the switch
+// is on, the battle is radarHomeFrom old, and no stationary radar stands,
+// is under way or is assigned within reach of home (radarCovered's test at
+// home).
+func (e *Economy) homeRadar(b *core.Board, p *aikit.UnitInfo) bool {
+	s := e.s
+	if s.p.RadarHome == 0 || s.tick < radarHomeFrom || p.Radar <= 0 {
+		return false
+	}
+	c := cand{kind: cRadar, prod: p, x: b.HomeX, z: b.HomeZ}
+	return !e.radarCovered(b, &c)
 }
 
 // radarCovered reserves the larger authored radius between stationary
