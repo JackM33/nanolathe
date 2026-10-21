@@ -2991,7 +2991,7 @@ function pointer alone does not establish the admitted binding.
 | Type/source | Retained logical fields | Exclusions and representation |
 |---|---|---|
 | Terrain/plots | Row-major occupancy words, metal, feature index/sentinel, anchor/damage, gameplay flags; `metalSeeded`; feature names/definitions in record order, including nil rows and runtime appends. | Immutable geometry/heights, physics/map constants and LOS words bind admitted map inputs. The entry void sweep must be finished. Never-explored marker and placer nibble are presentation-only; any otherwise unclassified flag bits are retained. Static obstacle revision is diagnostic. |
-| `features.Service`, `Instance` | Global reproduction cursor, arena held, instances by sorted anchor index, exact active head-to-tail order; definition, cell/position/velocity/orientation, footprint, burning/animating/countdown/suppression, cursor frame/delay/sequence presence/key, active/arena/runtime-live flags, animation selector, damage accumulator. | `runtimeLive` affects replacement transforms. Lookup caches rebuild from sorted keys; active linkage reconstructs from the retained active order. Active-walk/pending-burn handoffs are rejected. Last reproduction index, reclaim/status/sinking/settled/shadow presentation and saved anchor staging are excluded. |
+| `features.Service`, `Instance` | Concrete feature-pool policy tag, global reproduction cursor, arena held, instances by sorted anchor index, exact active head-to-tail order; definition, cell/position/velocity/orientation, footprint, burning/animating/countdown/suppression, cursor frame/delay/sequence presence/key, active/arena/runtime-live flags, animation selector, damage accumulator. | `runtimeLive` affects replacement transforms. Lookup caches rebuild from sorted keys; active linkage reconstructs from the retained active order. Active-walk/pending-burn handoffs are rejected. Last reproduction index, reclaim/status/sinking/settled/shadow presentation and saved anchor staging are excluded. |
 | `visibility.Service` | Semantic mode bits, dimensions, row-major word mask; byte grids and retained wide coverage counts by player then row; local/team/viewer-defeated; footprints by observer ID with owner/cells/height/radius/quantized/live/stored cells/stored byte; effective Community inputs. | Fog caches, the mode cache-valid bit, publication versions/identities and rebuild flags are excluded. Spokes derive from immutable ray tables. The sensor index rebuilds every sensor tick; `sensorInputs` and `sensorStatusByID` have no production readers. Contact bits live in unit flags; cadence in session/ledger. |
 | Movement base state | Per-handle routes, steers, collisions, flights, copied profiles/names, working sets, previous move tier/SFX band; layer registry, learned terrain, pending layers, active orders/next activation, arrival handles, move/record goals, provider, first requests, unreachable/jam/traffic/pocket state, work tick/smoothing budget, pilots, repair landings, air-base lists; effective fallback/Community/path-player/unit-limit inputs and current tick. | The tick must be ended, the overlap scan inactive and the provider eligibility cache invalid. Diagnostics, path failures, history/lab counters and per-call scratch walks are excluded. `passAlliance`/`trafficNow` are replaced at BeginTick for the recognized pure rules; unknown stateful rules cannot claim that exclusion. |
 | Route/profile/steer | Entire route `Points[20]`, count/active/dirty/repath/request/status/first-hold/pending; all eight profile footprint/water/slope fields; steer X/Z, heading/pending heading, dirty/speed/max velocity/turn rate/height/sea-level/definition flags/acceleration/brake. | Inactive route storage remains readable. `Route.StaticRevision` has only diagnostic readers. |
@@ -3048,7 +3048,11 @@ behaviour.
 
 #### 16.3.6 Canonical format and public API
 
-Schema 4 (2026-10-17) adds the order queue's firing-position no-room answer,
+Schema 5 (2026-10-20) adds the stateless feature-pool policy tag. Modern
+feature allocation grows to the plot-cell count; Strict/Community admission
+keeps 2,048, and a switch preserves already existing records
+([Modern feature growth](DESIGN_ECONOMY_CONSTRUCTION.md#modern-feature-growth)).
+Schema 4 (2026-10-17) added the order queue's firing-position no-room answer,
 which Modern combat reads (DESIGN_WEAPONS_PROJECTILES §2.3.2 "No room").
 Schema 3 (2026-10-14) added visibility's retained wide coverage rows. Counts
 remain meaningful across rule switches and are not recoverable from saturated
@@ -3068,7 +3072,7 @@ dependencies.
 
 ```go
 // internal/sim/checkpoint
-const SchemaVersion uint16 = 4
+const SchemaVersion uint16 = 5
 const OwnerCount = 13
 
 type Owner uint16
