@@ -421,3 +421,33 @@ func TestFrozenInputsRecordFallbacksAndExtensions(t *testing.T) {
 		t.Fatal("a factor off the step list was frozen")
 	}
 }
+
+// The products a builder's pages install are read only by the Modern AI, so
+// they join the identity as an AI-family entry when a Modern computer plays
+// and leave every other battle's identity as it was.
+func TestFrozenInputsCarryInstalledProductsForModernAI(t *testing.T) {
+	f := newFrozenFixture(t)
+	withMenu := func(installed ...string) *Catalog {
+		c := f.catalog(t).Clone()
+		c.BuildMenus = map[string]*BuildMenuPage{"testunit": {
+			DefinitionHeader:  DefinitionHeader{CanonicalKey: "testunit"},
+			Builder:           "testunit",
+			InstalledProducts: installed,
+		}}
+		return c
+	}
+	plain := f.freeze(t, SimulationInputRequest{Catalog: withMenu()})
+	if _, ok := manifestEntry(plain, SimulationFamilyAI, "modern/installed-products"); ok {
+		t.Fatal("a battle without a Modern computer carries the installed products")
+	}
+	if other := f.freeze(t, SimulationInputRequest{Catalog: withMenu("otherunit")}); other.Digest() != plain.Digest() {
+		t.Fatal("installed products changed the identity of a battle without a Modern computer")
+	}
+	modern := f.freeze(t, SimulationInputRequest{Catalog: withMenu(), ModernAI: true})
+	if _, ok := manifestEntry(modern, SimulationFamilyAI, "modern/installed-products"); !ok {
+		t.Fatal("a Modern battle lacks the installed-products entry")
+	}
+	if installed := f.freeze(t, SimulationInputRequest{Catalog: withMenu("otherunit"), ModernAI: true}); installed.Digest() == modern.Digest() {
+		t.Fatal("installed products did not change a Modern battle's identity")
+	}
+}
