@@ -660,7 +660,7 @@ to ask for the same approval again.
    ordering, RNG/resource effects and boundaries before implementing it.
 2. **Use the existing interface.** Compose a shipped implementation when it
    already answers the question. Add a method to the owning `combat.Rules`,
-   `orders.Rules`, `construction.Rules`, `movement.Rules`, `economy.Rules`,
+   `orders.Rules`, `construction.Rules`, `features.Rules`, `movement.Rules`, `economy.Rules`,
    `session.UnitLimitRules`, `session.ComputerIncomeRules` or
    `session.SeatRules` when the package needs a new decision. Implement Strict, Community and Modern
    defaults in their derivation chain, with each layer promoting the lower

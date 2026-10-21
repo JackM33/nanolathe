@@ -37,7 +37,7 @@ func (s *Service) CollectCheckpointReferences(c *CheckpointContext) (int, error)
 
 // WriteCheckpoint writes only the feature-service payload. Service fields:
 // BurnFrameGeometry, BurnSmoke, BurnSound, BurnWeapon, Crt, GeothermalSteam,
-// SequenceFrames, Sim, Terrain, Wind, arenaHeld, cursor; then count/key/instance
+// SequenceFrames, Sim, Terrain, Wind, Rules, arenaHeld, cursor; then count/key/instance
 // rows in numeric anchor order and count/key active order. Ports and Terrain
 // use presence tags after validation against the capture context.
 // Instance fields are AnimationSelector, BurnCountdown, CX, CZ,

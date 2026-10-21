@@ -1000,8 +1000,9 @@ func (s *Service) stampFeature(cx, cz int, def *content.FeatureDef, pos *[3]nume
 			return nil
 		}
 	}
-	// The one pool that can silently refuse a placement is the live-instance
-	// arena of 2048 slots [05 R-FEAT-01 §2]; the catalog itself has no cap
+	// Strict/Community can silently refuse at the 2048-slot live-instance
+	// arena [05 R-FEAT-01 §2]; Modern grows on demand ("Modern feature growth"
+	// in DESIGN_ECONOMY_CONSTRUCTION). The catalog itself has no cap
 	// [05 R-FEAT-01 §1].
 	w := int(s.Terrain.CellW)
 	h := int(s.Terrain.CellH)

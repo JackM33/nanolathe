@@ -1388,8 +1388,9 @@ cleared on rebuild; the sorted order, live value mirrors and active-list
 lifecycle order are unchanged. This reduces allocation during feature churn
 without using obstacle revisions to skip any work.
 
-**Feature arena boundary (EC-G2).** Strict and Community enforce the researched live
-arena capacity; Modern uses the policy above. All modes retain active-list order, but the Go records are fresh allocations,
+**Feature arena boundary (EC-G2).** Strict and Community enforce the researched
+live arena capacity; Modern uses the policy above. All modes retain active-list
+order, but the Go records are fresh allocations,
 not identities reused from a retained arena. A resting sprite also has a
 convenience lookup/publication record without consuming a live slot. These are
 implementation facts, not evidence that retail clears a freed slot.
