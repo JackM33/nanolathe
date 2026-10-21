@@ -2680,6 +2680,107 @@ the identity only with a Modern computer) and
 `aikit.TestTableAddsPageInstalledProducts` (the table appends them after
 the membership, once, under every rule).
 
+#### Modern AI walls
+
+**Nanolathe Modern AI policy, user-authorized 2026-10-20** (a play-test:
+the Modern AI never built walls, and its army stood at a human's dragon's
+teeth being shot instead of breaking through; the user asked for both, a
+constructor sent to reclaim the wall included). Like the other Modern AI
+policies it applies in every gameplay mode, including Strict 3.1, uses only
+orders a human has, and adds no rule seam.
+
+**Baseline.** The retail planner zeroes the score of every `isfeature`
+product, so a Classic computer never builds a wall [08 R-P0-05 §5]. A
+finished wall piece is a feature. A projectile that strikes it bursts at
+its face, and the piece takes the weapon's default damage only when the
+impact lies closer to its centre than half the authored area of effect
+[05 R-FEAT-01 §8][06 §13.1]. A two-cell piece's centre lies 16 to 23 wu behind the
+face, so small arms (an area of 8) never harm a dragon's tooth, light
+cannons (32) harm it at about half their rate, and rockets, plasma and
+missiles (48) in full. Reclaiming a feature costs a fixed amount of work
+taken from its metal and energy, whatever the builder's power [05 R-WORK-01
+§5]: under a second for a dragon's tooth.
+
+**Seeing walls.** A brain names up to eight points a think where its own
+units stand (`Kit.WatchWalls`). When that think's batch is applied, the
+executor lists in `Obs.Walls` every finished feature of a wall product
+within `WallRadius` (384 wu) of one of them, once each, at its footprint
+centre. A wall product is an unarmed, immobile land product that finishes
+as a solid feature and is no economy, factory or sensor building
+(`aikit.WallPiece`, read from authored keys). A map feature has no owner,
+so a piece within 320 wu of an own or allied building counts as ours and
+is never broken.
+
+**Breaking through (`walls`, tactics).** An engaged ground squad watches
+around its centre and its member nearest the target. It is held when the
+members within 160 wu of a piece that is not ours are worth a quarter of
+its present value and that front member has come no 96 wu nearer the
+target for 300 − 2 × skill ticks (260 at Easy, 130 at Hard). A held squad:
+- fires at one piece by attacking the ground at its centre, with the members
+  whose weapons damage walls (above) within their range of it plus 120 wu.
+  The piece is the one nearest the members at the wall that does not lie
+  behind them, its distance raised by the enemy's static fire reaching it
+  in proportion to the squad's own, and halved beside the piece that fell
+  last, so the breach opens where towers cover least and an opening widens;
+- sends the members that cannot damage the wall and stand in enemy fire
+  within 460 wu of it 300 wu back behind the piece until it falls;
+- asks the economy for a constructor (`Board.BreachX`);
+- pulls back and cools the target as a lost engagement once its square-law
+  strength has fallen to half what it was when it was first held, or after
+  90 s without a piece falling.
+
+When a watched piece is gone from the list the breakers patrol on to the
+target. A squad still held after that picks the next piece; one that is
+no longer held for 10 s stops counting as walled. Focus fire is off while a
+squad is walled.
+
+**The constructor (economy).** While the army's request is no older than
+90 ticks, one constructor goes to the piece (`Kit.Breach`). It
+reclaims the wall pieces within 48 wu, nearest first, with ordinary Reclaim
+orders. It is the cheapest reclaim-capable constructor (the nearest among
+equals), never the commander, and only while more than two constructors
+remain. It may be lost, so it does not turn home for the threat that sends
+other builders back, and it keeps its orders until they are done. Only one
+is out at a time and at most one every 60 s. It is called off once the
+army has asked nothing for 15 s.
+
+**Building walls (`wall_build`, `wall_from`, economy).** With the defense
+plan, from minute `wall_from` (12), a tower that serves the ground plan in a
+zone enemy ground forces have approached gets one segment. The tower is a
+ground tower, or a missile tower under the front rules. The segment is
+three touching pieces across the zone's observed approach, 96 wu in front
+of the tower; neighbours stand a piece's width apart along the line's
+larger axis, so diagonal pieces touch without overlapping on the grid.
+The tower nearest the enemy goes first, and a tower is never tried twice.
+Pieces keep off the corridors the army's own units walk and out of passes.
+`Kit.BuildExact` refuses a blocked site, a factory lane, an allied tower's
+space or a metal spot rather than move the piece, and a segment needs two
+sites. Towers stand at least 160 wu apart, so neighbouring segments leave
+a corridor. Only an idle constructor, or one helping a build, builds a
+segment: the nearest to the tower. The cheapest wall piece it makes is
+used, while the stores or 90 s of income pay for three. There is one
+segment every 90 s. A think whose action budget cannot order every piece
+queues the rest on the same constructor on later thinks, while it keeps
+the job.
+
+**Boundaries.** No random draw, simulation state or rule seam is added; the
+breach and wall orders are a human's attack-ground, reclaim and build.
+`Kit.Breach` is command kind 21 of the Modern checkpoint vocabulary
+([DESIGN_MULTIPLAYER §16.3.23](DESIGN_MULTIPLAYER.md#16323-u5-typed-intent-and-order-receipt-codecs)).
+Survival's computer survivors keep both switches off: the survival layer
+plans its own wall segments ([DESIGN_SURVIVAL](DESIGN_SURVIVAL.md)), and no
+wave stands behind a wall. Classic players are unchanged, so no Classic
+fingerprint lock moves.
+
+**Verification.** `aikit.TestWallsListedNearWatchedPoints`,
+`aikit.TestBreachReclaimsTheWallPiecesThere`,
+`aikit.TestWallPieceReadsAuthoredKeys`,
+`tactics.TestWallDamageFollowsTheBurst`,
+`tactics.TestBreachPieceAvoidsTowerFire`,
+`tactics.TestHeldSquadBreaksTheWall`,
+`utility.TestBreachSendsOneConstructor` and
+`utility.TestWallSegmentCrossesTheApproach`.
+
 #### Modern AI damage hints
 
 **Nanolathe Modern AI policy** (made for the faction add-ons,

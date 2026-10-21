@@ -242,6 +242,8 @@ runs defaults); persona keys (`think`, `react`, `apm`, `attention`,
 | `gates` | 1 | 0–1 | switch: a Talon gate pair from the base to the front, dialed, carries the ground army (§14.2) |
 | `play` | 7 | 0–15 | the play review's changes (§15), each measured in mirrors against the brain without it, a sum of parts: 1 a factory whose army cannot reach the enemy is not the land constructor source while a land or hover factory that reaches is on offer, 2 the first constructor goes ahead of combat units at a shipyard or air plant while the commander is the only builder, 4 an extractor waits for energy coverage while the energy store is below half, 8 the launch value's army curve scaled by our income; 0 is the brain before the review |
 | `radar_home` | 1 | 0–1 | switch: from minute 10, while no stationary radar stands, is under way or is assigned over home, one there is wanted at need 4000 instead of the ordinary at most 1000, a quarter of the way from home to the front instead of halfway between the front and the rally point; 0 is the forward radar alone |
+| `wall_build` | 1 | 0–1 | switch: with the defense plan, from minute `wall_from` an idle or helping constructor builds three wall pieces across the approach in front of a tower that serves the ground plan, in a zone enemy ground forces have approached; one segment per tower and per 90 s (§16) |
+| `wall_from` | 12 | 0–120 | minute from which `wall_build` builds segments (§16) |
 
 `naval=0,air=0,tech=0,layout=0,army=0` is the brain before §11–§12
 (verified identical, result JSON for result JSON, on a land and a water
@@ -2614,3 +2616,53 @@ slower commander).
 **Open, general to every side:** armies that trickle or never push;
 anti-air counted over the whole army rather than near the base; constructors
 lost to raids not replaced at medium.
+
+## 16. Walls (`wall_build`, `wall_from`; the army's breach requests)
+
+docs/DESIGN_SESSIONS_AI_SAVE.md "Modern AI walls" is the contract; this is
+how the economy carries it.
+
+**Segments** (`econ_walls.go`). The retail planner never builds a wall, and
+this brain had no role for one, so it never did either. Under the defense
+plan, from minute `wall_from`, a tower that serves the ground plan (a ground
+tower, or a missile tower under the front rules: the default tower is a
+missile tower) in a zone whose observed approach weighs at least a few
+units' worth of sightings gets one segment of three touching pieces, 96 wu
+in front of it across the approach. Pieces keep off the army's own corridors
+and out of passes, and `Kit.BuildExact` refuses blocked sites, factory lanes
+and metal spots. The builder is an idle or helping constructor, the nearest
+to the tower, building the cheapest wall piece it makes while the stores or
+90 s of income pay for three. There is one segment every 90 s. A persona
+whose think budget is one or two actions orders the rest of a segment on
+later thinks. Report: `wall_segments`, `wall_pieces`, and
+`wall_why_tower|builder|site` for thinks a segment was due but not ordered.
+
+**Breach constructor** (`econ_breach.go`). When the tactics army reports a
+squad held at an enemy wall (`Board.BreachX`, tactics README "Walls"), the
+cheapest reclaim-capable constructor, the commander never, goes to reclaim
+the pieces there (`Kit.Breach`): a tooth costs a builder under a second
+whatever its power, where the army's guns take a minute. It ignores the
+threat retreat, only one is out at a time and one a minute at most, two
+constructors always stay behind, and it is called off 15 s after the army
+stops asking. Report: `breach_sent`, `breach_recalled`.
+
+**Measured** (2026-10-20): both halves together against
+`walls=0,wall_build=0`, eight maps, 40 minutes, sides swapped, points =
+(W + D/2) / games:
+
+| persona | seeds | games | points | segments per game |
+|---|---|---|---|---|
+| easy | 51–74 | 384 | 49.0 % (47.7 and 50.3 by half) | 3.2 |
+| medium | 51–62 | 192 | 50.5 % | 5.2 |
+| hard | 51–62 | 192 | 51.8 % | 3.6 |
+
+Between computer players walls neither help nor hurt: armies seldom meet
+one, and a segment costs only an idle constructor's time and three pieces.
+Think cost is unchanged (50.5 against 50.3 µs mean). Refights of a
+play-tested Crooked Creek 2v2, the human's seat played by a control
+computer (60 minutes, seeds 1–12, both team orientations, 24 games each at
+easy and medium), give the walls side 51.4 % and 50.3 % of the value on the
+map at 60 minutes; it lost no commander, the control one of 48. The walls
+seats built pieces in those games (the sampled census saw 1.5 per seat at
+easy, 2.0 at medium). The breach's own measurements, in a walled base, are
+in the tactics README "Walls".
