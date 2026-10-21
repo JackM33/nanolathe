@@ -19,6 +19,15 @@ func (a *Army) Explain(b *core.Board, x *aikit.Explain) {
 			a.avail, a.spent, a.prodReserve, a.issued, a.starved, a.droppedTotal),
 		fmt.Sprintf("tactics: gather (%d,%d), enemy army %d value (seen at %d,%d), %d target zones, %d incidents, guard need %d",
 			a.gx, a.gz, a.enemyMob.value, a.enemyMobX, a.enemyMobZ, len(a.candidates), len(a.incidents), a.threatMemory))
+	if a.approachOn {
+		in := &a.approach
+		by := "nobody (home holds it)"
+		if in.taken > 0 {
+			by = roleNames[in.taken]
+		}
+		x.Notes = append(x.Notes, fmt.Sprintf("tactics: enemy force closing on home: %d units, value %d, at (%d,%d); answered by %s",
+			in.enemy.n, in.enemy.value, in.x, in.z, by))
+	}
 	for id := int32(1); id < numSq; id++ {
 		s := &a.sq[id]
 		if !s.active || len(s.members) == 0 {
@@ -148,6 +157,7 @@ func (a *Army) Report(add func(name string, v int64)) {
 	add("tac_passage_moved", st.passage)
 	add("tac_wait_thinks", st.waits)
 	add("tac_wait_passage", st.waitPassage)
+	add("tac_warned", st.warned)
 	// Main-squad offensives (a launch the posture allowed; with posture=0
 	// every launch from a regroup) and soft raids while held.
 	off := &a.off
