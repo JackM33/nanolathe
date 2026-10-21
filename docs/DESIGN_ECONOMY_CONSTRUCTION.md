@@ -1578,7 +1578,9 @@ placement: in both modes a product slot greys only when its installed name
 resolves to no definition [07 R-HUD-03 §6], and the world click issues the armed
 installed product with no CANBUILD test [07 §9]. Stock CORCS installs CORSY and
 CORLLT on page one while its CANBUILD omits both; they remain buildable, as in
-retail, and are still not added to AI candidates.
+retail, and neither list nor the Classic AI gains them. The Modern AI adds a
+builder's installed products to its own candidates
+([Modern AI page products](DESIGN_SESSIONS_AI_SAVE.md#modern-ai-page-products)).
 
 The decision itself allocates nothing and consumes no resources or RNG. AI
 selection retains authored duplicates and may consequently choose different
