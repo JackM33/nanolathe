@@ -174,6 +174,7 @@ type gameShell struct {
 	settingsWritable bool
 	windowSize       retailDisplayMode // committed host size; options edits apply on OK
 	fullscreen       bool              // Nanolathe host preference (DESIGN_PRESENTATION_CLIENT §2.1)
+	language         string            // saved interface language, empty for English (language.go)
 	scrollSpeed      int               // persisted scrollspeed [02 "Settings"] [07 §10] C2 presentation-only
 	// display is the live `DisplaymodeWidth`/`Height` pair and the `VISUALS`
 	// page's option values. The load transition reads the pair for the logical

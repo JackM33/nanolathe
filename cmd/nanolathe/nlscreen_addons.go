@@ -15,6 +15,7 @@ import (
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/nanolathe-gg/nanolathe/formats"
 	"github.com/nanolathe-gg/nanolathe/internal/addonlibrary"
+	"github.com/nanolathe-gg/nanolathe/internal/i18n"
 	"github.com/nanolathe-gg/nanolathe/internal/modfetch"
 	"github.com/nanolathe-gg/nanolathe/internal/platform/screenkit"
 	"github.com/nanolathe-gg/nanolathe/internal/settings"
@@ -615,8 +616,10 @@ func (s *nlScreen) heroAddons(screen *ebiten.Image, x, y, bottom, a float64) flo
 		}
 		// The second line stops short of the control; a long one shrinks a
 		// little before it is cut.
-		sub := s.addonSubText(row)
-		st := screenkit.Style{Size: 11 * u, Top: alphaC(color.RGBA{169, 162, 131, 255}, a)}
+		// It is translated first and cut as shown, so the cut never leaves an
+		// English fragment.
+		sub := i18n.T(s.addonSubText(row))
+		st := screenkit.Style{Size: 11 * u, Top: alphaC(color.RGBA{169, 162, 131, 255}, a), Verbatim: true}
 		room := right - controlW - 16*u - (r.X + 36*u)
 		for st.Size > 9.5*u && bf.Measure(sub, st) > room {
 			st.Size -= 0.5 * u
