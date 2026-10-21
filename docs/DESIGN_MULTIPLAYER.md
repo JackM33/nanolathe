@@ -4006,7 +4006,7 @@ func (a *ApplicationAttempt) RecordOrder(actor checkpoint.Allocation, receipt or
 | Classic 1, order | kind u8, Code i64, ResolvedRow u8, Modifier u8, Argument i32, X/Y/Z i64, raw target u32 |
 | Classic 2, typed build | kind u8, BuildKind i64, UnitKey string, X/Z i64, Count i64, BuildRequest.Tick u32 |
 | Classic 3, activation | kind u8, Active Boolean |
-| Modern, CmdKind 1–20 | Kind u8, Queued Boolean, raw target u32, X/Z i32, ProductIndex i32, ProductKey string, Slot/Count/Spot/Spacing i32, Keep/Exact Boolean, RowNear i32 |
+| Modern, CmdKind 1–21 | Kind u8, Queued Boolean, raw target u32, X/Z i32, ProductIndex i32, ProductKey string, Slot/Count/Spot/Spacing i32, Keep/Exact Boolean, RowNear i32 |
 
 Operands: actor count u32 and each allocation in observed order (duplicates
 kept), target presence and allocation, product presence and definition.
