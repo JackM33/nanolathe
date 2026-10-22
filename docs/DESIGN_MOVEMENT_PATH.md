@@ -1444,11 +1444,12 @@ the strafer's does. The gunship keeps retail's frozen marker
 about its target, so it faces the target as it settles [04 R-AIR-01 §8], but
 chooses the point: on rings at two thirds and seventeen twentieths of its
 weapon range on sixteen bearings. When leaving an existing point it first
-prefers a real move — at least 64 world units, 120 when under fire — then
+prefers a lateral move — at least 64 world units across the aircraft-to-target
+bearing, 120 when under fire — then
 ranks those candidates by anti-air exposure, clearance from the points and
 bearings other gunships of its owner hold near the same target (so wingmen
 neither stack nor fire through one another), and travel distance. If no
-on-map candidate meets the move distance, it keeps the ordinary ranked
+on-map candidate meets the lateral distance, it keeps the ordinary ranked
 fallback. The initial approach keeps its existing score. A lower-exposure
 current point cannot defeat every real move and make the gunship hover
 indefinitely (issue 121, `TestAirHoverRepositionMakesProgressUnderCover`).
@@ -1456,10 +1457,32 @@ It slides on to the next point 45 ticks after arriving, at once when it has lost
 the last 90 ticks or its point is covered, and after 240 ticks regardless,
 as retail's orbit keeps a gunship moving. Far from the point it flies there
 round anti-air that does not cover the point. Two refused engagement checks
-move it to half range.
+move it to half range. These checks include a physical shot refusal from the
+current weapon visit through the existing weapon adapter, as well as the
+unit-to-unit range/medium gate. An observed obstruction makes a point whose
+translated shot preview is clear outrank blocked or unproven points before
+lateral movement, exposure and spacing are ranked. Previews use the candidate's
+terrain-relative cruise altitude and combat's existing physical preview, with
+the actual observed muzzle and target. They make no COB query, draw no RNG,
+charge no resources and allocate no projectile. Reload, aim and incoming-damage
+coordination waits supply no physical refusal. When no point is proven clear,
+ordinary lateral selection continues; this bounded search does not promise a
+globally clear route or bypass the weapon's final admission.
 The dwell begins on the first arrival at the current point, before testing
 its expiry; travel time and an earlier point's arrival cannot consume it
 (`TestAirHoverDwellStartsAtCurrentArrival`, issue 121).
+
+**Issue 121 follow-up.** A move between the two rings on the same bearing is
+large enough to pass the former 64-unit travel test, but is entirely radial:
+the aircraft flies forwards and backwards without swinging. Behind a tall
+feature that can keep both points obstructed indefinitely. Stock Brawlers
+attacking a metal extractor behind `crystalspire02` reproduced one aircraft
+firing zero pellets for 600 ticks while its wingmen fired; checking aggregate
+damage or destinations alone missed it. The lateral test and physical refusal
+feedback above correct the Modern pilot within the existing `AirTactics`
+selection. Strict 3.1 and Community 3.9 retain their retail orbit, weapon
+admission, random draws and resource effects. Authored flight handling, aiming,
+burst scheduling and the terrain/feature firing protections remain authoritative.
 
 **Repair beside a constructor.** When a damaged aircraft's retail pad seek
 finds no pad (`AirStrike` phase 6, `AirToGround`'s break, a covered gunship,

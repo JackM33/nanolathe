@@ -6,6 +6,7 @@ import (
 	"github.com/nanolathe-gg/nanolathe/internal/combat"
 	"github.com/nanolathe-gg/nanolathe/internal/content"
 	"github.com/nanolathe-gg/nanolathe/internal/orders"
+	"github.com/nanolathe-gg/nanolathe/internal/pool"
 	"github.com/nanolathe-gg/nanolathe/internal/sim/numeric"
 	"github.com/nanolathe-gg/nanolathe/internal/units"
 	"github.com/nanolathe-gg/nanolathe/internal/world"
@@ -78,6 +79,84 @@ func TestAirHoverRepositionKeepsFallbackWhenNoFullMoveFits(t *testing.T) {
 	dx, dz := p.standX-1024, p.standZ-512
 	if dx*dx+dz*dz == 0 || dx*dx+dz*dz >= 120*120 || !sys.airOnMap(p.standX, p.standZ, 48) {
 		t.Fatal("short-range gunship lost its valid fallback firing point")
+	}
+}
+
+// Issue 121: changing rings on the same bearing meets the old travel-distance
+// floor but sends the gunship forwards and backwards instead of sideways.
+func TestAirHoverRepositionMovesAcrossTargetBearing(t *testing.T) {
+	for _, under := range []bool{false, true} {
+		sys, _, u := wideAirFixture(t)
+		const tx, tz, weaponRange = 1024, 512, 360
+		for j := 0; j < 16; j++ {
+			for _, radius := range []int64{weaponRange * 2 / 3, weaponRange * 17 / 20} {
+				x, z := airAlong(tx, tz, uint16(j*4096), radius)
+				u.X, u.Z = numeric.FixedFromInt(x), numeric.FixedFromInt(z)
+				p := &airPilot{standSet: true, standX: x, standZ: z}
+				sys.airChooseStandoff(u, p, tx, tz, weaponRange, nil, under, 100)
+				cross := abs64((p.standX-x)*(z-tz) - (p.standZ-z)*(x-tx))
+				minimum := int64(64)
+				if under {
+					minimum = 120
+				}
+				if cross < minimum*isqrt64((x-tx)*(x-tx)+(z-tz)*(z-tz)) {
+					t.Fatalf("under=%v bearing=%d radius=%d: radial reposition from (%d,%d) to (%d,%d)", under, j, radius, x, z, p.standX, p.standZ)
+				}
+			}
+		}
+	}
+}
+
+// Range eligibility does not establish a clear shot. A physical refusal
+// from the actual weapon visit participates in the gunship's existing retry
+// cadence; reload/aim/coordination waits supply no such observation.
+func TestAirHoverUsesPhysicalRefusalForFiringPoint(t *testing.T) {
+	for _, blocked := range []bool{false, true} {
+		sys, w, u := wideAirFixture(t)
+		target := airTargetFor(t, sys, w, 64, 32)
+		u.InstallWeapon(0, &content.WeaponDef{ID: 1, Range: 360})
+		u.X, u.Z = target.X+240<<16, target.Z
+		n := &orders.Node{ID: orders.Lookup("AirToGroundHover"), Owner: u.Handle, Target: target.Handle, Phase: 2}
+		p := sys.airPilotFor(u, n, 100)
+		p.fresh, p.standSet, p.standHeld = false, true, true
+		p.standX, p.standZ = int64(u.X>>16), int64(u.Z>>16)
+		p.standTick, p.standArrive = 100, 99
+		previews := 0
+		q := orders.QueueOfUnit(u)
+		q.Binding().Weapons = orders.NewWeaponAdapter(orders.WeaponAdapterConfig{
+			CanEngage: func(*units.Unit, pool.Handle, int) bool { return true },
+			FiringPositionBlocked: func(shooter, victim *units.Unit, tick uint32) bool {
+				if shooter != u || victim != target {
+					t.Fatal("wrong firing observation identities")
+				}
+				return blocked
+			},
+			FiringPositionClear: func(shooter, victim *units.Unit, tick uint32, x, y, z numeric.Fixed) bool {
+				previews++
+				marker := sys.newFrozenTerrainPointMarker(u, target.Handle, Vec3{X: x, Z: z})
+				marker.setAltitudeOffset(int16(u.Def.CruiseAlt))
+				if y != marker.goal.Y {
+					t.Fatal("preview did not use candidate cruise altitude")
+				}
+				return x < target.X
+			},
+		})
+		random := *q.Binding().SimRNG
+		sys.legAirToGroundHoverModern(u, n, 135)
+		if p.standTick != 100 {
+			t.Fatal("replanned before two refusals")
+		}
+		sys.legAirToGroundHoverModern(u, n, 150)
+		if blocked {
+			if p.standTick != 150 || p.standX >= int64(target.X>>16) || previews == 0 {
+				t.Fatal("physical refusal retained an obstructed firing point")
+			}
+		} else if p.standTick != 100 || previews != 0 {
+			t.Fatal("a nonphysical wait searched for a new firing point")
+		}
+		if *q.Binding().SimRNG != random {
+			t.Fatal("candidate previews drew RNG")
+		}
 	}
 }
 

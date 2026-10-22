@@ -1455,12 +1455,14 @@ func (s *System) legAirToGroundHoverModern(u *units.Unit, n *orders.Node, tick u
 		return 5 // *complete*: the issuing order chooses again
 	}
 	under := p.underFire(tick)
+	weapons := orderWeapons(u)
+	blocked := tgt != nil && weapons != nil && weapons.FiringPositionBlockedHook() != nil && weapons.FiringPositionBlockedHook()(u, tgt, tick)
 
 	// Engagement refusals count only at the firing point: on the way there
 	// the target is simply out of range.
 	atStand := p.standSet && isqrt64((p.standX-px)*(p.standX-px)+(p.standZ-pz)*(p.standZ-pz)) <= 48
 	if atStand && tick-p.standTick >= 30 && tick%15 == 0 {
-		if !weaponCanEngage(u, n.Target, 0) && n.Target != 0 {
+		if n.Target != 0 && (!weaponCanEngage(u, n.Target, 0) || blocked) {
 			p.refused++
 		} else {
 			p.refused = 0
@@ -1517,7 +1519,7 @@ func (s *System) legAirToGroundHoverModern(u *units.Unit, n *orders.Node, tick u
 }
 
 // airChooseStandoff ranks standoff points on two rings about the target and
-// sixteen bearings. Repositioning prefers a real move, longer under fire,
+// sixteen bearings. Repositioning prefers a lateral move, longer under fire,
 // before ranking exposure, wingmen and distance; otherwise a low-exposure
 // current point can win forever. A short move remains the fallback when no
 // full move fits. Nanolathe Modern policy: DESIGN_MOVEMENT_PATH
@@ -1552,8 +1554,23 @@ func (s *System) airChooseStandoff(u *units.Unit, p *airPilot, tx, tz, rng int64
 	if under {
 		minMove = 120
 	}
+	// A ring change on the same bearing is forward/backward motion, not a
+	// gunship's slide. Measure the component across the target bearing so
+	// those cheap radial moves cannot displace every lateral candidate.
+	rx, rz := px-tx, pz-tz
+	radialDistance := isqrt64(rx*rx + rz*rz)
 	best := -1
 	bestMoves := false
+	bestClear := false
+	// Reuse the actual weapon visit's physical refusal. Range admission alone
+	// cannot tell that every selected point fires into the same ridge/feature.
+	// These previews spend no RNG, query no script and never authorize a shot.
+	weapons := orderWeapons(u)
+	var target *units.Unit
+	if p.node != nil {
+		target = s.unitFor(p.node.Target)
+	}
+	preview := target != nil && weapons != nil && weapons.FiringPositionBlockedHook() != nil && weapons.FiringPositionClearHook() != nil && weapons.FiringPositionBlockedHook()(u, target, tick)
 	var bestCost int64
 	var bx, bz int64
 	for ring := 0; ring < 2; ring++ {
@@ -1571,7 +1588,17 @@ func (s *System) airChooseStandoff(u *units.Unit, p *airPilot, tx, tz, rng int64
 				continue
 			}
 			move := isqrt64((sx-px)*(sx-px) + (sz-pz)*(sz-pz))
-			moves := !p.standSet || move >= minMove
+			lateral := abs64((sx-px)*rz - (sz-pz)*rx)
+			moves := !p.standSet || lateral >= minMove*radialDistance && move >= minMove
+			clear := false
+			if preview {
+				x, z := numeric.FixedFromInt(sx), numeric.FixedFromInt(sz)
+				y := u.Y
+				if u.Def != nil {
+					y = CruiseAltitudeForOffset(s.Terrain, x, z, int32(int16(u.Def.CruiseAlt)))
+				}
+				clear = weapons.FiringPositionClearHook()(u, target, tick, x, y, z)
+			}
 			cost := airPointExposure(sx, sz, threats)*64 + move
 			if move < minMove {
 				cost += 4000
@@ -1582,9 +1609,10 @@ func (s *System) airChooseStandoff(u *units.Unit, p *airPilot, tx, tz, rng int64
 					cost += 3000
 				}
 			}
-			if best < 0 || moves && !bestMoves || moves == bestMoves && cost < bestCost {
+			if best < 0 || clear && !bestClear || clear == bestClear && (moves && !bestMoves || moves == bestMoves && cost < bestCost) {
 				best, bestCost, bx, bz = ring*16+j, cost, sx, sz
 				bestMoves = moves
+				bestClear = clear
 			}
 		}
 	}
