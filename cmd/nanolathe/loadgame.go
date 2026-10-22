@@ -82,6 +82,13 @@ func (g *gameShell) openSaveLoadScreen(mode saveLoadMode, source saveLoadSource)
 		// screen shows no message for an empty list [08 R-SAVE-02 §2].
 		return g.showRetailMessage(retailNoSavedGamesMessage)
 	}
+	if mode == loadScreenMode {
+		// The newest save, usually the Autosave of an interrupted battle,
+		// opens selected; the list stays sorted oldest first
+		// [08 R-SAVE-02 §1] (DESIGN_SESSIONS_AI_SAVE §5, "Autosave, quick
+		// save and quick load").
+		screen.Select(len(screen.Entries()) - 1)
+	}
 	// Reuse the side compiler without constructing a battle catalog. The
 	// dialog owns its display-name copy until it closes [08 R-SAVE-02 §3].
 	sides, err := content.CompileSides(g.cs.fs)

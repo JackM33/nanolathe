@@ -71,7 +71,8 @@ commanderless attacker slot and a wave director that creates units through
 the ordinary allocator and gives them ordinary orders. The survivors share
 sight, radar and income as one side. It adds no seam, runs in every mode, and
 exists only in a Survival session, so no other session or fingerprint lock
-changes. Survival battles cannot be saved. It is owned by
+changes. A Survival battle saves with its wave director in the save's
+sidecar (user-authorized 2026-10-21). It is owned by
 [DESIGN_SURVIVAL](docs/DESIGN_SURVIVAL.md).
 
 **The Modern AI computer player is the third mode-independent exception

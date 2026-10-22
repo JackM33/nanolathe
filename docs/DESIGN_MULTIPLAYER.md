@@ -2018,8 +2018,9 @@ spectator chat.
 Retail disables saving in multiplayer `[08 R-SAVE-02 §4]`, so a Strict 3.1
 online battle offers none, and the first versions offer none in any mode.
 A later multiplayer save would be the canonical snapshot plus the
-configuration, resumed only by the same seats. Survival battles cannot be
-saved in any case (DESIGN_SURVIVAL §11).
+configuration, resumed only by the same seats. A single-player Survival
+battle saves (DESIGN_SURVIVAL §11); an online one, like any online battle,
+does not.
 
 ## 12. The relay and the lobby
 

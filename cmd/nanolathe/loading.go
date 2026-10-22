@@ -305,6 +305,10 @@ func (g *gameShell) loadRetailSavePath(path string) error {
 		if err := validateRecordedAIOverrides(deps.AIControllers); err != nil {
 			return err
 		}
+		// A Survival battle's wave director (docs/DESIGN_SURVIVAL.md §11).
+		if deps.Survival, err = session.SidecarSurvival(sidecar.Survival); err != nil {
+			return err
+		}
 	}
 	loaded, err := session.LoadRetailSavePath(path, deps)
 	if err != nil {
@@ -330,6 +334,10 @@ func (g *gameShell) loadRetailSavePath(path string) error {
 		return fmt.Errorf("nanolathe: retail save load returned no battle candidate")
 	}
 	sess := loaded.Battle.Session
+	survivalBest, err := restoreSurvivalBest(sidecar.SurvivalBest, sess, g.cs.fs)
+	if err != nil {
+		return err
+	}
 	var campaign *campaignSelection
 	if sess.Mission != nil && sess.Mission.Type == mission.TypeCampaign {
 		side, known := sess.SideForOwner(int(sess.LocalOwner))
@@ -349,6 +357,7 @@ func (g *gameShell) loadRetailSavePath(path string) error {
 	if err != nil {
 		return err
 	}
+	battle.survivalBest = survivalBest
 	// A restored save adopts on the render thread with no loader goroutine,
 	// so the remaster runs inline here and the restore blocks on it. The cache
 	// makes that a file read for any map loaded before; a cold cache costs the
@@ -380,6 +389,9 @@ func (g *gameShell) loadRetailSavePath(path string) error {
 		g.installCampaignSelection(*campaign)
 	}
 	g.importedRetailBattle = true
+	// The post-battle return goes to the setup screen the saved battle came
+	// from: Survival's for a restored Survival battle.
+	g.lastBattleSurvival = sess.IsSurvival()
 	if hasSidecar {
 		g.selectFromSidecar(selection, modPlan.selection, sess)
 	}

@@ -341,6 +341,13 @@ type gameShell struct {
 
 	cam    *camera.Camera
 	battle *battleSession
+
+	// pendingQuick is a quick save or load the battle's keys asked for, and
+	// autosaveBattle and autosaveDue the periodic autosave's clock
+	// (autosave.go).
+	pendingQuick   quickAction
+	autosaveBattle *battleSession
+	autosaveDue    uint32
 }
 
 func (g *gameShell) widgetTimerAdvanced(p *ui.Panel) bool {
@@ -1101,6 +1108,12 @@ func (g *gameShell) step(delta float64, cl *client.Client) {
 		g.battle.joinSimulation(cl)
 		g.battle.syncSimulationMode(cl)
 	}
+	// After the join the session may be read and the battle replaced: the
+	// close button's autosave, then quick saves and the periodic autosave.
+	if g.serviceWindowClose(cl) {
+		return
+	}
+	g.serviceSaveSlots()
 	if g.startupMoviePending {
 		g.startupMoviePending = false
 		reportRetailMessageError(g.startMovie(cl, startupMoviePath, false))
