@@ -191,3 +191,63 @@ func BenchmarkDragAssignDestinations(b *testing.B) {
 		}
 	}
 }
+
+// dragNearestChainFullScan is the plain definition the grid walk must equal:
+// at every step the nearest remaining point, ties to the lower index.
+func dragNearestChainFullScan(start dragPoint, points []dragPoint) []int {
+	taken := make([]bool, len(points))
+	order := make([]int, 0, len(points))
+	from := start
+	for range points {
+		best, bestD := -1, int64(0)
+		for i, p := range points {
+			dx, dz := int64(p.x)-int64(from.x), int64(p.z)-int64(from.z)
+			if d := dx*dx + dz*dz; !taken[i] && (best < 0 || d < bestD) {
+				best, bestD = i, d
+			}
+		}
+		taken[best] = true
+		order = append(order, best)
+		from = points[best]
+	}
+	return order
+}
+
+func TestDragNearestChainWalksOutward(t *testing.T) {
+	// Publication order 300, 100, 200 along a row; a worker at 0 visits
+	// 100, 200, 300 and one at 400 visits 300, 200, 100.
+	points := []dragPoint{{300, 50}, {100, 50}, {200, 50}}
+	if got := dragNearestChain(dragPoint{0, 50}, points); !slices.Equal(got, []int{1, 2, 0}) {
+		t.Fatalf("from the west %v", got)
+	}
+	if got := dragNearestChain(dragPoint{400, 50}, points); !slices.Equal(got, []int{0, 2, 1}) {
+		t.Fatalf("from the east %v", got)
+	}
+	if got := dragNearestChain(dragPoint{}, nil); len(got) != 0 {
+		t.Fatalf("empty %v", got)
+	}
+}
+
+func TestDragNearestChainMatchesFullScan(t *testing.T) {
+	// A fixed linear congruential stream keeps the cases reproducible. Small
+	// coordinate ranges force duplicates and ties; the wide ranges widen the
+	// grid cell; starts far outside the area exercise the first full scan.
+	seed := uint32(12345)
+	next := func(n int32) int32 {
+		seed = seed*1103515245 + 12345
+		return int32((seed >> 8) % uint32(n))
+	}
+	for c, spread := range []int32{8, 300, 2000, 40000, 2000000} {
+		for trial := range 25 {
+			points := make([]dragPoint, 1+next(300))
+			for i := range points {
+				points[i] = dragPoint{next(spread) - spread/3, next(spread) - spread/2}
+			}
+			start := dragPoint{next(3*spread) - spread, next(3*spread) - spread}
+			got, want := dragNearestChain(start, points), dragNearestChainFullScan(start, points)
+			if !slices.Equal(got, want) {
+				t.Fatalf("spread %d trial %d (case %d): grid %v, full scan %v", spread, trial, c, got, want)
+			}
+		}
+	}
+}
