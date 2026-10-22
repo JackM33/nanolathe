@@ -93,6 +93,13 @@ var nlMutatorStats = map[string]nlStat{
 		value: func(_ *content.Catalog, u *content.UnitDef) (float64, bool) {
 			return float64(u.MaxVelocity) / 65536, u.MaxVelocity > 0
 		}, format: func(v float64) string { return strconv.FormatFloat(v, 'f', 2, 64) }},
+	"builderSpeed": {label: "Turn rate", units: []string{"armck", "armcv", "armcom", "corck", "corcv"},
+		value: func(_ *content.Catalog, u *content.UnitDef) (float64, bool) {
+			// A mobile builder's turn rate is the agility the plate can show;
+			// its build-animation timing has no definition field
+			// (DESIGN_MODS_MUTATORS "Builder speed").
+			return float64(uint16(u.TurnRate)), u.Builder && u.BMCode == 1 && uint16(u.TurnRate) > 0
+		}, format: formatInt},
 	"sight": {label: "Sight", units: []string{"armpw", "armbull", "armpeep", "corak", "corfink"},
 		value: func(_ *content.Catalog, u *content.UnitDef) (float64, bool) {
 			return float64(u.SightDistance), u.SightDistance > 0

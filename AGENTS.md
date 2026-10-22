@@ -64,6 +64,10 @@ no RNG and no per-tick state, and it is owned by
 [DESIGN_MODS_MUTATORS](docs/DESIGN_MODS_MUTATORS.md) §6. Strict 3.1 *with no
 mutators* is the retail baseline, and every fingerprint lock runs with none.
 Anything data cannot express is not a mutator and follows the rules above.
+The one exception is Builder speed (user-authorized 2026-10-22): its factor,
+recorded on each builder definition, is read by engine code to run the
+builder's build-animation script functions faster and to start a mobile build
+once in reach, as DESIGN_MODS_MUTATORS "Builder speed" bounds it.
 
 **Survival is a second mode-independent exception (user-authorized
 2026-09-23).** It is a scenario, not a rule: a skirmish session with a

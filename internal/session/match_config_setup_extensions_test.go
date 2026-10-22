@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"reflect"
 	"testing"
+
+	"github.com/nanolathe-gg/nanolathe/internal/content"
 )
 
 // Typed choices and raw known records resolve to one value. Opaque optional
@@ -99,5 +101,75 @@ func TestSetupExtensionsRefuseOptionalOrMalformedGameplay(t *testing.T) {
 		if _, err := ResolveMatchConfig(survival); err == nil {
 			t.Fatal("Survival accepted a skirmish gameplay-choice extension")
 		}
+	}
+}
+
+// Builder speed has its own step list, which field 11's frozen step indices
+// cannot spell, so it travels as required extension 19: one u8 index on
+// content.BuilderSpeedSteps, omitted for the identity
+// (docs/DESIGN_MODS_MUTATORS.md "Builder speed"). A configuration without it
+// keeps its exact bytes.
+func TestBuilderSpeedTravelsAsExtension19(t *testing.T) {
+	r := validMatchRequest(t)
+	base := encodeMatchForTest(t, resolveMatch(t, r))
+	r.Mutators.BuilderSpeed = content.Factor{Num: 1, Den: 1}
+	if got := encodeMatchForTest(t, resolveMatch(t, r)); !bytes.Equal(got, base) {
+		t.Fatal("the identity spelled 1/1 wrote an extension")
+	}
+	if resolveMatch(t, r).Request().Mutators.BuilderSpeed != (content.Factor{}) {
+		t.Fatal("the identity did not resolve to the zero factor")
+	}
+	r.Mutators.BuilderSpeed = content.Factor{Num: 5, Den: 1}
+	c := resolveMatch(t, r)
+	payload := withMatchTailForTest(base, append(extensionRecordForTest(19, 1, []byte{3}), 0))
+	if !bytes.Equal(encodeMatchForTest(t, c), payload) {
+		t.Fatal("Builder speed did not follow field 16 as extension 19")
+	}
+	back, err := DecodeMatchConfig(payload)
+	if err != nil || back.Digest() != c.Digest() || back.Request().Mutators.BuilderSpeed != (content.Factor{Num: 5, Den: 1}) {
+		t.Fatalf("Builder speed did not round-trip: %v", err)
+	}
+	q := validMatchRequest(t)
+	q.Extensions = []MatchConfigExtension{{ID: 19, Required: true, Data: []byte{3}}}
+	if got := resolveMatch(t, q); got.Digest() != c.Digest() || !reflect.DeepEqual(got.Request(), c.Request()) {
+		t.Fatal("the raw record did not project into the typed factor")
+	}
+	q.Mutators.BuilderSpeed = content.Factor{Num: 3, Den: 1}
+	if _, err := ResolveMatchConfig(q); err == nil {
+		t.Fatal("conflicting typed and raw Builder speed resolved")
+	}
+	for _, bad := range []content.Factor{{Num: 4, Den: 1}, {Num: 1, Den: 2}} {
+		q = validMatchRequest(t)
+		q.Mutators.BuilderSpeed = bad
+		if _, err := ResolveMatchConfig(q); err == nil {
+			t.Fatalf("Builder speed %+v off its step list resolved", bad)
+		}
+	}
+	if _, err := resolveMatchConfig(r, 1); err == nil {
+		t.Fatal("a version 1 configuration carried Builder speed")
+	}
+	// A mutator applies in Survival as in skirmish.
+	survival := validSurvivalRequest(t)
+	survival.Mutators.BuilderSpeed = content.Factor{Num: 20, Den: 1}
+	if _, err := ResolveMatchConfig(survival); err != nil {
+		t.Fatalf("Survival refused Builder speed: %v", err)
+	}
+	for _, tc := range []struct {
+		name  string
+		flags byte
+		data  []byte
+	}{
+		{"optional", 0, []byte{3}},
+		{"identity index", 1, []byte{0}},
+		{"index past the list", 1, []byte{6}},
+		{"short", 1, nil},
+		{"extra", 1, []byte{3, 0}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			payload := withMatchTailForTest(base, append(extensionRecordForTest(19, tc.flags, tc.data), 0))
+			if c, err := DecodeMatchConfig(payload); err == nil || c.Digest() != ([32]byte{}) {
+				t.Fatalf("malformed Builder speed extension accepted: %v", err)
+			}
+		})
 	}
 }
