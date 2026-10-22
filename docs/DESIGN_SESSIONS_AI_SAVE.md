@@ -2821,6 +2821,83 @@ fingerprint lock moves.
 `utility.TestBreachSendsOneConstructor` and
 `utility.TestWallSegmentCrossesTheApproach`.
 
+#### Modern AI profile bans
+
+**Nanolathe Modern AI policy, user-authorized 2026-10-21 (issue #148).**
+The Modern AI does not build an economy producer that the content's
+default AI profile (`ai/default.txt`) limits to none under every
+difficulty. Economy producers are extractors, energy producers, metal
+makers and storage. Like the other Modern AI policies, it applies in every
+gameplay mode, including Strict 3.1. It extends the per-player controller
+exception, not the rule registry.
+
+**Why.** Content can ship a unit only so that old recordings play back, and
+forbid it to every computer player through its AI profiles. TA Unofficial
+Patch 3.9.02 adds the four McnTerra-NS units (QUARK, FLUXOR, ACKFUS and
+ARMAIVP) to the build menus this way. Its `ai/default.txt` limits them to
+none in the easy, medium and hard plans. QUARK and FLUXOR build in one tick
+and yield 25–30 metal and 500–600 energy per second. A Modern AI that took
+the menus as offered chose them over every stock producer. In five-minute
+skirmishes of two Modern AI players on three maps, each player held 5–13 of
+them, and its economy ran away.
+
+**Classic baseline.** Unchanged. The retail planner honours every limit of
+its map's profile under its difficulty's plan `[08 R-AI-01 §12]`. It never
+reads the Modern AI's table.
+
+**Which limits.** Only the content-wide ones.
+
+- A map's own profile tunes the planner for that map, and its limits of
+  none cover stock producers: `waterwrld` limits the land extractors and
+  power plants, `metal` the metal makers, and `acid` the tidal and
+  underwater economy.
+- One plan's limits tune one difficulty: the default profile's easy plan
+  limits the cloakable and underwater fusion plants.
+
+The Modern AI reads the map itself and takes its difficulty from its
+persona, so it honours neither kind of limit. A producer is banned when, for
+each of easy, medium and hard, that difficulty's plan or the `any` plan of
+the default profile names it, and each plan that names it limits it to 0.
+The limit directive applies only to computer slots `[08 R-AI-01 §12]`, and a
+Modern player always is one.
+
+- On a 3.1 install this bans only the geothermal plants (ARMGEO, CORGEO),
+  which no Modern brain builds.
+- With TA Unofficial Patch 3.9.02 it also bans the four McnTerra-NS units,
+  on every map.
+
+**Decision.** When it builds the table, `banForbidden` marks those
+producers and takes them out of every build list. The Modern AI then plays
+as if the content's menus did not offer them, as with a definition that a
+restriction of 0 removes from the battle catalog. Should a layer reach a
+marked product another way, `Kit.Allowance` answers 0 for it and the kit
+never emits a placement, factory or replacement request for it.
+
+**Boundaries and verification.** Only economy producers are banned. The
+profiles' other limits of none (walls, which Survival builds, nukes,
+anti-nukes, transports) are left to the Modern AI, which is meant to use
+every unit. No random draw, resource charge, rule seam or saved state is
+added. The marks are derived from the battle catalog, which every client of
+an online room shares, and a load rebuilds them with the host's table.
+Classic players never read the table.
+
+Tests:
+
+- `aikit.TestModernAIProfileBans`: the table bans what every difficulty
+  limits to none, through each difficulty's plan or the `any` plan, and
+  nothing one plan limits alone, nothing limited above none and no other
+  role. No build list holds a banned product, it has no allowance, and it is
+  never requested.
+- `aikit.TestModernAIHonoursProfileBansRetail`: over the retail default
+  profile the table bans the geothermal plants and no stock producer. With
+  Arm's solar and wind plants limited to none in a cloned catalog's default
+  profile, no build list offers them, and Arm's Modern player never holds
+  one in a skirmish where it otherwise builds them.
+
+On a TA Unofficial Patch install, `aikit.TestModernAIMeetsRestrictionCapsRetail`
+and `aikit.TestSurvivalBuddyMeetsItsOwnCapRetail` pass with the ban. They
+failed there on the runaway economy.
+
 #### Modern AI damage hints
 
 **Nanolathe Modern AI policy** (made for the faction add-ons,

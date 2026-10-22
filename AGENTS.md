@@ -212,6 +212,7 @@ and [Modern AI infector focus](docs/DESIGN_SESSIONS_AI_SAVE.md#modern-ai-infecto
 [Modern AI restriction caps](docs/DESIGN_SESSIONS_AI_SAVE.md#modern-ai-restriction-caps), and
 [Modern AI page products](docs/DESIGN_SESSIONS_AI_SAVE.md#modern-ai-page-products), and
 [Modern AI walls](docs/DESIGN_SESSIONS_AI_SAVE.md#modern-ai-walls) (user-authorized 2026-10-20), and
+[Modern AI profile bans](docs/DESIGN_SESSIONS_AI_SAVE.md#modern-ai-profile-bans), and
 [chosen start positions](docs/DESIGN_SESSIONS_AI_SAVE.md#modern-chosen-start-positions),
 [extra start positions](docs/DESIGN_SESSIONS_AI_SAVE.md#modern-extra-start-positions) and
 [allied sight](docs/DESIGN_SESSIONS_AI_SAVE.md#modern-allied-sight) (user-authorized
