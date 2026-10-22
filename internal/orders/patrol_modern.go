@@ -11,8 +11,9 @@ type patrolOutcome uint8
 const (
 	patrolFailure patrolOutcome = iota
 	patrolSuccess
-	// patrolNeutral is a reclaim whose feature disappeared, or was replaced
-	// by its successor, before the job could pay: no fault of the target.
+	// patrolNeutral is a reclaim whose feature disappeared, was replaced by
+	// its successor or began animating, or a unit someone else finished or
+	// healed first, before the job could pay: no fault of the target.
 	patrolNeutral
 )
 
