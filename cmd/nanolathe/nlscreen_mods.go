@@ -191,6 +191,7 @@ func (s *nlScreen) drawCatalog(screen *ebiten.Image) {
 		st := screenkit.Style{Size: 11 * u, Top: nlBody}
 		room := bx - 16*u - (rr.X + 16*u)
 		lines := s.ui.wrap(bf, e.Summary, st, room)
+		st.Verbatim = true // the wrapped lines are translated already
 		for li, line := range lines[:min(2, len(lines))] {
 			if li == 1 && len(lines) > 2 {
 				line = s.ui.text(nlTextKey{kind: "catalog summary cut", a: e.Summary, i: int(room)}, func() string {

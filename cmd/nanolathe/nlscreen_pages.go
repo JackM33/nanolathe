@@ -37,6 +37,7 @@ type nlDraft struct {
 	// copy to the shell (DESIGN_INTERFACE_HUD_INPUT §3.6 "Rebinding").
 	keys          *input.KeyMap
 	interfaceType int
+	language      int // index into i18n.Languages (language.go)
 	// restrictions is the unit restriction set's canonical String
 	// (docs/DESIGN_MODS_MUTATORS.md §15.9), "" for none: a string keeps the
 	// draft comparable, and two sets with equal strings are Equal.
@@ -287,6 +288,7 @@ func (s *nlScreen) gameCards() []nlCard {
 			enhanced: true,
 		},
 		s.sidebarCard(),
+		s.languageCard(),
 	}
 }
 
