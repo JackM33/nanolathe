@@ -64,7 +64,7 @@ func (p *idlePresentation) stopTimer() {
 // Only this timer's event can service audio without waking presentation. Real
 // input, close, resize and focus changes still take the ordinary host path.
 func (a *app) serviceResting() (bool, *sampledInput) {
-	if !a.idle.sleeping || !a.idle.maintenance.Swap(false) || a.idle.layoutChanged ||
+	if !a.idle.sleeping || !a.closeRequested.IsZero() || !a.idle.maintenance.Swap(false) || a.idle.layoutChanged ||
 		ebiten.IsWindowBeingClosed() || ebiten.IsFocused() != a.c.IsFocused() || ebiten.IsFullscreen() != a.fullscreen {
 		return false, nil
 	}
@@ -129,7 +129,7 @@ func (a *app) restPresentation() {
 		return
 	}
 	eligible := a.c.PresentationPaused() && !a.c.ArrivalActive() &&
-		!a.screenActive() && !a.overlayActive() && a.trace == nil && !a.exitPending && len(a.hostSamples) == 0
+		!a.screenActive() && !a.overlayActive() && a.trace == nil && !a.exitPending && a.closeRequested.IsZero() && len(a.hostSamples) == 0
 	if a.options.IdleAllowed != nil {
 		eligible = eligible && a.options.IdleAllowed()
 	}

@@ -28,6 +28,9 @@ func (a *app) serviceWindowCloseAt(now time.Time) {
 			return
 		}
 		a.closeRequested = now
+		// Parallel recorders copy the Client, including this flag. Respect
+		// their publication barrier before notifying the host (§13.10).
+		a.c.JoinPreRecord()
 		a.c.NoteWindowClosing()
 		return
 	}

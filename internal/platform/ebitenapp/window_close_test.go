@@ -4,6 +4,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/nanolathe-gg/nanolathe/internal/client"
 )
 
@@ -40,5 +41,66 @@ func TestWindowCloseIsHandedToTheGameThenForced(t *testing.T) {
 	a.serviceWindowCloseAt(start.Add(windowCloseGrace + time.Millisecond))
 	if !a.exitPending {
 		t.Fatal("a game that never answered kept the window open")
+	}
+}
+
+func TestPendingWindowCloseCannotRestBeforeHostStep(t *testing.T) {
+	c, err := client.New(client.Options{Width: 32, Height: 32})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(c.Close)
+	c.SetPresentationPaused(true)
+	c.SetFocused(ebiten.IsFocused())
+	a := &app{c: c, fullscreen: ebiten.IsFullscreen()}
+	// The close can arrive between due host steps, after the paused view has
+	// settled. Keep rendering until its host step answers or grace expires.
+	view := c.PresentationDigest()
+	view.Epoch, view.Committed = 0, nil
+	view.TickFraction16, view.CameraFraction16 = 0, 0
+	a.idle.valid, a.idle.view, a.idle.quietAt = true, view, time.Now().Add(-2*pausedIdleDelay)
+	old := windowBeingClosed
+	windowBeingClosed = func() bool { return true }
+	t.Cleanup(func() { windowBeingClosed = old })
+	a.serviceWindowCloseAt(time.Now())
+	a.restPresentation()
+	t.Cleanup(a.idle.stopTimer)
+	if a.idle.sleeping {
+		t.Fatal("pending close slept before the shell could save and exit")
+	}
+	a.idle.sleeping = true
+	a.idle.maintenance.Store(true)
+	if resting, _ := a.serviceResting(); resting {
+		t.Fatal("audio maintenance bypassed a pending close")
+	}
+}
+
+func TestWindowCloseWaitsForRecorderBeforeNotifying(t *testing.T) {
+	c, err := client.New(client.Options{Width: 32, Height: 32})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(c.Close)
+	stage := lifecycleBlockingUI{make(chan struct{}), make(chan struct{})}
+	c.SetUIStage(stage)
+	c.StartPreRecord(0, 0, false)
+	<-stage.entered
+	old := windowBeingClosed
+	windowBeingClosed = func() bool { return true }
+	t.Cleanup(func() { windowBeingClosed = old })
+	a := &app{c: c}
+	done := make(chan struct{})
+	go func() { a.serviceWindowCloseAt(time.Now()); close(done) }()
+	early := false
+	select {
+	case <-done:
+		early = true
+	case <-time.After(20 * time.Millisecond):
+	}
+	close(stage.release)
+	<-done
+	c.CancelPreRecord()
+	if early || !c.WindowClosing() {
+		t.Fatal("close notification failed to join the recorder before changing the client")
 	}
 }
