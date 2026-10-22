@@ -1654,17 +1654,19 @@ sidecar. A sidecar whose bank is missing is ignored.
 `mod` is `null` when no mod was selected, and the string `custom` for a manual
 root stack. `unitLimit` is the configured unit-limit word, the one that sizes
 a battle. `catalog` and `contentManifest` are the battle catalog's identity
-after mutators and the mounted set's manifest hash. A sidecar with another
+after mutators and the mounted set's manifest hash. A sidecar with an unsupported
 `schema`, or one that does not parse, refuses the load rather than being read
 as absent, which would silently drop the selection it records. A battle with
 unit restrictions adds `"restrictions": {"armkrog": 0, "armpw": 20}` and is
-written as schema 2, so that a build reading only schema 1 refuses it rather
-than restoring the bank without them; every other sidecar stays schema 1
-(§15.5). A battle with official add-ons adds
+written as schema 2 when it has neither official add-ons nor a Survival
+director, so that a build reading only schema 1 refuses it rather than
+restoring the bank without them (§15.5). A battle with official add-ons adds
 `"addons": [{"id": "cavedog-bonus-units", "version": "original", "sha256": "…"}]`,
-each with its content digest (§5.7), and is written as schema 3, with or
-without restrictions, so that a build that cannot restore them refuses the
-load. `contentProfile`
+each with its content digest (§5.7), and is written as schema 3 when it has
+no Survival director, with or without restrictions, so that a build that
+cannot restore them refuses the load. A Survival director selects schema 4,
+with or without restrictions and add-ons. A sidecar with none of these
+three records stays schema 1. `contentProfile`
 is the mounted content's report name: the running config's id, or `retail`
 for content without one. `community` records the session's Community sources and its
 battle-entry table (`Session.CommunitySources`, `Session.EntryCommunity`), so
@@ -1689,8 +1691,15 @@ radar (DESIGN_SESSIONS_AI_SAVE "Modern allied sight"), makes the load rebuild
 those teams; like `ai` it leaves the schema alone, so an older build loads the
 bank with sight kept separate. `survival`, present when the battle is a
 Survival battle, is the wave director's record (`session.SurvivalRecord`,
-DESIGN_SURVIVAL §11). It is also kept as raw JSON and leaves the schema
-alone; a record of another version refuses the load.
+DESIGN_SURVIVAL §11). It is kept as raw JSON and requires schema 4, so a build
+that cannot restore the director refuses the load rather than loading an
+ordinary skirmish. Schema 4 requires a non-null `survival` record; schemas
+1–3 refuse any `survival` field, including null. The optional `survivalBest`
+field is the host's personal-best eligibility record (DESIGN_SURVIVAL §11),
+also kept as raw JSON; it is valid only with schema 4 and its non-null
+director. The save package checks these structural combinations on both
+write and read. The record owners validate their versions and contents;
+an unsupported director or eligibility record refuses the load.
 
 ### 7.3 Loading
 
@@ -1953,6 +1962,7 @@ dependencies.
 | Under Strict 3.1, Income scales a generator's and a solar collector's settlement production k-fold and leaves a self-powered unit neutral; Unit speed shortens a straight move to about 1/k of the ticks; Fire rate builds a stockpile round in 1/k of the ticks at the authored cost (relationships) | `session.TestStrictIncomeScalesSettlementProduction`, `session.TestStrictUnitSpeedShortensAStraightMove`, `session.TestFireRateStockpilesAtEqualCost` |
 | At the extreme steps on the stock catalog: no aircraft's flight decay reaches zero under Unit speed, and no metal deposit is scaled | `session.TestStockCatalogUnderExtremeSteps` (retail tier) |
 | Sidecar round trip; a load without one behaves as today; a load restores rule set, Community sources and entry table, unit limit and mutators, and selects the recorded mod and mutators (P6); bank bytes unchanged | `save.TestSidecarRoundTripsEveryModSpelling`, `save.TestSidecarRefusesAnotherSchemaAndMalformedFiles`, `main.TestSaveSidecarRestoresTheRecordedSelection` (retail tier) |
+| A Survival director selects schema 4 even with restrictions or add-ons; schemas 1–3 reject a Survival field, schema 4 requires a non-null director, and personal-best eligibility requires that director; ordinary save schemas are unchanged | `save.TestSidecarSchemaFollowsSurvival`, `save.TestSidecarRefusesUnsupportedSurvivalCombinations`, `save.TestWriteSidecarRefusesInvalidSurvivalCombinations` |
 | A save made under another installed mod reloads onto it and then restores; one whose mod is not installed is refused, naming it | `main.TestLoadingAnotherModsSaveSwitchesToItFirst`, `main.TestSaveSidecarRestoresTheRecordedSelection` (retail tier) |
 | The reclaim-pulse product at the maximum step for the stock catalog (§6.5) | `content`, retail tier |
 | Chip on retail, ProTA and Escalation menus; Mods & Mutators screen and the *Get more mods* dialog; loading-screen lines | `--shot` captures, reviewed |
@@ -2394,11 +2404,13 @@ Rebuilding them over the filtered table, for both filters, is a follow-up
 - **Sidecar.** `save.Sidecar.Restrictions` (`map[string]int`,
   `"restrictions": {"armkrog": 0, "armpw": 20}`), written from
   `Session.Restrictions.Map()` by `session.SaveSidecar` when the battle has a
-  set. A sidecar carrying it is written as schema 2 (proposal R-P7): a build
+  set. Without official add-ons or a Survival director, a sidecar carrying
+  it is written as schema 2 (proposal R-P7): a build
   that reads only schema 1 refuses it (§7.2), where it would otherwise load
   the bank without the restrictions and misread its definition indices. A
-  sidecar without restrictions stays schema 1, so every other save remains
-  readable by older builds. This build reads both; a schema-1 sidecar with
+  sidecar without restrictions, add-ons or Survival stays schema 1, so
+  ordinary saves remain readable by older builds. Add-ons and Survival select the higher schemas
+  in §7.2, which also permit restrictions. A schema-1 sidecar with
   `restrictions`, or a schema-2 sidecar without a non-empty one, is malformed.
 - **Load.** §7.3 step 6 re-checks the recorded set against the restore's base
   catalog (§15.3: an issue refuses the load), applies it before the
@@ -2586,7 +2598,7 @@ The user approved all twelve as written on 2026-10-05.
 | R-P4 | An entry the content cannot take stops a `--restrict` command, is left out with a notice from the settings, refuses a save's load, and rejects a field-12 configuration | §15.3 |
 | R-P5 | `restrictions` is a mod-scoped, atomic settings path (per mod, inherited from the base when a mod has none); a mod's config cannot recommend restrictions | §15.9 |
 | R-P6 | Loading a save makes its recorded restrictions the running content's setting, as P6 does for mutators | §15.5 |
-| R-P7 | A sidecar with restrictions is written as schema 2, every other sidecar stays schema 1 | §15.5 |
+| R-P7 | Without official add-ons or a Survival director, a sidecar with restrictions is written as schema 2 and otherwise stays schema 1; §7.2 owns higher schemas | §15.5 |
 | R-P8 | The card sits on the Mutators tab and opens the editor; the viewer opened with Ctrl+U gains *Apply* | §15.9 |
 | R-P9 | Survival plans a capped unit as before and drops a refused pick, with no re-pick; the wave keeps its planned budget for scoring; a unit reachable only through a removed builder leaves the pool; a roster loses its removed entries | §15.6 |
 | R-P10 | The Modern AI's cap is its own slice's count, plus its own requests that have no record yet; the executor drops a command whose product's cap was reached in the reaction window | §15.7, [DESIGN_SESSIONS_AI_SAVE](DESIGN_SESSIONS_AI_SAVE.md#modern-ai-restriction-caps) |
@@ -2612,7 +2624,7 @@ checked under Strict 3.1 and under Modern unless the row says otherwise.
 | Survival: a removed unit never enters the pool or a plan; a capped attacker pick is refused, dropped, not retried and draws nothing; the wave plan's draws are unchanged by a cap; a roster that loses its only tier-1 opener refuses entry naming the restrictions | `survival`, `session` |
 | Classic computer player against a capped product: refused, retried after 300 ticks, no other change | `session` (retail tier) |
 | Modern AI: a candidate at its cap is not chosen; its pending requests count; a stale capped command is dropped by the executor; synchronous and asynchronous hosts agree | `aikit` (see [Modern AI restriction caps](DESIGN_SESSIONS_AI_SAVE.md#modern-ai-restriction-caps)) |
-| Sidecar: schema 2 with restrictions and schema 1 without; a save and load restores the restricted index space and selects the set; an unknown recorded unit refuses the load | `save`, `main` (retail tier) |
+| Sidecar: without add-ons or Survival, schema 2 with restrictions and schema 1 without; a save and load restores the restricted index space and selects the set; an unknown recorded unit refuses the load | `save`, `main` (retail tier) |
 | Settings: the per-mod layer replaces the base set whole; a name the content lacks is left out with the notice; a mod config naming `restrictions` is refused | `settings`, `modlibrary`, `main` |
 | Flags: `--restrict` replaces the saved set, `none`, the refusals of §15.5; capture and benchmark modes never read the key | `main`, `nanolathe-headless` |
 | Editor and card: row states, stepper ends and the start at 1 from *No limit*, Reset emptying the set, *Restricted only*, draft and *Apply*/*Back* from both entries; captures of the card and the editor reviewed | `main`, `--shot` |
