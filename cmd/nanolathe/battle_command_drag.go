@@ -246,7 +246,7 @@ func (b *battleSession) serviceCommandDrag(in *input.State, cl *client.Client, m
 			if len(targets) == 0 {
 				return true
 			}
-			_ = b.DispatchOrderCommand(session.HumanOrderCommand{Handles: b.selectedHandlesInSlotOrder(), Code: hud.LatchToCode(d.latch), Targets: targets, Queued: modifiers.Shift})
+			b.dispatchAreaWork(f, hud.LatchToCode(d.latch), targets, modifiers.Shift)
 		default:
 			actors := b.dragMoveActors(f)
 			points := make([]dragPoint, len(actors))
@@ -464,6 +464,42 @@ func (b *battleSession) dragAreaTargets(f *committedframe.Frame, d *battleComman
 		}
 	}
 	return out
+}
+
+// dispatchAreaWork gives each selected worker its own copy of an area's work
+// list, ordered as a nearest-next walk from where the worker stands, so it
+// works through the area instead of crossing it in publication order
+// (DESIGN_INTERFACE_HUD_INPUT §3.11). Each actor already works through an area
+// list on its own, so one command per actor changes only the visiting order.
+// Repair and reclaim are nanolathe work for a `canreclamate` definition
+// [04 R-ORD-02 §1]; every other actor, and one this frame cannot place or
+// name, shares one command in the published order, exactly as before.
+func (b *battleSession) dispatchAreaWork(f *committedframe.Frame, code int, targets []session.HumanOrderTarget, queued bool) {
+	points := make([]dragPoint, len(targets))
+	for i := range targets {
+		points[i] = dragPoint{int32(targets[i].Position.X.Floor()), int32(targets[i].Position.Z.Floor())}
+	}
+	var others []pool.Handle
+	for _, h := range b.selectedHandlesInSlotOrder() {
+		v, found := snapshotUnitByHandle(f, h)
+		var def *content.UnitDef
+		if found && b.cat != nil {
+			def, found = b.cat.Unit(v.DefName)
+		}
+		if !found || def == nil || !def.CanReclamate {
+			others = append(others, h)
+			continue
+		}
+		walk := dragNearestChain(dragPoint{int32(v.X.Floor()), int32(v.Z.Floor())}, points)
+		mine := make([]session.HumanOrderTarget, len(walk))
+		for i, j := range walk {
+			mine[i] = targets[j]
+		}
+		_ = b.DispatchOrderCommand(session.HumanOrderCommand{Handles: []pool.Handle{h}, Code: code, Targets: mine, Queued: queued})
+	}
+	if len(others) != 0 {
+		_ = b.DispatchOrderCommand(session.HumanOrderCommand{Handles: others, Code: code, Targets: targets, Queued: queued})
+	}
 }
 
 func dragGroundPosition(cl *client.Client, p dragPoint) orders.ResolvePos {

@@ -200,3 +200,96 @@ func dragAssignDestinations(actors, destinations []dragPoint) []dragPoint {
 	}
 	return assigned
 }
+
+// dragNearestChain is the order one worker visits an area's targets in
+// (DESIGN_INTERFACE_HUD_INPUT §3.11, Nanolathe input policy): from start it
+// takes the nearest remaining point, then the point nearest that one, and so
+// on. Distances are exact squared whole-unit distances, with ties to the lower
+// index, so the walk is the same as a full scan at every step. It returns
+// indices into points. A uniform grid keeps a large forest drag well below
+// quadratic work.
+func dragNearestChain(start dragPoint, points []dragPoint) []int {
+	n := len(points)
+	order := make([]int, 0, n)
+	if n == 0 {
+		return order
+	}
+	minX, minZ, maxX, maxZ := points[0].x, points[0].z, points[0].x, points[0].z
+	for _, p := range points[1:] {
+		minX, maxX = min(minX, p.x), max(maxX, p.x)
+		minZ, maxZ = min(minZ, p.z), max(maxZ, p.z)
+	}
+	// Cells of at least 64 world units, widened so a side has at most 256.
+	span := max(int64(maxX)-int64(minX), int64(maxZ)-int64(minZ)) + 1
+	cell := max(int64(64), (span+255)/256)
+	cols := int((int64(maxX)-int64(minX))/cell) + 1
+	rows := int((int64(maxZ)-int64(minZ))/cell) + 1
+	cellOf := func(p dragPoint) (int, int) {
+		return int((int64(p.x) - int64(minX)) / cell), int((int64(p.z) - int64(minZ)) / cell)
+	}
+	buckets := make([][]int32, cols*rows)
+	where := make([]int32, n) // each point's position inside its bucket
+	for i, p := range points {
+		cx, cz := cellOf(p)
+		b := cz*cols + cx
+		where[i] = int32(len(buckets[b]))
+		buckets[b] = append(buckets[b], int32(i))
+	}
+	remove := func(i int) {
+		cx, cz := cellOf(points[i])
+		b := cz*cols + cx
+		list := buckets[b]
+		last := list[len(list)-1]
+		list[where[i]], where[last] = last, where[i]
+		buckets[b] = list[:len(list)-1]
+	}
+	dist := func(a, b dragPoint) int64 {
+		dx, dz := int64(a.x)-int64(b.x), int64(a.z)-int64(b.z)
+		return dx*dx + dz*dz
+	}
+	best, bestD := -1, int64(0)
+	consider := func(from dragPoint, i int) {
+		if d := dist(from, points[i]); best < 0 || d < bestD || (d == bestD && i < best) {
+			best, bestD = i, d
+		}
+	}
+	// The worker may stand far outside the area, so its first pick scans all.
+	for i := range points {
+		consider(start, i)
+	}
+	for {
+		order = append(order, best)
+		remove(best)
+		if len(order) == n {
+			return order
+		}
+		from := points[best]
+		cx, cz := cellOf(from)
+		reach := max(cx, cols-1-cx, cz, rows-1-cz)
+		best = -1
+		for r := 0; r <= reach; r++ {
+			// A point in ring r lies more than (r−1)·cell away on one axis, so
+			// once the best is that close no farther ring can beat or tie it.
+			if bound := int64(r-1) * cell; r > 0 && best >= 0 && bestD <= bound*bound {
+				break
+			}
+			for z := cz - r; z <= cz+r; z++ {
+				if z < 0 || z >= rows {
+					continue
+				}
+				step := 2 * r // interior rows visit only the ring's two ends
+				if z == cz-r || z == cz+r || r == 0 {
+					step = 1
+				}
+				for x := cx - r; x <= cx+r; x += step {
+					if x < 0 || x >= cols {
+						continue
+					}
+					for _, i := range buckets[z*cols+x] {
+						consider(from, int(i))
+					}
+				}
+			}
+		}
+	}
+}
