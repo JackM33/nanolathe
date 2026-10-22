@@ -1362,10 +1362,14 @@ floating point and no map iteration, and every walk follows the binding's
 stable unit and feature order [I1] [I2] [I4].
 
 **Checkpoint and save.** Canonical capture writes `patrolWork` in the queue's
-lexical field position, after `ownedHandlers`: all eight slots in slot order
-(`cx`, `cz`, `handle`, `kind`, and `unit` as a typed allocation reference),
-then `next` and `scanDue`. Each node writes `workFactory` as an allocation
-reference between `workAssignment` and `workReturn`. Collection discovers
+lexical field position, after `ownedHandlers`, behind a presence flag: the
+zero state, which Strict 3.1 and Community never leave, is the single false
+flag the former pause byte occupied. Present, it writes all eight slots in
+slot order (`cx`, `cz`, `handle`, `kind`, and `unit` as a typed allocation
+reference), then `next` and `scanDue`. Each node writes `workFactory` as an
+allocation reference, null outside a Modern product job, between
+`workAssignment` and `workReturn`, in place of the former return-arrival
+flag. Collection discovers
 remembered and factory units, retired ones included. The former
 `patrolWorkPaused` and return-arrival receipts are removed. The parity trace
 adds `patrol-memory`, `patrol-work` and `work-factory` lines only when they are

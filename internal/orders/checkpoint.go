@@ -312,10 +312,18 @@ func writeQueueCheckpoint(e *checkpoint.Encoder, c *CheckpointContext, q *Queue,
 	}
 }
 
-// Expanded patrolWorkState: entries, next, scanDue. The fixed memory retains
-// every slot in slot order, empty ones included. Entries: cx, cz, handle,
-// kind, unit (DESIGN_UNITS_ORDERS_COB "Smarter patrol — 2026-10-22").
+// Expanded patrolWorkState: a presence flag, then entries, next, scanDue.
+// The zero state, which Strict 3.1 and Community never leave, stays absent
+// behind the flag, as empty handler storage does. Present, the fixed memory
+// retains every slot in slot order, empty ones included. Entries: cx, cz,
+// handle, kind, unit (DESIGN_UNITS_ORDERS_COB "Smarter patrol — 2026-10-22").
 func writePatrolWorkCheckpoint(e *checkpoint.Encoder, c *CheckpointContext, s *patrolWorkState, path string) {
+	e.Field(path)
+	present := *s != patrolWorkState{}
+	e.Bool(present)
+	if !present {
+		return
+	}
 	for i, entry := range s.entries {
 		p := fmt.Sprintf("%s.entries[%d]", path, i)
 		e.Field(p + ".cx")
