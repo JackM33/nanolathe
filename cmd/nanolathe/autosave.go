@@ -94,8 +94,15 @@ func (g *gameShell) writeSlotSave(name string) error {
 		if err != nil {
 			return err
 		}
-		_, err = save.DecodeBattleImage(bank)
-		return err
+		if _, err := save.DecodeBattleImage(bank); err != nil {
+			return err
+		}
+		if _, present, err := save.ReadSidecar(staged); err != nil {
+			return err
+		} else if !present {
+			return fmt.Errorf("nanolathe: %s not written: staged sidecar missing: logical path %s, providers searched [save directory], expected a complete bank and sidecar", name, staged)
+		}
+		return nil
 	}, os.Rename)
 }
 

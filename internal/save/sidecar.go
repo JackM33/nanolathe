@@ -49,8 +49,19 @@ const SidecarSchemaAddons = 3
 // the bank as an ordinary skirmish.
 const SidecarSchemaSurvival = 4
 
-// sidecarMaxBytes bounds a read: a sidecar is a few kilobytes at most.
+// sidecarMaxBytes bounds ordinary selection records. A Survival director also
+// carries the whole planned wave and its history, so schema 4 has a larger
+// bounded allowance (DESIGN_MODS_MUTATORS §7.2). Writers enforce the same bound
+// as readers before replacing any file.
 const sidecarMaxBytes = 1 << 20
+const survivalSidecarMaxBytes = 16 << 20
+
+func sidecarByteLimit(schema int) int {
+	if schema == SidecarSchemaSurvival {
+		return survivalSidecarMaxBytes
+	}
+	return sidecarMaxBytes
+}
 
 // SidecarMod names the installed mod a save was written under.
 type SidecarMod struct {
@@ -207,6 +218,9 @@ func WriteSidecar(bankPath string, s Sidecar) error {
 	}
 	data = append(data, '\n')
 	target := SidecarPath(bankPath)
+	if len(data) > sidecarByteLimit(s.Schema) {
+		return sidecarError(target, fmt.Sprintf("file is larger than %d MiB", sidecarByteLimit(s.Schema)>>20))
+	}
 	tmp, err := os.CreateTemp(filepath.Dir(target), "."+filepath.Base(target)+".*")
 	if err != nil {
 		return err
@@ -247,12 +261,23 @@ func ReadSidecar(bankPath string) (Sidecar, bool, error) {
 		return Sidecar{}, false, err
 	}
 	defer file.Close()
-	data, err := io.ReadAll(io.LimitReader(file, sidecarMaxBytes+1))
+	data, err := io.ReadAll(io.LimitReader(file, survivalSidecarMaxBytes+1))
 	if err != nil {
 		return Sidecar{}, false, err
 	}
-	if len(data) > sidecarMaxBytes {
-		return Sidecar{}, false, sidecarError(path, "file is larger than 1 MiB")
+	if len(data) > survivalSidecarMaxBytes {
+		return Sidecar{}, false, sidecarError(path, "file is larger than 16 MiB")
+	}
+	// Decode just the schema before allocating the record's arrays and maps.
+	// Older schemas retain their existing limit and compatibility guarantee.
+	var header struct {
+		Schema int `json:"schema"`
+	}
+	if err := json.Unmarshal(data, &header); err != nil {
+		return Sidecar{}, false, sidecarError(path, err.Error())
+	}
+	if len(data) > sidecarByteLimit(header.Schema) {
+		return Sidecar{}, false, sidecarError(path, fmt.Sprintf("file is larger than %d MiB", sidecarByteLimit(header.Schema)>>20))
 	}
 	var s Sidecar
 	if err := json.Unmarshal(data, &s); err != nil {

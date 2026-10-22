@@ -1701,6 +1701,12 @@ director. The save package checks these structural combinations on both
 write and read. The record owners validate their versions and contents;
 an unsupported director or eligibility record refuses the load.
 
+Ordinary sidecars are limited to 1 MiB. Schema 4 permits up to 16 MiB because
+its planned wave and history grow during a Survival battle. The writer and
+reader enforce the same byte limit; an oversized record is a reported save
+failure. Automatic slots validate the staged bank and sidecar before replacing
+the previous checkpoint (DESIGN_SESSIONS_AI_SAVE §5).
+
 ### 7.3 Loading
 
 1. **No sidecar**, as with retail saves and older Nanolathe saves: behave
