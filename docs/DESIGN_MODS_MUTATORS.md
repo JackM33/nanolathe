@@ -1440,14 +1440,12 @@ type Mutators struct {
 // MutatorInfo is one row a front end builds from: Key, Label, Group,
 // Description and the mutator's own ascending Steps.
 func MutatorCatalog() []MutatorInfo
-func MutatorStepsFor(key string) []Factor
 func (f Factor) NextIn(steps []Factor) Factor
 func (f Factor) PrevIn(steps []Factor) Factor
 
 func (m Mutators) IsZero() bool
 func (m Mutators) String() string // canonical, e.g. "buildSpeed=2,health=1.5"; "" when zero
 func (m Mutators) Digest() string
-func (m Mutators) Validate() error // each factor on its own key's list
 
 // ApplyMutators transforms a per-battle clone in place. Like
 // RestrictToCreatable, it is never called on a shared compiled catalog.
@@ -1768,7 +1766,7 @@ saturation and the 64-bit product; `content.TestParseMutatorsRoundTrip`,
 `content.TestFactorSpellingAndCycling` the per-key step lists;
 `content.TestZeroMutatorsLeaveTheCloneIdentical` and
 `content.TestFrozenInputsRecordFallbacksAndExtensions` the identity.
-`cob.TestBuildAnimationFunctionsExcludeSharedCode`,
+`cob.TestBuildAnimationSetExcludesSharedCode`,
 `cob.TestBuilderSpeedScalesOnlyBuildAnimationTiming` and
 `cob.TestBuilderSpeedIdentityIsByteForByte` lock the function set, the
 scaled arithmetic and the unchanged identity path.
@@ -1776,7 +1774,7 @@ scaled arithmetic and the unchanged identity path.
 and the unchanged walk without the factor.
 `session.TestBuilderSpeedTravelsAsExtension19` locks the online record.
 `session.TestBuilderSpeedShortensStockReadinessRetail` and
-`session.TestStockStateRequestLoopIsABuildAnimation` (retail tier) lock the
+`cob.TestStockStateRequestLoopIsABuildAnimation` (retail tier) lock the
 stock relationships and the stock loop's membership.
 
 ## 7. The save sidecar

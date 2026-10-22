@@ -6,7 +6,6 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/nanolathe-gg/nanolathe/internal/cob"
 	"github.com/nanolathe-gg/nanolathe/internal/content"
 	"github.com/nanolathe-gg/nanolathe/internal/gameplay"
 	"github.com/nanolathe-gg/nanolathe/internal/pool"
@@ -142,30 +141,6 @@ func TestBuilderSpeedShortensStockReadinessRetail(t *testing.T) {
 		}
 		if twenty.placeToReady > five.placeToReady || twenty.labOpen > five.labOpen {
 			t.Fatalf("%s: ×20 was slower than ×5: %+v against %+v", key, twenty, five)
-		}
-	}
-}
-
-// TestStockStateRequestLoopIsABuildAnimation: the stock construction kbots'
-// and vehicles' shared open/close request loop is reached from the build and
-// activation callbacks and not from Create, which only initialises its
-// state, so Builder speed applies to it; nothing Create starts is in the set
-// (docs/DESIGN_MODS_MUTATORS.md "Builder speed").
-func TestStockStateRequestLoopIsABuildAnimation(t *testing.T) {
-	cat, _ := retailcat.Shared(t)
-	for _, key := range []string{"armck", "armcv", "corck", "corcv"} {
-		u, ok := cat.Unit(key)
-		if !ok || u.Script == nil {
-			t.Fatalf("%s has no stock script", key)
-		}
-		set := cob.BuildAnimationFunctions(u.Script)
-		if !slices.Contains(set, "RequestState") || !slices.Contains(set, "StartBuilding") {
-			t.Errorf("%s build animations %v miss the request loop", key, set)
-		}
-		for _, name := range []string{"Create", "InitState", "SmokeUnit", "StartMoving", "StopMoving"} {
-			if slices.Contains(set, name) {
-				t.Errorf("%s build animations %v hold %s", key, set, name)
-			}
 		}
 	}
 }

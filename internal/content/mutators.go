@@ -33,15 +33,10 @@ var MutatorSteps = []Factor{{1, 4}, {1, 2}, {3, 4}, {1, 1}, {3, 2}, {2, 1}, {3, 
 // (docs/DESIGN_MODS_MUTATORS.md §6.4, "Builder speed").
 var BuilderSpeedSteps = []Factor{{1, 1}, {2, 1}, {3, 1}, {5, 1}, {8, 1}, {20, 1}}
 
-// ParseFactor reads one step of the shared list in its canonical decimal
-// spelling: "0.25", "0.5", "0.75", "1", "1.5", "2", "3" or "4". Any other
-// text, including an equal value spelled differently ("1/2", ".5", "2.0"), is
-// an error.
-func ParseFactor(s string) (Factor, error) {
-	return parseFactorIn(s, MutatorSteps)
-}
-
-// parseFactorIn reads one step of steps in its canonical spelling.
+// parseFactorIn reads one step of steps in its canonical decimal spelling:
+// "0.25", "0.5", "0.75", "1", "1.5", "2", "3" or "4" on the shared list, and
+// "2", "3", "5", "8" or "20" on Builder speed's. Any other text, including an
+// equal value spelled differently ("1/2", ".5", "2.0"), is an error.
 func parseFactorIn(s string, steps []Factor) (Factor, error) {
 	text := strings.TrimSpace(s)
 	for _, step := range steps {
@@ -63,7 +58,7 @@ func stepSpellings(steps []Factor) string {
 // IsIdentity reports whether the factor changes nothing: the zero value or 1/1.
 func (f Factor) IsIdentity() bool { return f == (Factor{}) || f == (Factor{1, 1}) }
 
-// String is the canonical spelling ParseFactor reads, a decimal because most
+// String is the canonical spelling parseFactorIn reads, a decimal because most
 // players read "1.5" more easily than "3/2": "2", "0.5", "0.75", and "1" for
 // the identity. Every step is a whole number of quarters, so every step has
 // an exact decimal; a factor off the list with no short exact decimal keeps
@@ -96,18 +91,8 @@ func (f Factor) String() string {
 // Label is the player-facing spelling: "×2", "×0.5", "×1".
 func (f Factor) Label() string { return "×" + f.String() }
 
-// Next is the following step of the shared list, clamped at its last step.
-// A factor that is not on the list moves to the first step above its value;
-// the zero value cycles as 1/1.
-func (f Factor) Next() Factor { return f.NextIn(MutatorSteps) }
-
-// Prev is the preceding step of the shared list, clamped at its first step.
-// A factor that is not on the list moves to the last step below its value;
-// the zero value cycles as 1/1.
-func (f Factor) Prev() Factor { return f.PrevIn(MutatorSteps) }
-
-// NextIn is the following step of steps, an ascending list such as
-// MutatorStepsFor returns, clamped at its last step. A factor that is not on
+// NextIn is the following step of steps, an ascending list such as a
+// MutatorInfo's Steps, clamped at its last step. A factor that is not on
 // the list moves to the first step above its value; the zero value cycles as
 // 1/1.
 func (f Factor) NextIn(steps []Factor) Factor {
@@ -326,17 +311,6 @@ func MutatorCatalog() []MutatorInfo {
 	return out
 }
 
-// MutatorStepsFor returns a copy of key's closed step list in ascending
-// order, the identity included, and nil for an unknown key. Every mutator
-// shares MutatorSteps except Builder speed, which has BuilderSpeedSteps.
-func MutatorStepsFor(key string) []Factor {
-	field, ok := mutatorFieldByKey(key)
-	if !ok {
-		return nil
-	}
-	return append([]Factor(nil), field.Steps...)
-}
-
 func mutatorKeys() string {
 	keys := make([]string, len(mutatorFieldsByKey))
 	for i, field := range mutatorFieldsByKey {
@@ -500,12 +474,6 @@ func (m Mutators) validate() error {
 	}
 	return nil
 }
-
-// Validate reports the first factor, in key order, that is neither the
-// identity nor on its key's step list. Readers of a set that did not come
-// through ParseMutators or SetFactor — a wire decoder, a restored record —
-// use it to refuse what ApplyMutators would refuse.
-func (m Mutators) Validate() error { return m.validate() }
 
 // Store maxima of the mutated fields (docs/DESIGN_MODS_MUTATORS.md §6.4). A
 // mutator never introduces a wrap, measured at the narrowest store the value

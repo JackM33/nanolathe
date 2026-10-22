@@ -786,21 +786,18 @@ func TestMutatorCatalogDescribesTheClosedSet(t *testing.T) {
 		if info.Key == "builderSpeed" {
 			want = []Factor{{1, 1}, {2, 1}, {3, 1}, {5, 1}, {8, 1}, {20, 1}}
 		}
-		if !reflect.DeepEqual(info.Steps, want) || !reflect.DeepEqual(MutatorStepsFor(info.Key), want) {
-			t.Fatalf("%s steps = %v / %v, want %v", info.Key, info.Steps, MutatorStepsFor(info.Key), want)
+		if !reflect.DeepEqual(info.Steps, want) {
+			t.Fatalf("%s steps = %v, want %v", info.Key, info.Steps, want)
 		}
-	}
-	if MutatorStepsFor("speed") != nil {
-		t.Fatal("MutatorStepsFor answered an unknown key")
 	}
 	infos[0].Label = "changed"
 	infos[0].Steps[0] = Factor{9, 1}
 	if MutatorCatalog()[0].Label == "changed" || MutatorSteps[0] != (Factor{1, 4}) {
 		t.Fatal("MutatorCatalog must return a copy")
 	}
-	MutatorStepsFor("builderSpeed")[1] = Factor{9, 1}
+	infos[9].Steps[1] = Factor{9, 1}
 	if BuilderSpeedSteps[1] != (Factor{2, 1}) {
-		t.Fatal("MutatorStepsFor must return a copy")
+		t.Fatal("MutatorCatalog must copy Builder speed's own list")
 	}
 
 	var m Mutators
@@ -842,10 +839,10 @@ func TestMutatorCatalogDescribesTheClosedSet(t *testing.T) {
 	if err := m.SetFactor("builderSpeed", Factor{1, 2}); err == nil || m != (Mutators{}) {
 		t.Fatal("SetFactor accepted a shared step for Builder speed")
 	}
-	if err := (Mutators{BuilderSpeed: Factor{4, 1}}).Validate(); err == nil || !strings.Contains(err.Error(), "builderSpeed") {
-		t.Fatalf("Validate = %v, want a builderSpeed refusal", err)
+	if err := (Mutators{BuilderSpeed: Factor{4, 1}}).validate(); err == nil || !strings.Contains(err.Error(), "builderSpeed") {
+		t.Fatalf("validate = %v, want a builderSpeed refusal", err)
 	}
-	if err := (Mutators{BuilderSpeed: Factor{20, 1}, UnitSpeed: Factor{4, 1}}).Validate(); err != nil {
+	if err := (Mutators{BuilderSpeed: Factor{20, 1}, UnitSpeed: Factor{4, 1}}).validate(); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -858,34 +855,34 @@ func TestFactorSpellingAndCycling(t *testing.T) {
 	}
 	f := MutatorSteps[0]
 	for i := 1; i < len(MutatorSteps); i++ {
-		f = f.Next()
+		f = f.NextIn(MutatorSteps)
 		if f != MutatorSteps[i] {
-			t.Fatalf("Next walk reached %s at %d, want %s", f, i, MutatorSteps[i])
+			t.Fatalf("NextIn walk reached %s at %d, want %s", f, i, MutatorSteps[i])
 		}
 	}
-	if f.Next() != f {
-		t.Fatal("Next must clamp at the last step")
+	if f.NextIn(MutatorSteps) != f {
+		t.Fatal("NextIn must clamp at the last step")
 	}
 	for i := len(MutatorSteps) - 2; i >= 0; i-- {
-		f = f.Prev()
+		f = f.PrevIn(MutatorSteps)
 		if f != MutatorSteps[i] {
-			t.Fatalf("Prev walk reached %s at %d, want %s", f, i, MutatorSteps[i])
+			t.Fatalf("PrevIn walk reached %s at %d, want %s", f, i, MutatorSteps[i])
 		}
 	}
-	if f.Prev() != f {
-		t.Fatal("Prev must clamp at the first step")
+	if f.PrevIn(MutatorSteps) != f {
+		t.Fatal("PrevIn must clamp at the first step")
 	}
-	if (Factor{}).Next() != (Factor{3, 2}) || (Factor{}).Prev() != (Factor{3, 4}) {
+	if (Factor{}).NextIn(MutatorSteps) != (Factor{3, 2}) || (Factor{}).PrevIn(MutatorSteps) != (Factor{3, 4}) {
 		t.Fatal("the zero value cycles as 1/1")
 	}
 	for _, step := range MutatorSteps {
-		parsed, err := ParseFactor(step.String())
+		parsed, err := parseFactorIn(step.String(), MutatorSteps)
 		if err != nil || parsed != step {
-			t.Fatalf("ParseFactor(%q) = %+v, %v", step.String(), parsed, err)
+			t.Fatalf("parseFactorIn(%q) = %+v, %v", step.String(), parsed, err)
 		}
 	}
 	// Builder speed cycles on its own list, from the identity at its foot.
-	builder := MutatorStepsFor("builderSpeed")
+	builder := BuilderSpeedSteps
 	f = Factor{}
 	for _, want := range []string{"2", "3", "5", "8", "20", "20"} {
 		if f = f.NextIn(builder); f.String() != want {
@@ -903,7 +900,7 @@ func TestFactorSpellingAndCycling(t *testing.T) {
 	if (Factor{20, 1}).String() != "20" || (Factor{20, 1}).Label() != "×20" {
 		t.Fatal("Builder speed's largest step spells as a whole number")
 	}
-	if _, err := ParseFactor("20"); err == nil {
+	if _, err := parseFactorIn("20", MutatorSteps); err == nil {
 		t.Fatal("the shared list accepted Builder speed's 20")
 	}
 }

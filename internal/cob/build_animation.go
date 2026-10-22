@@ -198,25 +198,6 @@ func (p *Program) inBuildAnimation(pc int) bool {
 	return i < len(ranges) && ranges[i].start <= pc
 }
 
-// BuildAnimationFunctions names the program's build-animation functions in
-// ascending code order, each by every entry-point name the script table
-// gives its code index. It is for tests and diagnostics; the VM reads the
-// ranges Load stored.
-func BuildAnimationFunctions(p *Program) []string {
-	if p == nil {
-		return nil
-	}
-	var out []string
-	for _, fn := range buildAnimationRanges(p) {
-		for id, start := range p.ScriptsByID {
-			if start == fn.start && id < len(p.scriptNames) {
-				out = append(out, p.scriptNames[id])
-			}
-		}
-	}
-	return out
-}
-
 // SetBuilderSpeed latches the Builder speed factor k for this VM's build
 // animations (docs/DESIGN_MODS_MUTATORS.md "Builder speed"). The binding sets
 // it before Create from the unit definition, and it stays for the VM's life.
@@ -232,14 +213,6 @@ func (v *VM) SetBuilderSpeed(k int32) {
 		k = 1
 	}
 	v.buildRate = k
-}
-
-// BuilderSpeed returns the latched Builder speed factor, 1 for the identity.
-func (v *VM) BuilderSpeed() int32 {
-	if v == nil || v.buildRate < 1 {
-		return 1
-	}
-	return v.buildRate
 }
 
 // animRate is the factor the instruction at pc runs under: the latched

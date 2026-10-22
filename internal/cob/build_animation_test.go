@@ -3,8 +3,30 @@ package cob
 import (
 	"bytes"
 	"reflect"
+	"slices"
 	"testing"
+
+	"github.com/nanolathe-gg/nanolathe/internal/testsupport"
+	"github.com/nanolathe-gg/nanolathe/vfs"
 )
+
+// buildAnimationFunctions names the program's build-animation functions in
+// ascending code order, each by every entry-point name the script table
+// gives its code index; the VM reads the ranges Load stored.
+func buildAnimationFunctions(p *Program) []string {
+	if p == nil {
+		return nil
+	}
+	var out []string
+	for _, fn := range buildAnimationRanges(p) {
+		for id, start := range p.ScriptsByID {
+			if start == fn.start && id < len(p.scriptNames) {
+				out = append(out, p.scriptNames[id])
+			}
+		}
+	}
+	return out
+}
 
 // builderSpeedProgram is an authored script shaped for the Builder speed
 // contract (docs/DESIGN_MODS_MUTATORS.md "Builder speed"). StartBuilding
@@ -49,14 +71,14 @@ func builderSpeedProgram(t *testing.T) *Program {
 	return prog
 }
 
-// TestBuildAnimationFunctionsExcludeSharedCode: the set is the build roots'
+// TestBuildAnimationSetExcludesSharedCode: the set is the build roots'
 // call graph minus everything another engine entry point reaches. Shared is
 // reached from StartBuilding through RequestState, but also from Create and
 // from the AimPrimary weapon callback, so it is excluded.
-func TestBuildAnimationFunctionsExcludeSharedCode(t *testing.T) {
+func TestBuildAnimationSetExcludesSharedCode(t *testing.T) {
 	prog := builderSpeedProgram(t)
 	want := []string{"StartBuilding", "RequestState", "Deactivate", "Activate"}
-	if got := BuildAnimationFunctions(prog); !reflect.DeepEqual(got, want) {
+	if got := buildAnimationFunctions(prog); !reflect.DeepEqual(got, want) {
 		t.Fatalf("build-animation functions = %v, want %v", got, want)
 	}
 	for pc, want := range map[int]bool{0: true, 6: false, 12: false, 18: true, 40: true, 41: false, 53: false, 54: true, 71: true} {
@@ -178,5 +200,35 @@ func TestBuilderSpeedIdentityIsByteForByte(t *testing.T) {
 	}
 	if fast := run(prog, 5, entries...); bytes.Equal(fast[0], base[0]) {
 		t.Fatal("the fixture must show the factor, or the comparison proves nothing")
+	}
+}
+
+// TestStockStateRequestLoopIsABuildAnimation: the stock construction kbots'
+// and vehicles' shared open/close request loop is reached from the build and
+// activation callbacks and not from Create, which only initialises its state,
+// so Builder speed applies to it; nothing Create starts is in the set
+// (docs/DESIGN_MODS_MUTATORS.md "Builder speed"). Skipped without retail
+// assets.
+func TestStockStateRequestLoopIsABuildAnimation(t *testing.T) {
+	root := testsupport.RetailRoot(t)
+	fs := vfs.New()
+	if err := fs.MountGameDirectory(root); err != nil {
+		t.Fatalf("mount: %v", err)
+	}
+	defer fs.Close()
+	for _, unit := range []string{"armck", "armcv", "corck", "corcv"} {
+		prog, found, err := LoadFromFS(fs, unit)
+		if err != nil || !found {
+			t.Fatalf("%s: stock script %v, %v", unit, found, err)
+		}
+		set := buildAnimationFunctions(prog)
+		if !slices.Contains(set, "RequestState") || !slices.Contains(set, "StartBuilding") {
+			t.Errorf("%s build animations %v miss the request loop", unit, set)
+		}
+		for _, name := range []string{"Create", "InitState", "SmokeUnit", "StartMoving", "StopMoving"} {
+			if slices.Contains(set, name) {
+				t.Errorf("%s build animations %v hold %s", unit, set, name)
+			}
+		}
 	}
 }
