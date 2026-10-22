@@ -7,6 +7,7 @@ import (
 	"slices"
 	"testing"
 
+	"github.com/nanolathe-gg/nanolathe/internal/ai"
 	"github.com/nanolathe-gg/nanolathe/internal/pool"
 	"github.com/nanolathe-gg/nanolathe/internal/save"
 	"github.com/nanolathe-gg/nanolathe/internal/survival"
@@ -116,6 +117,11 @@ func TestSurvivalDirectorSurvivesASaveRoundTrip(t *testing.T) {
 		t.Fatal("the save loaded as an ordinary skirmish")
 	}
 	got := dst.Survival
+	if mgr := dst.AI[got.attacker]; mgr == nil || !mgr.Passive {
+		t.Fatal("the restored attacker lost its passive manager")
+	} else if mgr.Deadlines != [ai.TaskKindCount]uint32{} {
+		t.Fatalf("the attacker's planner ran during the load-entry prime: deadlines %v", mgr.Deadlines)
+	}
 	if got.attacker != st.attacker || !slices.Equal(got.team, st.team) || dst.EnemyOwner != src.EnemyOwner {
 		t.Fatalf("attacker %d team %v enemy %d, want %d %v %d", got.attacker, got.team, dst.EnemyOwner, st.attacker, st.team, src.EnemyOwner)
 	}

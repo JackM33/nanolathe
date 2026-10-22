@@ -169,8 +169,8 @@ func SidecarSurvival(raw []byte) (*SurvivalRecord, error) {
 	if err := json.Unmarshal(raw, &rec); err != nil {
 		return nil, fmt.Errorf("nanolathe: save sidecar survival record: %w", err)
 	}
-	if rec.Version != SurvivalRecordVersion {
-		return nil, fmt.Errorf("nanolathe: save sidecar survival record: version %d: logical path save/sidecar/survival, providers searched [sidecar], expected version %d", rec.Version, SurvivalRecordVersion)
+	if err := validateSurvivalRecord(&rec); err != nil {
+		return nil, err
 	}
 	return &rec, nil
 }
@@ -184,8 +184,25 @@ func restoreSurvival(s *Session, rec *SurvivalRecord) error {
 	if s == nil || rec == nil {
 		return nil
 	}
-	if int(rec.Attacker) >= pool.PlayerCount || len(rec.Team) == 0 {
-		return fmt.Errorf("nanolathe: save sidecar survival record: attacker %d with %d survivors: logical path save/sidecar/survival, providers searched [sidecar], expected an attacker slot below %d and at least one survivor", rec.Attacker, len(rec.Team), pool.PlayerCount)
+	if err := validateSurvivalRecord(rec); err != nil {
+		return err
+	}
+	if rec.Setup.NumPlayers != s.Skirmish.NumPlayers {
+		return survivalRecordError(fmt.Sprintf("setup player count %d", rec.Setup.NumPlayers), fmt.Sprintf("saved world player count %d", s.Skirmish.NumPlayers))
+	}
+	if s.AI[rec.Attacker] == nil {
+		return survivalRecordError(fmt.Sprintf("attacker %d has no manager", rec.Attacker), "a passive attacker manager")
+	}
+	if s.World != nil {
+		inMap := func(x, z int32) bool { return x >= 0 && z >= 0 && x < s.World.CellW && z < s.World.CellH }
+		if !inMap(rec.CentreX, rec.CentreZ) {
+			return survivalRecordError(fmt.Sprintf("start site (%d,%d)", rec.CentreX, rec.CentreZ), "a cell inside the saved map")
+		}
+		for i, at := range rec.DepositAt {
+			if !inMap(at[0], at[1]) {
+				return survivalRecordError(fmt.Sprintf("deposit %d at (%d,%d)", i, at[0], at[1]), "a cell inside the saved map")
+			}
+		}
 	}
 	var rules construction.Rules
 	if s.Build != nil {
@@ -245,6 +262,10 @@ func restoreSurvival(s *Session, rec *SurvivalRecord) error {
 		}
 	}
 	s.Survival = st
+	// The load-entry prime runs after this restore. Keep the attacker's
+	// upkeep and target registry, but skip its planner just as at fresh
+	// Survival entry (DESIGN_SURVIVAL §4.1, §11).
+	s.AI[rec.Attacker].Passive = true
 	s.EnemyOwner = rec.Attacker
 	s.Skirmish.Survival = opts
 	s.Skirmish.Players = rec.Setup.Players
