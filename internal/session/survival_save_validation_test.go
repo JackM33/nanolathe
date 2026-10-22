@@ -73,11 +73,11 @@ func TestSurvivalSaveRejectsMalformedDirector(t *testing.T) {
 			old := &survivalState{attacker: 9}
 			s := &Session{Survival: old, EnemyOwner: 9, Skirmish: survivalSaveValidationRecord().Setup}
 			s.AI[2] = &ai.Manager{}
-			before := *s
+			before := &Session{Survival: old, EnemyOwner: 9, Skirmish: s.Skirmish, AI: s.AI}
 			if err := restoreSurvival(s, r); err == nil || !strings.Contains(err.Error(), "save/sidecar/survival") {
 				t.Fatalf("direct restore error %v, want a contextual refusal", err)
 			}
-			if !reflect.DeepEqual(s, &before) || s.AI[2].Passive {
+			if !reflect.DeepEqual(s, before) || s.AI[2].Passive {
 				t.Fatal("refused record mutated the session")
 			}
 		})
@@ -127,11 +127,11 @@ func TestSurvivalRestoreValidatesSavedWorldBeforeMutation(t *testing.T) {
 			case "deposit outside map":
 				r.Deposits, r.DepositAt = 1, [][2]int32{{4, 1}}
 			}
-			before := *s
+			before := &Session{Skirmish: s.Skirmish, World: s.World, AI: s.AI}
 			if err := restoreSurvival(s, r); err == nil {
 				t.Fatal("accepted a record inconsistent with the staged world")
 			}
-			if !reflect.DeepEqual(s, &before) || (s.AI[2] != nil && s.AI[2].Passive) {
+			if !reflect.DeepEqual(s, before) || (s.AI[2] != nil && s.AI[2].Passive) {
 				t.Fatal("refused record mutated the session or world")
 			}
 		})
