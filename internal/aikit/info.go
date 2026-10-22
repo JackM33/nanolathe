@@ -102,6 +102,9 @@ type UnitInfo struct {
 	// Obs.Capped), 0 when the table does not cap it. Only BuildTable sets
 	// it, so an info a test builds by hand is never capped.
 	capSlot int32
+	// banned marks an economy producer the content forbids to computer
+	// players; no build list holds it (Table.banForbidden).
+	banned bool
 }
 
 // EnergyPerMetal is the exchange rate used for Value. It is a planning
@@ -204,6 +207,7 @@ func BuildTable(cat *content.Catalog, rules construction.Rules) *Table {
 			info.Role &^= RoleStorage
 		}
 	}
+	t.banForbidden(cat)
 	t.classifyModules()
 	t.computeAntiAir()
 	t.armDamageTableAntiAir()
