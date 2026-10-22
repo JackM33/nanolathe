@@ -1357,9 +1357,11 @@ destination. The audit table below is annotated where it differs.
 
 **State ownership.** `Queue.patrolWork` holds the memory ring, its cursor and
 the next wake tick; `Node.workFactory` holds a product job's factory. There is
-no package state, controller or claim table; selection uses no RNG, no
-floating point and no map iteration, and every walk follows the binding's
-stable unit and feature order [I1] [I2] [I4].
+no package state, controller or claim table. Selection draws no RNG and
+iterates no map; every walk follows the binding's stable unit and feature
+order. Its distances, leash and score are integer; the only floating point it
+reaches is the two existing allowlisted comparisons, the repair energy
+threshold and the build-range test [I1] [I2] [I4].
 
 **Checkpoint and save.** Canonical capture writes `patrolWork` in the queue's
 lexical field position, after `ownedHandlers`, behind a presence flag: the
