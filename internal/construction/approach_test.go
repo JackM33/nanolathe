@@ -693,11 +693,12 @@ func TestApproachPhaseSurvivesTheSaveRoundTrip(t *testing.T) {
 // TestBuilderSpeedStartsWorkInReach locks the Builder speed approach
 // (docs/DESIGN_MODS_MUTATORS.md "Builder speed"): a ground builder whose
 // definition records the factor retires its approach on the first visit
-// where retail's reach expression passes [05 R-WORK-01 §2], releases its walk
-// so it stops where it stands, and places in that same visit. Without the
-// factor the same builder keeps walking to the footprint border, consulting
-// the reach expression only on the cannot-get-there wake [05 R-WORK-01 §13];
-// with it, a builder out of reach or standing on its own site walks as before.
+// where retail's reach expression passes [05 R-WORK-01 §2] and releases its
+// walk so it stops where it stands; the next visit places, as the visit after
+// an arrival does. Without the factor the same builder keeps walking to the
+// footprint border, consulting the reach expression only on the
+// cannot-get-there wake [05 R-WORK-01 §13]; with it, a builder out of reach or
+// standing on its own site walks as before.
 func TestBuilderSpeedStartsWorkInReach(t *testing.T) {
 	stand := func(t *testing.T, factor content.Factor, inset int64) (*Service, *units.Unit, *orders.Node) {
 		t.Helper()
@@ -723,14 +724,18 @@ func TestBuilderSpeedStartsWorkInReach(t *testing.T) {
 			t.Fatal("fixture must stand in reach and clear of the site")
 		}
 		pumpApproach(svc, builder, 0)
-		if State(node.Phase) == State1 || node.Target == 0 {
-			t.Fatalf("phase %d target %d: the approach did not retire into placement", node.Phase, node.Target)
+		if State(node.Phase) != State2 || node.Target != 0 || node.DynamicGate != 0 {
+			t.Fatalf("phase %d target %d gate %#x: the approach did not retire, or placed before the halt", node.Phase, node.Target, node.DynamicGate)
 		}
 		if svc.Movement.HasGroundGoal(builder.Handle, node) {
 			t.Fatal("the walk was not released")
 		}
 		if node.Satisfied&approachWakeReleased != 0 {
 			t.Fatal("the release left its own payload-release bit standing")
+		}
+		pumpApproach(svc, builder, 1)
+		if node.Target == 0 {
+			t.Fatal("the visit after the release did not place")
 		}
 	})
 	t.Run("in reach without the factor", func(t *testing.T) {
