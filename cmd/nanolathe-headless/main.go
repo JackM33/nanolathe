@@ -355,18 +355,30 @@ func parse(args []string, output io.Writer) (headless.Request, string, profileOp
 	return request, reportPath, profiles, bench, nil
 }
 
-// mutatorUsage names the mutator keys and the step list from the content
-// package's own descriptors, so the flag text cannot fall behind the set.
+// mutatorUsage names the mutator keys and their step lists from the content
+// package's own descriptors, so the flag text cannot fall behind the set: the
+// shared list, then each key with a list of its own (Builder speed).
 func mutatorUsage() string {
-	var keys []string
+	spell := func(steps []content.Factor) string {
+		out := make([]string, len(steps))
+		for i, step := range steps {
+			out[i] = step.String()
+		}
+		return strings.Join(out, ", ")
+	}
+	shared := spell(content.MutatorSteps)
+	var keys, own []string
 	for _, info := range content.MutatorCatalog() {
 		keys = append(keys, info.Key)
+		if steps := spell(info.Steps); steps != shared {
+			own = append(own, info.Key+" one of "+steps)
+		}
 	}
-	steps := make([]string, len(content.MutatorSteps))
-	for i, step := range content.MutatorSteps {
-		steps[i] = step.String()
+	usage := "name one of " + strings.Join(keys, ", ") + ", factor one of " + shared
+	if len(own) > 0 {
+		usage += " (" + strings.Join(own, "; ") + ")"
 	}
-	return "name one of " + strings.Join(keys, ", ") + ", factor one of " + strings.Join(steps, ", ")
+	return usage
 }
 
 // resolveMutators reads the --mutator flags (docs/DESIGN_MODS_MUTATORS.md
