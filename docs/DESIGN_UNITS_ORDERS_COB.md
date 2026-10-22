@@ -1411,6 +1411,16 @@ than walking back first, re-entered an enemy turret's range under the
 unchanged danger response and was destroyed; the old run survived that scene
 by timing, not by a rule.
 
+**Cost.** The displayless simulation benchmark's Modern scene (seed 7, 600
+measured ticks, alternating builds) reports 1.59–1.68 ms of process CPU per
+tick against main's 1.62–1.65 ms, with the same final partial fingerprint: its
+builders carry build orders, not patrols, so it shows only that the new
+blocked-head question costs nothing measurable. One selection over a 750-unit
+pool with 400 features, a quarter of the units running work heads, takes
+about 18.5 µs against the previous 9.7 µs; at the 15-tick cadence that is
+about 1.2 µs per tick for each patrolling builder, where the old 60-tick scan
+cost 0.16 µs.
+
 **Tests.** `internal/orders/patrol_smart_test.go` locks the score order (near
 reclaim over far construction, detour ahead over nearer work behind, the
 helper penalty with its hostile, multi-helper and gang-up cases, unit work
