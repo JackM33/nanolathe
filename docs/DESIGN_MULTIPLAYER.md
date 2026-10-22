@@ -1376,10 +1376,11 @@ records with typed validation and application through the existing owning
 |---|---|
 | 17. Chosen starts | Per seat in slot order, a `bool` set, followed when set by X and Z as two `u32` world pixels below 2^20. At least one seat must choose; omit the record when every start is Auto. Only a skirmish's human or computer row may choose, under `SeatRules.ChosenStarts` (DESIGN_SESSIONS_AI_SAVE "Modern chosen start positions"). |
 | 18. Allied sight | One `u8`: 1 separate or 2 shared. Omit for the inherited default: online skirmish teams share, single-player teams do not. Survival always shares and carries no choice. `SeatRules.AlliedSightChoice` must permit the record (DESIGN_SESSIONS_AI_SAVE "Modern allied sight"). |
+| 19. Builder speed | One `u8`: the Builder speed step index 1..5 for ×2, ×3, ×5, ×8, ×20. Omit it for the identity; index 0 is refused. Field 11's eleven indices are frozen, so this mutator's own step list travels here; a typed request must agree with the record. Mutators apply in every mode, Strict 3.1 included, so no `RuleSet` answer gates it ([DESIGN_MODS_MUTATORS §6.7](DESIGN_MODS_MUTATORS.md)). |
 
-Both require flag bit 0; an optional spelling, malformed payload, trailing
+All three require flag bit 0; an optional spelling, malformed payload, trailing
 payload bytes or an explicit default is refused. The local API exposes
-`MatchSeat.Start` and `MatchConfigRequest.AlliedSight`; recognized raw records
+`MatchSeat.Start`, `MatchConfigRequest.AlliedSight` and `MatchConfigRequest.Mutators.BuilderSpeed`; recognized raw records
 are projected into those fields during resolution and removed from the opaque
 `Extensions` slice. Supplying both spellings requires equal values. Encoding
 reconstructs the required records, followed by opaque metadata in ID order,
@@ -4442,7 +4443,7 @@ shakeOffsetX i32; shakeOffsetY i32; shakeRemaining i32.
 | Skirmish | CommanderDeath i64; Difficulty i64; Gameplay string; LOSType i64; LineOfSight i64; Location i64; MapName string; Mapping i64; NumPlayers i64; Players [10]SkirmishPlayer; RNGCrtSeed u32; RNGSimSeed u32; Survival options; UnitLimit i64 |
 | SkirmishPlayer | AI u8; AllyGroup i64; Controller i64; Energy i64; Metal i64; Side i64 |
 | Survival options | Enabled bool; NoAir bool; NoNaval bool; Pace u8 |
-| Mutators | AreaOfEffect, BuildCost, BuildSpeed, Damage, FireRate, Health, Income, Radar, Salvage, Sight, UnitSpeed; each Factor has Den u8 then Num u8 |
+| Mutators | AreaOfEffect, BuildCost, BuildSpeed, BuilderSpeed, Damage, FireRate, Health, Income, Radar, Salvage, Sight, UnitSpeed; each Factor has Den u8 then Num u8 |
 | Restrictions | u32 entry count, then each Count u8, Unit string in the canonical order returned by Entries |
 
 Community and EntryCommunity use `community.Features.WriteCheckpoint`; Wind
