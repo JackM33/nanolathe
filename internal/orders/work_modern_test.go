@@ -69,6 +69,14 @@ func newModernWorkFixture(air bool) *modernWorkFixture {
 				}
 			}
 		},
+		LookupFeature: func(cx, cz int32) (FeatureView, bool) {
+			for _, feature := range f.features {
+				if feature.CX == cx && feature.CZ == cz {
+					return feature, true
+				}
+			}
+			return FeatureView{}, false
+		},
 	})
 	q.binding.Work.SetAssist(func(*units.Unit, *Node, uint32) bool { f.workCalls++; return false })
 	q.binding.Work.SetRepair(func(*units.Unit, *units.Unit, *Node, uint32) bool { f.workCalls++; return false })
