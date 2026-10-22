@@ -259,7 +259,9 @@ func TestModernPatrolSuccessfulWorkContinuesPendingLeg(t *testing.T) {
 			if air {
 				id = rowVTOLHelpBuild
 			}
-			f.q.SetOwnedHandler(id, func(*units.Unit, *Node, uint32, uint32) (Code, bool) {
+			f.q.SetOwnedHandler(id, func(_ *units.Unit, n *Node, _ uint32, _ uint32) (Code, bool) {
+				// A real executor completes from its work phase (ground 4, air 3).
+				n.Phase = 3
 				target.Remaining, target.Health = 0, target.Def.MaxDamage
 				return 5, true
 			})
@@ -306,6 +308,7 @@ func TestModernPatrolConsecutiveJobsKeepWaypointOrder(t *testing.T) {
 					// Stand in for paid work and its approach; stock session fixtures
 					// below exercise those executors and actual onward movement.
 					f.u.X = target.X
+					n.Phase = 3 // the work phase a real executor completes from
 					target.Remaining, target.Health = 0, target.Def.MaxDamage
 					completed++
 					return 5, true
@@ -346,7 +349,13 @@ func TestPatrolSuccessfulWorkRemovalRequiresModernProvenance(t *testing.T) {
 						f.visit(100)
 						work, back := f.q.Head(), f.q.primary[1]
 						target.Remaining, target.Health = 0, target.Def.MaxDamage
-						if kind == "repair" {
+						if kind == "build" {
+							// HelpBuild completes from its work phase: ground 4, air 3.
+							work.Phase = 4
+							if air {
+								work.Phase = 3
+							}
+						} else if kind == "repair" {
 							work.ID = rowRepairUnit
 							if air {
 								work.ID = rowVTOLRepairUnit

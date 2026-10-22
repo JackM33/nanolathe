@@ -233,6 +233,30 @@ func TestModernPatrolFactoryMemory(t *testing.T) {
 		// The completion transition detaches the finished product before the
 		// job reports success [04 R-FAC-02 §3].
 		first.Remaining, first.Health, first.Attachment.Carrier = 0, 100, 0
+		// A product finished before this helper reached its work phase reports
+		// the approach's "nothing left to assist" code 5: neutral, so neither
+		// the factory nor the product is remembered and the leg resumes on the
+		// next tick.
+		approach, worked := uint8(1), uint8(4) // ground HelpBuild
+		if f.u.Def.CanFly {
+			approach, worked = 2, 3 // VTOL_HelpBuild has no phase 4
+		}
+		work.Phase = approach
+		if code := f.q.binding.Rules.AutomaticWorkResult(f.u, work, 0, 5, 101); code != 8 || f.q.patrolWork.remembers(patrolMemoryFactory, factory) || f.q.patrolWork.remembers(patrolMemoryUnit, first) {
+			t.Fatal("a product finished before the helper worked remembered its factory or itself")
+		}
+		if f.patrol.DynamicGate != gateDeadline || f.patrol.Deadline != 102 {
+			t.Fatal("a neutral early finish did not resume the leg on the next tick")
+		}
+		first = carried(7, 100, factory)
+		f.reset()
+		f.units = []*units.Unit{factory, first}
+		f.visit(100)
+		if work = f.q.Head(); work.Target != first.Handle {
+			t.Fatal("the factory's product was not eligible after a neutral early finish")
+		}
+		first.Remaining, first.Health, first.Attachment.Carrier = 0, 100, 0
+		work.Phase = worked
 		if code := f.q.binding.Rules.AutomaticWorkResult(f.u, work, 0, 5, 101); code != 5 || !f.q.patrolWork.remembers(patrolMemoryFactory, factory) {
 			t.Fatal("successful product assist did not remember its factory")
 		}

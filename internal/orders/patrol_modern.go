@@ -96,7 +96,17 @@ func modernPatrolOutcome(u *units.Unit, n *Node, satisfied uint32, code Code) pa
 		success := false
 		switch n.ID {
 		case rowHelpBuild, rowVTOLHelpBuild:
-			success = target != nil && target.Alive && target.Remaining == 0 && satisfied&gateCancelCurrent == 0
+			// Both rows also report code 5 from their approach when the
+			// target is already finished — ground phase 1, air phase 2,
+			// "nothing left to assist" [04 R-ORD-01 §5][04 R-ORD-02 §2].
+			// Only the work phase (ground 3–4, air 3) assisted; an earlier
+			// finish was someone else's, which is neutral and must not
+			// remember the factory.
+			finished := target != nil && target.Alive && target.Remaining == 0 && satisfied&gateCancelCurrent == 0
+			if finished && n.Phase < 3 {
+				return patrolNeutral
+			}
+			success = finished
 		case rowRepairUnit, rowVTOLRepairUnit:
 			success = target != nil && target.Alive && target.Def != nil && moverMode(target) == 1 && !leashBroken(u, n)
 			if success {

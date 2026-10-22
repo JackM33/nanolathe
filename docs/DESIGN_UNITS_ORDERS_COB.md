@@ -1318,7 +1318,12 @@ value, not a retail finding.
   factory carrying it. **Factory trap:** a successful assist on that product
   remembers the factory — the completion transition has already detached the
   product [04 R-FAC-02 §3] — and selection then skips every product the
-  factory carries until the next waypoint arrival. A short patrol beside a
+  factory carries until the next waypoint arrival. An assist is successful
+  only once its row reached the work phase (ground `HelpBuild` 3–4,
+  `VTOL_HelpBuild` 3): both rows also complete from their approach when the
+  product is already finished ("nothing left to assist", ground phase 1, air
+  phase 2), and that early finish is P1's neutral outcome, which remembers
+  neither the factory nor the product. A short patrol beside a
   factory still assists it every lap; a long route past one no longer becomes
   a permanent guard post.
 - **P6 — stray bound.** During a borrowed job `AutomaticWorkValid` also
