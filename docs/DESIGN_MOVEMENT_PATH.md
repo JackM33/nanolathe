@@ -1603,6 +1603,18 @@ tests lock the prediction against combat's dropped-motion kernel, the Strict
 bypass, the anti-air preference, shared attacks, the attacker preference,
 the slot hand-off, the strafe break, flying out of cover and the missile
 pricing.
+`movement.TestAirHoverRepositionMovesAcrossTargetBearing` rejects radial ring
+swaps; `TestAirHoverUsesPhysicalRefusalForFiringPoint` checks the refusal
+cadence, candidate altitude and RNG-neutral preview. The retail-content
+`airdiag.TestGunshipsSlideAndFireThroughRealFlight` checks each of three
+Brawlers' actual emitted pellets in consecutive 240-tick windows, lateral
+travel and bounded stops during direct attacks and patrols around an
+indestructible crystal, plus direct attacks on a moving ground target, in
+all three modes. Burst anchors do not count as emitted pellets. The same
+patrol reproduction still fires nothing with lateral selection alone:
+obstruction feedback is necessary to leave the blocked pair of sideways
+points. Separate runs with ordinary line of sight retain firing and lateral
+movement; the committed fixture exposes contacts to isolate flight and fire.
 `movement.TestAirFieldRepairNeedsLandingPoint` locks landable admission and
 the Strict/Community bypass without RNG, resource charges or healing;
 `TestAirPatrolUnlandableFieldRepairDoesNotRestart` pumps a damaged patrol
