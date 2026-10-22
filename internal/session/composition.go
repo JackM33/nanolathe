@@ -2525,7 +2525,7 @@ func sessionSeatDifficultyWord(s *Session, player uint8) (int, bool) {
 	if !row.IsComputer() || row.Difficulty < 0 || row.Difficulty > 2 {
 		return 0, false
 	}
-	return row.Difficulty, true
+	return DifficultyTier(s.Community, row.Difficulty), true
 }
 
 // aiDifficultyForWord is the plan vocabulary's name for an in-vocabulary
@@ -2541,8 +2541,25 @@ func aiDifficultyForWord(word int) ai.Difficulty {
 	}
 }
 
+// DifficultyTier is the difficulty a stored difficulty index plays: 0 easy,
+// 1 medium, 2 hard, or the reverse under a table whose AIDifficultyReversed
+// is set, as TA: Escalation's patched executable reads the index: its name
+// slots are swapped, so index 0 selects the Hard plan and the Hard income
+// factor (research/extensions/taesc-engine.md "AI"; that content's menus
+// spell their stages Hard|Medium|Easy). A setup, a save and a lobby keep the
+// index as stored; every reader that means a tier converts it here. The
+// mapping is its own inverse, so it also turns a tier into the index that
+// plays it. An index outside 0..2 is returned unchanged for the caller to
+// refuse.
+func DifficultyTier(f community.Features, index int) int {
+	if f.AIDifficultyReversed && index >= 0 && index <= 2 {
+		return 2 - index
+	}
+	return index
+}
+
 // sessionDifficultyWord is the battle's difficulty word itself — 0 easy, 1
-// medium, 2 hard. It has two consumers, and they must read the same word: the
+// medium, 2 hard, read through DifficultyTier. It has two consumers, and they must read the same word: the
 // AI profile's plan gate [08 R-AI-01 §12] and the ledger's production discount
 // for a computer player, whose "global mode selector" is established as this
 // same difficulty word [05 R-ECO-01 §3]. One reader, so there is one copy.
@@ -2565,7 +2582,7 @@ func sessionDifficultyWord(s *Session) (int, bool) {
 	if word < 0 || word > 2 {
 		return 0, false
 	}
-	return word, true
+	return DifficultyTier(s.Community, word), true
 }
 
 // visibilityModeForSession builds the session's three-bit visibility mode word
