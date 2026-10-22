@@ -66,6 +66,9 @@ func (g *gameShell) saveSidecar() save.Sidecar {
 		sess = g.battle.sess
 	}
 	out := session.SaveSidecar(sess)
+	if g.battle != nil {
+		out.SurvivalBest = g.battle.recordSurvivalBest()
+	}
 	out.UnitLimit = g.setup.UnitLimit
 	if g.cs != nil {
 		out.ContentProfile = g.cs.profile

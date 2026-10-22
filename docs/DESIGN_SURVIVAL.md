@@ -721,6 +721,16 @@ the battle continues, logs the host error once and reports the unavailable
 record on the result screen. Record writes run on the host after the terminal
 committed result, never in a tick or a draw call.
 
+A Survival save retains the host's original comparison key, its frozen
+content identity and its sticky eligibility exclusion in `survivalBest`.
+Loading rereads the current host's best for that key; a cached score is not
+saved. Restores read live sources, so entry's capture and preparation compute
+their content identity again without composing or stepping another battle.
+Changed or unavailable content excludes the resumed run from the old key.
+A save without eligibility information remains playable but cannot establish
+an eligible attempt. Malformed or unsupported eligibility records refuse the
+load. Cheats and rule changes remain excluded across any number of saves.
+
 ## 9. Front end
 
 - **Entry.** A **Survival** button on the single-player menu, cloned from the
@@ -807,18 +817,35 @@ does:
 - the tuning from the pace;
 - the shared vision team;
 - the terrain region labels, in entry order;
-- each survivor manager's scenario record.
+- each survivor manager's scenario record;
+- the attacker's passive-manager flag, before the load-entry prime can run
+  planner tasks.
+
+The decoder and direct restoration path validate the director's player slots,
+setup agreement, phase, group domains, spawn cursor and scenario vectors before
+installing state or shared sight. Malformed records return a save error. A
+Warning phase may still carry the exhausted previous wave's cursor until the
+transition to Active resets it; that valid state remains loadable.
 
 Nothing draws from either stream. A shunned infection victim is forgotten,
 since allocation serials are not saved; the skip lasts at most ten seconds
-anyway. The record leaves the sidecar schema alone, as the Modern AI record
-does. The results screen's save button stays campaign-only.
+anyway. Survival uses sidecar schema 4, with its director required and the
+host's `survivalBest` eligibility record alongside it (§8.1). Older builds
+refuse the schema instead of silently loading an ordinary skirmish without
+waves. Ordinary skirmish and campaign saves retain their existing schemas.
+The results screen's save button stays campaign-only.
 
 Tests:
 - `TestSurvivalDirectorSurvivesASaveRoundTrip` saves mid-wave and plays the
   restored director to the next wave.
 - `TestSurvivalRecordAccountsForEveryDirectorField` fails when the director
   gains a field that the record neither saves nor rebuilds.
+- Malformed-record tests exercise decoder and direct restoration refusal;
+  the round trip verifies that the attacker's planner stayed passive.
+- `TestSurvivalSaveContentIdentity` verifies that the restored selection
+  produces the original comparison identity without changing simulation or RNG.
+- `TestSurvivalBestSurvivesSaveAndLoad` verifies eligible completion, sticky
+  cheat/rule exclusions and rereading a newer host record after a quick load.
 
 ## 12. Verification
 
