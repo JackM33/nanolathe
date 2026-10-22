@@ -90,6 +90,9 @@ func (g *gameShell) applySettings(s settings.Settings) {
 	g.keyMap = keyMapFromSettings(s.KeyBindings)
 	g.builderOptions = s.BuilderOptions
 	g.fullscreen = s.Fullscreen
+	// The interface language is presentation only (language.go).
+	g.language = s.Language
+	g.applyLanguage()
 	// The message-column ring configuration is the interface page's
 	// `TXTSCROL`, `MAXLINES` and `UNITCHAT` controls plus `screenchat`, which
 	// no screen edits [02 §3][07 R-CAM-01 §7].
@@ -221,6 +224,7 @@ func (g *gameShell) liveSettings() settings.Settings {
 	s := settings.Settings{
 		Version:     settings.FileVersion,
 		Fullscreen:  g.fullscreen,
+		Language:    g.language,
 		Difficulty:  g.missionDifficultyValue,
 		ScrollSpeed: g.scrollSpeed,
 		// The whole block is rewritten from live state, so the interface

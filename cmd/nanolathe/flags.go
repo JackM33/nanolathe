@@ -206,6 +206,7 @@ type Options struct {
 	UIScale            int         // -1 keeps the saved preference; 0 Auto, 1 or 2 fixed
 	Renderer           string      // start-up presentation executor: "classic" or "modern" (default)
 	Fullscreen         bool        // host desktop fullscreen override
+	Language           string      // --language interface language code for this run; empty uses the saved choice (language.go)
 	FullscreenSet      bool        // distinguishes an omitted flag from --fullscreen=false
 	Stats              bool        // opt-in terminal presentation statistics
 	FPS                int         // cap on presented frames per second for the modern renderer; 0 = the display's refresh rate
@@ -467,6 +468,11 @@ func parseFlags(args []string, out io.Writer) (Options, error) {
 	})
 	set.StringVar(&opts.Renderer, "renderer", settings.DefaultPresentation().Renderer, "start-up presentation renderer (omitted uses saved preference): \"classic\" (software) or \"modern\" (GPU); any other value is classic")
 	set.BoolVar(&opts.Fullscreen, "fullscreen", false, "desktop fullscreen (Alt+Enter toggles); omitted uses saved preference")
+	set.Func("language", "interface language for this run: english or ukrainian; omitted uses saved preference", func(text string) error {
+		code, err := parseLanguage(text)
+		opts.Language = code
+		return err
+	})
 	set.BoolVar(&opts.Stats, "stats", false, "print periodic presentation statistics to the terminal")
 	set.IntVar(&opts.UIScale, "ui-scale", -1, "Modern battle UI scale: 0 Auto, 1 or 2 (omitted uses the saved preference); also applies to --shot")
 	set.IntVar(&opts.FPS, "fps", settings.DefaultPresentation().FPS, "cap presented frames per second for modern (omitted uses saved preference), rounded down to a multiple of the display's refresh (0 = the display's refresh rate)")

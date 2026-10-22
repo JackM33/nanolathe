@@ -298,8 +298,7 @@ func StageRetailBattle(bank *save.Bank, deps RetailLoadDeps) (*RetailBattleStage
 	}
 	for i := range image.Players {
 		if image.Players[i].Index >= 0 && image.Players[i].Index < len(s.Econ.Players) {
-			image.Players[i].ApplyToEconomy(&s.Econ.Players[image.Players[i].Index])
-			s.Econ.Players[image.Players[i].Index].Exists = true
+			s.restoreRetailPlayer(image.Players[i])
 		}
 	}
 	// The shared end countdown and latch are not among the persisted

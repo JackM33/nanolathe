@@ -854,6 +854,15 @@ interface bit, Space held, and no focused text editor; `ScoreSlide.Step` is its
 slide with its cues; `ScoreRowOrder` compacts the qualifying slots; `ScoreFlash`
 is the kill/loss flash, armed only while the interface bit is set
 `[07 R-HUD-04 §1]`.
+Names come from the committed player record: default computer names use
+compiled side metadata, while explicit player names remain intact.
+As Nanolathe host presentation, the panel appends the compiled faction name
+when it differs from the player's name, for example `Player (TLL)`. It resolves
+the faction from the committed side ordinal, including after loading, in every
+gameplay mode. A computer already named `TLL` keeps that concise label. This
+changes only the drawn label, with no player-record or save-format change.
+After loading, distinct registration ranks and reconstructed default names
+come from the session restore boundary (DESIGN_SESSIONS_AI_SAVE §2).
 
 **The queued-order overlay** (`queueoverlay.go`, `buildmarker.go`).
 `QueueOverlay` is a pure snapshot consumer: it walks the committed order queues
@@ -4267,13 +4276,14 @@ order. They show name, stored metal/energy, capacity bars and positive income
 with the source's compact-number formatting. The upper-right minus/plus widget
 collapses the panel; rows clip above the bottom HUD. This substitutes local
 committed records for the source's multiplayer shared-data transport. The
-weather option defaults off, shows both wind and tidal rows, and adapts the
+weather option defaults off, shows only wind and tidal rows, and adapts the
 source's side-anchor/clamped layout with the retained retail wind hard limit
-5000. If the report and clock do not fit beside the resource-strip anchors,
-they occupy a backed panel just below the strip beside the left rail; compact
-displays must not clamp the report over the energy readout. Current wind and
-clock read the committed frame; bounds, tidal strength
-and reference generators are immutable battle content. Source arithmetic is
+5000. Game time belongs to the separate `+Clock` preference. If the report
+does not fit beside the resource-strip anchors, it occupies a backed panel
+just below the strip beside the left rail; compact displays must not clamp
+the report over the energy readout. Current wind reads the committed frame;
+bounds, tidal strength and reference generators are immutable battle content.
+Source arithmetic is
 recorded in [community patch engine §5.10](../research/extensions/community-patch-engine.md#510-optional-resource-and-weather-presentation).
 
 ### 3.15 Optional megamap

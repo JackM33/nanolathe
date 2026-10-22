@@ -368,6 +368,24 @@ func skirmishSlotName(controller uint8, side int) string {
 	return "Core"
 }
 
+// skirmishPlayerName uses the compiled side name for computers, preserving
+// retail's spelling only for the stock Arm/Core definitions [08 R-SKIR-01 §2].
+// Mod and faction labels are content, independent of gameplay mode
+// (DESIGN_MODS_MUTATORS §5.8); ordinals alone cannot identify them.
+func (s *Session) skirmishPlayerName(controller uint8, side int) string {
+	if controller != 2 {
+		return skirmishSlotName(controller, side)
+	}
+	if s.Catalog == nil || side < 0 || side >= len(s.Catalog.Sides) || s.Catalog.Sides[side] == nil {
+		return ""
+	}
+	name := s.Catalog.Sides[side].Name
+	if side < 2 && strings.EqualFold(name, skirmishSlotName(controller, side)) {
+		return skirmishSlotName(controller, side)
+	}
+	return name
+}
+
 // Validate checks NumPlayers 2..10 and non-empty map per [GAP T14] C8.
 // Retail validation stores the supplied player count unchanged in this path;
 // the player-count range branch is a compiled no-op [P0-05]. We preserve that as no-op for NumPlayers range
@@ -816,6 +834,7 @@ func prepareSkirmishInputs(fs vfs.FSOps, cat *content.Catalog, cfg SkirmishConfi
 	// The frozen selection records the set beside the mutators; the prepared
 	// catalog already carries its effect (§15.5).
 	request.Restrictions = options.Restrictions
+	request.ModernAI = hasModernComputer(cfg)
 	inputs, err := freezeSkirmishInputs(sources, request)
 	if err != nil {
 		return skirmishEntry{}, fmt.Errorf("session: skirmish content: %w", err)
@@ -986,7 +1005,7 @@ func composeSkirmish(entry skirmishEntry, options SkirmishEntryOptions, audio vf
 		// does not copy it. Nothing wrote this field before, which is why the
 		// result rows carried a nickname fallback the setup row stopped
 		// answering after a load.
-		p.Name = skirmishSlotName(ctrlState, int(p.Side))
+		p.Name = s.skirmishPlayerName(ctrlState, int(p.Side))
 		// Online, a human's record carries its player's own name instead, as
 		// retail's multiplayer rows do: the slot initializer copies the
 		// configured player name for the local player's slot, and admission

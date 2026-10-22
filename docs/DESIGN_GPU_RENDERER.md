@@ -3621,6 +3621,20 @@ existing colour filter. This adds no render target, temporal history or
 simulation state. The device fixture compares filtered submerged and ordinary
 opaque hulls with the identity Blue table and refraction disabled.
 
+**Zoomed-out shimmer investigation (2026-10-19; no renderer change).** The
+below-1× path selects one resolved native 2×2 atlas block per screen pixel;
+it does not gather the whole minified footprint. At 0.5× that footprint is
+4×4 atlas texels. A synthetic GPU probe with a frozen one-native-pixel striped
+model, supersampling on and material effects off, changed all sampled interior
+pixels from gray 40 to 220 after a 0.125-screen-pixel camera translation.
+The same probe at 1.5× transitioned gradually through the filter above.
+This establishes minification aliasing in the model commit as a plausible
+source of the playtest shimmer; the exact reported scene remains unreproduced.
+Feature sprite levels do not provide live-unit model minification. A follow-up
+should compare a frozen installed unit across fractional camera offsets with
+a moving unit under a fixed camera, separating texture, silhouette and shadow
+changes before choosing any correction.
+
 Prototype validation: Great Divide, seed 7, 1280×720, 90 ticks, with the local
 commander selected, produces byte-identical before/after PNGs at exact 1× and
 2×. The short coastal benchmark (scene 5, seed 7, 1920×1080, 1.5×, 30 draws/s,

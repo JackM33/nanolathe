@@ -182,6 +182,7 @@ Current policies: [terrain admission](docs/DESIGN_WEAPONS_PROJECTILES.md#231-mod
 [factory-exit yielding](docs/DESIGN_ECONOMY_CONSTRUCTION.md#modern-factory-exit-yielding), and
 [construction-site clearance](docs/DESIGN_ECONOMY_CONSTRUCTION.md#modern-construction-site-yielding), and
 [authored build membership](docs/DESIGN_ECONOMY_CONSTRUCTION.md#modern-authored-build-membership), and
+[feature growth](docs/DESIGN_ECONOMY_CONSTRUCTION.md#modern-feature-growth) (user-authorized 2026-10-20), and
 [learned terrain](docs/DESIGN_MOVEMENT_PATH.md#modern-learned-terrain), and
 [group-order spreading](docs/DESIGN_MOVEMENT_PATH.md#modern-group-order-spreading), and
 [bounded path work](docs/DESIGN_MOVEMENT_PATH.md#modern-bounded-path-work), and
@@ -209,6 +210,8 @@ Current policies: [terrain admission](docs/DESIGN_WEAPONS_PROJECTILES.md#231-mod
 [infector target preference](docs/DESIGN_WEAPONS_PROJECTILES.md#modern-infector-target-preference)
 and [Modern AI infector focus](docs/DESIGN_SESSIONS_AI_SAVE.md#modern-ai-infector-focus), and
 [Modern AI restriction caps](docs/DESIGN_SESSIONS_AI_SAVE.md#modern-ai-restriction-caps), and
+[Modern AI page products](docs/DESIGN_SESSIONS_AI_SAVE.md#modern-ai-page-products), and
+[Modern AI walls](docs/DESIGN_SESSIONS_AI_SAVE.md#modern-ai-walls) (user-authorized 2026-10-20), and
 [chosen start positions](docs/DESIGN_SESSIONS_AI_SAVE.md#modern-chosen-start-positions),
 [extra start positions](docs/DESIGN_SESSIONS_AI_SAVE.md#modern-extra-start-positions) and
 [allied sight](docs/DESIGN_SESSIONS_AI_SAVE.md#modern-allied-sight) (user-authorized

@@ -15,6 +15,7 @@ import (
 	"github.com/nanolathe-gg/nanolathe/internal/client"
 	"github.com/nanolathe-gg/nanolathe/internal/content"
 	"github.com/nanolathe-gg/nanolathe/internal/gameplay"
+	"github.com/nanolathe-gg/nanolathe/internal/i18n"
 	"github.com/nanolathe-gg/nanolathe/internal/input"
 	"github.com/nanolathe-gg/nanolathe/internal/modlibrary"
 	"github.com/nanolathe-gg/nanolathe/internal/palette"
@@ -362,6 +363,7 @@ func (s *nlScreen) snapshot(g *gameShell) nlDraft {
 		interfaceType: g.interfaceType,
 		restrictions:  nlLiveRestrictions(g).String(),
 		addons:        nlAddonsText(g.cs.addonSelection),
+		language:      languageIndex(),
 	}
 	if d.glowStrength < 0 {
 		d.glowStrength = settings.DefaultGlowStrength
@@ -618,6 +620,7 @@ func (s *nlScreen) applyDraft(g *gameShell, draft nlDraft, touched map[string]bo
 		g.fullscreen = next.fullscreen
 		ebiten.SetFullscreen(next.fullscreen)
 	}
+	g.chooseLanguage(next.language)
 	g.display.Width, g.display.Height = next.resolution.W, next.resolution.H
 	g.commitWindowSize()
 	g.saveSettings()
@@ -1069,7 +1072,7 @@ func (s *nlScreen) drawHints(screen *ebiten.Image) {
 		h := hints[i]
 		ls := screenkit.Style{Size: 10 * u, Top: color.RGBA{150, 142, 116, 255}, Align: 2}
 		x -= bf.Draw(screen, h[1], x, y, ls) + 6*u
-		ks := screenkit.Style{Size: 10 * u, Tracking: 0.08, Top: color.RGBA{220, 210, 170, 255}, Align: 2}
+		ks := screenkit.Style{Size: 10 * u, Tracking: 0.08, Top: color.RGBA{220, 210, 170, 255}, Align: 2, Verbatim: true} // a key's legend
 		kw := df.Measure(h[0], ks)
 		if h[0] == "lr" || h[0] == "ud" {
 			kw = 22 * u
@@ -1718,11 +1721,11 @@ func (s *nlScreen) drawHero(screen *ebiten.Image, page nlPage, card *nlCard, idx
 	}
 	title := s.ui.upperCase(card.label)
 	size := 76 * u
-	for size > 30*u && df.Measure(title, screenkit.Style{Size: size, Tracking: 0.02}) > 720*u {
+	for size > 30*u && df.Measure(title, screenkit.Style{Verbatim: true, Size: size, Tracking: 0.02}) > 720*u {
 		size -= 2 * u
 	}
 	y += 22*u + size
-	df.Draw(screen, title, x, y, screenkit.Style{Size: size, Tracking: 0.02, Top: alphaC(nlGoldTop, a), Bottom: alphaC(nlGoldBottom, a), Shadow: 0.05})
+	df.Draw(screen, title, x, y, screenkit.Style{Verbatim: true, Size: size, Tracking: 0.02, Top: alphaC(nlGoldTop, a), Bottom: alphaC(nlGoldBottom, a), Shadow: 0.05})
 	y += 26 * u
 	controlTop := y
 	switch card.kind {
@@ -1773,11 +1776,18 @@ func (s *nlScreen) drawHero(screen *ebiten.Image, page nlPage, card *nlCard, idx
 			s.fonts.Display.Draw(screen, heading, x, y+12*u, screenkit.Style{Size: 11 * u, Tracking: 0.24, Top: alphaC(nlKicker, a), Upper: true})
 			y += 20 * u
 			rows := (len(lines) + 1) / 2
+			lineStyle := screenkit.Style{Size: 11 * u, Top: alphaC(nlBody, a), Shadow: 0.1}
+			// The second column starts past the first one's widest line, so
+			// a translation longer than the English stays clear of it.
+			column := 320 * u
+			for _, line := range lines[:rows] {
+				column = max(column, 14*u+bf.Measure(line, lineStyle)+20*u)
+			}
 			for i, line := range lines {
 				col, row := i/rows, i%rows
-				lx, ly := x+float64(col)*320*u, y+float64(row)*19*u
+				lx, ly := x+float64(col)*column, y+float64(row)*19*u
 				screenkit.Disc(screen, lx+4*u, ly+8*u, 2.5*u, alphaC(nlGreen, a))
-				bf.Draw(screen, line, lx+14*u, ly+12*u, screenkit.Style{Size: 11 * u, Top: alphaC(nlBody, a), Shadow: 0.1})
+				bf.Draw(screen, line, lx+14*u, ly+12*u, lineStyle)
 			}
 			y += float64(rows)*19*u + 2*u
 		}
@@ -1973,7 +1983,7 @@ func (s *nlScreen) heroRestrictions(screen *ebiten.Image, x, y, a float64) float
 	})
 	ew := df.Measure("Edit...", screenkit.Style{Size: 14 * u, Tracking: 0.12, Upper: true}) + 36*u
 	s.button(screen, "restrict-edit", screenkit.Rect{X: clear.X - 10*u - ew, Y: clear.Y, W: ew, H: 36 * u}, "Edit...", false, false, s.editRestrictions)
-	df.Draw(screen, s.ui.upperCase(sum.text), box.X+24*u, box.Y+40*u, screenkit.Style{Size: 24 * u, Tracking: 0.04, Top: alphaC(nlCream, a), Shadow: 0.06})
+	df.Draw(screen, s.ui.upperCase(sum.text), box.X+24*u, box.Y+40*u, screenkit.Style{Verbatim: true, Size: 24 * u, Tracking: 0.04, Top: alphaC(nlCream, a), Shadow: 0.06})
 	if rows == 0 {
 		bf.Draw(screen, "Every unit is open to every player.", box.X+24*u, box.Y+66*u, screenkit.Style{Size: 11.5 * u, Top: alphaC(nlDim, a)})
 	}
@@ -1995,13 +2005,15 @@ func (s *nlScreen) heroRestrictions(screen *ebiten.Image, x, y, a float64) float
 		}
 		stateW := df.Measure(r.state, stateStyle)
 		df.Draw(screen, r.state, rr.X+rr.W-10*u, rr.Y+25*u, stateStyle)
-		// A long name shrinks a little before it is cut.
-		st := screenkit.Style{Size: 12 * u, Top: alphaC(nlBody, a), Shadow: 0.1}
+		// A long name shrinks a little before it is cut. It is translated
+		// first and cut as shown, so the cut never leaves an English
+		// fragment.
+		st := screenkit.Style{Size: 12 * u, Top: alphaC(nlBody, a), Shadow: 0.1, Verbatim: true}
 		room := rr.W - 46*u - stateW - 14*u
-		for st.Size > 9.5*u && bf.Measure(r.name, st) > room {
+		name := i18n.T(r.name)
+		for st.Size > 9.5*u && bf.Measure(name, st) > room {
 			st.Size -= 0.5 * u
 		}
-		name := r.name
 		if bf.Measure(name, st) > room {
 			runes := []rune(name)
 			for len(runes) > 1 && bf.Measure(string(runes)+"…", st) > room {
@@ -2096,7 +2108,8 @@ func (s *nlScreen) heroProfileChanges(screen *ebiten.Image, v int, x, y, a float
 		}
 		cx, cy := x+float64(col)*colW, y+float64(row)*21*u
 		st := screenkit.Style{Size: 11 * u, Top: alphaC(nlBody, a), Shadow: 0.1}
-		bf.Draw(screen, c.label, cx, cy+12*u, st)
+		// A label ends before its values in any language.
+		bf.Draw(screen, c.label, cx, cy+12*u, fitStyle(bf, c.label, st, 188*u, 8*u))
 		vx := cx + 196*u
 		st.Top = alphaC(nlDim, a)
 		vx += bf.Draw(screen, c.from, vx, cy+12*u, st) + 8*u
@@ -2185,7 +2198,7 @@ func (s *nlScreen) heroSwitch(screen *ebiten.Image, card *nlCard, v int, x, y, a
 	if v == 0 {
 		vc = color.RGBA{214, 140, 120, 255}
 	}
-	df.Draw(screen, label, r.X+r.W+20*u, r.Y+r.H/2+16*u, screenkit.Style{Size: 32 * u, Tracking: 0.04, Top: alphaC(vc, a), Shadow: 0.06})
+	df.Draw(screen, label, r.X+r.W+20*u, r.Y+r.H/2+16*u, screenkit.Style{Verbatim: true, Size: 32 * u, Tracking: 0.04, Top: alphaC(vc, a), Shadow: 0.06})
 	return r.Y + r.H
 }
 
@@ -2216,12 +2229,6 @@ func (s *nlScreen) heroGroup(screen *ebiten.Image, card *nlCard, x, y, a float64
 		} else {
 			screenkit.Outline(screen, r, 1*u, alphaC(lerpRGBA(color.RGBA{58, 58, 51, 255}, color.RGBA{150, 150, 130, 255}, s.hits.HoverAmount(id)), a))
 		}
-		df.Draw(screen, s.ui.upperCase(p.label), r.X+18*u, r.Y+min(25*u, rowH-25*u), screenkit.Style{Size: 16 * u, Tracking: 0.08, Top: alphaC(nlCream, a)})
-		sub := p.sub
-		if disabled {
-			sub = reason
-		}
-		bf.Draw(screen, sub, r.X+18*u, r.Y+rowH-13*u, screenkit.Style{Size: 11 * u, Top: alphaC(color.RGBA{169, 162, 131, 255}, a)})
 		controlWidth := 230 * u
 		var choiceWidths []float64
 		if p.choices {
@@ -2232,6 +2239,15 @@ func (s *nlScreen) heroGroup(screen *ebiten.Image, card *nlCard, x, y, a float64
 				controlWidth += w + 4*u
 			}
 		}
+		// The name and its line end before the control in any language.
+		textW := r.W - controlWidth - 34*u
+		label := s.ui.upperCase(p.label)
+		df.Draw(screen, label, r.X+18*u, r.Y+min(25*u, rowH-25*u), fitStyle(df, label, screenkit.Style{Verbatim: true, Size: 16 * u, Tracking: 0.08, Top: alphaC(nlCream, a)}, textW, 11*u))
+		sub := p.sub
+		if disabled {
+			sub = reason
+		}
+		bf.Draw(screen, sub, r.X+18*u, r.Y+rowH-13*u, fitStyle(bf, sub, screenkit.Style{Size: 11 * u, Top: alphaC(color.RGBA{169, 162, 131, 255}, a)}, textW, 8*u))
 		s.hits.Add(screenkit.Region{ID: id, Rect: screenkit.Rect{X: r.X, Y: r.Y, W: r.W - controlWidth, H: r.H}, Click: func() { s.partSel[card.key] = i }})
 		// The control, right-aligned in the row.
 		cx := r.X + r.W - 16*u
@@ -2343,7 +2359,7 @@ func (s *nlScreen) heroMeter(screen *ebiten.Image, card *nlCard, v int, x, y, a 
 		}})
 	}
 	tx := x + float64(len(card.steps))*(sw+gap) + 16*u
-	s.fonts.Display.Draw(screen, s.ui.upperCase(card.steps[v]), tx, y+sh/2+16*u, screenkit.Style{Size: 32 * u, Tracking: 0.04, Top: alphaC(nlGreenText, a), Shadow: 0.06})
+	s.fonts.Display.Draw(screen, s.ui.upperCase(card.steps[v]), tx, y+sh/2+16*u, screenkit.Style{Verbatim: true, Size: 32 * u, Tracking: 0.04, Top: alphaC(nlGreenText, a), Shadow: 0.06})
 	return y + sh
 }
 
@@ -2463,7 +2479,7 @@ func (s *nlScreen) heroLayers(screen *ebiten.Image, card *nlCard, v int, x, y, a
 		if selected {
 			tc = nlCream
 		}
-		tw := df.Draw(screen, s.ui.upperCase(card.steps[i]), r.X+52*u, r.Y+bh/2+10*u, screenkit.Style{Size: 20 * u, Tracking: 0.08, Top: alphaC(tc, a)})
+		tw := df.Draw(screen, s.ui.upperCase(card.steps[i]), r.X+52*u, r.Y+bh/2+10*u, screenkit.Style{Verbatim: true, Size: 20 * u, Tracking: 0.08, Top: alphaC(tc, a)})
 		if locked {
 			s.padlock(screen, r.X+62*u+tw, r.Y+bh/2-10*u, 18*u, nlAmber, false)
 		}
@@ -2510,10 +2526,10 @@ func (s *nlScreen) heroHalves(screen *ebiten.Image, card *nlCard, v int, x, y, a
 		}
 		size := 22 * u
 		label := s.ui.upperCase(card.steps[i])
-		for size > 12*u && df.Measure(label, screenkit.Style{Size: size, Tracking: 0.06}) > r.W-20*u {
+		for size > 12*u && df.Measure(label, screenkit.Style{Verbatim: true, Size: size, Tracking: 0.06}) > r.W-20*u {
 			size -= u
 		}
-		df.Draw(screen, label, r.X+r.W/2, r.Y+64*u, screenkit.Style{Size: size, Tracking: 0.06, Top: alphaC(tc, a), Align: 1})
+		df.Draw(screen, label, r.X+r.W/2, r.Y+64*u, screenkit.Style{Verbatim: true, Size: size, Tracking: 0.06, Top: alphaC(tc, a), Align: 1})
 		if len(card.subs) > i {
 			bf.Draw(screen, card.subs[i], r.X+r.W/2, r.Y+92*u, screenkit.Style{Size: 10 * u, Top: alphaC(color.RGBA{169, 162, 131, 255}, a), Align: 1})
 		}
@@ -2757,13 +2773,24 @@ func (s *nlScreen) drawCard(screen *ebiten.Image, c *nlCard, r screenkit.Rect, v
 	}
 	df := s.fonts.Display
 	name := s.ui.upperCase(c.label)
-	name, nameStyle := s.ui.fit(df, name, screenkit.Style{Size: 16 * u, Tracking: 0.08, Top: alphaC(nlCream, a), Shadow: 0.1}, nameW, 9*u)
+	// The label is already in the screen's language (upperCase).
+	name, nameStyle := s.ui.fit(df, name, screenkit.Style{Verbatim: true, Size: 16 * u, Tracking: 0.08, Top: alphaC(nlCream, a), Shadow: 0.1}, nameW, 9*u)
 	df.Draw(screen, name, tx, nameY, nameStyle)
-	drawValue := func(value string) {
-		st := screenkit.Style{Size: 10.5 * u, Top: alphaC(nlGreenText, a)}
-		if compact {
-			value, st = s.ui.fit(s.fonts.Body, value, st, r.X+r.W-14*u-tx, 9*u)
+	// drawValue draws the value row. A full-size card's lamps share that row,
+	// so its value stops short of them (cardCaption; lamps is their left edge,
+	// zero when there are none); a compact card's lamps have a row of their
+	// own.
+	drawValue := func(value string, lamps float64) {
+		if !compact {
+			right := r.X + r.W - 14*u
+			if lamps > 0 {
+				right = lamps - 6*u
+			}
+			s.cardCaption(screen, value, tx, valueY, right, a)
+			return
 		}
+		st := screenkit.Style{Size: 10.5 * u, Top: alphaC(nlGreenText, a)}
+		value, st = s.ui.fit(s.fonts.Body, value, st, r.X+r.W-14*u-tx, 9*u)
 		s.fonts.Body.Draw(screen, value, tx, valueY, st)
 	}
 	// Mini lamps on the value row: the meter's segments, the layers up to
@@ -2797,20 +2824,22 @@ func (s *nlScreen) drawCard(screen *ebiten.Image, c *nlCard, r screenkit.Rect, v
 			}
 			parts = c.parts[0].steps[c.parts[0].get(&s.draft)] + " · orders " + orders
 		}
-		drawValue(parts)
+		drawValue(parts, lx)
 		s.drawCardSource(screen, c, img, a)
 		if changed {
 			s.lamp(screen, r.X+r.W-16*u, r.Y+22*u, 5*u, nlAmber, true)
 		}
 		return
 	}
+	var lamps float64
 	if c.kind == nlAddons {
 		// One lamp, as a switch has: lit while any add-on is on.
 		state := 2
 		if v > 0 {
 			state = 1
 		}
-		s.segment(screen, screenkit.Rect{X: r.X + r.W - 36*u, Y: lampY, W: 22 * u, H: 13 * u}, state, 0)
+		lamps = r.X + r.W - 36*u
+		s.segment(screen, screenkit.Rect{X: lamps, Y: lampY, W: 22 * u, H: 13 * u}, state, 0)
 	} else if c.kind != nlContent && n <= 8 {
 		lw, lh, lg := 7*u, 13*u, 3*u
 		if c.kind == nlSwitch {
@@ -2820,6 +2849,7 @@ func (s *nlScreen) drawCard(screen *ebiten.Image, c *nlCard, r screenkit.Rect, v
 		if c.kind == nlSwitch {
 			lx = r.X + r.W - 14*u - lw
 		}
+		lamps = lx
 		for i := 0; i < n; i++ {
 			if c.kind == nlSwitch && i != 0 {
 				break
@@ -2843,7 +2873,7 @@ func (s *nlScreen) drawCard(screen *ebiten.Image, c *nlCard, r screenkit.Rect, v
 	if c.kind == nlResolution {
 		value = resolutionLabel(s.draft.resolution)
 	}
-	drawValue(value)
+	drawValue(value, lamps)
 	if c.kind != nlAddons {
 		s.drawCardSource(screen, c, img, a)
 	}

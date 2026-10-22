@@ -91,6 +91,12 @@ Every post-entry reader — commander identity, alliance, the score rows, the
 save's `Player%i` account — reads the player record `[08 R-SKIR-01 §2]`
 `[08 "Player records"]`.
 
+Computer registration uses each compiled `SideDef.Name`, including a mod's
+replacement of base side ordinals 0/1. Stock ARM/CORE definitions keep retail's
+`Arm`/`Core` spelling. These labels follow content in every gameplay mode,
+including faction composition (DESIGN_MODS_MUTATORS §5.8); explicit player
+names remain independent of that default.
+
 ## 2. Packages and key types
 
 The save/load directory is `savegame` beneath the resolved installation root,
@@ -631,6 +637,15 @@ storage items are the storage-bonus **operands** and its storage flag the
 bonus enable bit; the derived capacities are not persisted — a restored
 player's capacity is rebuilt from its units plus the restored bonus at its
 first settlement pass `[08 "Player records"]` `[05 R-ECO-01 §4]`.
+
+Names and score-panel ranks have no item in that closed account. Staging and
+core restoration initialize each saved slot's registration rank to its slot
+index and fill an empty skirmish name from its restored controller and side.
+This keeps every qualifying row available, including an eliminated player and
+non-contiguous saved slots, without extending the bank. Whether retail later
+reorders the initial ranks from restored kill counts remains the existing
+research unknown; the current placeholder retains registration order until a
+credited kill shifts it `[08 R-SKIR-01 §2]` `[07 R-HUD-04 §1]`.
 
 `PlayersMeta` is the rest of the `Players` account: the `Human Player` integer
 and the `GameTime` box. **The load default for `Human Player` is `10`, no
@@ -2054,6 +2069,117 @@ is the retail baseline and every fingerprint lock runs Classic.
   background think whose result equals the synchronous one
   ([DESIGN_GAMEPLAY_RULES](DESIGN_GAMEPLAY_RULES.md#the-modern-ai-controller)).
 
+**Long games, low action budgets and teams.** Nanolathe Modern AI policy.
+These are decisions of the brain, not gameplay rules: they use the
+ordinary order and construction paths and add no rule seam, simulation
+RNG draw or per-tick state.
+
+- *Idle builders.* Ordinary constructor production stops while two or more
+  idle economy constructors of the product's domain are already waiting:
+  builders that must stand in water are counted apart from all others, and
+  the commander is not counted. Advanced constructors stay on the tech
+  plan. While at least two builders are idle the economy also spends one
+  action on a group order, the human box-select and right-click: a Guard of
+  the producing factory with the most idle builders within 1200 wu, and from
+  minute 20, when no factory takes them, a Repair of the damaged own or
+  allied unit or unfinished frame with the most. The commander and builders
+  that cannot guard are left out, and the group runs after the previous
+  think's failed builds are processed, so it hides no failed site from
+  backoff, placement-failure counts or stuck-builder detection. Reclaiming
+  stays a per-builder decision, which rests after a clear that found
+  nothing.
+- *Action reserve.* The economy reserves one action for the army only while
+  the base is threatened, and at most one for a factory with an empty,
+  unstalled queue, so a one-action persona's builders are not left
+  waiting behind the army and production.
+- *Commander safety.* The commander's retreat test runs before both
+  reserves and takes the think's action when it fires, so a one-action
+  persona can pull it home while the base is under attack. It fires
+  more than 350 wu from home, or below 60% health, where enemy threat is
+  at least half `threat_half` and outweighs own armed power. No commander
+  work site (a build, an extractor, a tower, a gate or a reclaim) is
+  offered beyond 350 wu of home where that test already holds. The leash
+  is `com_radius` or, when farther, the distance from home to the
+  second-nearest land metal spot, fixed when home is: at a start chosen
+  away from the map's metal the commander, the opening's only builder,
+  otherwise had no extractor it could build.
+- *Production batches.* A persona below 100 APM (Easy and Medium) queues a
+  chosen combat unit two at a time with one action, within any
+  restriction cap; builders, scouts and every product of a faster persona
+  are queued one at a time.
+- *Long-game growth.* `growth` acts for every ambition from minute 20, not
+  only at full ambition, while the metal store is 80% full: the
+  `long_growth` switch (default 1) then supplies its expansion, tech-2,
+  constructor-ratio and factory parts to the lower personas, so metal
+  their smaller plan leaves banked is invested and metal the army needs
+  is not. `long_growth=0` keeps the full-ambition gate. The tier curves
+  still scale the counts by ambition, so a lower persona's plan before
+  minute 20 is unchanged.
+- *Factory pads.* A pad clear moves every unit parked on a stalled pad,
+  and idle units in the short lane in front of it, in one group move to a
+  rally behind home, a quarter of the way from home away from the enemy.
+  A factory written off as walled in is cleared too, so its queue resumes
+  if its exit opens. A stalled pad gets one builder Unblock before two
+  clear attempts; the executor does nothing when the exit is open. While
+  at least two pads are stalled and at least half the factories are,
+  growth adds no factory.
+- *Standing home guard.* From minute 20 the tactics army keeps 10% of its
+  value at home at every attention, within the 15% defend share; the guard
+  otherwise forms only at Attention 3 after an incident. An under-strength
+  guard is filled from main and raid squad members nearest home.
+- *Approach warning.* Incidents begin only at an asset, the base or the
+  commander, so an army closing on home was answered only once it stood
+  among the buildings. Armed enemy ground units within 2400 wu of home
+  that are not yet an incident — in sight, on radar, or seen in the last
+  five seconds — form one approaching force. When it is worth at least
+  600 and what stands a third of the way toward it (towers, commander and
+  home guard) holds less than 1.5 times its strength, the home guard and
+  the main army defend that point. A squad answering an incident keeps
+  it, the main army keeps a fight within 1200 wu of the force, and a main
+  army no more than 600 wu farther from home than the force is left to
+  meet it. `warn=0` turns it off.
+- *Radar over home.* From minute 10, while no stationary radar stands, is
+  under way or is assigned within reach of home, the economy wants one
+  there at need 4000 instead of the ordinary at most 1000, a quarter of
+  the way from home to the front rather than halfway between the front
+  and the rally point. It comes before routine energy and extractors but
+  not before a tower the base urgently needs, and a lost one is wanted
+  again. It is what lets the approach warning see an army coming.
+  `radar_home=0` keeps the forward radar alone.
+- *Allied assets.* Allied buildings and builders in sight are assets for
+  incidents and home defence, so a team's army answers an attack on an
+  ally's base although it cannot command the ally. Own army value and
+  strength stay own-only.
+- *Guard capability.* A definition authored `canguard=0` refuses Guard
+  (code 7), so no layer sends it one: a support unit that cannot guard
+  follows its ward by moving when it stands idle more than 900 wu away,
+  and the economy's guard candidate, the group guard and the assist
+  builders skip such builders.
+- *Resolver diagnostics.* `ApplyStats` breaks `FailResolve` down by command
+  kind and by the first actor's role (commander, builder, combat).
+  Diagnostic state only.
+
+Strict 3.1 with only Classic players is unchanged, and every fingerprint
+lock but the Modern AI's own runs Classic.
+
+Tests: `utility.TestGrowthLongGameFallback`,
+`utility.TestIdleBuildersStopConstructorProduction`,
+`utility.TestIdleBuildersGroupGuardAFactory`,
+`utility.TestIdleBuildersRepairDamagedBuilding`,
+`utility.TestIdleRepairFallbackStartsAfterOpening`,
+`utility.TestFailedBuildBeforeIdleRescue`,
+`utility.TestPadLaneCoversShortExit`,
+`utility.TestLowAPMCombatBatch`,
+`utility.TestCommanderRetreatsBeforeReserves`,
+`utility.TestCommanderAvoidsThreatenedSites`,
+`utility.TestCommanderLeashReachesMetal`,
+`utility.TestRadarOverHome`,
+`tactics.TestStandingGuardAtLowAttention`,
+`tactics.TestStandingGuardRecruitsMainSquad`,
+`tactics.TestApproachCallsArmyHome`,
+`tactics.TestSupportWithoutGuardFollowsByMoving`,
+`aikit.TestFailResolveBreakdown`.
+
 **Radar coverage.** Nanolathe Modern policy (user-requested correction,
 2026-09-26): the utility economy offers a radar only when its request point
 is at least the larger of its authored radar range and each nearby own
@@ -2537,6 +2663,153 @@ teammate holds as many of that type); the Classic control,
 `session.TestClassicComputerPlayerMeetsACapRetail`
 ([DESIGN_MODS_MUTATORS §15.11](DESIGN_MODS_MUTATORS.md#1511-verification));
 and the existing synchronous/asynchronous arena comparison.
+
+#### Modern AI page products
+
+**Nanolathe Modern AI policy, user-authorized 2026-10-20** (Switeck's TA
+Bugfix left the CORE Modern AI without a radar tower). Like the other Modern
+AI policies it applies in every gameplay mode, including Strict 3.1, and adds
+no rule seam.
+
+**Baseline.** A build page's product gadget builds the product it names, and
+CANBUILD is no whitelist for it [07 §9]: a human builds whatever the
+selected unit's authored pages install. Each rule's membership is unchanged
+([Modern authored build membership](DESIGN_ECONOMY_CONSTRUCTION.md#modern-authored-build-membership)),
+and it remains what the Classic AI, the HUD's resource shortcuts and every
+other reader use. Switeck's patch strips from `sidedata.tdf` the entries it
+expects download records to supply, while its pages still install them
+([Extended build menus](../research/extensions/build-menus.md#canbuild-entries-left-to-the-build-pages)),
+so a membership-only AI misses products a human can build.
+
+**Policy.** The catalog records each builder menu's `InstalledProducts`: in
+the builder's numbered pages `guis/<n>1.GUI`, `guis/<n>2.GUI`, … up to the
+first missing one, every button gadget carrying the product-slot attribute
+(`commonattribs` bit 4) whose name resolves to a definition, in page and
+gadget order. A slot that a download record patches is skipped, since the
+record's product replaces its name; page 0 is the orders state and installs
+none, and a page that does not parse installs nothing. The Modern AI's unit
+table appends these products to the rule's membership, each once, so they are
+candidates for every layer that reads a builder's products. Mission
+restrictions prune the list with the others; a definition a restriction
+removes has no table entry.
+
+**Identity.** Only the Modern AI reads the list, so the frozen content
+identity carries it as the AI-family entry `modern/installed-products`,
+present when a computer row chose the Modern AI
+([DESIGN_MULTIPLAYER §8.7](DESIGN_MULTIPLAYER.md#87-frozen-content-and-build-contracts-for-u4u5)).
+A battle without one keeps the identity, and the replays, it had.
+
+**Boundaries and verification.** No random draw, resource charge, rule seam
+or saved state is added; the table is rebuilt from the battle catalog.
+Classic players and the HUD never read the list, so no fingerprint lock
+moves. Tests: `content.TestInstalledProductsReadAuthoredPages` (product
+gadgets on authored pages, with patched slots, page 0, pages after a gap,
+order buttons, unmarked and unresolved names excluded),
+`content.TestFrozenInputsCarryInstalledProductsForModernAI` (the entry joins
+the identity only with a Modern computer) and
+`aikit.TestTableAddsPageInstalledProducts` (the table appends them after
+the membership, once, under every rule).
+
+#### Modern AI walls
+
+**Nanolathe Modern AI policy, user-authorized 2026-10-20** (a play-test:
+the Modern AI never built walls, and its army stood at a human's dragon's
+teeth being shot instead of breaking through; the user asked for both, a
+constructor sent to reclaim the wall included). Like the other Modern AI
+policies it applies in every gameplay mode, including Strict 3.1, uses only
+orders a human has, and adds no rule seam.
+
+**Baseline.** The retail planner zeroes the score of every `isfeature`
+product, so a Classic computer never builds a wall [08 R-P0-05 §5]. A
+finished wall piece is a feature. A projectile that strikes it bursts at
+its face, and the piece takes the weapon's default damage only when the
+impact lies closer to its centre than half the authored area of effect
+[05 R-FEAT-01 §8][06 §13.1]. A two-cell piece's centre lies 16 to 23 wu behind the
+face, so small arms (an area of 8) never harm a dragon's tooth, light
+cannons (32) harm it at about half their rate, and rockets, plasma and
+missiles (48) in full. Reclaiming a feature costs a fixed amount of work
+taken from its metal and energy, whatever the builder's power [05 R-WORK-01
+§5]: under a second for a dragon's tooth.
+
+**Seeing walls.** A brain names up to eight points a think where its own
+units stand (`Kit.WatchWalls`). When that think's batch is applied, the
+executor lists in `Obs.Walls` every finished feature of a wall product
+within `WallRadius` (384 wu) of one of them, once each, at its footprint
+centre. A wall product is an unarmed, immobile land product that finishes
+as a solid feature and is no economy, factory or sensor building
+(`aikit.WallPiece`, read from authored keys). A map feature has no owner,
+so a piece within 320 wu of an own or allied building counts as ours and
+is never broken.
+
+**Breaking through (`walls`, tactics).** An engaged ground squad watches
+around its centre and its member nearest the target. It is held when the
+members within 160 wu of a piece that is not ours are worth a quarter of
+its present value and that front member has come no 96 wu nearer the
+target for 300 − 2 × skill ticks (260 at Easy, 130 at Hard). A held squad:
+- fires at one piece by attacking the ground at its centre, with the members
+  whose weapons damage walls (above) within their range of it plus 120 wu.
+  The piece is the one nearest the members at the wall that does not lie
+  behind them, its distance raised by the enemy's static fire reaching it
+  in proportion to the squad's own, and halved beside the piece that fell
+  last, so the breach opens where towers cover least and an opening widens;
+- sends the members that cannot damage the wall and stand in enemy fire
+  within 460 wu of it 300 wu back behind the piece until it falls;
+- asks the economy for a constructor (`Board.BreachX`);
+- pulls back and cools the target as a lost engagement once its square-law
+  strength has fallen to half what it was when it was first held, or after
+  90 s without a piece falling.
+
+When a watched piece is gone from the list the breakers patrol on to the
+target. A squad still held after that picks the next piece; one that is
+no longer held for 10 s stops counting as walled. Focus fire is off while a
+squad is walled.
+
+**The constructor (economy).** While the army's request is no older than
+90 ticks, one constructor goes to the piece (`Kit.Breach`). It
+reclaims the wall pieces within 48 wu, nearest first, with ordinary Reclaim
+orders. It is the cheapest reclaim-capable constructor (the nearest among
+equals), never the commander, and only while more than two constructors
+remain. It may be lost, so it does not turn home for the threat that sends
+other builders back, and it keeps its orders until they are done. Only one
+is out at a time and at most one every 60 s. It is called off once the
+army has asked nothing for 15 s.
+
+**Building walls (`wall_build`, `wall_from`, economy).** With the defense
+plan, from minute `wall_from` (12), a tower that serves the ground plan in a
+zone enemy ground forces have approached gets one segment. The tower is a
+ground tower, or a missile tower under the front rules. The segment is
+three touching pieces across the zone's observed approach, 96 wu in front
+of the tower; neighbours stand a piece's width apart along the line's
+larger axis, so diagonal pieces touch without overlapping on the grid.
+The tower nearest the enemy goes first, and a tower is never tried twice.
+Pieces keep off the corridors the army's own units walk and out of passes.
+`Kit.BuildExact` refuses a blocked site, a factory lane, an allied tower's
+space or a metal spot rather than move the piece, and a segment needs two
+sites. Towers stand at least 160 wu apart, so neighbouring segments leave
+a corridor. Only an idle constructor, or one helping a build, builds a
+segment: the nearest to the tower. The cheapest wall piece it makes is
+used, while the stores or 90 s of income pay for three. There is one
+segment every 90 s. A think whose action budget cannot order every piece
+queues the rest on the same constructor on later thinks, while it keeps
+the job.
+
+**Boundaries.** No random draw, simulation state or rule seam is added; the
+breach and wall orders are a human's attack-ground, reclaim and build.
+`Kit.Breach` is command kind 21 of the Modern checkpoint vocabulary
+([DESIGN_MULTIPLAYER §16.3.23](DESIGN_MULTIPLAYER.md#16323-u5-typed-intent-and-order-receipt-codecs)).
+Survival's computer survivors keep both switches off: the survival layer
+plans its own wall segments ([DESIGN_SURVIVAL](DESIGN_SURVIVAL.md)), and no
+wave stands behind a wall. Classic players are unchanged, so no Classic
+fingerprint lock moves.
+
+**Verification.** `aikit.TestWallsListedNearWatchedPoints`,
+`aikit.TestBreachReclaimsTheWallPiecesThere`,
+`aikit.TestWallPieceReadsAuthoredKeys`,
+`tactics.TestWallDamageFollowsTheBurst`,
+`tactics.TestBreachPieceAvoidsTowerFire`,
+`tactics.TestHeldSquadBreaksTheWall`,
+`utility.TestBreachSendsOneConstructor` and
+`utility.TestWallSegmentCrossesTheApproach`.
 
 #### Modern AI damage hints
 

@@ -582,6 +582,13 @@ type Settings struct {
 	// Fullscreen is Nanolathe's desktop presentation preference, independent of
 	// retail display options. Absent in older settings files means windowed.
 	Fullscreen bool `json:"fullscreen"`
+	// Language is the interface language (internal/i18n, docs/DESIGN_I18N.md): a language
+	// code such as `ukrainian`, or empty for English, the language the
+	// interface is written in. It is presentation only. Normalize keeps it
+	// verbatim apart from case and surrounding space; a code this build has
+	// no catalog for starts in English with a notice where it is selected,
+	// and a --language flag wins over it for one run.
+	Language string `json:"language,omitempty"`
 	// Presentation selects Nanolathe's executor and presentation cap, separate
 	// from the retail display options (DESIGN_GPU_RENDERER §13.5, §14.6).
 	Presentation Presentation `json:"presentation"`
@@ -1314,6 +1321,11 @@ func (s *Settings) Normalize() {
 	// neither vocabulary. An unknown selector is rejected where it is
 	// resolved, at the mount boundary, so a typo names itself there.
 	s.ContentProfile = strings.TrimSpace(s.ContentProfile)
+	// English is the interface as written, and the absent value.
+	s.Language = strings.ToLower(strings.TrimSpace(s.Language))
+	if s.Language == "english" {
+		s.Language = ""
+	}
 	// The mutator entries are kept verbatim for the reader that parses them;
 	// only an empty set is folded to absent.
 	if len(s.Mutators) == 0 {

@@ -53,6 +53,9 @@ type SimulationInputRequest struct {
 	// identity used by catalog preparation, not a request to apply it again.
 	// Empty strings retain legacy freeze support, but cannot admit a match.
 	PreparingRuleName, PreparingRuleBase string
+	// ModernAI is set when a Modern computer player plays: its candidates
+	// read each builder's InstalledProducts, which then join the AI family.
+	ModernAI bool
 }
 
 // SimulationInputs is one battle's frozen simulation content. Its accessors
@@ -311,6 +314,9 @@ func FreezeSimulationInputs(sources *SimulationSources, r SimulationInputRequest
 	f.entries = append(f.entries, simArtEntries(art)...)
 	f.freezeMap(sources.mapName, r)
 	f.freezeAI(r.AIProfile)
+	if r.ModernAI {
+		f.entries = append(f.entries, installedProductsEntry(r.Catalog))
+	}
 	community := newSemanticDigest("nanolathe/sim-content/community/1")
 	community.digest(r.CommunityDigest)
 	mutators := newSemanticDigest("nanolathe/sim-content/mutators/1")
@@ -672,6 +678,24 @@ func (f *freezer) freezeAI(name string) {
 	}
 	f.entries = append(f.entries, entry)
 	f.addProvenance(SimulationFamilyAI, entry.Key, 0, used)
+}
+
+// installedProductsEntry is the AI-family entry of the products the
+// builders' authored pages install, which only the Modern AI reads
+// (BuildMenuPage.InstalledProducts). It is an entry of its own, present only
+// when a Modern computer plays, so a battle without one keeps the identity it
+// had before the Modern AI read them.
+func installedProductsEntry(c *Catalog) SimulationInput {
+	d := newSemanticDigest("nanolathe/sim-content/ai/installed-products/1")
+	for _, key := range sortedKeys(c.BuildMenus) {
+		p := c.BuildMenus[key]
+		if p == nil || len(p.InstalledProducts) == 0 {
+			continue
+		}
+		d.text(key)
+		d.texts(p.InstalledProducts)
+	}
+	return SimulationInput{Family: SimulationFamilyAI, Key: "modern/installed-products", Presence: SimulationInputPresent, SemanticDigest: d.sum()}
 }
 
 // validateSimulationInputs enforces the manifest's representation limits
