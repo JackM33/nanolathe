@@ -8,6 +8,7 @@ import (
 
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/nanolathe-gg/nanolathe/internal/content"
+	"github.com/nanolathe-gg/nanolathe/internal/i18n"
 	"github.com/nanolathe-gg/nanolathe/internal/input"
 	"github.com/nanolathe-gg/nanolathe/internal/platform/screenkit"
 )
@@ -19,6 +20,9 @@ import (
 // changes anything drawn.
 
 type nlUICache struct {
+	// language is the interface language the kept capitals and lines were
+	// translated into; another starts them over.
+	language string
 	ids      map[nlIDKey]string
 	texts    map[nlTextKey]string
 	wraps    map[nlWrapKey][]string
@@ -86,15 +90,25 @@ func (c *nlUICache) mutatorKey(m content.Mutators) string {
 	return k
 }
 
-// upperCase is strings.ToUpper of a label, kept.
+// translated starts the kept capitals and lines over when the interface
+// language changed since they were kept.
+func (c *nlUICache) translated() {
+	if language := i18n.Language(); language != c.language {
+		c.language, c.upper, c.wraps, c.fits = language, nil, nil, nil
+	}
+}
+
+// upperCase is a label in the interface language and in capitals, kept. It
+// is translated already: draw it Verbatim.
 func (c *nlUICache) upperCase(label string) string {
+	c.translated()
 	if up, ok := c.upper[label]; ok {
 		return up
 	}
 	if c.upper == nil {
 		c.upper = map[string]string{}
 	}
-	up := strings.ToUpper(label)
+	up := strings.ToUpper(i18n.T(label))
 	c.upper[label] = up
 	return up
 }
@@ -104,14 +118,15 @@ type nlWrapKey struct {
 	font                  *screenkit.Font
 	text                  string
 	size, tracking, width float64
-	upper                 bool
+	upper, verbatim       bool
 }
 
 // wrap is Font.Wrap, kept: it measures every word of a paragraph and builds
 // each candidate line. A window resize makes new widths, so the cache starts
 // over once it holds a few hundred paragraphs.
 func (c *nlUICache) wrap(f *screenkit.Font, text string, st screenkit.Style, width float64) []string {
-	k := nlWrapKey{f, text, st.Size, st.Tracking, width, st.Upper}
+	c.translated()
+	k := nlWrapKey{f, text, st.Size, st.Tracking, width, st.Upper, st.Verbatim}
 	if lines, ok := c.wraps[k]; ok {
 		return lines
 	}
@@ -137,7 +152,14 @@ type nlFittedText struct {
 // whole runes. Keep the measured result, including the font and scale, just
 // as wrap does (DESIGN_INTERFACE_HUD_INPUT §3.17).
 func (c *nlUICache) fit(f *screenkit.Font, text string, st screenkit.Style, width, minSize float64) (string, screenkit.Style) {
-	k := nlFitKey{nlWrapKey{f, text, st.Size, st.Tracking, width, st.Upper}, minSize}
+	c.translated()
+	// Fit what the screen shows: text still to be translated is translated
+	// here and returned Verbatim, so eliding it never leaves an English
+	// fragment that no catalog entry matches.
+	if !st.Verbatim {
+		text, st.Verbatim = i18n.T(text), true
+	}
+	k := nlFitKey{nlWrapKey{f, text, st.Size, st.Tracking, width, st.Upper, st.Verbatim}, minSize}
 	if fit, ok := c.fits[k]; ok {
 		st.Size = fit.size
 		return fit.text, st
@@ -171,6 +193,7 @@ func (c *nlUICache) fit(f *screenkit.Font, text string, st screenkit.Style, widt
 // leading and height.
 func (s *nlScreen) drawWrapped(screen *ebiten.Image, f *screenkit.Font, text string, x, top, width, leading float64, st screenkit.Style) float64 {
 	lines := s.ui.wrap(f, text, st, width)
+	st.Verbatim = true
 	y := top + st.Size
 	for _, l := range lines {
 		f.Draw(screen, l, x, y, st)
