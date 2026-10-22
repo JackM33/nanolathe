@@ -274,3 +274,41 @@ func TestSaveSlotsStayInADottedSaveDirectory(t *testing.T) {
 		}
 	}
 }
+
+// Directory-level replacement can succeed even when the old bank is read-only.
+// Hosts that refuse it must keep both previous files instead.
+func TestAutomaticSlotPreservesAReadOnlyBankAndItsSidecar(t *testing.T) {
+	g, _, _, dir := startAutosaveBattle(t, false)
+	path := session.RetailSavePath(dir, autosaveName)
+	if err := g.writeSlotSave(autosaveName); err != nil {
+		t.Fatal(err)
+	}
+	previousBank, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	previousSidecar, err := os.ReadFile(save.SidecarPath(path))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(path, 0o444); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chmod(path, 0o644)
+	if err := g.writeSlotSave(autosaveName); err != nil {
+		checkSlotTestFile(t, path, string(previousBank))
+		checkSlotTestFile(t, save.SidecarPath(path), string(previousSidecar))
+	}
+	if _, ok, err := save.ReadSidecar(path); err != nil || !ok {
+		t.Fatalf("replacement lost its sidecar: present=%t err=%v", ok, err)
+	}
+	if bank, err := save.Open(path); err != nil {
+		t.Fatal(err)
+	} else if _, err := save.DecodeBattleImage(bank); err != nil {
+		t.Fatal(err)
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil || len(entries) != 2 {
+		t.Fatalf("completed publication retained temporary files: %v, %v", entries, err)
+	}
+}

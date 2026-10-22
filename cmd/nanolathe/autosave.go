@@ -6,6 +6,7 @@ import (
 
 	"github.com/nanolathe-gg/nanolathe/internal/client"
 	"github.com/nanolathe-gg/nanolathe/internal/input"
+	"github.com/nanolathe-gg/nanolathe/internal/save"
 	"github.com/nanolathe-gg/nanolathe/internal/session"
 )
 
@@ -82,7 +83,20 @@ func (g *gameShell) writeSlotSave(name string) error {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return fmt.Errorf("nanolathe: %s not written: %v: logical path %s, providers searched [save directory], expected a writable save directory", name, err, path)
 	}
-	return g.writeSaveWithSidecar(path, func() error { return g.writeBattleSave(path, name) })
+	return replaceSlotSave(path, func(staged string) error {
+		if err := g.writeSaveWithSidecar(staged, func() error { return g.writeBattleSave(staged, name) }); err != nil {
+			return err
+		}
+		// The retail writer ignores errors after opening its bank. Before an
+		// automatic slot replaces a previous checkpoint, require the staged
+		// bank to decode as a complete battle (DESIGN_SESSIONS_AI_SAVE §5).
+		bank, err := save.Open(staged)
+		if err != nil {
+			return err
+		}
+		_, err = save.DecodeBattleImage(bank)
+		return err
+	}, os.Rename)
 }
 
 // autosaveForExit writes a live battle to the Autosave slot. A failure is
