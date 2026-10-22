@@ -294,31 +294,32 @@ func dragNearestChain(start dragPoint, points []dragPoint) []int {
 	}
 }
 
-// An area gesture's fan-out budget (DESIGN_INTERFACE_HUD_INPUT §3.11). Online,
-// the relay holds every seat's commands awaiting a tick together and closes
-// the room past 64 commands or 256 KiB (DESIGN_MULTIPLAYER §16.5.1); an area
-// entry is 36 bytes on the wire. One gesture therefore sends at most 16
-// commands and, unless its list alone is longer, at most 4,096 entries in all
-// (about 144 KiB), as a single command with the whole list always could.
-// These are UI budgets, not retail constants.
+// An area gesture's fan-out budget (DESIGN_INTERFACE_HUD_INPUT §3.11). A
+// single-player gesture sends at most 16 commands and, unless its list alone
+// is longer, at most 4,096 entries in all (about 144 KiB at 36 bytes an
+// entry), which keeps replays bounded. Online the relay holds every seat's
+// commands awaiting a tick together and closes the room past 64 commands or
+// 256 KiB (DESIGN_MULTIPLAYER §16.5.1); no per-gesture budget can account for
+// the other seats, so an online gesture sends one command, exactly the size it
+// always was. These are UI budgets, not retail constants.
 const (
 	dragAreaCommandLimit = 16
 	dragAreaEntryBudget  = 4096
 )
 
-// dragAreaGroups splits workers so that one copy of an entries-long list per
-// group fits the fan-out budget. With room for everyone each worker is its own
-// group, starting from its own position. Otherwise the workers are sorted
-// along the axis on which they spread wider (then the other axis, then
-// index) and cut into that many contiguous runs of near-equal size; a run
-// starts from its middle worker. Groups list worker indices in ascending
-// order, and there is always at least one.
-func dragAreaGroups(workers []dragPoint, entries int) (groups [][]int, starts []dragPoint) {
+// dragAreaGroups splits workers into at most limit groups (at least one) so
+// that one copy of an entries-long list per group fits the entry budget. With
+// room for everyone each worker is its own group, starting from its own
+// position. Otherwise the workers are sorted along the axis on which they
+// spread wider (then the other axis, then index) and cut into that many
+// contiguous runs of near-equal size; a run starts from its middle worker.
+// Groups list worker indices in ascending order.
+func dragAreaGroups(workers []dragPoint, entries, limit int) (groups [][]int, starts []dragPoint) {
 	n := len(workers)
 	if n == 0 {
 		return nil, nil
 	}
-	count := min(n, dragAreaCommandLimit, max(1, dragAreaEntryBudget/max(entries, 1)))
+	count := min(n, max(1, limit), max(1, dragAreaEntryBudget/max(entries, 1)))
 	if count == n {
 		for i, p := range workers {
 			groups, starts = append(groups, []int{i}), append(starts, p)

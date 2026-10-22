@@ -3915,20 +3915,21 @@ near-linear; `TestDragNearestChainMatchesFullScan` checks it against the
 plain full scan, and `TestCommandDragAreaReclaimWalksNearestFirstPerWorker`
 checks the per-worker commands.
 
-*Fan-out budget.* Online, the relay holds every seat's commands awaiting a
-tick together and closes the room past 64 commands or 256 KiB
-(DESIGN_MULTIPLAYER §16.5.1), and an area entry is 36 bytes on the wire, so a
-copy per worker could end a room. One gesture therefore sends at most 16
-commands, and at most 4,096 entries in all (about 144 KiB) unless its list
-alone is longer, in which case it sends one command, as a single command
-always could. When the selection does not fit, its workers are sorted along
-the axis on which they spread wider and cut into that many contiguous runs of
-near-equal size, each walking from its middle worker. The same budget applies
-in single-player, which keeps replays bounded. These are UI budgets, not
-retail constants; `TestDragAreaGroupsKeepTheFanOutBudget` checks them. The
-single-command case keeps its existing size: a list above about 7,000
-entries, which the online seat validation admits up to 10,000, still exceeds
-the relay's byte budget on its own, as before this change.
+*Fan-out budget.* A single-player gesture sends at most 16 commands, and at
+most 4,096 entries in all (about 144 KiB at 36 bytes an entry) unless its list
+alone is longer, in which case it sends one command; this keeps replays
+bounded. When the selection does not fit, its workers are sorted along the
+axis on which they spread wider and cut into that many contiguous runs of
+near-equal size, each walking from its middle worker. Online, the relay holds
+every seat's commands awaiting a tick together and closes the room past 64
+commands or 256 KiB (DESIGN_MULTIPLAYER §16.5.1). No per-gesture budget can
+account for the other seats, so an online gesture sends exactly one command,
+as it always did, with the same entries and size: the whole selection walks
+the list from its middle worker. These are UI budgets, not retail constants;
+`TestDragAreaGroupsKeepTheFanOutBudget` and `TestAreaCommandLimitIsOneOnline`
+check them. A single list above about 7,000 entries, which the online seat
+validation admits up to 10,000, still exceeds the relay's byte budget on its
+own, as before this change.
 
 Move accepts a left drag with Move armed, or Alt-left-drag from the idle latch
 in either mouse-interface mode. Alt is sampled on press; releasing it during

@@ -262,7 +262,7 @@ func TestDragAreaGroupsKeepTheFanOutBudget(t *testing.T) {
 		return out
 	}
 	// Room for everyone: each worker starts from where it stands.
-	groups, starts := dragAreaGroups(row(5), 100)
+	groups, starts := dragAreaGroups(row(5), 100, dragAreaCommandLimit)
 	if len(groups) != 5 || !slices.Equal(starts, row(5)) {
 		t.Fatalf("five workers, 100 entries: %v from %v", groups, starts)
 	}
@@ -275,7 +275,7 @@ func TestDragAreaGroupsKeepTheFanOutBudget(t *testing.T) {
 		{1, 1}, {16, 256}, {17, 10}, {40, 10}, {64, 1}, {200, 3}, {5, 1000}, {5, 3000}, {9, 4096}, {12, 9000}, {3, 0},
 	} {
 		workers := row(tc.workers)
-		groups, starts := dragAreaGroups(workers, tc.entries)
+		groups, starts := dragAreaGroups(workers, tc.entries, dragAreaCommandLimit)
 		if len(groups) == 0 || len(groups) != len(starts) || len(groups) > dragAreaCommandLimit {
 			t.Fatalf("%+v: %d groups", tc, len(groups))
 		}
@@ -314,7 +314,25 @@ func TestDragAreaGroupsKeepTheFanOutBudget(t *testing.T) {
 		}
 	}
 	// A list longer than the budget goes as one command, as it always could.
-	if groups, _ := dragAreaGroups(row(5), 5000); len(groups) != 1 || len(groups[0]) != 5 {
+	if groups, _ := dragAreaGroups(row(5), 5000, dragAreaCommandLimit); len(groups) != 1 || len(groups[0]) != 5 {
 		t.Fatalf("oversized list split into %v", groups)
+	}
+	// Online the limit is one command: every worker shares the list, which
+	// walks from the middle worker along the wider axis.
+	workers := []dragPoint{{900, 0}, {100, 5}, {500, 9}, {300, 1}}
+	groups, starts = dragAreaGroups(workers, 3, 1)
+	if len(groups) != 1 || !slices.Equal(groups[0], []int{0, 1, 2, 3}) || starts[0] != (dragPoint{500, 9}) {
+		t.Fatalf("online grouping %v from %v", groups, starts)
+	}
+}
+
+func TestAreaCommandLimitIsOneOnline(t *testing.T) {
+	b := &battleSession{}
+	if got := b.areaCommandLimit(); got != dragAreaCommandLimit {
+		t.Fatalf("single-player limit %d", got)
+	}
+	b.multiplayer = &battleMultiplayer{}
+	if got := b.areaCommandLimit(); got != 1 {
+		t.Fatalf("online limit %d", got)
 	}
 }

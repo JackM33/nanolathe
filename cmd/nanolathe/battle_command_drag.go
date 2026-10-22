@@ -504,7 +504,7 @@ func (b *battleSession) dispatchAreaWork(f *committedframe.Frame, code int, targ
 	// Every selected actor belongs to exactly one command, in selection order;
 	// non-workers join the first group's.
 	group := make([]int, len(selected))
-	groups, starts := dragAreaGroups(positions, len(targets))
+	groups, starts := dragAreaGroups(positions, len(targets), b.areaCommandLimit())
 	for g, members := range groups {
 		for _, w := range members {
 			group[workers[w]] = g
@@ -524,6 +524,16 @@ func (b *battleSession) dispatchAreaWork(f *committedframe.Frame, code int, targ
 		}
 		_ = b.DispatchOrderCommand(session.HumanOrderCommand{Handles: handles, Code: code, Targets: ordered, Queued: queued})
 	}
+}
+
+// areaCommandLimit is how many commands one area gesture may send: the
+// single-player fan-out budget, or one online, where the relay's pending
+// budget is shared by every seat (DESIGN_INTERFACE_HUD_INPUT §3.11).
+func (b *battleSession) areaCommandLimit() int {
+	if b.onlineBattle() {
+		return 1
+	}
+	return dragAreaCommandLimit
 }
 
 func dragGroundPosition(cl *client.Client, p dragPoint) orders.ResolvePos {
