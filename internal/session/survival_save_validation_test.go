@@ -112,7 +112,7 @@ func TestSurvivalSaveAcceptsDirectorCursorBoundaries(t *testing.T) {
 }
 
 func TestSurvivalRestoreValidatesSavedWorldBeforeMutation(t *testing.T) {
-	for _, tc := range []string{"player count", "missing attacker manager", "start outside map", "deposit outside map"} {
+	for _, tc := range []string{"player count", "map", "missing attacker manager", "start outside map", "deposit outside map"} {
 		t.Run(tc, func(t *testing.T) {
 			r := survivalSaveValidationRecord()
 			s := &Session{Skirmish: r.Setup, World: &world.Terrain{CellW: 4, CellH: 4}}
@@ -120,6 +120,8 @@ func TestSurvivalRestoreValidatesSavedWorldBeforeMutation(t *testing.T) {
 			switch tc {
 			case "player count":
 				s.Skirmish.NumPlayers++
+			case "map":
+				s.Skirmish.MapName = "another-map"
 			case "missing attacker manager":
 				s.AI[2] = nil
 			case "start outside map":
@@ -135,6 +137,39 @@ func TestSurvivalRestoreValidatesSavedWorldBeforeMutation(t *testing.T) {
 				t.Fatal("refused record mutated the session or world")
 			}
 		})
+	}
+}
+
+// JSON drops the private defaults marker; Restart must still retain explicit
+// zero-valued setup choices instead of applying registry defaults again.
+func TestSurvivalRestorePreservesRestartSettings(t *testing.T) {
+	r := survivalSaveValidationRecord()
+	r.Setup.Difficulty, r.Setup.Location, r.Setup.CommanderDeath = 0, 0, 0
+	r.Setup.Mapping, r.Setup.LineOfSight, r.Setup.LOSType = 0, 0, 0
+	r.Setup.Players[1].Side, r.Setup.Players[1].Color, r.Setup.Players[1].AllyGroup = 0, 0, 0
+	raw, err := json.Marshal(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r, err = SidecarSurvival(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := &Session{Skirmish: SkirmishConfig{MapName: "fixture", NumPlayers: 3, UnitLimit: 1000}, Catalog: survivalRestrictionCatalog(t)}
+	s.AI[2] = &ai.Manager{}
+	if err := restoreSurvival(s, r); err != nil {
+		t.Fatal(err)
+	}
+	want := r.Setup
+	want.rulesDefaultsApplied = true
+	want.UnitLimit, want.Gameplay = 1000, s.Gameplay
+	got := s.Skirmish
+	got.ApplyDefaults()
+	if err := got.Normalize(); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("restart config %+v, want saved choices %+v", got, want)
 	}
 }
 

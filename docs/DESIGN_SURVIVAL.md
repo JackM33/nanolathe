@@ -798,7 +798,9 @@ economy. The save's sidecar holds the wave director,
 `session.SurvivalRecord`:
 
 - the setup record (rows, rule words and the Survival switches), so a
-  restored battle restarts as the saved one began;
+  restored battle restarts as the saved one began, including explicit
+  zero-valued choices. Loading marks those settings as already defaulted;
+  the bank still owns its actual map, player count and allocated unit limit;
 - the attacker and the survivors, the start site, the extra-deposit counts,
   and each survivor's last settlement word;
 - the phase and its deadline, the wave number, the planned wave with its

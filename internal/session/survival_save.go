@@ -190,6 +190,9 @@ func restoreSurvival(s *Session, rec *SurvivalRecord) error {
 	if rec.Setup.NumPlayers != s.Skirmish.NumPlayers {
 		return survivalRecordError(fmt.Sprintf("setup player count %d", rec.Setup.NumPlayers), fmt.Sprintf("saved world player count %d", s.Skirmish.NumPlayers))
 	}
+	if content.CanonicalKey(rec.Setup.MapName) != content.CanonicalKey(s.Skirmish.MapName) {
+		return survivalRecordError(fmt.Sprintf("setup map %q", rec.Setup.MapName), fmt.Sprintf("saved world map %q", s.Skirmish.MapName))
+	}
 	if s.AI[rec.Attacker] == nil {
 		return survivalRecordError(fmt.Sprintf("attacker %d has no manager", rec.Attacker), "a passive attacker manager")
 	}
@@ -267,8 +270,16 @@ func restoreSurvival(s *Session, rec *SurvivalRecord) error {
 	// Survival entry (DESIGN_SURVIVAL §4.1, §11).
 	s.AI[rec.Attacker].Passive = true
 	s.EnemyOwner = rec.Attacker
-	s.Skirmish.Survival = opts
-	s.Skirmish.Players = rec.Setup.Players
+	// JSON omits the private normalization marker. These are already chosen
+	// settings, including meaningful zeroes, so Restart must not default them
+	// again (DESIGN_SURVIVAL §11). The staged bank owns the actual map, player
+	// count and pool size; the restored sidecar owns the selected rule set.
+	setup := rec.Setup
+	setup.rulesDefaultsApplied = true
+	setup.MapName, setup.NumPlayers = s.Skirmish.MapName, s.Skirmish.NumPlayers
+	setup.UnitLimit, setup.Gameplay = s.Skirmish.UnitLimit, s.Gameplay
+	setup.Survival = opts
+	s.Skirmish = setup
 	// The survivors share sight, explored map and radar (DESIGN_SURVIVAL §4.3),
 	// set before any coverage exists, as battle entry sets it.
 	team := make([]visibility.PlayerID, 0, len(st.team))
