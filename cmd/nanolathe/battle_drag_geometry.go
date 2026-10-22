@@ -293,3 +293,67 @@ func dragNearestChain(start dragPoint, points []dragPoint) []int {
 		}
 	}
 }
+
+// An area gesture's fan-out budget (DESIGN_INTERFACE_HUD_INPUT §3.11). Online,
+// the relay holds every seat's commands awaiting a tick together and closes
+// the room past 64 commands or 256 KiB (DESIGN_MULTIPLAYER §16.5.1); an area
+// entry is 36 bytes on the wire. One gesture therefore sends at most 16
+// commands and, unless its list alone is longer, at most 4,096 entries in all
+// (about 144 KiB), as a single command with the whole list always could.
+// These are UI budgets, not retail constants.
+const (
+	dragAreaCommandLimit = 16
+	dragAreaEntryBudget  = 4096
+)
+
+// dragAreaGroups splits workers so that one copy of an entries-long list per
+// group fits the fan-out budget. With room for everyone each worker is its own
+// group, starting from its own position. Otherwise the workers are sorted
+// along the axis on which they spread wider (then the other axis, then
+// index) and cut into that many contiguous runs of near-equal size; a run
+// starts from its middle worker. Groups list worker indices in ascending
+// order, and there is always at least one.
+func dragAreaGroups(workers []dragPoint, entries int) (groups [][]int, starts []dragPoint) {
+	n := len(workers)
+	if n == 0 {
+		return nil, nil
+	}
+	count := min(n, dragAreaCommandLimit, max(1, dragAreaEntryBudget/max(entries, 1)))
+	if count == n {
+		for i, p := range workers {
+			groups, starts = append(groups, []int{i}), append(starts, p)
+		}
+		return groups, starts
+	}
+	minX, maxX, minZ, maxZ := workers[0].x, workers[0].x, workers[0].z, workers[0].z
+	for _, p := range workers[1:] {
+		minX, maxX = min(minX, p.x), max(maxX, p.x)
+		minZ, maxZ = min(minZ, p.z), max(maxZ, p.z)
+	}
+	alongX := int64(maxX)-int64(minX) >= int64(maxZ)-int64(minZ)
+	order := make([]int, n)
+	for i := range order {
+		order[i] = i
+	}
+	slices.SortFunc(order, func(a, b int) int {
+		pa, pb := workers[a], workers[b]
+		if !alongX {
+			pa, pb = dragPoint{pa.z, pa.x}, dragPoint{pb.z, pb.x}
+		}
+		if c := cmp.Compare(pa.x, pb.x); c != 0 {
+			return c
+		}
+		if c := cmp.Compare(pa.z, pb.z); c != 0 {
+			return c
+		}
+		return cmp.Compare(a, b)
+	})
+	for g := range count {
+		run := order[g*n/count : (g+1)*n/count]
+		starts = append(starts, workers[run[len(run)/2]])
+		members := slices.Clone(run)
+		slices.Sort(members)
+		groups = append(groups, members)
+	}
+	return groups, starts
+}

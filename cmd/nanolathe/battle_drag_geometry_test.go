@@ -251,3 +251,70 @@ func TestDragNearestChainMatchesFullScan(t *testing.T) {
 		}
 	}
 }
+
+func TestDragAreaGroupsKeepTheFanOutBudget(t *testing.T) {
+	row := func(n int) []dragPoint {
+		out := make([]dragPoint, n)
+		for i := range out {
+			// Selection order deliberately differs from position order.
+			out[i] = dragPoint{int32((i * 7919) % (n * 10)), int32(i % 3)}
+		}
+		return out
+	}
+	// Room for everyone: each worker starts from where it stands.
+	groups, starts := dragAreaGroups(row(5), 100)
+	if len(groups) != 5 || !slices.Equal(starts, row(5)) {
+		t.Fatalf("five workers, 100 entries: %v from %v", groups, starts)
+	}
+	for i, g := range groups {
+		if !slices.Equal(g, []int{i}) {
+			t.Fatalf("worker %d grouped %v", i, g)
+		}
+	}
+	for _, tc := range []struct{ workers, entries int }{
+		{1, 1}, {16, 256}, {17, 10}, {40, 10}, {64, 1}, {200, 3}, {5, 1000}, {5, 3000}, {9, 4096}, {12, 9000}, {3, 0},
+	} {
+		workers := row(tc.workers)
+		groups, starts := dragAreaGroups(workers, tc.entries)
+		if len(groups) == 0 || len(groups) != len(starts) || len(groups) > dragAreaCommandLimit {
+			t.Fatalf("%+v: %d groups", tc, len(groups))
+		}
+		if total := len(groups) * tc.entries; total > max(tc.entries, dragAreaEntryBudget) {
+			t.Fatalf("%+v: %d entries sent", tc, total)
+		}
+		var seen []int
+		for g, members := range groups {
+			if len(members) == 0 || !slices.IsSorted(members) {
+				t.Fatalf("%+v: group %d is %v", tc, g, members)
+			}
+			if !slices.ContainsFunc(members, func(w int) bool { return workers[w] == starts[g] }) {
+				t.Fatalf("%+v: group %d starts outside itself", tc, g)
+			}
+			seen = append(seen, members...)
+		}
+		slices.Sort(seen)
+		for i, w := range seen {
+			if w != i {
+				t.Fatalf("%+v: workers covered %v", tc, seen)
+			}
+		}
+		// Shared runs are contiguous along the wider axis, here X; singletons
+		// keep selection order.
+		for g := 1; g < len(groups) && len(groups) < tc.workers; g++ {
+			prevMax, nextMin := int32(math.MinInt32), int32(math.MaxInt32)
+			for _, w := range groups[g-1] {
+				prevMax = max(prevMax, workers[w].x)
+			}
+			for _, w := range groups[g] {
+				nextMin = min(nextMin, workers[w].x)
+			}
+			if prevMax > nextMin {
+				t.Fatalf("%+v: groups %d and %d overlap along X", tc, g-1, g)
+			}
+		}
+	}
+	// A list longer than the budget goes as one command, as it always could.
+	if groups, _ := dragAreaGroups(row(5), 5000); len(groups) != 1 || len(groups[0]) != 5 {
+		t.Fatalf("oversized list split into %v", groups)
+	}
+}

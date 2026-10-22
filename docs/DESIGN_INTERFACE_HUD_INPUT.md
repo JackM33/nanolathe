@@ -3902,17 +3902,33 @@ target first, then the target nearest that one, and so on. Distances are exact
 squared whole-unit distances with ties to the earlier publication index, so
 two builders at opposite ends of an area work inwards from their own ends
 instead of both crossing it in publication order. Every actor already works
-through an area list independently, so one command per actor changes only the
-visiting order. Other selected actors, and an actor the frame cannot place or
-name, share one command in publication order, exactly as before. The order is
-fixed at release: it is a plan, not a re-scan after each job. Like formation
-assignment, it is computed by the host and carried in the command, so the
-session, replays and the Strict 3.1 baseline are unchanged; a replay recorded
-earlier keeps its own commands. A uniform grid of at least 64-unit cells, at
-most 256 a side, keeps a large forest drag near-linear;
-`TestDragNearestChainMatchesFullScan` checks it against the plain full scan,
-and `TestCommandDragAreaReclaimWalksNearestFirstPerWorker` checks the
-per-worker commands.
+through an area list independently, so splitting the command changes only the
+visiting order. The other selected actors queue nothing from it; they, and an
+actor the frame cannot place or name, ride in the first command, and with no
+such actor at all the whole selection shares one command in publication
+order, as before. The order is fixed at release: it is a plan, not a re-scan
+after each job. Like formation assignment, it is computed by the host and
+carried in the command, so the session, replays and the Strict 3.1 baseline
+are unchanged; a replay recorded earlier keeps its own commands. A uniform
+grid of at least 64-unit cells, at most 256 a side, keeps a large forest drag
+near-linear; `TestDragNearestChainMatchesFullScan` checks it against the
+plain full scan, and `TestCommandDragAreaReclaimWalksNearestFirstPerWorker`
+checks the per-worker commands.
+
+*Fan-out budget.* Online, the relay holds every seat's commands awaiting a
+tick together and closes the room past 64 commands or 256 KiB
+(DESIGN_MULTIPLAYER §16.5.1), and an area entry is 36 bytes on the wire, so a
+copy per worker could end a room. One gesture therefore sends at most 16
+commands, and at most 4,096 entries in all (about 144 KiB) unless its list
+alone is longer, in which case it sends one command, as a single command
+always could. When the selection does not fit, its workers are sorted along
+the axis on which they spread wider and cut into that many contiguous runs of
+near-equal size, each walking from its middle worker. The same budget applies
+in single-player, which keeps replays bounded. These are UI budgets, not
+retail constants; `TestDragAreaGroupsKeepTheFanOutBudget` checks them. The
+single-command case keeps its existing size: a list above about 7,000
+entries, which the online seat validation admits up to 10,000, still exceeds
+the relay's byte budget on its own, as before this change.
 
 Move accepts a left drag with Move armed, or Alt-left-drag from the idle latch
 in either mouse-interface mode. Alt is sampled on press; releasing it during

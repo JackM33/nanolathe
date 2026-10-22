@@ -594,15 +594,15 @@ func TestCommandDragAreaReclaimWalksNearestFirstPerWorker(t *testing.T) {
 		return out
 	}
 	byActor := map[pool.Handle][]int64{}
+	var handles [][]pool.Handle
 	for _, c := range b.sess.PendingHumanCommands() {
 		if c.Kind != session.HumanOrder || c.Order.Code != 12 {
 			continue
 		}
-		key := c.Order.Handles[0]
-		if len(c.Order.Handles) != 1 {
-			t.Fatalf("a worker command names %v", c.Order.Handles)
+		handles = append(handles, c.Order.Handles)
+		for _, h := range c.Order.Handles {
+			byActor[h] = xs(c)
 		}
-		byActor[key] = xs(c)
 	}
 	if got := byActor[west]; !slices.Equal(got, []int64{200, 400, 600, 800}) {
 		t.Fatalf("west worker %v", got)
@@ -610,8 +610,9 @@ func TestCommandDragAreaReclaimWalksNearestFirstPerWorker(t *testing.T) {
 	if got := byActor[east]; !slices.Equal(got, []int64{800, 600, 400, 200}) {
 		t.Fatalf("east worker %v", got)
 	}
-	// The unit that cannot reclaim keeps the published order, as before.
-	if got := byActor[builder]; !slices.Equal(got, []int64{600, 200, 800, 400}) {
-		t.Fatalf("non-reclaimer %v", got)
+	// The unit that cannot reclaim queues nothing; it rides in the first
+	// worker's command rather than costing a command of its own.
+	if want := [][]pool.Handle{{builder, west}, {east}}; !slices.EqualFunc(handles, want, slices.Equal) {
+		t.Fatalf("commands name %v, want %v", handles, want)
 	}
 }
