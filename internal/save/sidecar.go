@@ -323,7 +323,7 @@ func validateSurvivalSidecar(s Sidecar) error {
 	case s.Schema == SidecarSchemaSurvival && (len(s.Survival) == 0 || bytes.Equal(bytes.TrimSpace(s.Survival), []byte("null"))):
 		return errors.New("schema 4 without a non-null Survival director")
 	case s.Schema != SidecarSchemaSurvival && len(s.SurvivalBest) != 0:
-		return errors.New("Survival best-score eligibility without a Survival director")
+		return errors.New("survival best-score eligibility without a Survival director")
 	}
 	return nil
 }
