@@ -87,7 +87,7 @@ func (r *ModernRules) selectPatrolWork(u *units.Unit, n *Node, tick uint32) bool
 	}
 	repairEnergy := hasResources && patrolResourceAtLeastTwenty(resources.Stock[1], resources.Capacity[1])
 	s := newModernPatrolScore(q, u, n)
-	var candidates []modernPatrolUnit
+	var candidates []*units.Unit
 	var claims modernPatrolClaims
 	b.ForEachUnit(func(h pool.Handle, other *units.Unit) bool {
 		if other == nil || !other.Alive {
@@ -95,15 +95,26 @@ func (r *ModernRules) selectPatrolWork(u *units.Unit, n *Node, tick uint32) bool
 		}
 		claims.observe(b, u, other, unitWork, featureWork)
 		if unitWork && s.admitsUnit(b, h, other, repairEnergy) {
-			if id := Resolve(8, u, other, nil); id != 0 {
-				candidates = append(candidates, modernPatrolUnit{unit: other, id: id})
-			}
+			candidates = append(candidates, other)
 		}
 		return scanNext
 	})
+	// A helper only raises a score and leaves its tie-breaks alone, and a
+	// candidate whose command code 8 does not resolve is never picked, so
+	// both are settled only for a candidate that could still win. The pick is
+	// the same as scoring every candidate in full.
 	var best modernPatrolPick
-	for _, c := range candidates {
-		if pick := s.unitPick(c, claims.helpers(c.unit.Handle)); pick.before(best) {
+	for _, candidate := range candidates {
+		pick := s.unitPick(candidate, 0)
+		if !pick.before(best) {
+			continue
+		}
+		if helpers := claims.helpers(candidate.Handle); helpers != 0 {
+			if pick.score += helpers * s.quarter; !pick.before(best) {
+				continue
+			}
+		}
+		if pick.id = Resolve(8, u, candidate, nil); pick.id != 0 {
 			best = pick
 		}
 	}
@@ -133,11 +144,6 @@ func (r *ModernRules) selectPatrolWork(u *units.Unit, n *Node, tick uint32) bool
 	}
 	modernBorrowWork(u, n, NewNodeForOrder(id, 0, best.feature.X, best.feature.Y, best.feature.Z, tick, u.Handle, false))
 	return true
-}
-
-type modernPatrolUnit struct {
-	unit *units.Unit
-	id   ID
 }
 
 // modernPatrolClaims is derived from other friendly units' current queue
@@ -294,9 +300,9 @@ func (s *modernPatrolScore) detour(x, z numeric.Fixed) (detour, distance int64) 
 	return modernIsqrt(distance) + modernIsqrt(modernWholeDistanceSquared(tx, tz, s.ex, s.ez)) - s.toEnd, distance
 }
 
-func (s *modernPatrolScore) unitPick(c modernPatrolUnit, helpers int64) modernPatrolPick {
-	detour, distance := s.detour(c.unit.X, c.unit.Z)
-	return modernPatrolPick{found: true, score: detour + helpers*s.quarter, distance: distance, unit: c.unit, id: c.id}
+func (s *modernPatrolScore) unitPick(target *units.Unit, helpers int64) modernPatrolPick {
+	detour, distance := s.detour(target.X, target.Z)
+	return modernPatrolPick{found: true, score: detour + helpers*s.quarter, distance: distance, unit: target}
 }
 
 func (s *modernPatrolScore) featurePick(f FeatureView) modernPatrolPick {
