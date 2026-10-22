@@ -4926,10 +4926,13 @@ it, as an online join does: the player's own mutators stay, the mod becomes
 the saved choice, and the shell the reload builds reopens the screen and
 continues. A mod that is not installed, a different copy of it, a base
 requirement it lacks, or `--root` or `--mod-config` content is named
-instead, as is a mod that did not mount and a map the install lacks. The
-playback is then composed on a job goroutine with the optional load-time
-art, as the loading screen prepares a fresh battle, and a content reload
-waits for it. Meanwhile the status line counts *Loading the replay... n%*
+instead, as is a mod that did not mount and a map the install lacks. A
+replay recorded on a generated map that is not mounted first makes that map
+again from the recipe it recorded and mounts it, or names why it cannot
+(DESIGN_MAP_GENERATOR §10). The playback is then composed on a job
+goroutine with the optional load-time art, as the loading screen prepares a
+fresh battle, and a content reload waits for it. Meanwhile the status line
+counts *Loading the replay... n%*
 over the loading screen's six bars, Watch and Delete are greyed, and Cancel
 abandons the load. A replay this install cannot compose is reported in plain
 words (*your copy of the map differs from the recording's*, *your game files

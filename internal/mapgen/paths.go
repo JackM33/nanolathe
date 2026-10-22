@@ -90,6 +90,10 @@ const (
 	stepSteep    = 30
 )
 
+// StepCost is the travel cost of one straight step between cells: a
+// Balance.Path value divided by it is a distance in cells.
+const StepCost = stepStraight
+
 // unreached marks a cell no source reaches.
 const unreached = int32(-1)
 

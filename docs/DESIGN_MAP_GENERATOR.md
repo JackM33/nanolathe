@@ -3,9 +3,9 @@
 Nanolathe makes skirmish maps on demand (issue #145, user-authorized
 2026-10-22). The player picks a world and the map's shape. The generator
 makes a map that looks like that world's own maps and is fair by the
-measurements it reports. This first part is the generator itself:
-`internal/mapgen` and the TNT and TDF writers. The map picker, saved
-recipes, saves and replays, and online rooms follow (§10).
+measurements it reports. The generator itself is `internal/mapgen` and
+the TNT and TDF writers (§1–§9). The map picker, generated maps, their
+recipes, and saves and replays on them are §10; online rooms follow (§11).
 
 - Terrain is natural-looking and fractal rather than mirrored; a symmetric
   "tournament" mode may follow.
@@ -250,29 +250,103 @@ round a lake, its tiles flat colours by what lies under them):
 `formats`: a written terrain file reads back cell for cell, and TDF text
 reads back as written.
 
-## 10. Later
+`cmd/nanolathe`, on authored content (palettes, a ground class, a tree, and
+an archive of three maps the authored world made):
 
-In the order issue #145 settled:
+- the content's world is read with its sources in order, and a recipe makes
+  its map again from them; a changed source, another generator version or
+  other recorded hashes are refused, naming the difference;
+- Use mounts the map from memory below everything else, its recipe is found
+  by the map's name, it feeds no generator and no online room takes it;
+- Save installs a package whose receipt records the recipe, removable from
+  the picker; names and package ids stay within what files and TDF values
+  hold; Generate stands beside More maps;
+- a save's recipe finds its mounted map, makes a missing one again and
+  refuses a map of that name with other files.
 
-1. **The map picker.** A Generate button beside More maps opens a panel in
-   the Nanolathe screen's style: the parameters, the code, each measurement
-   of §5 with its scope, and the map with its numbered starts. It
-   regenerates in the background with bounded workers; a newer request
-   cancels the older, whose result can no longer replace the preview.
-2. **Ephemeral maps and saved recipes.** A generated map is mounted from
-   memory as `generated:<code>`. Save writes a small recipe to the map
-   library: format and generator versions, the code, a name and a
-   description, the identities of the source archives (selected and ordered
-   deterministically), and the SHA-256 of the TNT and OTA. A recipe whose
-   regeneration does not match its hash is refused with a message; how
-   saved maps survive generator updates is decided there.
-3. **Saves and replays.** A battle's map must stay recoverable for loading
-   its save and playing its replay after the ephemeral mount is gone: its
-   recipe and dependencies are kept, or its bytes cached.
-4. **Online rooms.** The room carries the recipe; every seat generates and
-   verifies the hash before Ready, with the source archives in the room's
-   content agreement.
+`internal/save` and `internal/session`: sidecar schema 5 and extension 19
+round-trip, and their refusals. The retail tier plays a map made from
+Archipelago, its commanders on its starts, then loads the battle's save and
+verifies its replay on content where the map is made again from the recipe.
 
-Also: a symmetric tournament mode, validation with the engine's own
-pathfinder and more movement classes, and the official map editor's
-sections and tilesets as sources.
+## 10. The map picker and generated maps
+
+**Generate.** A Generate button beside More maps in the map picker opens the
+generator's panel, a full-window screen in the Nanolathe screen's style
+(`cmd/nanolathe/mapgen_screen.go`): the world, players, teams, size, water,
+relief and metal; the map code, which can be typed to make that map again;
+the measurements of §5, a column per start and a row per measurement with
+its spread, under a paragraph saying what they measure and that they
+promise nothing beyond it; and the map with its numbered starts. Another
+map draws a new seed. Use plays the map without keeping it; Save… keeps it
+under a typed name and description. An online room's picker greys Generate
+(§11). `--nl-shot DIR --nl-shot-only generator` captures the panel and its
+Save form for review.
+
+**Sources.** The world's maps are the content's archive maps of that planet
+(providers of the HPI family): never loose files, downloaded or saved maps,
+or generated ones, so a code's result is tied to the content's own maps and
+no generated map feeds the generator. They are ordered by the mount order
+of their archives, which retail's archive precedence fixes from the
+archives' names, then by name; the first 16 readable ones are the sources.
+A world needs three to be offered. Each source's identity is the logical
+path of its TNT, the archive that supplied it and the SHA-256 of the TNT
+and OTA the generator read.
+
+**Background work** (`mapgen_job.go`). The worlds are listed once per
+content, and the chosen world's indexed art is kept while the panel is
+open. Every change starts a request with a new serial number and cancels
+the running one, whose result can no longer replace the picture; a failed
+request clears it, so Use and Save always take the map shown, made from the
+settings beside it. `Generator.Workers` is the core count less one, at
+least one, so the window stays responsive. Closing the panel cancels the
+work, joins every goroutine reading the content before the host may
+remount it, and lets the indexed art go.
+
+**Use.** The map is mounted from memory: its OTA and TNT as an HPI archive
+in memory under the provider name `generated:<code>`, below every other
+provider, so it adds its two files and overrides nothing. Every later mount
+of the run holds the run's generated maps (at most six; the oldest the
+setup does not use goes first), the mount is replaced as a library refresh
+replaces it, and the setup takes the map as the picker's Load does. Nothing
+is written to disk; a setting naming the map falls back the next run, as
+for a removed map.
+
+**Save.** The map is installed in the map library as a package of its two
+files, under a name of letters, digits, spaces and a little punctuation
+that no listed map has. The package's receipt names the code as a
+download's names its URL (`generated:<code>`) and records the recipe, and
+the picker removes the map as it removes a downloaded map. Keeping the files
+is how a saved map survives generator updates: it plays whatever later
+versions make of its code, and its recipe still says how it was made.
+
+**The recipe** (`mapgen_recipe.go`): the recipe format and generator
+versions, the code, the world, the name and description its OTA carries,
+the sources with their identities in the order the generator read them, and
+the SHA-256 of the TNT and OTA. Making the map again needs the same
+generator version, reads exactly the recorded sources, each with the bytes
+it had (never another selection), and compares the hashes; a difference is
+an error that names it.
+
+**Saves and replays.** A battle's map must stay recoverable after its
+memory mount is gone. A save's sidecar records the recipe as `generatedMap`,
+which makes it schema 5, so an older build refuses the save
+(DESIGN_MODS_MUTATORS §7.2). A replay records it as required configuration
+extension 19 (DESIGN_MULTIPLAYER §8.6). Loading either uses a mounted map of
+that name whose files have the recipe's hashes; with none, the map is made
+again from the recipe and mounted first, and a map of that name with other
+files is refused. A replay's content identity still covers the map's own
+files, so a map made differently cannot verify.
+
+**Online.** A room does not take a generated map yet: one held in memory is
+refused as room content, and a saved one is a package other seats cannot
+fetch, as any locally installed package (§11).
+
+## 11. Later
+
+- **Online rooms.** The room carries the recipe in extension 19; every
+  seat makes the map and verifies its hash before Ready, with the source
+  archives in the room's content agreement (DESIGN_MULTIPLAYER §16.8).
+- A symmetric tournament mode, validation with the engine's own pathfinder
+  and more movement classes, and the official map editor's sections and
+  tilesets as sources.

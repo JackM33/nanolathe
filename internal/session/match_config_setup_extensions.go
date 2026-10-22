@@ -1,6 +1,7 @@
 package session
 
 import (
+	"bytes"
 	"fmt"
 
 	"github.com/nanolathe-gg/nanolathe/internal/netproto"
@@ -11,10 +12,14 @@ import (
 const (
 	matchChosenStartsExtension = 17
 	matchAlliedSightExtension  = 18
+	// matchGeneratedMapExtension is not a gameplay choice: it carries what
+	// reproducing the battle needs, which belongs in a required record
+	// (§10 "Header extensions"), with the same admission contract.
+	matchGeneratedMapExtension = 19
 )
 
 func matchSetupExtension(id uint16) bool {
-	return id == matchChosenStartsExtension || id == matchAlliedSightExtension
+	return id == matchChosenStartsExtension || id == matchAlliedSightExtension || id == matchGeneratedMapExtension
 }
 
 func (r *MatchConfigRequest) hasChosenStarts() bool {
@@ -80,6 +85,14 @@ func (r *MatchConfigRequest) consumeSetupExtensions() error {
 				return matchFieldError("alliedSight", "typed sight equal to extension 18 when both are supplied")
 			}
 			r.AlliedSight = sight
+		case matchGeneratedMapExtension:
+			if len(e.Data) == 0 {
+				return matchFieldError("generatedMap", "omit extension 19 for a map that was not generated")
+			}
+			if r.GeneratedMap != nil && !bytes.Equal(r.GeneratedMap, e.Data) {
+				return matchFieldError("generatedMap", "typed recipe equal to extension 19 when both are supplied")
+			}
+			r.GeneratedMap = append([]byte(nil), e.Data...)
 		default:
 			kept = append(kept, e)
 		}
@@ -105,6 +118,9 @@ func (r *MatchConfigRequest) setupExtensions() ([]MatchConfigExtension, error) {
 	}
 	if r.AlliedSight != MatchAlliedSightVersion1 {
 		fields = append(fields, MatchConfigExtension{ID: matchAlliedSightExtension, Required: true, Data: []byte{byte(r.AlliedSight)}})
+	}
+	if len(r.GeneratedMap) != 0 {
+		fields = append(fields, MatchConfigExtension{ID: matchGeneratedMapExtension, Required: true, Data: append([]byte(nil), r.GeneratedMap...)})
 	}
 	fields = append(fields, r.Extensions...)
 	if len(fields) > matchConfigMaxExtensions {

@@ -82,6 +82,9 @@ func (g *gameShell) saveSidecar() save.Sidecar {
 			out.Addons = append(out.Addons, save.SidecarAddon{ID: a.ID, Version: a.Version, SHA256: fmt.Sprintf("%x", addonlibrary.Digest(a.Archives))})
 		}
 	}
+	// A generated map's recipe, so the game loads after its memory mount is
+	// gone (docs/DESIGN_MAP_GENERATOR.md §10).
+	out.GeneratedMap = g.battleRecipe()
 	return out
 }
 
