@@ -1053,7 +1053,9 @@ func (s *Session) newOrderBinding() *orders.QueueBinding {
 				footprintX, footprintZ, height = inst.Def.FootprintX, inst.Def.FootprintZ, inst.Def.Height
 				reclaimable, autoreclaimable = inst.Def.Reclaimable, inst.Def.Autoreclaimable
 			}
-			return orders.FeatureView{ID: id, CX: int32(inst.CX), CZ: int32(inst.CZ), X: inst.X, Y: inst.Y, Z: inst.Z, FootprintX: footprintX, FootprintZ: footprintZ, Height: height, DefinitionKey: key, Metal: metal, Energy: energy, Reclaimable: reclaimable, Autoreclaimable: autoreclaimable}, true
+			// Animating derives the live event record: burning, dying or
+			// playing its reclaim sequence [05 R-FEAT-01 §5].
+			return orders.FeatureView{ID: id, CX: int32(inst.CX), CZ: int32(inst.CZ), X: inst.X, Y: inst.Y, Z: inst.Z, FootprintX: footprintX, FootprintZ: footprintZ, Height: height, DefinitionKey: key, Metal: metal, Energy: energy, Reclaimable: reclaimable, Autoreclaimable: autoreclaimable, Animating: inst.IsBurning || inst.IsAnimating}, true
 		},
 		ForEachFeature: func(visit func(orders.FeatureView) bool) {
 			if s.Features == nil || visit == nil {
@@ -1091,7 +1093,7 @@ func (s *Session) newOrderBinding() *orders.QueueBinding {
 					footprintX, footprintZ, height = inst.Def.FootprintX, inst.Def.FootprintZ, inst.Def.Height
 					reclaimable, autoreclaimable = inst.Def.Reclaimable, inst.Def.Autoreclaimable
 				}
-				if visit(orders.FeatureView{ID: id, CX: int32(inst.CX), CZ: int32(inst.CZ), X: inst.X, Y: inst.Y, Z: inst.Z, FootprintX: footprintX, FootprintZ: footprintZ, Height: height, DefinitionKey: key, Metal: metal, Energy: energy, Reclaimable: reclaimable, Autoreclaimable: autoreclaimable}) {
+				if visit(orders.FeatureView{ID: id, CX: int32(inst.CX), CZ: int32(inst.CZ), X: inst.X, Y: inst.Y, Z: inst.Z, FootprintX: footprintX, FootprintZ: footprintZ, Height: height, DefinitionKey: key, Metal: metal, Energy: energy, Reclaimable: reclaimable, Autoreclaimable: autoreclaimable, Animating: inst.IsBurning || inst.IsAnimating}) {
 					break
 				}
 			}
