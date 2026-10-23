@@ -139,6 +139,7 @@ func (j *mapgenJob) start(world string, p mapgen.Params) {
 	if listErr != nil || i < 0 {
 		j.running, j.err = false, listErr
 		if listErr == nil {
+			//lint:ignore ST1005 panel text, shown as written and keyed by it in the locale catalogs
 			j.err = errors.New("No world has enough maps to take tiles from")
 		}
 		j.mu.Unlock()
