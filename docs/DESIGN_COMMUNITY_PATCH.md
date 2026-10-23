@@ -159,6 +159,7 @@ type Features struct {
     MapFeatureOwnerEleven     bool // terrain-file features stamped owner 11, drawn without LOS
     ResurrectionTextFix       bool // "Resurrection failed" spelling
     HealTimeBitmask           bool // historical passive caller: low-byte mask, signed 32*h/30 work
+    AIDifficultyReversed      bool // TA: Escalation: stored difficulty index 0 plays Hard, 2 Easy (§4.8)
 
     // Parameters: zero means "as retail" for every one of them.
     RepairRate                RepairRate // CP-DMG-4: Enabled, RepairMultiplier, SelfHealMultiplier (1..100)
@@ -488,6 +489,27 @@ generation (`ARMSCAB`, `CORMABM`) and no CANBUILD membership for the Core
 east/west shipyards, so neither is implemented
 ([ProTA 4.8 engine package](../research/extensions/prota-engine.md#unknown)).
 ProTA's config enables all five switches in its `communityFeatures`.
+
+### 4.8 TA: Escalation difficulty order
+
+TA: Escalation's patched executable swaps the difficulty name slots, so a
+stored difficulty index of 0 selects Hard and 2 Easy, and reorders its income
+table to match
+([TA: Escalation engine, "AI"](../research/extensions/taesc-engine.md)). The
+content agrees: every difficulty control it ships (skirmish, new game,
+restart, end of mission) spells its stages `Hard|Medium|Easy`, and its
+`ai/default.txt` notes beside `Plan easy` and `Plan hard` that the plans are
+"swapped in skirmish GUI to allow proper multiplier". Escalation's config
+turns the switch on.
+
+| Contract | Owner / where the rule lives | Strict | Community (switch on) |
+|---|---|---|---|
+| Difficulty order (`AIDifficultyReversed`) | `session.DifficultyTier`, read by `sessionDifficultyWord` and `sessionSeatDifficultyWord` (`internal/session/composition.go`), so by the Classic plan gate, the Modern persona (`ControllerDifficulty`), the AI-parameter difficulty layer, the ledger's and the construction refunds' discount word; the battle Game Options, online lobby and Load Game labels read the same helper | the stored index is the tier, 0 easy, 1 medium, 2 hard `[08 R-AI-01 §12]` `[05 R-ECO-01 §3]` | the stored index `i` plays tier `2 - i`; the setup, the lobby, the save summary and the menus keep the index as stored, so a save keeps its meaning and the content's own `Hard\|Medium\|Easy` stages show the tier played |
+
+The income factors themselves stay the selected rule set's; Escalation's own
+Easy/Medium/Hard `1/2/4` table is a separate contract this switch does not add.
+Campaign schema choice still takes the stored index in retail's order:
+whether the swapped slots reorder it too is Unknown.
 
 ## 5. Content interface
 
