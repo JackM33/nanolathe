@@ -667,6 +667,13 @@ func (s *Session) bindUnitCOBWith(fs vfs.FSOps, models unitModelResolver, u *uni
 		if binding == nil || binding.VM == nil {
 			return fmt.Errorf("session: incomplete pre-Create COB binding")
 		}
+		// A builder's definition records the Builder speed factor of a mutated
+		// catalog; its script runs the build animations that many times faster.
+		// Every step is a whole multiple, and every other definition carries
+		// the identity (docs/DESIGN_MODS_MUTATORS.md "Builder speed").
+		if f := u.Def.BuilderSpeed; !f.IsIdentity() && f.Den == 1 {
+			binding.VM.SetBuilderSpeed(int32(f.Num))
+		}
 		if s.World != nil {
 			u.RetainCheckpointPortInstallation(binding.VM.BindPortWithPendingCheckpointBinding(cob.Port(16), cob.GroundHeightPortFunc(s.World.HeightAt), authority))
 		}
@@ -1053,7 +1060,9 @@ func (s *Session) newOrderBinding() *orders.QueueBinding {
 				footprintX, footprintZ, height = inst.Def.FootprintX, inst.Def.FootprintZ, inst.Def.Height
 				reclaimable, autoreclaimable = inst.Def.Reclaimable, inst.Def.Autoreclaimable
 			}
-			return orders.FeatureView{ID: id, CX: int32(inst.CX), CZ: int32(inst.CZ), X: inst.X, Y: inst.Y, Z: inst.Z, FootprintX: footprintX, FootprintZ: footprintZ, Height: height, DefinitionKey: key, Metal: metal, Energy: energy, Reclaimable: reclaimable, Autoreclaimable: autoreclaimable}, true
+			// Animating derives the live event record: burning, dying or
+			// playing its reclaim sequence [05 R-FEAT-01 §5].
+			return orders.FeatureView{ID: id, CX: int32(inst.CX), CZ: int32(inst.CZ), X: inst.X, Y: inst.Y, Z: inst.Z, FootprintX: footprintX, FootprintZ: footprintZ, Height: height, DefinitionKey: key, Metal: metal, Energy: energy, Reclaimable: reclaimable, Autoreclaimable: autoreclaimable, Animating: inst.IsBurning || inst.IsAnimating}, true
 		},
 		ForEachFeature: func(visit func(orders.FeatureView) bool) {
 			if s.Features == nil || visit == nil {
@@ -1091,7 +1100,7 @@ func (s *Session) newOrderBinding() *orders.QueueBinding {
 					footprintX, footprintZ, height = inst.Def.FootprintX, inst.Def.FootprintZ, inst.Def.Height
 					reclaimable, autoreclaimable = inst.Def.Reclaimable, inst.Def.Autoreclaimable
 				}
-				if visit(orders.FeatureView{ID: id, CX: int32(inst.CX), CZ: int32(inst.CZ), X: inst.X, Y: inst.Y, Z: inst.Z, FootprintX: footprintX, FootprintZ: footprintZ, Height: height, DefinitionKey: key, Metal: metal, Energy: energy, Reclaimable: reclaimable, Autoreclaimable: autoreclaimable}) {
+				if visit(orders.FeatureView{ID: id, CX: int32(inst.CX), CZ: int32(inst.CZ), X: inst.X, Y: inst.Y, Z: inst.Z, FootprintX: footprintX, FootprintZ: footprintZ, Height: height, DefinitionKey: key, Metal: metal, Energy: energy, Reclaimable: reclaimable, Autoreclaimable: autoreclaimable, Animating: inst.IsBurning || inst.IsAnimating}) {
 					break
 				}
 			}

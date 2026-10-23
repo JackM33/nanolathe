@@ -264,7 +264,7 @@ an archive of three maps the authored world made):
 - a save's recipe finds its mounted map, makes a missing one again and
   refuses a map of that name with other files.
 
-`internal/save` and `internal/session`: sidecar schema 5 and extension 19
+`internal/save` and `internal/session`: sidecar schema 5 and extension 20
 round-trip, and their refusals. The retail tier plays a map made from
 Archipelago, its commanders on its starts, then loads the battle's save and
 verifies its replay on content where the map is made again from the recipe.
@@ -332,7 +332,7 @@ an error that names it.
 memory mount is gone. A save's sidecar records the recipe as `generatedMap`,
 which makes it schema 5, so an older build refuses the save
 (DESIGN_MODS_MUTATORS §7.2). A replay records it as required configuration
-extension 19 (DESIGN_MULTIPLAYER §8.6). Loading either uses a mounted map of
+extension 20 (DESIGN_MULTIPLAYER §8.6). Loading either uses a mounted map of
 that name whose files have the recipe's hashes; with none, the map is made
 again from the recipe and mounted first, and a map of that name with other
 files is refused. A replay's content identity still covers the map's own
@@ -344,7 +344,7 @@ fetch, as any locally installed package (§11).
 
 ## 11. Later
 
-- **Online rooms.** The room carries the recipe in extension 19; every
+- **Online rooms.** The room carries the recipe in extension 20; every
   seat makes the map and verifies its hash before Ready, with the source
   archives in the room's content agreement (DESIGN_MULTIPLAYER §16.8).
 - A symmetric tournament mode, validation with the engine's own pathfinder

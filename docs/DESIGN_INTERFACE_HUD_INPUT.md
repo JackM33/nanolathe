@@ -3894,6 +3894,43 @@ are queued per capable selected actor. An explicit target batch replaces only
 at each actor's first admitted target, and never invokes repeat-click removal.
 This is a one-time work list, not a persistent area task. Empty areas leave existing orders intact.
 
+**Nearest-first area work — user-requested input policy, 2026-10-22.** Each
+selected `canreclamate` actor — the definitions repair and reclaim resolve for
+[04 R-ORD-02 §1] — receives its own copy of the list, ordered as a
+nearest-next walk from where it stands in the committed frame: the nearest
+target first, then the target nearest that one, and so on. Distances are exact
+squared whole-unit distances with ties to the earlier publication index, so
+two builders at opposite ends of an area work inwards from their own ends
+instead of both crossing it in publication order. Every actor already works
+through an area list independently, so splitting the command changes only the
+visiting order. The other selected actors queue nothing from it; they, and an
+actor the frame cannot place or name, ride in the first command, and with no
+such actor at all the whole selection shares one command in publication
+order, as before. The order is fixed at release: it is a plan, not a re-scan
+after each job. Like formation assignment, it is computed by the host and
+carried in the command, so the session, replays and the Strict 3.1 baseline
+are unchanged; a replay recorded earlier keeps its own commands. A uniform
+grid of at least 64-unit cells, at most 256 a side, keeps a large forest drag
+near-linear; `TestDragNearestChainMatchesFullScan` checks it against the
+plain full scan, and `TestCommandDragAreaReclaimWalksNearestFirstPerWorker`
+checks the per-worker commands.
+
+*Fan-out budget.* A single-player gesture sends at most 16 commands, and at
+most 4,096 entries in all (about 144 KiB at 36 bytes an entry) unless its list
+alone is longer, in which case it sends one command; this keeps replays
+bounded. When the selection does not fit, its workers are sorted along the
+axis on which they spread wider and cut into that many contiguous runs of
+near-equal size, each walking from its middle worker. Online, the relay holds
+every seat's commands awaiting a tick together and closes the room past 64
+commands or 256 KiB (DESIGN_MULTIPLAYER §16.5.1). No per-gesture budget can
+account for the other seats, so an online gesture sends exactly one command,
+as it always did, with the same entries and size: the whole selection walks
+the list from its middle worker. These are UI budgets, not retail constants;
+`TestDragAreaGroupsKeepTheFanOutBudget` and `TestAreaCommandLimitIsOneOnline`
+check them. A single list above about 7,000 entries, which the online seat
+validation admits up to 10,000, still exceeds the relay's byte budget on its
+own, as before this change.
+
 Move accepts a left drag with Move armed, or Alt-left-drag from the idle latch
 in either mouse-interface mode. Alt is sampled on press; releasing it during
 the gesture does not turn movement into selection. Alt-click gives an explicit
@@ -3940,7 +3977,8 @@ append, footprint spacing, curve sampling, fog filtering, and zoomed overlays.
 The shell owns capture and preview in `battle_command_drag.go`; pure geometry
 lives in `battle_drag_geometry.go`. An area's `HumanOrderCommand.Targets` slice
 is copied at enqueue. The session resolves that work list in actor/target order
-and purges only at the first admitted target for each actor. Explicit formation
+and purges only at the first admitted target for each actor; the shell has
+already ordered each worker's copy nearest-first (above). Explicit formation
 handles give each mobile actor its own destination without editing selection.
 `UIWorldLine` records one non-emissive segment per traced edge inside the same
 world overlay used by placement, avoiding one recorded fill per line pixel.

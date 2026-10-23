@@ -4,22 +4,27 @@ import (
 	"bytes"
 	"fmt"
 
+	"github.com/nanolathe-gg/nanolathe/internal/content"
 	"github.com/nanolathe-gg/nanolathe/internal/netproto"
 )
 
 // Required gameplay extensions of DESIGN_MULTIPLAYER §8.6. The positional
 // fields and the replay header's descriptive metadata remain unchanged.
+// Builder speed is a mutator rather than a seat rule, but field 11's eleven
+// step indices are frozen, so its own step list travels here
+// (docs/DESIGN_MODS_MUTATORS.md "Builder speed").
 const (
 	matchChosenStartsExtension = 17
 	matchAlliedSightExtension  = 18
+	matchBuilderSpeedExtension = 19
 	// matchGeneratedMapExtension is not a gameplay choice: it carries what
 	// reproducing the battle needs, which belongs in a required record
 	// (§10 "Header extensions"), with the same admission contract.
-	matchGeneratedMapExtension = 19
+	matchGeneratedMapExtension = 20
 )
 
 func matchSetupExtension(id uint16) bool {
-	return id == matchChosenStartsExtension || id == matchAlliedSightExtension || id == matchGeneratedMapExtension
+	return id == matchChosenStartsExtension || id == matchAlliedSightExtension || id == matchBuilderSpeedExtension || id == matchGeneratedMapExtension
 }
 
 func (r *MatchConfigRequest) hasChosenStarts() bool {
@@ -85,12 +90,26 @@ func (r *MatchConfigRequest) consumeSetupExtensions() error {
 				return matchFieldError("alliedSight", "typed sight equal to extension 18 when both are supplied")
 			}
 			r.AlliedSight = sight
+		case matchBuilderSpeedExtension:
+			reader := netproto.NewReader(e.Data, matchFieldError)
+			index := reader.U8()
+			if err := reader.End(); err != nil {
+				return err
+			}
+			factor, ok := content.BuilderSpeedStep(index)
+			if !ok || index == 0 {
+				return matchFieldError("mutators.builderSpeed", "extension 19 contains a Builder speed step index 1..5; omit it for the identity")
+			}
+			if typed := r.Mutators.BuilderSpeed; !typed.IsIdentity() && typed != factor {
+				return matchFieldError("mutators.builderSpeed", "typed Builder speed equal to extension 19 when both are supplied")
+			}
+			r.Mutators.BuilderSpeed = factor
 		case matchGeneratedMapExtension:
 			if len(e.Data) == 0 {
-				return matchFieldError("generatedMap", "omit extension 19 for a map that was not generated")
+				return matchFieldError("generatedMap", "omit extension 20 for a map that was not generated")
 			}
 			if r.GeneratedMap != nil && !bytes.Equal(r.GeneratedMap, e.Data) {
-				return matchFieldError("generatedMap", "typed recipe equal to extension 19 when both are supplied")
+				return matchFieldError("generatedMap", "typed recipe equal to extension 20 when both are supplied")
 			}
 			r.GeneratedMap = append([]byte(nil), e.Data...)
 		default:
@@ -118,6 +137,13 @@ func (r *MatchConfigRequest) setupExtensions() ([]MatchConfigExtension, error) {
 	}
 	if r.AlliedSight != MatchAlliedSightVersion1 {
 		fields = append(fields, MatchConfigExtension{ID: matchAlliedSightExtension, Required: true, Data: []byte{byte(r.AlliedSight)}})
+	}
+	if !r.Mutators.BuilderSpeed.IsIdentity() {
+		index, ok := content.BuilderSpeedStepIndex(r.Mutators.BuilderSpeed)
+		if !ok {
+			return nil, matchFieldError("mutators.builderSpeed", "the identity or a factor on the Builder speed step list")
+		}
+		fields = append(fields, MatchConfigExtension{ID: matchBuilderSpeedExtension, Required: true, Data: []byte{index}})
 	}
 	if len(r.GeneratedMap) != 0 {
 		fields = append(fields, MatchConfigExtension{ID: matchGeneratedMapExtension, Required: true, Data: append([]byte(nil), r.GeneratedMap...)})

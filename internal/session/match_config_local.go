@@ -46,7 +46,7 @@ type MatchRoomInputs struct {
 	ReplayView      MatchView
 	Policies        MatchPolicies
 	// GeneratedMap is the recipe of the generated map the battle is played
-	// on, required extension 19 (docs/DESIGN_MAP_GENERATOR.md §10); empty
+	// on, required extension 20 (docs/DESIGN_MAP_GENERATOR.md §10); empty
 	// for any other map.
 	GeneratedMap []byte
 }

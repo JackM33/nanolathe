@@ -368,6 +368,14 @@ footprint by the mover's own footprint, a builder that arrives is standing clear
 of the site it is about to stamp; `mustClearSite` keeps the walk installed until
 it is.
 
+Under the Builder speed mutator, a ground builder whose definition records the
+factor does not walk to the border once it is in reach: on the first approach
+visit where `[05 R-WORK-01 §2]`'s reach expression passes and its footprint is
+clear of the site, it releases the walk and places on the next visit, as after
+an arrival. This is a mode-independent mutator, not retail behaviour, and a
+definition without the factor keeps the walk above
+([DESIGN_MODS_MUTATORS "Builder speed"](DESIGN_MODS_MUTATORS.md#67-builder-speed--nanolathe-mutator-policy-user-authorized-2026-10-22)).
+
 Approach maintenance distinguishes a bound object from a retained object that
 another order displaced. A fresh approach installs its rectangle; maintenance
 cannot rebind the displaced one when its order becomes exposed again. Its

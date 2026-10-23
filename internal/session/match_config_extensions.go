@@ -26,7 +26,9 @@ const (
 
 // Fields 1–16 are frozen positional fields, including RoomContent at 16.
 // Required IDs 17 and 18 carry chosen starts and allied sight through their
-// typed fields and existing SeatRules seam. Future gameplay choices follow
+// typed fields and existing SeatRules seam; required ID 19 carries the Builder
+// speed mutator, whose step list field 11 cannot spell
+// (DESIGN_MODS_MUTATORS "Builder speed"). Future gameplay choices follow
 // that same required, typed admission contract (§8.6, DESIGN_GAMEPLAY_RULES §9).
 
 func cloneMatchExtensions(extensions []MatchConfigExtension) []MatchConfigExtension {

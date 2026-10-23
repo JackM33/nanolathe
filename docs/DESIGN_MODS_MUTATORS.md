@@ -3,7 +3,7 @@
 How a player installs, selects and switches content mods such as ProTA,
 TA Zero and TA: Escalation without command-line flags; how global
 **mutators** (build speed, cost, health, damage, blast size, sight and radar
-multipliers)
+multipliers, and the builder speed of §6.7)
 are selected and locked for a battle; how retail's multiplayer **unit
 restrictions** are offered in skirmish and Survival (§15); and how a
 Nanolathe save records all of it so that loading the save restores the same
@@ -98,6 +98,7 @@ To keep the two apart, code for this feature never uses the bare identifier
 | D20 | (2026-10-16) Nanolathe hosts Cavedog's official bonus units and maps. The units are an add-on the player enables apart from the mod slot, so any mod can still be selected beside them; the maps join the community map catalogue (§5.7). |
 | D21 | (2026-10-16) Third-party factions are add-ons the player enables in any combination beside ARM and CORE, each independent of the others and of the mod slot, never replacing another's content or identities (§5.8). |
 | D22 | (2026-10-18) Nanolathe hosts Switeck's TA Bugfix 1.7b6 as the fix add-on `switecks-bugfix`, listed under the add-on catalogue's `fixes` key. A fix add-on replaces the base patch archive and mounts after the content add-ons and before faction add-ons; it may repair the Cavedog content it replaces (§5.7). |
+| D24 | (2026-10-22) Builder speed: a mutator on its own step list (1, 2, 3, 5, 8, 20) that makes builders turn and accelerate faster, runs their build-animation script functions faster and starts a mobile build once in reach. Its factor is recorded on each builder definition and read by engine code, a further mode-independent exception the maintainer accepted for it (§6.7). |
 | D23 | (2026-10-19) Nanolathe packages the Evolva models as `evolva-models`: UH40 supplies a model whenever present, with missing filenames filled from 2004, then 2003, then 2002. Model-only add-ons mount after content and fix add-ons and before factions and the selected mod; they replace models without occupying the mod slot (§5.7). |
 
 D9–D13 were proposed in review and accepted with the rest of the design
@@ -107,7 +108,8 @@ preset once on the main menu, and the preset became the mod's full recommended
 settings (§4.3). D15 supersedes D12's content profile: a mod's config is its
 own, so no preference can apply one mod's table to another. D17–D19 are the
 user's decisions for unit restrictions, recorded in §15. D22 is the user's
-decision to host the fix add-on, recorded in §5.7.
+decision to host the fix add-on, recorded in §5.7. D24 is the user's
+decision for Builder speed, recorded in §6.7.
 
 ## 3. The match selection
 
@@ -1396,7 +1398,10 @@ orthogonal to the gameplay mode in the same way content profiles are (D1).
 
 A mutator is not a gameplay rule. It adds no seam, draws no random numbers,
 keeps no per-tick state and is never consulted inside a tick. The retail
-arithmetic that consumes a mutated value is unchanged in every mode. **Strict
+arithmetic that consumes a mutated value is unchanged in every mode. Builder
+speed is the one exception the maintainer accepted (D24): the factor it
+records on each builder definition is read by engine code, under the
+boundaries of §6.7. **Strict
 3.1 with no mutators is the retail baseline**; every fingerprint lock runs
 with no mutators. A variation that data cannot express, such as a
 resource-sharing or fog rule, is not a mutator. It is a Community
@@ -1409,9 +1414,12 @@ it.
 ```go
 package content
 
-// Factor is an exact rational multiplier from the fixed step list (§6.4).
+// Factor is an exact rational multiplier from its mutator's step list (§6.4).
 // The zero value is the identity.
 type Factor struct{ Num, Den uint8 }
+
+var MutatorSteps []Factor      // the shared list, 0.25 .. 4
+var BuilderSpeedSteps []Factor // Builder speed's own list, 1 .. 20
 
 // Mutators is the closed set of global multipliers one battle runs under.
 // The zero value changes nothing.
@@ -1427,7 +1435,14 @@ type Mutators struct {
 	Salvage      Factor
 	FireRate     Factor // shown as "Fire rate"
 	UnitSpeed    Factor // shown as "Unit speed"
+	BuilderSpeed Factor // shown as "Builder speed", on BuilderSpeedSteps (§6.7)
 }
+
+// MutatorInfo is one row a front end builds from: Key, Label, Group,
+// Description and the mutator's own ascending Steps.
+func MutatorCatalog() []MutatorInfo
+func (f Factor) NextIn(steps []Factor) Factor
+func (f Factor) PrevIn(steps []Factor) Factor
 
 func (m Mutators) IsZero() bool
 func (m Mutators) String() string // canonical, e.g. "buildSpeed=2,health=1.5"; "" when zero
@@ -1436,6 +1451,9 @@ func (m Mutators) Digest() string
 // ApplyMutators transforms a per-battle clone in place. Like
 // RestrictToCreatable, it is never called on a shared compiled catalog.
 func (c *Catalog) ApplyMutators(m Mutators) error
+
+// On UnitDef, written only by ApplyMutators on a builder (§6.7):
+BuilderSpeed Factor
 ```
 
 The type is closed. A new mutator is a new field, a row in §6.5 and its
@@ -1485,9 +1503,12 @@ the store domain retail gives it ([02 R-KEYS-01 §5]). For a value `v`:
   single, and NaN and `v ≤ 0` are unchanged. The one exception is Income's
   negative-`energyuse` arm (§6.5).
 - Where two mutators scale one field (Build cost and Salvage on a corpse-chain
-  feature), or one scales a field by k² (Unit speed), the field is scaled once
-  by the exact product. Every step's numerator and denominator is at most 4,
-  so a product's are at most 16; the product is never a stored factor.
+  feature, or Unit speed and Builder speed on a builder's motion), or one
+  scales a field by k² (Unit speed), the field is scaled once by the exact
+  product. Every shared step's numerator and denominator is at most 4, so
+  those products' are at most 16; with Builder speed's 20 the largest is
+  k_u²·k_b = 320. Products are formed as 64-bit integer ratios and never stored
+  as a factor, whose 8-bit numerator could not hold them.
 
 Saturating rather than wrapping is deliberate. Retail wraps an out-of-range
 *authored* integer when it stores it, and content that authors one keeps the
@@ -1498,6 +1519,9 @@ never introduces a wrap.
 `mutators/3`, the base hash and the canonical set. The tag changes whenever
 any mutator's transform changes meaning (it moved to 2 when Build speed
 switched to `buildtime`, and to 3 when Sight began extending raster inputs).
+Adding Builder speed left it at 3: no set string written before it names its
+key, and with the key absent every transform, Unit speed's included, is
+unchanged, so no earlier identity can be taken for a Builder speed one.
 
 **The step list** (initial): 0.25, 0.5, 0.75, 1, 1.5, 2, 3, 4. Each step is
 an exact rational (a whole number of quarters), and its one spelling, in the
@@ -1505,6 +1529,16 @@ UI, settings, flags, reports and the identity, is that decimal: most players
 read "1.5" more easily than "3/2". Settings, flags and sidecars refuse any
 other value or spelling. A closed list keeps the test matrix finite and every
 product exact.
+
+**Per-key step lists.** Every mutator uses the shared list except Builder
+speed, whose own closed list is 1, 2, 3, 5, 8, 20, spelled "2", "3", "5",
+"8", "20" (§6.7). Its factor multiplies script animation rates and divides
+sleeps, where only whole multiples are exact, and the maintainer wanted
+stronger steps than 4. Parsing, cycling, settings, flags, sidecars, the
+online configuration and replays use each key's own list and refuse a value
+off it, the shared steps included for Builder speed. The exactness argument
+holds: every step is still an exact rational, every product is formed once
+in 64-bit integers, and the closed lists keep the test matrix finite.
 
 ### 6.5 The mutators
 
@@ -1521,6 +1555,7 @@ product exact.
 | Salvage | feature `Metal`, `Energy` of every definition that is not `indestructible`: wrecks, heaps, rocks and trees, whether a map, a mission or a death places them. A corpse-chain feature takes Build cost × Salvage, rounded once | reclaim pays k× | Map features resolve to catalog definitions when the terrain loads, after battle entry has applied the mutators, so one transform reaches every placement. The deposit pass writes the low byte of an indestructible definition's `metal` into the extraction grid ([05 R-FEAT-01 §7]); scaling it would wrap that byte (250 × 2 is 244), so deposits are excluded. No stock indestructible definition is reclaimable. Feature reclaim counts down `trunc(15 + (energy + metal)/2)` work at a fixed rate and pays the whole pool on the removing visit ([05 R-WORK-01 §5]), so a builder earns at about the same rate for about k× as long. Repair patrol's reclaim scan ranks by value and admits a metal feature only when it fits under storage, inclusively ([05 R-FEAT-01 §6], [04 R-ORD-01 §4]), so large pools are passed over sooner when storage is nearly full. The HUD footer shows the scaled pools ([07 R-HUD-03 §3]). The computer players' discount applies to the payout ([05 R-ECO-01 §3]). Resurrection reads no pool ([05 R-WORK-01 §7]). The largest stock pool, 40,100, saturates at 65,535 from ×2. |
 | Fire rate | every weapon's `ReloadTime`, from its stored unsigned 16-bit value, scaled by the **inverse** factor as Build speed scales `buildtime` | every weapon fires k× as often | The slot fires when its countdown reaches zero ([06 §4.2]), at most once per tick per slot, so short stock reloads round unevenly at ×4 (5 ticks becomes 1). Zero stays zero and the minimum of one never creates a free round ([06 R-WPN-05 §2]). `energypershot` and `metalpershot` are billed per shot, so drain grows k-fold at the same cost per shot ([06 §4.2]). A stockpile round advances five progress per visit up to `reloadtime` and bills in proportion to progress, so nukes and anti-nukes build rounds in 1/k of the time at the same total cost, demanding k× per visit ([06 §11.1]); the stock 3,600–5,400-tick rounds (2–3 minutes) take 30–45 s at ×4. `burstrate` spaces shots within a burst on its own schedule and is untouched; a burst longer than the scaled reload overlaps the next ([06 §4.3]). The veteran reload is an integer percentage of `reloadtime`, so the bonus flattens at the smallest reloads ([06 §4.2]). `SetMaxReloadTime` hands scripts the scaled value ([06 R-WPN-05 §3]). Weapons with no reload — meteor, burn and death weapons — are unaffected. The Classic AI does not read reload; the Modern AI's damage-rate estimates scale. |
 | Unit speed | unit `MaxVelocity`, `TurnRate` (from its stored unsigned 16-bit value), `MoveRate1` and `MoveRate2` by k; `Acceleration` by k²; `BrakeRate` by k² for a unit that does not fly and by k for one that does | every unit moves and turns k× as fast along paths of the same shape | The mover chooses the ground or flight integrator on the definition's `canfly` bit alone ([04 R-MOV-01 §1]). The ground mover accelerates only while the lookahead is beyond twice its turning distance `|err|·speed/turnrate` and the point two ahead is beyond its braking distance `speed²/(2·brakerate)` ([04 R-MOV-01 §4]); both are unchanged, as is the distance to reach top speed, and the time to reach it is 1/k. The flight integrator compares horizontal speed with `brakerate` itself and turns the excess toward the heading, so there `brakerate` is a speed ([04 §10.1]); the loss term `acceleration/maxvelocity` of its decay grows k-fold, and so do the approach speed `sqrt(2·a·d)` and the terminal speed. The movement-rate tiers compare speed with the two thresholds, so a unit changes tier at the same fraction of its speed ([04 R-MOV-01 §6]). No COB port sets a speed ([04 R-COB-03 §1]). Fixed distances do not scale — the waypoint capture radius, the lookahead, the air service radii — so a unit whose step outgrows the capture radius can pass a waypoint and loop back to it, and the collision validator tests only the proposed rectangle ([04 R-COLL-01 §1]); the maintainer accepts overshoot at high factors (P18). Tick cadences (repath, air order deadlines) and weapons — projectile speed, turret turn rate — are unchanged, so fast units outrun more fire. `cruisealt` and the bank and pitch gains are untouched. The Modern AI's absolute speed thresholds (fast, scout) see the scaled speeds. |
+| Builder speed | every `builder` definition: a mobile one's (bmcode 1) `TurnRate` by k, from its stored unsigned 16-bit value; a ground one's `Acceleration` and `BrakeRate` by k as well; and the recorded `BuilderSpeed` factor on every builder. On its own step list, 1–20 | builders turn and reach their unchanged top speed k× as fast, deploy and stow their nanolathe k× as fast, and start a mobile build once in reach | The only mutator whose compiled value engine code reads (§6.7). Top speed is untouched: `maxvelocity` and the movement-rate thresholds are not scaled, so the ground mover's turning and braking distances shrink rather than keep their shape ([04 R-MOV-01 §4]). A flying builder gains turn rate only, because the flight integrator turns `acceleration` and `brakerate` into speed terms ([04 §10.1]). With Unit speed each field is scaled once by k_u·k_b, k_u²·k_b and, for a ground builder's `brakerate`, k_u²·k_b, a flying one's k_u, then saturated at 65,535 and 2³¹−1. The script and approach effects, and their boundaries, are §6.7's. Both computer players' builders are affected, because the catalog is every player's (D7). |
 
 **Expanded sight data — Nanolathe mutator policy (issue #94, user-authorized
 2026-10-05).** Above ×1, enlarge the per-battle compiled inputs in every mode,
@@ -1602,12 +1637,146 @@ rasters continue selecting those inputs from the live definition ([03 §3.2]).
   debug captures gain `mod` and `mutators` fields beside `rules` and
   `content_profile`. The headless report of both commands and the battle
   benchmark's metadata spell the mod `<id>@<version>`, or `none`.
-- `--mutator <name>=<factor>` (repeatable) on both commands selects them. In
+- `--mutator <name>=<factor>` (repeatable) on both commands selects them,
+  `builderSpeed=5` among them. In
   the desktop window the settings key `mutators` selects them when no flag
   is given. The desktop command's `--shot`, `--film`, `--battle-benchmark`
   and `--headless`, and the whole displayless command, never read the key,
   so fingerprint, capture and benchmark runs reproduce from their command
   line.
+- Builder speed travels where the other mutators do: in the canonical string
+  and the identity (`builderSpeed=<k>`), the settings key, the sidecar and
+  replays. Online configuration field 11 is frozen at eleven shared-list
+  indices, so the battle configuration carries it as required extension 19:
+  one `u8` index on its own list, 1..5 for 2, 3, 5, 8, 20, omitted for the
+  identity, so every configuration without it keeps its bytes and identity
+  (DESIGN_MULTIPLAYER §8.6). The simulation manifest's mutator record appends
+  the same index after its eleven bytes only when set, and a builder's
+  definition digest gains its recorded factor only when set.
+
+### 6.7 Builder speed — Nanolathe mutator policy (user-authorized 2026-10-22)
+
+Builders in retail are slow to start work. Measured on the reference install
+under Strict 3.1, a construction kbot (ARMCK) reaches its build stance about
+90 ticks after placing a frame, and between two queued jobs it folds and
+unfolds its nanolathe for about 280 ticks, because the stock script serialises
+open and close requests through one state-request loop. A construction
+vehicle (ARMCV) unfolds in 50–80 ticks, accelerates to its top speed in about
+93 ticks and turns half a circle in about 131. A kbot lab (ARMLAB) opens its
+yard about 65 ticks after an order. A mobile builder also walks to the edge of
+the build footprint although it is already within `builddistance`: retail asks
+the reach expression only when the follower cannot get there
+([05 R-WORK-01 §12], [05 R-WORK-01 §13]). The maintainer chose to address this
+as a mutator, so it is opt-in, applies in every mode and travels with the
+existing selection, sidecar, lobby, replay and identity plumbing.
+
+**This is the first mutator whose compiled value drives engine behaviour.**
+Every other mutator changes a definition field that unchanged retail
+arithmetic reads. Builder speed also records its factor on each builder
+definition, and two engine sites read it: the script VM's timing and the
+mobile-build approach. The maintainer accepted that as a further
+mode-independent exception (D24); it adds no seam, no RNG stream and no
+per-tick state, and nothing consults the mutator set during a tick.
+
+**Strict baseline.** Without the mutator, or at ×1, every builder behaves as
+retail does, in every mode: the VM's arithmetic is the fixed 30-tick
+conversion ([04 §4.6]), and a mobile builder walks to the footprint border
+([04 R-PATH-01 §12], [05 R-WORK-01 §13]). Strict 3.1 with no mutators remains
+the retail baseline, and every fingerprint lock runs with none.
+
+**Scope.** Every definition that authors `builder`: commanders, mobile
+builders of every kind, factories and any nano tower. No other definition
+changes. Both computer players' builders are affected (D7).
+
+**Effects at k > 1.**
+
+1. *Agility.* A builder the allocator gives a mover (bmcode 1,
+   [04 R-FAC-02 §5]) turns k× as fast: `turnrate` ×k, saturated at 65,535. A
+   ground one also gets `acceleration` and `brakerate` ×k in the 16.16 store,
+   by §6.4's rule, saturated at 2³¹−1; `maxvelocity` and the movement-rate
+   thresholds are untouched, so top speed is as authored. A flying builder
+   gets turn rate only (§6.5). With Unit speed each field takes the exact
+   product (§6.4).
+2. *Build-animation timing.* The definition records k in `BuilderSpeed`, and
+   the session latches it on the builder's script VM before `Create`. The
+   VM runs the program's build-animation functions k× faster: inside them a
+   turn, move or spin speed and a spin or stop-spin acceleration becomes
+   `value·k/30` per tick, and a sleep `dur·30/(1000·k)` ticks, with the same
+   signed 32-bit product as retail before the divide. All of it is integer
+   arithmetic truncated toward zero (I3), and a sleep still yields to a later
+   visit at least once. An instruction runs fast by the function it executes
+   in, which needs no per-thread or saved state. At the identity every
+   instruction keeps retail's arithmetic exactly. Spin and stop-spin
+   accelerations scale by k like the speeds, as approved, so a spin ramp
+   takes the same number of ticks to its k× faster speed.
+3. *Start in reach.* A ground mobile builder whose definition records the
+   factor, on any MobileBuild approach visit where retail's reach expression
+   passes — centre to centre, both half-diagonal pads subtracted, signed
+   compare against `builddistance` ([05 R-WORK-01 §2]) — and whose own
+   footprint is clear of the site, releases its walk and stops there. The
+   phase advances as an arrival's does, and the next visit places the frame,
+   as the visit after an arrival does. Placing in the releasing visit would
+   start `StartBuilding` before the halt's `StopMoving`, whose immediate drain
+   runs both together; a stock construction kbot still folding from its
+   previous job holds six script threads, so its request loop would find no
+   free slot of the eight ([04 §4.2]) and the job would never deploy. Other
+   work orders are unchanged. `RepairUnit` already starts once in reach, and
+   `HelpBuild`'s annulus goal stops it near `builddistance`; feature
+   `Reclaim`, unit reclaim, `Resurrect` and `Capture` still walk to the
+   target's footprint border ([04 R-ORD-01 §5]).
+
+**The build-animation functions.** For one loaded program, computed once at
+load from its bytecode: every function reachable through `call-script` and
+`start-script` edges from the engine entry points `StartBuilding`,
+`StopBuilding`, `Activate` and `Deactivate`, minus every function also
+reachable from any of the other thirty-six names the engine starts
+([04 R-CB-01 §1]) — `Create`, the weapon `Aim*`, `AimFrom*`, `Fire*` and
+`Query*` callbacks, `TargetCleared`, `HitByWeapon`, `TakeDamage`, `Killed`,
+`StartMoving`, `StopMoving`, the movement-rate and medium callbacks,
+`SetSpeed`, `SetDirection`, `RockUnit`, `SetMaxReloadTime`,
+`QueryNanoPiece`, `QueryBuildInfo`, `SweetSpot`, `QueryLandingPad` and the
+transport callbacks. A function is the contiguous code from its entry to the
+next entry, and the edges are read by decoding each function linearly. A
+loop shared with any of those entry points therefore keeps retail timing.
+On the reference install the stock construction kbots' and vehicles'
+state-request loop is reached from the build and activation callbacks and not
+from `Create`, which only initialises its state; no stock builder's set holds
+a `random` or `emit-sfx` instruction, so no stock script changes how many
+random numbers it draws. A mod script that does draw inside its set draws at
+the faster cadence. Air repair pads and carriers have empty sets.
+
+**Not included.** Keeping builders deployed between jobs: the stock kbot and
+vehicle scripts aim the nanolathe only while unfolding, so the arm would point
+at the old site.
+
+**Known hazard.** The faster loop leaves retail's eight-slot thread pool
+([04 §4.2]) as it was. A `StartBuilding` whose first drain coincides with a
+`StopMoving` while a stock kbot is folding can still lose its request loop's
+start, as it can in retail; the next-visit placement above keeps the in-reach
+start from causing that coincidence.
+
+**Measured on the reference install** (Strict 3.1, the retail-tier session
+test): ARMCK placement to build stance 92 / 20 / 9 ticks at ×1 / ×5 / ×20,
+the gap between two queued jobs 282 / 58 / 28; ARMCV 57 / 13 / 9 and
+187 / 28 / 17; ARMLAB order to open yard 65 / 17 / 8.
+
+**Tests.** `content.TestBuilderSpeedScalesBuilderAgility` and
+`content.TestBuilderSpeedComposesWithUnitSpeed` lock the transform, its
+saturation and the 64-bit product; `content.TestParseMutatorsRoundTrip`,
+`content.TestMutatorCatalogDescribesTheClosedSet` and
+`content.TestFactorSpellingAndCycling` the per-key step lists;
+`content.TestZeroMutatorsLeaveTheCloneIdentical` and
+`content.TestFrozenInputsRecordFallbacksAndExtensions` the identity.
+`cob.TestBuildAnimationSetExcludesSharedCode`,
+`cob.TestBuilderSpeedScalesOnlyBuildAnimationTiming` and
+`cob.TestBuilderSpeedIdentityIsByteForByte` lock the function set, the
+scaled arithmetic and the unchanged identity path.
+`construction.TestBuilderSpeedStartsWorkInReach` locks the in-reach start
+and the unchanged walk without the factor.
+`session.TestBuilderSpeedTravelsAsExtension19` locks the online record.
+`session.TestBuilderSpeedShortensStockReadinessRetail` and
+`cob.TestStockStateRequestLoopIsABuildAnimation` (retail tier) lock the
+stock relationships and the stock loop's membership.
 
 ## 7. The save sidecar
 
@@ -1874,9 +2043,10 @@ has no X and cannot be removed.
 **The Mutators dialog.** *Change...* opens a modal over the screen built
 from the mutator catalogue (`content.MutatorCatalog`), so a new mutator needs
 no layout work: a scrolling list with a heading row per group (Economy,
-Combat, Movement, Vision), each row showing the mutator and its factor; the
-selected mutator's description beneath; *Raise*, *Lower*, *Default* and
-*Reset all* in the right-hand column; *OK* keeps the changes for the screen's
+Combat, Movement, Builders, Vision), each row showing the mutator and its
+factor; the selected mutator's description beneath; *Raise*, *Lower*,
+*Default* and *Reset all* in the right-hand column, *Raise* and *Lower*
+stepping through the selected mutator's own list (§6.4); *OK* keeps the changes for the screen's
 *Apply*, and *Cancel* restores the set the dialog opened with.
 
 **The Get more mods dialog.** A modal over the screen. Opening it fetches the
@@ -1983,7 +2153,8 @@ dependencies.
 | Mutators reach fresh skirmish, mission entry and restore; all six fingerprint locks unchanged | `session`, `headless` |
 | Under Strict 3.1 with Build speed ×2, a fixed construction finishes in half the ticks and bills the same total resources (a relationship, not a census) | `session` |
 | Under Strict 3.1, Income scales a generator's and a solar collector's settlement production k-fold and leaves a self-powered unit neutral; Unit speed shortens a straight move to about 1/k of the ticks; Fire rate builds a stockpile round in 1/k of the ticks at the authored cost (relationships) | `session.TestStrictIncomeScalesSettlementProduction`, `session.TestStrictUnitSpeedShortensAStraightMove`, `session.TestFireRateStockpilesAtEqualCost` |
-| At the extreme steps on the stock catalog: no aircraft's flight decay reaches zero under Unit speed, and no metal deposit is scaled | `session.TestStockCatalogUnderExtremeSteps` (retail tier) |
+| At the extreme steps on the stock catalog: no aircraft's flight decay reaches zero under Unit speed with Builder speed ×20 beside it, and no metal deposit is scaled | `session.TestStockCatalogUnderExtremeSteps` (retail tier) |
+| Builder speed: per-key step lists; agility transform, saturation and the 64-bit product with Unit speed; the build-animation function set, scaled script timing and the unchanged identity path; the in-reach start and the unchanged walk without it; online extension 19; stock readiness relationships | the tests of §6.7 |
 | Sidecar round trip; a load without one behaves as today; a load restores rule set, Community sources and entry table, unit limit and mutators, and selects the recorded mod and mutators (P6); bank bytes unchanged | `save.TestSidecarRoundTripsEveryModSpelling`, `save.TestSidecarRefusesAnotherSchemaAndMalformedFiles`, `main.TestSaveSidecarRestoresTheRecordedSelection` (retail tier) |
 | A Survival director selects schema 4 even with restrictions or add-ons; schemas 1–3 reject a Survival field, schema 4 requires a non-null director, and personal-best eligibility requires that director; ordinary save schemas are unchanged | `save.TestSidecarSchemaFollowsSurvival`, `save.TestSidecarRefusesUnsupportedSurvivalCombinations`, `save.TestWriteSidecarRefusesInvalidSurvivalCombinations` |
 | A generated map's recipe selects schema 5 with or without the other records; schema 5 requires the recipe and earlier schemas refuse one | `save.TestSidecarSchemaFollowsGeneratedMap` |
@@ -2010,6 +2181,12 @@ The applicable gates are those in [ARCHITECTURE §6](ARCHITECTURE.md#6-verificat
   lines.
 - [PROTA_SUPPORT](PROTA_SUPPORT.md): the Mods & Mutators screen as the
   ordinary route, with manual roots as the alternative.
+- For Builder speed (§6.7): AGENTS.md's mutator exception and
+  [DESIGN_ECONOMY_CONSTRUCTION](DESIGN_ECONOMY_CONSTRUCTION.md) "The approach"
+  (done with this unit); [DESIGN_MULTIPLAYER](DESIGN_MULTIPLAYER.md) §8.6's
+  extension table (required ID 19) and §16.3's runtime-checkpoint Mutators
+  record, which now retains `BuilderSpeed` after `BuildSpeed` in lexical
+  order — both owned elsewhere and still to update.
 - For unit restrictions (§15): AGENTS.md and [INVARIANTS](INVARIANTS.md) I11
   (the fifth mode-independent exception; INVARIANTS done with this design,
   AGENTS.md by the maintainer);
@@ -2083,6 +2260,9 @@ fingerprint. Units 1–8 are implemented.
    `minimumEngine` once releases are stamped.
 11. **Unit restrictions.** Implemented as the four units of §15.12; the
    follow-ups listed there remain.
+12. **Builder speed.** The mutator, its own step list, the script timing, the
+   in-reach start and online extension 19 (§6.7, D24). Implemented
+   2026-10-22.
 
 ## 14. Research map
 
