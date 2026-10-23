@@ -35,12 +35,13 @@ caller reads it from that world's maps, so nothing about a world's look is
 authored in the generator:
 
 - **Sources.** The world's maps: each one's terrain heights, sea level, tile
-  indices and tile art. The generator copies coherent patches of their art.
-  A source's void (`0xFFFC`), legacy painted metal, the strips outside the
-  play area and the art under every indestructible metal feature (and one
-  cell round it) are never copied, so no tile shows metal where there is
-  none. The caller's order is part of the result: the same code makes the
-  same map only from the same sources in the same order.
+  indices and tile art. The generator copies coherent patches of their art,
+  except the cells the caller marks in the source's `Avoid`: its void
+  (`0xFFFC`), legacy painted metal, the strips outside the play area and the
+  art under every indestructible metal feature (and one cell round it), so
+  no tile shows metal where there is none. The caller's order is part of
+  the result: the same code makes the same map only from the same sources
+  in the same order.
 - **Features.** Kinds the world's maps place, each with members weighted by
   how often they are used: the **deposit** (a non-blocking, indestructible
   feature with metal, at least 2×2, whose sprite shows something), **trees**
@@ -101,9 +102,12 @@ size asked for.
    the north and south height strips [03 R-TERR-01 §2], and on a lava world
    every cell at or below the sea [03 §2.2]); then the water depths and
    the land or water slope pair give clear, steep or blocked; a footprint
-   takes the lowest tier inside it and is steep beside a blocked cell
-   [04 R-SLOPE-01 §3]. Costs are the engine's 10 straight, 14 diagonal and
-   30 more onto a steep cell, with no corner cutting [04 R-PATH-01 §3].
+   takes the lowest tier inside it and is steep when any cell of the ring
+   round it is below clear [04 R-SLOPE-01 §3]. Costs are the engine's 16
+   straight, 22 diagonal and 30 more onto a steep anchor, and a diagonal
+   step tests only the anchor it lands on [04 R-PATH-01 §3][04 §7.1]. The
+   engine's turn and short-run penalties depend on a route's heading and
+   are left out, so travel measures the ground, not the route a unit takes.
    Each cell belongs to the start that reaches it soonest. A candidate in
    which some start cannot reach every enemy is dropped.
 5. **Metal.** The reach is half the shortest travel cost between enemy
@@ -149,8 +153,9 @@ of the mean. Each has a stated scope:
   teammate is no enemy), by the ground class's passability and the engine's
   step costs (§4, step 4).
 - **Room.** Each start's building room: the cells within 30 cells' travel
-  that no feature occupies, above the sea, a 2×2 block counting when its
-  heights differ by at most 2.
+  that no feature occupies and no deposit's 4-cell spacing ring keeps
+  clear, above the sea, a 2×2 block counting when its heights differ by at
+  most 2.
 - **Metal.** The deposit metal in each start's own zone (the cells its units
   reach first) within 90% of the reach, the travel cost halfway to the
   nearest enemy.
@@ -204,7 +209,8 @@ The kept candidate is painted with source tiles (`paint.go`).
 - **TNT** (`formats.EncodeTNT`): the canonical 0x2000 layout [fmt tnt];
   heights, the tile map and art, each feature's index in its anchor cell
   and `0xFFFE` in the rest of its footprint as retail files have it, and a
-  252×252 minimap sampled from the art and padded with index `0x64`.
+  252×252 minimap of the play area (`PlayRight` × `PlayBottom`) fitted by
+  its long side, padded with index `0x64` [fmt tnt] "Minimap".
 - **OTA** (`Map.OTA`, through `formats.EncodeTDF`) [fmt ota]: the global
   header with the world's planet and climate, `size`, `numplayers`, and
   `gravity` written explicitly (an omitted key reads as 0); one
@@ -224,10 +230,11 @@ The kept candidate is painted with source tiles (`paint.go`).
   responsive while a preview generates sets it lower. The map is the same
   for any value.
 - **Cancellation.** The context is checked between the steps of every
-  candidate, before the chosen one is painted and per row while it is
-  painted. A cancelled `Generate` returns the context's error and never a
-  map, even when the work had finished, so a caller that cancels the
-  previous request before starting the next cannot receive a stale map.
+  candidate, before the chosen one is painted, per row while it is painted
+  and once more when it is done; a cancelled `Generate` returns the
+  context's error. A cancel that lands after the last check still returns
+  the finished map, so a caller that must not show a stale one compares
+  each result with the request it is waiting for (§10).
 
 ## 9. Tests
 

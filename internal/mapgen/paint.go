@@ -216,7 +216,8 @@ func buildIndex(sources []Source, palette *[256][3]byte) (*tileIndex, error) {
 	var wetTotal, dryTotal int64
 	for _, src := range sources {
 		tw, th := src.Width/2, src.Height/2
-		if src.Width%2 != 0 || src.Height%2 != 0 || len(src.Heights) != src.Width*src.Height || len(src.TileIndices) != tw*th || len(src.TileGraphics)%1024 != 0 {
+		if src.Width%2 != 0 || src.Height%2 != 0 || len(src.Heights) != src.Width*src.Height || len(src.TileIndices) != tw*th || len(src.TileGraphics)%1024 != 0 ||
+			src.Avoid != nil && len(src.Avoid) != src.Width*src.Height {
 			return nil, fmt.Errorf("mapgen: source %q: inconsistent sizes", src.Name)
 		}
 		tiles := len(src.TileGraphics) / 1024
@@ -359,7 +360,8 @@ func avoided(src Source, tx, ty int) bool {
 
 func (idx *tileIndex) valid(r tileRef) bool {
 	src := &idx.sources[r.src]
-	return r.tx >= 0 && r.ty >= 0 && int(r.tx) < src.Width/2 && int(r.ty) < src.Height/2 && !avoided(*src, int(r.tx), int(r.ty))
+	return r.tx >= 0 && r.ty >= 0 && int(r.tx) < src.Width/2 && int(r.ty) < src.Height/2 &&
+		int(src.TileIndices[int(r.ty)*(src.Width/2)+int(r.tx)]) < len(src.TileGraphics)/1024 && !avoided(*src, int(r.tx), int(r.ty))
 }
 
 func (idx *tileIndex) sig(r tileRef) signature {
@@ -639,21 +641,27 @@ func paint(ctx context.Context, idx *tileIndex, t *terrain, seed uint64) ([]uint
 	return indices, graphics, nil
 }
 
-// minimap is the 252x252 picture the map chooser shows: the art sampled to
-// fit, the unused rows and columns in retail's pad index 0x64 [fmt tnt]
-// "Minimap".
+// minimap is the 252x252 picture the map chooser and the radar show: the
+// play area (the map less its right and bottom insets, PlayRight by
+// PlayBottom) fitted by its long side into the top-left of the bitmap, and
+// the rest in retail's pad index 0x64 [fmt tnt] "Minimap".
 func minimap(w, h int, indices []uint16, graphics []byte) (int, int, []byte) {
 	const side, pad = 252, 0x64
-	pxW, pxH := w*16, h*16
-	scale := max(pxW, pxH)
+	playW, playH := w*16-32, h*16-128
+	usedW, usedH := side, side
+	if playW < playH {
+		usedW = playW * side / playH
+	} else {
+		usedH = playH * side / playW
+	}
 	out := make([]byte, side*side)
 	for y := 0; y < side; y++ {
 		for x := 0; x < side; x++ {
-			wx, wy := x*scale/side, y*scale/side
-			if wx >= pxW || wy >= pxH {
+			if x >= usedW || y >= usedH {
 				out[y*side+x] = pad
 				continue
 			}
+			wx, wy := x*playW/usedW, y*playH/usedH
 			n := int(indices[(wy/32)*(w/2)+wx/32])
 			out[y*side+x] = graphics[n*1024+(wy%32)*32+wx%32]
 		}

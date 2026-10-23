@@ -72,4 +72,10 @@ func TestEncodeTDFReadsBackAsOTA(t *testing.T) {
 	if _, err := EncodeTDF(&TDFWriteSection{Name: "x", Keys: []TDFWriteKey{{"k", "a;b"}}}); err == nil {
 		t.Fatal("a semicolon in a value was written")
 	}
+	// A comment opener anywhere on a line would cut the value short.
+	for _, v := range []string{"see http://example.org", "A /* B"} {
+		if _, err := EncodeTDF(&TDFWriteSection{Name: "x", Keys: []TDFWriteKey{{"k", v}}}); err == nil {
+			t.Fatalf("the comment opener in %q was written", v)
+		}
+	}
 }

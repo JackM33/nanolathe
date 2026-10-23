@@ -43,9 +43,11 @@ type Source struct {
 	// holds 32x32 palette indices per tile.
 	TileIndices  []uint16
 	TileGraphics []byte
-	// Avoid marks cells whose art must not be copied elsewhere: metal a
-	// map paints into its tiles under an invisible metal feature would
-	// show metal where there is none.
+	// Avoid marks cells whose art must not be copied elsewhere, nil or
+	// Width*Height long. The generator copies every other cell's art, so
+	// the caller marks what would show something that is not there: the
+	// void, legacy painted metal, the strips outside the play area and the
+	// metal art under a deposit.
 	Avoid []bool
 }
 

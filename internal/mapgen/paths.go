@@ -21,11 +21,27 @@ const (
 func cellTiers(height []int32, w, h int, sea int32, lava bool, blockedCell []bool, mc MoveClass) []tier {
 	out := make([]tier, w*h)
 	at := func(x, y int) int32 { return height[min(y, h-1)*w+min(x, w-1)] }
-	south := func(x, y int) bool { return y < h && (h-1-y)*16+int(at(x, y)>>1) < 112 }
+	// Each column's strips end at the first row that fails the test: the
+	// north strip is the rows above north[x], and the south strip is the
+	// rows from south[x] to the second-last, each voided for the row below
+	// it, so the bottom row never is [03 R-TERR-01 §2].
+	north, south := make([]int, w), make([]int, w)
+	for x := 0; x < w; x++ {
+		z := 0
+		for z < h && z*16 < int(at(x, z)>>1) {
+			z++
+		}
+		north[x] = z
+		z = h - 1
+		for z > 0 && (h-1-z)*16+int(at(x, z)>>1) < 112 {
+			z--
+		}
+		south[x] = z
+	}
 	for y := 0; y < h; y++ {
 		for x := 0; x < w; x++ {
 			i := y*w + x
-			if blockedCell != nil && blockedCell[i] || x >= w-2 || y*16 < int(at(x, y)>>1) || south(x, y+1) {
+			if blockedCell != nil && blockedCell[i] || x >= w-2 || y < north[x] || y >= south[x] && y < h-1 {
 				continue
 			}
 			a, b, c, d := at(x, y), at(x+1, y), at(x, y+1), at(x+1, y+1)
@@ -49,8 +65,9 @@ func cellTiers(height []int32, w, h int, sea int32, lava bool, blockedCell []boo
 }
 
 // footprintTiers is the tier of a footprint anchored at each cell: the
-// lowest tier inside it, and steep when the ring round it holds a blocked
-// cell, as the engine's footprint classifier rules [04 R-SLOPE-01 §3].
+// lowest tier inside it, and steep when any cell of the ring round it is
+// below clear, the map's outside counting as blocked, as the engine's
+// footprint classifier rules [04 R-SLOPE-01 §3].
 func footprintTiers(cells []tier, w, h int, mc MoveClass) []tier {
 	fx, fz := max(1, mc.FootX), max(1, mc.FootZ)
 	out := make([]tier, w*h)
@@ -72,8 +89,8 @@ func footprintTiers(cells []tier, w, h int, mc MoveClass) []tier {
 	for y := 0; y+fz <= h; y++ {
 		for x := 0; x+fx <= w; x++ {
 			t := minIn(x, y, x+fx-1, y+fz-1)
-			if t == clear && (minIn(x-1, y-1, x+fx, y-1) == blocked || minIn(x-1, y+fz, x+fx, y+fz) == blocked ||
-				minIn(x-1, y-1, x-1, y+fz) == blocked || minIn(x+fx, y-1, x+fx, y+fz) == blocked) {
+			if t == clear && (minIn(x-1, y-1, x+fx, y-1) < clear || minIn(x-1, y+fz, x+fx, y+fz) < clear ||
+				minIn(x-1, y-1, x-1, y+fz) < clear || minIn(x+fx, y-1, x+fx, y+fz) < clear) {
 				t = steep
 			}
 			out[y*w+x] = t
@@ -82,11 +99,14 @@ func footprintTiers(cells []tier, w, h int, mc MoveClass) []tier {
 	return out
 }
 
-// Step costs: a straight step 10, a diagonal 14, and a step onto a steep cell
-// 30 more, the engine's own search costs [04 R-PATH-01 §3].
+// Step costs: a straight step 16, a diagonal 22, and a step onto a steep
+// anchor 30 more, the engine's own search costs [04 R-PATH-01 §3]. Its
+// turn and short-run penalties depend on a route's heading, which a cost
+// per cell does not carry, so travel leaves them out: it measures the
+// ground between starts, not the route a unit will take.
 const (
-	stepStraight = 10
-	stepDiagonal = 14
+	stepStraight = 16
+	stepDiagonal = 22
 	stepSteep    = 30
 )
 
@@ -95,9 +115,8 @@ const unreached = int32(-1)
 
 // travel is the cheapest route cost from the sources to every cell over
 // passable anchors (Dial's bucket queue, exact for these small integer
-// costs), and which source each cell is nearest. A diagonal step needs both
-// cells it squeezes past to be passable, as the engine forbids cutting a
-// blocked corner.
+// costs), and which source each cell is nearest. A diagonal step tests only
+// the anchor it lands on, as the engine's does [04 §7.1].
 func travel(tiers []tier, w, h int, sources []int) (dist []int32, owner []int8) {
 	dist = make([]int32, w*h)
 	owner = make([]int8, w*h)
@@ -139,9 +158,6 @@ func travel(tiers []tier, w, h int, sources []int) (dist []int32, owner []int8) 
 				}
 				n := ny*int32(w) + nx
 				if tiers[n] == blocked {
-					continue
-				}
-				if s.dx != 0 && s.dy != 0 && (tiers[y*int32(w)+nx] == blocked || tiers[ny*int32(w)+x] == blocked) {
 					continue
 				}
 				cost := d + s.cost

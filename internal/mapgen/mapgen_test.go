@@ -102,7 +102,12 @@ func TestGenerateIsDeterministic(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, other := range []*Map{b, c} {
+	g.Workers = 3
+	d, err := g.Generate(context.Background(), p, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, other := range []*Map{b, c, d} {
 		if !bytes.Equal(a.TNT, other.TNT) || !reflect.DeepEqual(a.Balance, other.Balance) {
 			t.Fatalf("the same parameters made different maps: balance %+v vs %+v", a.Balance, other.Balance)
 		}
@@ -317,4 +322,4 @@ func TestGeneratedMapIsPinned(t *testing.T) {
 	}
 }
 
-const pinnedMapHash = "7a64bd9ff991930232edd82f99ef981a8800f95a5a81d209545a2241f64b6936"
+const pinnedMapHash = "806ec22240d0652f995918977e19f64859bf00704fa37350ce24d82e3e2ea96f"

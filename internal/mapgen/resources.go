@@ -56,16 +56,18 @@ func (f *features) free(x, y, fx, fz, margin int) bool {
 }
 
 // put places a feature and covers its footprint plus keep cells round it.
+// A footprint of zero still holds its anchor cell, which the TNT gives it.
 func (f *features) put(feat *Feature, x, y, keep int) {
 	f.list = append(f.list, placed{feature: feat, x: x, y: y})
-	for yy := max(0, y-keep); yy < min(f.h, y+feat.FootZ+keep); yy++ {
-		for xx := max(0, x-keep); xx < min(f.w, x+feat.FootX+keep); xx++ {
+	fx, fz := max(1, feat.FootX), max(1, feat.FootZ)
+	for yy := max(0, y-keep); yy < min(f.h, y+fz+keep); yy++ {
+		for xx := max(0, x-keep); xx < min(f.w, x+fx+keep); xx++ {
 			f.occupied[yy*f.w+xx] = true
 		}
 	}
 	if feat.Blocking {
-		for yy := y; yy < y+feat.FootZ; yy++ {
-			for xx := x; xx < x+feat.FootX; xx++ {
+		for yy := y; yy < y+fz; yy++ {
+			for xx := x; xx < x+fx; xx++ {
 				f.blocking[yy*f.w+xx] = true
 			}
 		}
