@@ -37,3 +37,24 @@ func TestCheckpointResolvedFeaturesVector(t *testing.T) {
 		t.Fatalf("payload = %x\nwant      %x", out.Bytes(), want)
 	}
 }
+
+func TestCheckpointRetainsAIDifficultyReversed(t *testing.T) {
+	write := func(f Features) []byte {
+		t.Helper()
+		var out bytes.Buffer
+		if err := f.WriteCheckpoint(checkpoint.NewEncoder(&out)); err != nil {
+			t.Fatal(err)
+		}
+		return out.Bytes()
+	}
+	// Appliance byte, placement i64, stop-threshold byte and income byte
+	// precede the retained reversal byte; false still occupies its position.
+	want := make([]byte, 144)
+	if got := write(Features{}); !bytes.Equal(got, want) {
+		t.Fatalf("zero table = %x, want %x", got, want)
+	}
+	want[11] = 1
+	if got := write(Features{AIDifficultyReversed: true}); !bytes.Equal(got, want) {
+		t.Fatalf("reversed table = %x, want %x", got, want)
+	}
+}
