@@ -268,7 +268,7 @@ func TestSaveSlotsNeedAHostSaveDirectory(t *testing.T) {
 func TestSaveSlotsStayInADottedSaveDirectory(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "first.last", ".local", "saves")
 	g := &gameShell{opts: Options{SaveDir: dir}}
-	for _, path := range []string{g.autosavePath(), session.RetailSavePath(g.slotSaveDir(), quicksaveName)} {
+	for _, path := range []string{session.RetailSavePath(g.slotSaveDir(), autosaveName), session.RetailSavePath(g.slotSaveDir(), quicksaveName)} {
 		if filepath.Dir(path) != dir {
 			t.Fatalf("slot bank %q is outside the save directory %q", path, dir)
 		}

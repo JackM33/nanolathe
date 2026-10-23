@@ -2117,6 +2117,7 @@ leaves the line empty (DESIGN_INTERFACE_HUD_INPUT §2.6).
 | `internal/settings` | the `mod`, `mutators`, `addons` and mod-scoped `restrictions` keys | commands |
 | `cmd/nanolathe` | chip, screen, in-process reload, loading-screen lines, drop-to-install, `--mod`, `--addon`, `--mutator`, `--restrict`, the restriction card and the unit viewer's restriction editor (§15.9) | — |
 | `cmd/nanolathe-headless` | `--mutator`, `--restrict` and `--mod` (flags only, never the settings file). `--mod` mounts an installed mod from the library as the last root with its own config, through `modlibrary`'s command-line selection; it is refused beside several `--root` flags, and the command never fetches. `--mod-config` names a config file for a manual stack or in place of the mod's own | — |
+| `cmd/ai-arena` | `match -mod` (flag only, never the settings file): mounts an installed mod after `-root` with its own config's content section, through the same `modlibrary` selection; the match keeps the arena's rule set, so the config's Community table is not applied, and the command never fetches | — |
 
 **Guards.** Architecture tests: only `internal/modfetch` and the multiplayer
 WebSocket transport in `internal/relay` import `net/http`; only `cmd/nanolathe`
