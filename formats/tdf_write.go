@@ -34,8 +34,9 @@ func (s *TDFWriteSection) Add(name string) *TDFWriteSection {
 
 // EncodeTDF writes sections as TDF text that ParseTDF reads back. A name,
 // key or value that the syntax cannot carry — a bracket, brace, semicolon,
-// equals sign in a key, or a line break — is refused rather than escaped,
-// since TDF has no escapes.
+// equals sign in a key, a line break, or `//` or `/*`, which open a comment
+// anywhere on a line [fmt tdf] — is refused rather than escaped, since TDF
+// has no escapes.
 func EncodeTDF(sections ...*TDFWriteSection) ([]byte, error) {
 	var b bytes.Buffer
 	for _, s := range sections {
@@ -74,7 +75,7 @@ func tdfWritable(what, text, forbidden string) error {
 	if what != "value" && strings.TrimSpace(text) == "" {
 		return fmt.Errorf("tdf write: empty %s", what)
 	}
-	if strings.ContainsAny(text, forbidden) {
+	if strings.ContainsAny(text, forbidden) || strings.Contains(text, "//") || strings.Contains(text, "/*") {
 		return fmt.Errorf("tdf write: %s %q holds a character TDF cannot carry", what, text)
 	}
 	return nil

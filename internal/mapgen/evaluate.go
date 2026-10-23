@@ -7,9 +7,10 @@ type Balance struct {
 	// teammate is no enemy), by the ground class's passability and slope
 	// costs (paths.go).
 	Path Measure
-	// Room is each start's building room: the level, dry cells no feature
-	// occupies within roomCells of travel of it, a 2x2 block counting when
-	// its heights differ by at most 2.
+	// Room is each start's building room: the level, dry cells within
+	// roomCells of travel of it that no feature occupies and no deposit's
+	// spacing ring keeps clear, a 2x2 block counting when its heights
+	// differ by at most 2.
 	Room Measure
 	// Metal is the deposit metal in each start's own zone (the cells its
 	// units reach first) within metalReach per mille of the reach, the

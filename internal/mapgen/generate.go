@@ -109,8 +109,9 @@ type candidate struct {
 // kept, so the result does not depend on how many run at once.
 //
 // A cancelled context stops the work between steps, and Generate then
-// returns the context's error and never a map: a caller that cancels the
-// previous request before it starts the next cannot receive a stale map.
+// returns the context's error. A cancel that lands after the last check
+// still returns the finished map, so a caller that must not show a stale
+// one compares the request it receives with the one it is waiting for.
 func (g *Generator) Generate(ctx context.Context, p Params, progress Progress) (*Map, error) {
 	p = p.Normalize()
 	if p.Water > 0 && !g.wet {
