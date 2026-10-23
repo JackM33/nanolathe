@@ -1259,6 +1259,48 @@ Run the movement/order/airdiag contracts, both repository gates and the
 displayless simulation-cost benchmark. Ground path search and its policies
 are unchanged; this queue never submits a path request.
 
+### Modern construction aircraft patrol recovery
+
+**Nanolathe Modern policy** (issue #152, user-authorized 2026-10-23).
+`movement.Rules.AirPatrolRecovery` repairs the flight request when
+`VTOL_RepairPatrol` installs its phase-one point marker. Strict 3.1 and
+Community 3.9 retain their existing behavior: takeoff occurs only in phase
+zero [04 R-ORD-01 §7], and flight bypasses vertical control outside the map
+[04 §10.1]. A grounded retained leg therefore cannot fly; an off-map leg can
+wait indefinitely for an altitude it cannot reach.
+
+Modern requests airborne mode through the ordinary mode setter if the
+aircraft is grounded and unattached. For each waypoint axis whose footprint
+would select the off-map air sector, it projects to the centre of the nearest
+valid footprint-anchor cell, using the collision record's footprint and
+half-cell bias. The far-edge comparison remains strict [04 R-AIR-01 §5].
+An axis with an already valid footprint is unchanged; an axis with no valid
+anchor keeps its original coordinate. The marker then uses the ordinary terrain-relative
+cruise altitude and flight integration. No unit position is teleported, and
+the original waypoint coordinates, queue identity, successors, phase, work
+receipts and arrival rules remain intact. This also repairs a previously
+stalled retained leg at its next ordinary maintenance visit.
+
+The decision applies only to construction-patrol phase-one point markers.
+Takeoff markers, work approaches, orbit markers, repair/guard/combat orders,
+attached aircraft and the flight integrator keep their existing contracts.
+It adds no persistent state, RNG draws or resource transactions; work still
+uses the ordinary construction and repair executors. The existing `RuleSet`
+binds the decision, including restored and newly created movers.
+
+`TestConstructionPatrolRecoveryMarkerPolicy` covers the four map edges,
+footprint-bound equality, fractional valid coordinates and a saved half-cell
+bias, with unchanged queues, positions, resources and RNG. It checks Strict,
+Community and unbound bypasses; the companion exclusion test preserves other
+marker families. `TestConstructionAircraftGroupPatrolAtMapEdgeRetail` issues
+an ordinary group command whose formation offset creates a negative waypoint,
+then checks the bound marker policy and continued patrol. The retained-leg
+test reconstructs both grounded and off-map low-altitude conditions from the
+issue's diagnostic, and the completion test observes actual paid fusion
+assistance finishing while the aircraft's footprint is off-map, followed by
+repeated patrol legs. These are authored reconstructions, not a restart of the
+reporter's battle: the diagnostic omits its command history and flight velocity.
+
 ### 3.4.1 Modern bomber pass completion
 
 **Nanolathe Modern policy.** An accepted bombing pass may finish before its
