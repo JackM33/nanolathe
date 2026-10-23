@@ -173,3 +173,57 @@ func TestBuilderSpeedTravelsAsExtension19(t *testing.T) {
 		})
 	}
 }
+
+// A generated map's recipe is required extension 20 in skirmish and
+// Survival alike: it round-trips as typed bytes, raw records project into
+// it, and an optional, empty or conflicting record is refused
+// (docs/DESIGN_MAP_GENERATOR.md §10).
+func TestGeneratedMapIsRequiredExtension20(t *testing.T) {
+	recipe := []byte(`{"format":1,"code":"test_world-2-0-6-1-1-1-b-v1"}`)
+	r := validMatchRequest(t)
+	base := encodeMatchForTest(t, resolveMatch(t, r))
+	r.GeneratedMap = recipe
+	c := resolveMatch(t, r)
+	payload := withMatchTailForTest(base, append(extensionRecordForTest(20, 1, recipe), 0))
+	if !bytes.Equal(encodeMatchForTest(t, c), payload) {
+		t.Fatal("the recipe is not required extension 20 after room content")
+	}
+	back, err := DecodeMatchConfig(payload)
+	if err != nil || back.Digest() != c.Digest() || !bytes.Equal(back.Request().GeneratedMap, recipe) {
+		t.Fatalf("the recipe did not round-trip: %v", err)
+	}
+	if c.Digest() == resolveMatch(t, validMatchRequest(t)).Digest() {
+		t.Fatal("the recipe does not change the configuration's identity")
+	}
+	q := validMatchRequest(t)
+	q.Extensions = []MatchConfigExtension{{ID: 20, Required: true, Data: recipe}}
+	if got := resolveMatch(t, q); got.Digest() != c.Digest() {
+		t.Fatal("a raw record did not project into the typed recipe")
+	}
+	q.GeneratedMap = []byte(`{"format":1}`)
+	if _, err := ResolveMatchConfig(q); err == nil {
+		t.Fatal("conflicting typed and raw recipes resolved")
+	}
+	for _, tc := range []struct {
+		name  string
+		flags byte
+		data  []byte
+	}{{"optional", 0, recipe}, {"empty", 1, nil}} {
+		if _, err := DecodeMatchConfig(withMatchTailForTest(base, append(extensionRecordForTest(20, tc.flags, tc.data), 0))); err == nil {
+			t.Fatalf("%s extension 20 accepted", tc.name)
+		}
+	}
+	survival := validSurvivalRequest(t)
+	survival.GeneratedMap = recipe
+	if _, err := ResolveMatchConfig(survival); err != nil {
+		t.Fatalf("Survival on a generated map: %v", err)
+	}
+	// Beside Builder speed (19) the recipe follows in ascending ID order.
+	both := validMatchRequest(t)
+	both.GeneratedMap = recipe
+	both.Mutators.BuilderSpeed = content.Factor{Num: 5, Den: 1}
+	back, err = DecodeMatchConfig(encodeMatchForTest(t, resolveMatch(t, both)))
+	if err != nil || !bytes.Equal(back.Request().GeneratedMap, recipe) || back.Request().Mutators.BuilderSpeed != both.Mutators.BuilderSpeed {
+		t.Fatalf("Builder speed and a generated map did not round-trip together: %v", err)
+	}
+}

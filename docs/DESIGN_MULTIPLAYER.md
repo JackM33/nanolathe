@@ -1377,12 +1377,17 @@ records with typed validation and application through the existing owning
 | 17. Chosen starts | Per seat in slot order, a `bool` set, followed when set by X and Z as two `u32` world pixels below 2^20. At least one seat must choose; omit the record when every start is Auto. Only a skirmish's human or computer row may choose, under `SeatRules.ChosenStarts` (DESIGN_SESSIONS_AI_SAVE "Modern chosen start positions"). |
 | 18. Allied sight | One `u8`: 1 separate or 2 shared. Omit for the inherited default: online skirmish teams share, single-player teams do not. Survival always shares and carries no choice. `SeatRules.AlliedSightChoice` must permit the record (DESIGN_SESSIONS_AI_SAVE "Modern allied sight"). |
 | 19. Builder speed | One `u8`: the Builder speed step index 1..5 for ×2, ×3, ×5, ×8, ×20. Omit it for the identity; index 0 is refused. Field 11's eleven indices are frozen, so this mutator's own step list travels here; a typed request must agree with the record. Mutators apply in every mode, Strict 3.1 included, so no `RuleSet` answer gates it ([DESIGN_MODS_MUTATORS §6.7](DESIGN_MODS_MUTATORS.md)). |
+| 20. Generated map | The recipe of the generated map the battle is played on, as the host wrote it: at most 64 KiB, never empty; omit the record for any other map. It is no gameplay choice and changes nothing a tick computes, since the map's own files are the content identity's; it is what reproducing the battle needs. The configuration carries it as opaque bytes; the host playing the battle reads it, makes the map again when it is not mounted, and refuses rather than play another map of that name. Skirmish and Survival alike (DESIGN_MAP_GENERATOR §10). |
 
-All three require flag bit 0; an optional spelling, malformed payload, trailing
-payload bytes or an explicit default is refused. The local API exposes
-`MatchSeat.Start`, `MatchConfigRequest.AlliedSight` and `MatchConfigRequest.Mutators.BuilderSpeed`; recognized raw records
-are projected into those fields during resolution and removed from the opaque
-`Extensions` slice. Supplying both spellings requires equal values. Encoding
+All four require flag bit 0, and an optional spelling is refused. Records
+17–19 also refuse a malformed payload, trailing payload bytes or an explicit
+default; record 20's payload is opaque here, so only an empty one is refused,
+and the host validates the recipe when it reads it. The local API exposes
+`MatchSeat.Start`, `MatchConfigRequest.AlliedSight`,
+`MatchConfigRequest.Mutators.BuilderSpeed` and
+`MatchConfigRequest.GeneratedMap`; recognized raw records are projected into
+those fields during resolution and removed from the opaque `Extensions`
+slice. Supplying both spellings requires equal values. Encoding
 reconstructs the required records, followed by opaque metadata in ID order,
 so changing a typed choice cannot leave stale wire bytes behind. The combined
 record count retains the 128-record bound. Strict 3.1 refuses both choices
@@ -1390,7 +1395,7 @@ through the existing `SeatRules` answers.
 
 No battle choice may reuse field 16, which names room content, or be marked
 optional so an older simulation silently ignores it. Main builds that do not
-implement these choices refuse required IDs 17/18 explicitly. Readers from
+implement these records refuse required IDs 17–20 explicitly. Readers from
 before the extension contract refuse any nonempty tail; later readers can
 skip future optional metadata without a configuration-version bump. Existing
 v1 and original-v2 recordings keep their original bytes, identity domain and

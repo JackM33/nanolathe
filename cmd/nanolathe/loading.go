@@ -277,6 +277,28 @@ func (g *gameShell) loadRetailSavePath(path string) error {
 		if modPlan.switchTo != "" {
 			return g.switchModForLoad(path, modPlan, selection)
 		}
+		// A battle on a generated map loads on that map, made again from
+		// its recipe when it is not mounted (DESIGN_MAP_GENERATOR §10).
+		if len(sidecar.GeneratedMap) != 0 {
+			made, err := g.recoverGeneratedMap(sidecar.GeneratedMap)
+			if err != nil {
+				return err
+			}
+			switch {
+			case made == nil:
+			case g.opts.Map != "":
+				return refuseLoad("This game was played on a generated map that is not loaded. Start Nanolathe without --map to load it")
+			case g.battle != nil:
+				// Leaving the battle first is the reload's work, as for a
+				// game saved under another mod.
+				g.keepGeneratedMap(made)
+				return g.switchModForLoad(path, sidecarModPlan{switchTo: g.cs.modSelector(), selection: g.runningModSelection()}, selection)
+			default:
+				if err := g.mountGeneratedMap(made); err != nil {
+					return err
+				}
+			}
+		}
 	}
 	sim, crt := seedsFor(g.opts)
 	// Strict sizes a restored skirmish from the configured limit [05 R-SHARE-01 §7].

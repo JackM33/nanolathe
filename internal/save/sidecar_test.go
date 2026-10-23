@@ -307,7 +307,7 @@ func TestSidecarRefusesUnsupportedSurvivalCombinations(t *testing.T) {
 		{"schema 2 best only", `{"schema":2,"restrictions":{"armpw":20},"survivalBest":{}}`, "survival best-score eligibility without a Survival director"},
 		{"schema 3 best only", `{"schema":3,` + addon + `,"survivalBest":{}}`, "survival best-score eligibility without a Survival director"},
 		{"schema 4 best only", `{"schema":4,"survivalBest":{}}`, "schema 4 without a non-null Survival director"},
-		{"future schema", `{"schema":5}`, "schema 5"},
+		{"future schema", `{"schema":6}`, "schema 6"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			bank := filepath.Join(t.TempDir(), "survival.SAV")
@@ -341,6 +341,57 @@ func TestWriteSidecarRefusesInvalidSurvivalCombinations(t *testing.T) {
 			entries, err := os.ReadDir(dir)
 			if err != nil || len(entries) != 0 {
 				t.Fatalf("files after refused write: %v, err %v; want none", entries, err)
+			}
+		})
+	}
+}
+
+// A generated map's recipe makes the file schema 5, whatever else it
+// records, and comes back as written; schema 5 requires the recipe and no
+// earlier schema may carry one (docs/DESIGN_MAP_GENERATOR.md §10).
+func TestSidecarSchemaFollowsGeneratedMap(t *testing.T) {
+	recipe := json.RawMessage(`{"format":1,"generator":1,"code":"test_world-2-0-6-1-1-1-b-v1"}`)
+	for _, tc := range []struct {
+		name string
+		s    Sidecar
+	}{
+		{"recipe", Sidecar{GeneratedMap: recipe}},
+		{"with the rest", Sidecar{GeneratedMap: recipe, Restrictions: map[string]int{"armpw": 20},
+			Addons:   []SidecarAddon{{ID: "cavedog-bonus-units", Version: "original", SHA256: strings.Repeat("ab", 32)}},
+			Survival: json.RawMessage(`{"version":1}`), SurvivalBest: json.RawMessage(`{"version":1}`)}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			bank := filepath.Join(t.TempDir(), "generated.SAV")
+			if err := WriteSidecar(bank, tc.s); err != nil {
+				t.Fatal(err)
+			}
+			got, ok, err := ReadSidecar(bank)
+			if err != nil || !ok || got.Schema != SidecarSchemaGeneratedMap {
+				t.Fatalf("ReadSidecar = (schema %d, %v, %v), want schema 5", got.Schema, ok, err)
+			}
+			var have, want any
+			if json.Unmarshal(got.GeneratedMap, &have) != nil || json.Unmarshal(recipe, &want) != nil || !reflect.DeepEqual(have, want) {
+				t.Fatalf("read recipe %s, want %s", got.GeneratedMap, recipe)
+			}
+			if len(tc.s.Survival) != 0 && len(got.Survival) == 0 {
+				t.Fatal("the Survival director was dropped")
+			}
+		})
+	}
+	for _, tc := range []struct{ name, body, want string }{
+		{"schema 5 without", `{"schema":5}`, "schema 5 without a generated map"},
+		{"schema 5 null", `{"schema":5,"generatedMap":null}`, "schema 5 without a generated map"},
+		{"schema 4 with", `{"schema":4,"survival":{},"generatedMap":{}}`, "schema 4 with a generated map"},
+		{"schema 1 with", `{"schema":1,"generatedMap":{}}`, "schema 1 with a generated map"},
+		{"schema 5 null director", `{"schema":5,"generatedMap":{},"survival":null}`, "schema 5 with a null Survival director"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			bank := filepath.Join(t.TempDir(), "generated.SAV")
+			if err := os.WriteFile(SidecarPath(bank), []byte(tc.body), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			if _, ok, err := ReadSidecar(bank); err == nil || ok || !strings.Contains(err.Error(), "unreadable: "+tc.want) {
+				t.Fatalf("ReadSidecar = (%v, %v), want a refusal for %s", ok, err, tc.want)
 			}
 		})
 	}

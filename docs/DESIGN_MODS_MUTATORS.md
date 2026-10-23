@@ -138,7 +138,8 @@ one documented layout on every platform:
 $XDG_DATA_HOME/nanolathe/mods/      default ~/.local/share/nanolathe/mods
   <id>/<version>/                   one extracted content root, mounted as a root
     nanolathe-mod.json              the mod's metadata and Nanolathe config (§4.2)
-    install.json                    receipt: archive SHA-256, size, source URL, time
+    install.json                    receipt: archive SHA-256, size, source URL, time;
+                                    a saved generated map's recipe (DESIGN_MAP_GENERATOR §10)
   manifest.json                     last fetched catalogue, for offline display (§5.2)
   .downloads/                       <id>-<version>.zip.<sha256>.part: partial downloads
   .staging/                         extractions and removals in progress
@@ -1834,8 +1835,9 @@ restoring the bank without them (§15.5). A battle with official add-ons adds
 each with its content digest (§5.7), and is written as schema 3 when it has
 no Survival director, with or without restrictions, so that a build that
 cannot restore them refuses the load. A Survival director selects schema 4,
-with or without restrictions and add-ons. A sidecar with none of these
-three records stays schema 1. `contentProfile`
+with or without restrictions and add-ons. A generated map's recipe selects
+schema 5, with or without any of those. A sidecar with none of these
+four records stays schema 1. `contentProfile`
 is the mounted content's report name: the running config's id, or `retail`
 for content without one. `community` records the session's Community sources and its
 battle-entry table (`Session.CommunitySources`, `Session.EntryCommunity`), so
@@ -1866,12 +1868,20 @@ ordinary skirmish. Schema 4 requires a non-null `survival` record; schemas
 1–3 refuse any `survival` field, including null. The optional `survivalBest`
 field is the host's personal-best eligibility record (DESIGN_SURVIVAL §11),
 also kept as raw JSON; it is valid only with schema 4 and its non-null
-director. The save package checks these structural combinations on both
-write and read. The record owners validate their versions and contents;
-an unsupported director or eligibility record refuses the load.
+director. `generatedMap`, present when the battle was played on a map the map
+generator made, is that map's recipe (DESIGN_MAP_GENERATOR §10), kept as raw
+JSON. It requires schema 5, and schema 5 requires it, so a build that cannot
+make the map again refuses the load rather than loading the bank on whatever
+map has that name; schema 5 also carries a non-null `survival` director and
+its `survivalBest` record when the battle had them, and `addons` when it had
+any. The load mounts the map before the bank is read, made again from the
+recipe when it is not mounted (§7.3). The save package checks these
+structural combinations on both write and read. The record owners validate
+their versions and contents; an unsupported director, eligibility record or
+recipe refuses the load.
 
-Ordinary sidecars are limited to 1 MiB. Schema 4 permits up to 16 MiB because
-its planned wave and history grow during a Survival battle. The writer and
+Ordinary sidecars are limited to 1 MiB. Schemas 4 and 5 permit up to 16 MiB
+because a Survival battle's planned wave and history grow during it. The writer and
 reader enforce the same byte limit; an oversized record is a reported save
 failure. Automatic slots validate the staged bank and sidecar before replacing
 the previous checkpoint (DESIGN_SESSIONS_AI_SAVE §5).
@@ -1895,6 +1905,13 @@ the previous checkpoint (DESIGN_SESSIONS_AI_SAVE §5).
    not start the download itself. The load makes the recorded mod the
    selected mod (P6). A `custom` sidecar loads only in a manual stack, and a
    manual stack loads only a `custom` sidecar.
+   **Generated map.** On the content the save names, a `generatedMap` recipe
+   finds its map mounted with the recorded files, or makes it again and
+   mounts it before the bank is read: from the menu by a library remount, and
+   from inside a battle by the same content reload a mod switch uses. A map
+   of that name with other files, or a recipe this build cannot make again,
+   refuses the load with the reason; the direct battle view (`--map`) refuses
+   and says to start without it (DESIGN_MAP_GENERATOR §10).
 3. **Rule set.** Bind the recorded name. If this build cannot select it (a
    registered set that is not linked), load under the recorded base and show a
    warning on the battle message line. The load also makes the bound set the
@@ -2141,6 +2158,7 @@ dependencies.
 | Builder speed: per-key step lists; agility transform, saturation and the 64-bit product with Unit speed; the build-animation function set, scaled script timing and the unchanged identity path; the in-reach start and the unchanged walk without it; online extension 19; stock readiness relationships | the tests of §6.7 |
 | Sidecar round trip; a load without one behaves as today; a load restores rule set, Community sources and entry table, unit limit and mutators, and selects the recorded mod and mutators (P6); bank bytes unchanged | `save.TestSidecarRoundTripsEveryModSpelling`, `save.TestSidecarRefusesAnotherSchemaAndMalformedFiles`, `main.TestSaveSidecarRestoresTheRecordedSelection` (retail tier) |
 | A Survival director selects schema 4 even with restrictions or add-ons; schemas 1–3 reject a Survival field, schema 4 requires a non-null director, and personal-best eligibility requires that director; ordinary save schemas are unchanged | `save.TestSidecarSchemaFollowsSurvival`, `save.TestSidecarRefusesUnsupportedSurvivalCombinations`, `save.TestWriteSidecarRefusesInvalidSurvivalCombinations` |
+| A generated map's recipe selects schema 5 with or without the other records; schema 5 requires the recipe and earlier schemas refuse one | `save.TestSidecarSchemaFollowsGeneratedMap` |
 | A save made under another installed mod reloads onto it and then restores; one whose mod is not installed is refused, naming it | `main.TestLoadingAnotherModsSaveSwitchesToItFirst`, `main.TestSaveSidecarRestoresTheRecordedSelection` (retail tier) |
 | The reclaim-pulse product at the maximum step for the stock catalog (§6.5) | `content`, retail tier |
 | Chip on retail, ProTA and Escalation menus; Mods & Mutators screen and the *Get more mods* dialog; loading-screen lines | `--shot` captures, reviewed |

@@ -50,7 +50,11 @@ type Options struct {
 	RecordReplay string
 
 	// excludedMapRoot belongs only to a prepared map-removal mount; never saved.
-	excludedMapRoot   string
+	excludedMapRoot string
+	// generatedMaps are the maps generated this run, which every mount holds
+	// from memory below everything else (docs/DESIGN_MAP_GENERATOR.md §10);
+	// never saved.
+	generatedMaps     []*generatedMap
 	Gameplay          gameplay.Mode
 	GameplaySet       bool
 	GameplayOverrides []community.Overrides

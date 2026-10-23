@@ -678,11 +678,9 @@ func (g *gameShell) watchSelectedReplay() {
 		pendingReplayWatch = &replayWatchResume{path: l.Path, mod: want, addons: recorded}
 		return
 	}
-	if !g.hasSkirmishMap(l.Map()) {
-		fail("Cannot play: the map " + l.Map() + " is not installed.")
-		return
+	if refusal := g.watchReplay(l); refusal != "" {
+		fail(refusal)
 	}
-	g.startReplayLoad(l)
 }
 
 // startReplayLoad composes the selection's playback on a job goroutine with
@@ -765,12 +763,32 @@ func (g *gameShell) resumeReplayWatch(r replayWatchResume) {
 		mod = g.cs.mod.Name + " " + g.cs.mod.Version
 	}
 	s.status = "Switched to " + mod + "."
-	if !g.hasSkirmishMap(l.Map()) {
-		s.status = "Cannot play: the map " + l.Map() + " is not installed."
+	if refusal := g.watchReplay(l); refusal != "" {
+		s.status = refusal
 		g.refreshReplaysPanel()
-		return
+	}
+}
+
+// watchReplay starts playing l, first making its generated map again from
+// the recipe it recorded when that map is not mounted
+// (docs/DESIGN_MAP_GENERATOR.md §10), or says why it cannot play.
+func (g *gameShell) watchReplay(l replayListing) string {
+	if config, err := l.Header.Configuration(); err == nil && len(config.Request().GeneratedMap) != 0 {
+		made, err := g.recoverGeneratedMap(config.Request().GeneratedMap)
+		if err == nil && made != nil {
+			err = g.mountGeneratedMap(made)
+		}
+		if refusal := (*saveLoadRefusal)(nil); errors.As(err, &refusal) {
+			return "Cannot play: " + refusal.message
+		} else if err != nil {
+			return "Cannot play: " + noticeReason(err)
+		}
+	}
+	if !g.hasSkirmishMap(l.Map()) {
+		return "Cannot play: the map " + l.Map() + " is not installed."
 	}
 	g.startReplayLoad(l)
+	return ""
 }
 
 // finishReplayLoad enters a composed playback, or says why it did not

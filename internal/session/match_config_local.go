@@ -45,6 +45,10 @@ type MatchRoomInputs struct {
 	SpectatorView   MatchView
 	ReplayView      MatchView
 	Policies        MatchPolicies
+	// GeneratedMap is the recipe of the generated map the battle is played
+	// on, required extension 20 (docs/DESIGN_MAP_GENERATOR.md §10); empty
+	// for any other map.
+	GeneratedMap []byte
 }
 
 // NewMatchConfigRequest is the local request adapter: it resolves a skirmish
@@ -130,6 +134,9 @@ func newMatchConfigRequest(cfg SkirmishConfig, options SkirmishEntryOptions, roo
 		Policies:         room.Policies,
 		UnitRestrictions: append([]MatchUnitRestriction(nil), room.UnitRestrictions...),
 		RoomContent:      append([]MatchContentEntry(nil), room.RoomContent...),
+	}
+	if len(room.GeneratedMap) != 0 {
+		r.GeneratedMap = append([]byte(nil), room.GeneratedMap...)
 	}
 	// The rule words as composition reads them: Location zero randomizes and
 	// anything else is identity; commander death through its closed
