@@ -390,11 +390,13 @@ func TestGeneratorJobKeepsTheLatestRequest(t *testing.T) {
 	}
 	defer cs.Close()
 	var j mapgenJob
-	j.bind(cs)
-	defer j.bind(nil)
 	world := content.CanonicalKey("Test World")
 	p := mapgen.Params{Players: 2, Size: 6, Relief: 1, Metal: 1, Seed: 1}
+	// The request comes before the bind so the listing cannot finish first:
+	// started after the bind, it raced the listing goroutine.
 	j.start(world, p)
+	j.bind(cs)
+	defer j.bind(nil)
 	for _, ready, _ := j.listed(); !ready; _, ready, _ = j.listed() {
 		time.Sleep(time.Millisecond)
 	}
