@@ -511,6 +511,14 @@ Easy/Medium/Hard `1/2/4` table is a separate contract this switch does not add.
 Campaign schema choice still takes the stored index in retail's order:
 whether the swapped slots reorder it too is Unknown.
 
+The Load Game label resolves the selected save's recorded rule set and
+Community sources with the same rule-set fallback as restore. The recorded
+entry table alone is insufficient after a mode switch. Mounted content,
+current preferences and a running battle do not affect this label. With no
+sidecar, it uses the retail index order; with an unreadable sidecar or invalid
+recorded selection, it leaves the difficulty label empty. This display
+fallback does not change the no-sidecar restore policy.
+
 ## 5. Content interface
 
 Every author-facing key the patch reads is parsed onto the compiled

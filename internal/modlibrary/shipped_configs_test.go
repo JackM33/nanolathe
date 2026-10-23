@@ -115,6 +115,9 @@ func TestShippedConfigsReproduceTheRemovedTables(t *testing.T) {
 			}
 			if tc.added != nil {
 				tc.added(&want)
+				if got.Digest() == tc.wantDigest {
+					t.Fatal("the declared addition did not change the resolved config identity")
+				}
 			}
 			if !reflect.DeepEqual(got, want) {
 				t.Fatalf("config resolves to\n %+v\nthe removed table and profile, with the declared additions, resolved to\n %+v", got, want)

@@ -765,7 +765,7 @@ func (g *gameShell) refreshOnlineComputerRow(row, k int, color uint8, teams []ui
 	p.SetActive("Metal"+suffix, false)
 	p.SetText("Energy"+suffix, "")
 	p.SetActive(lobbyLevel+suffix, true)
-	p.SetText(lobbyLevel+suffix, onlineDifficultyName(session.DifficultyTier(g.configurationFeatures(), int(c.Difficulty))))
+	p.SetText(lobbyLevel+suffix, onlineDifficultyName(session.DifficultyTier(r.baseReq.Community, int(c.Difficulty))))
 	switch {
 	case r.isHost() && r.lobbyEditable():
 		if c.Kind == ai.ControllerModern {

@@ -224,14 +224,11 @@ func (g *gameShell) refreshSaveLoadPanel() {
 	summary, ok := save.Summary{}, false
 	if entry, has := saveLoadUI.SelectedEntry(); has {
 		summary, ok = entry.Summary, true
+		summary.Difficulty = saveSummaryDifficulty(entry.Path, summary.Difficulty)
 	}
 	// `RADAR` is refreshed with the rest of the panel: the selected file's box
 	// is read here, not while painting [08 R-SAVE-02 §3].
 	saveLoadUI.loadRadarPreview()
-	// The label names the tier the stored index plays under the mounted
-	// content, as the executable's own name slots do: Escalation's swapped
-	// slots name index 0 Hard (session.DifficultyTier).
-	summary.Difficulty = int32(session.DifficultyTier(g.configurationFeatures(), int(summary.Difficulty)))
 	for name, value := range retailSummaryPanelFields(summary, ok, g.retailSideNames()) {
 		panel.SetText(name, value)
 	}

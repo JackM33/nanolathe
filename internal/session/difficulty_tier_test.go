@@ -46,6 +46,7 @@ func TestReversedSeatWordsReachEveryReader(t *testing.T) {
 		reverse bool
 	}{
 		{CommunityRuleSet(), true},
+		{ModernRuleSet(), true},
 		{StrictRuleSet(), false},
 	} {
 		s.BindRules(c.set)
@@ -67,6 +68,77 @@ func TestReversedSeatWordsReachEveryReader(t *testing.T) {
 			if got := s.Build.RefundSelector(p); got != tier {
 				t.Fatalf("%s: player %d refund word %d, want %d", c.set.Name, p, got, tier)
 			}
+		}
+	}
+}
+
+// Difficulty-specific parameters consume the effective tier while match
+// configuration and its codec retain the authored setup/seat index.
+func TestReversedDifficultyParamsKeepTheStoredIndex(t *testing.T) {
+	on := true
+	for _, mode := range []gameplay.Mode{gameplay.Modern, gameplay.Community39, gameplay.Strict31} {
+		for index := 0; index < 3; index++ {
+			cfg := DirectSkirmishConfig("Great Divide")
+			cfg.Gameplay, cfg.Difficulty = mode, index
+			options := SkirmishEntryOptions{
+				CommunitySources: CommunitySources{Content: []community.Overrides{{AIDifficultyReversed: &on}}},
+				AIOverrides:      AIOverrides{Difficulty: [3]string{"w_army=100", "w_army=110", "w_army=120"}},
+			}
+			for _, online := range []bool{false, true} {
+				var request MatchConfigRequest
+				var err error
+				if online {
+					var words [SkirmishMaxPlayers]uint8
+					words[1] = uint8(index)
+					request, err = newMatchConfigRequest(cfg, options, matchTestRoom(), &words)
+				} else {
+					request, err = NewMatchConfigRequest(cfg, options, matchTestRoom())
+				}
+				if err != nil {
+					t.Fatal(err)
+				}
+				tier := index
+				if mode != gameplay.Strict31 {
+					tier = 2 - index
+				}
+				encoded := encodeMatchForTest(t, resolveMatch(t, request))
+				decoded, err := DecodeMatchConfig(encoded)
+				if err != nil {
+					t.Fatal(err)
+				}
+				seat := decoded.Request().Seats[1]
+				want := [3]string{"100", "110", "120"}[tier]
+				if seat.Difficulty != uint8(index) || len(seat.AIParams) != 1 || seat.AIParams[0] != (AIParam{Key: "w_army", Value: want}) {
+					t.Fatalf("%s index %d online=%t: seat %+v, want stored index and effective %s", mode, index, online, seat, want)
+				}
+			}
+		}
+	}
+}
+
+// A real bank round trip keeps its index, while the recorded sources keep
+// its effective interpretation. A switch after entry remains effective too.
+func TestReversedDifficultySurvivesSaveRestore(t *testing.T) {
+	bank, deps := restoreRNGFixture(t)
+	on := true
+	deps.Gameplay = gameplay.Community39
+	deps.CommunitySources = CommunitySources{Content: []community.Overrides{{AIDifficultyReversed: &on}}}
+	loaded, err := LoadRetailSaveWithDeps(bank, deps)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, mode := range []gameplay.Mode{gameplay.Community39, gameplay.Strict31} {
+		if err := loaded.Battle.Session.SetRules(string(mode)); err != nil {
+			t.Fatal(err)
+		}
+		restored := roundTripEntryState(t, loaded, deps)
+		word, ok := sessionDifficultyWord(restored)
+		want := 2
+		if mode == gameplay.Strict31 {
+			want = 0
+		}
+		if !ok || word != want || restored.Skirmish.Difficulty != 0 || !restored.EntryCommunity.AIDifficultyReversed {
+			t.Fatalf("%s restored word %d (%t), stored index %d, entry %+v", mode, word, ok, restored.Skirmish.Difficulty, restored.EntryCommunity)
 		}
 	}
 }
