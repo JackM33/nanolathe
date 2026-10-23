@@ -29,6 +29,7 @@ has its own design document; this one only says where the boundaries are.
 | [DESIGN_COMMUNITY_PATCH](DESIGN_COMMUNITY_PATCH.md) | the Community 3.9 gameplay profile: the third reserved rule set, the feature table a content set or player configures, the mapping of every community-patch contract onto a seam, and the decisions still open (design, not implemented) |
 | [DESIGN_MODS_MUTATORS](DESIGN_MODS_MUTATORS.md) | the mod library and the nanolathe.gg catalogue, global mutators applied to the per-battle catalog in every mode, and the save sidecar that records and restores a match's selection (implemented; follow-ups in its §13 unit 9) |
 | [DESIGN_SURVIVAL](DESIGN_SURVIVAL.md) | the Survival mode, alone or online: the attacker slot, the wave director, build-tree tech tiers, the no-victory result and score, available in every gameplay mode |
+| [DESIGN_MAP_GENERATOR](DESIGN_MAP_GENERATOR.md) | the skirmish map generator: a world read from its own maps, candidates built from a map code, the fairness measurements and their scope, and the TNT and OTA it writes |
 | [DESIGN_MULTIPLAYER](DESIGN_MULTIPLAYER.md) | relayed deterministic lockstep: online skirmish and Survival through the hosted relay and its lobby, the determinism contract, command stream, configuration and identity, the rehearsal check, and the milestones still to build |
 
 Rules that cut across every package are in [INVARIANTS.md](INVARIANTS.md);
@@ -114,6 +115,7 @@ package implements.
 | `internal/addonlibrary` | The add-on library: the XDG add-on root, archive-only payload validation (`*.UFO` content archives or a patch-tier fix archive), model-only content classification, content digest, installed listing and in-folder matching, reusing modlibrary's atomic installs. No network | DESIGN_MODS_MUTATORS §5.7 |
 | `internal/maplibrary` | Installed community maps and shared feature packages: map-only validation and deterministic library roots, reusing modlibrary atomic installs; no network | DESIGN_MODS_MUTATORS §5.6 |
 | `internal/modfetch` | The nanolathe.gg mod and map manifests and resumable, SHA-256-verified downloads. The content HTTP boundary; only `cmd/nanolathe` imports it. Multiplayer WebSocket HTTP is isolated in `internal/relay` (DESIGN_MULTIPLAYER §16.5.6) | DESIGN_MODS_MUTATORS §5 |
+| `internal/mapgen` | The skirmish map generator: candidates from a map code on a private stream, validity and the fairness measurements, painting with a world's own tile art, the TNT and OTA as ordinary map content. Never touches the simulation | DESIGN_MAP_GENERATOR |
 
 Online play adds `internal/relay` (standard library and `netproto` only: the
 loopback and hosted relays, the lobby protocol and their clients) and
@@ -271,6 +273,7 @@ content       content ─► cob, model, palette, formats, vfs, sim/checkpoint
               cob ─► model, numeric, rng, vfs, sim/checkpoint
               model ─► formats, numeric, vfs, sim/checkpoint
               gui ─► formats, vfs               palette ─► vfs           formats ─► vfs
+              mapgen ─► formats   (map content, DESIGN_MAP_GENERATOR)
 
 leaves        vfs, clock, pool(sim/checkpoint), frame(pool, numeric, sim/checkpoint), camera(pool, numeric), input,
               community(sim/checkpoint), settings, version(netproto), netproto, sim/numeric, sim/rng, sim/checkpoint
