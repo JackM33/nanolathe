@@ -13,8 +13,8 @@ import (
 	"github.com/nanolathe-gg/nanolathe/internal/session"
 )
 
-// A selected save's label follows its recorded current rules, including a
-// switch since entry, the player override and the fallback for a missing set.
+// A selected save's label follows its recorded entry rules, including a
+// switch since entry, a later player override and a missing current rule set.
 // The raw bank index and the no-sidecar retail fallback remain unchanged.
 func TestSaveDifficultyUsesRecordedRules(t *testing.T) {
 	on, off := true, false
@@ -26,10 +26,11 @@ func TestSaveDifficultyUsesRecordedRules(t *testing.T) {
 	}{
 		{"Community", string(gameplay.Community39), string(gameplay.Community39), true, nil, true},
 		{"Modern", string(gameplay.Modern), string(gameplay.Modern), true, nil, true},
-		{"switched to Strict", string(gameplay.Strict31), string(gameplay.Strict31), true, nil, false},
-		{"switched from Strict", string(gameplay.Community39), string(gameplay.Community39), false, nil, true},
-		{"saved player override", string(gameplay.Community39), string(gameplay.Community39), true, &off, false},
-		{"unknown set falls back to Strict", "unavailable-set", string(gameplay.Strict31), true, nil, false},
+		{"Strict entry", string(gameplay.Strict31), string(gameplay.Strict31), false, nil, false},
+		{"switched to Strict", string(gameplay.Strict31), string(gameplay.Strict31), true, nil, true},
+		{"switched from Strict", string(gameplay.Community39), string(gameplay.Community39), false, nil, false},
+		{"later player override", string(gameplay.Community39), string(gameplay.Community39), true, &off, true},
+		{"unknown current set keeps entry", "unavailable-set", string(gameplay.Strict31), true, nil, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			path := filepath.Join(t.TempDir(), "saved.SAV")
@@ -84,7 +85,7 @@ func TestSaveDialogDifficultyFollowsSelection(t *testing.T) {
 			t.Fatal(err)
 		}
 		sc := save.Sidecar{Rules: string(mode), Gameplay: string(mode), Community: save.SidecarCommunity{
-			Entry:   community.Features{AIDifficultyReversed: true},
+			Entry:   community.Features{AIDifficultyReversed: mode != gameplay.Strict31},
 			Sources: save.SidecarCommunitySources{Content: []community.Overrides{{AIDifficultyReversed: &on}}},
 		}}
 		if err := save.WriteSidecar(path, sc); err != nil {
@@ -150,7 +151,7 @@ func TestDifficultyLabelsUseTheOwningBattleAndRoom(t *testing.T) {
 		if got := lobbyText(g, lobbyLevel+"2"); got != want || r.settings.computers[0].Difficulty != 0 {
 			t.Fatalf("room reverse=%t: label %q, stored index %d", reverse, got, r.settings.computers[0].Difficulty)
 		}
-		sess := &session.Session{Community: community.Features{AIDifficultyReversed: reverse}}
+		sess := &session.Session{EntryCommunity: community.Features{AIDifficultyReversed: reverse}, Community: community.Features{AIDifficultyReversed: !reverse}}
 		sess.Skirmish.Difficulty = 0
 		if got := battleGameOptionsRows(&battleSession{sess: sess})[4].Value; got != want || sess.Skirmish.Difficulty != 0 {
 			t.Fatalf("battle reverse=%t: label %q, stored index %d", reverse, got, sess.Skirmish.Difficulty)

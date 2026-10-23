@@ -50,6 +50,7 @@ func TestReversedSeatWordsReachEveryReader(t *testing.T) {
 		{StrictRuleSet(), false},
 	} {
 		s.BindRules(c.set)
+		s.EntryCommunity = s.Community // a fresh entry under this set
 		names := [3]ai.Difficulty{ai.DifficultyEasy, ai.DifficultyMedium, ai.DifficultyHard}
 		for p, index := range map[uint8]int{0: 0, 1: 0, 2: 2, 3: 1} {
 			tier := index
@@ -116,29 +117,40 @@ func TestReversedDifficultyParamsKeepTheStoredIndex(t *testing.T) {
 	}
 }
 
-// A real bank round trip keeps its index, while the recorded sources keep
-// its effective interpretation. A switch after entry remains effective too.
+// A real bank round trip keeps its index and entry AI plan through a rule
+// switch. Income still follows the current set; a zero Strict entry remains
+// meaningful even when the current Community table reverses the index.
 func TestReversedDifficultySurvivesSaveRestore(t *testing.T) {
 	bank, deps := restoreRNGFixture(t)
 	on := true
-	deps.Gameplay = gameplay.Community39
 	deps.CommunitySources = CommunitySources{Content: []community.Overrides{{AIDifficultyReversed: &on}}}
-	loaded, err := LoadRetailSaveWithDeps(bank, deps)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, mode := range []gameplay.Mode{gameplay.Community39, gameplay.Strict31} {
-		if err := loaded.Battle.Session.SetRules(string(mode)); err != nil {
+	for _, entry := range []gameplay.Mode{gameplay.Community39, gameplay.Strict31} {
+		deps.Gameplay = entry
+		loaded, err := LoadRetailSaveWithDeps(bank, deps)
+		if err != nil {
 			t.Fatal(err)
 		}
-		restored := roundTripEntryState(t, loaded, deps)
-		word, ok := sessionDifficultyWord(restored)
-		want := 2
-		if mode == gameplay.Strict31 {
-			want = 0
+		wantAI := ai.DifficultyEasy
+		if entry == gameplay.Community39 {
+			wantAI = ai.DifficultyHard
 		}
-		if !ok || word != want || restored.Skirmish.Difficulty != 0 || !restored.EntryCommunity.AIDifficultyReversed {
-			t.Fatalf("%s restored word %d (%t), stored index %d, entry %+v", mode, word, ok, restored.Skirmish.Difficulty, restored.EntryCommunity)
+		for _, mode := range []gameplay.Mode{gameplay.Community39, gameplay.Strict31} {
+			src := loaded.Battle.Session
+			if err := src.SetRules(string(mode)); err != nil {
+				t.Fatal(err)
+			}
+			restored := roundTripEntryState(t, loaded, deps)
+			for _, s := range []*Session{src, restored} {
+				word, ok := sessionDifficultyWord(s)
+				wantIncome := 2
+				if mode == gameplay.Strict31 {
+					wantIncome = 0
+				}
+				plan, planOK := sessionAIDifficultyFor(s, 0)
+				if !ok || word != wantIncome || !planOK || plan != wantAI || s.AI[0].Profile.Plan != wantAI || s.Skirmish.Difficulty != 0 {
+					t.Fatalf("entry %s, current %s: income %d (%t), plan %s (%t), active profile %s, stored %d", entry, mode, word, ok, plan, planOK, s.AI[0].Profile.Plan, s.Skirmish.Difficulty)
+				}
+			}
 		}
 	}
 }

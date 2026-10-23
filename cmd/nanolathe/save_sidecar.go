@@ -339,10 +339,9 @@ const (
 	saveSidecarLineWidth  = 350
 )
 
-// saveSummaryDifficulty reads the selected save's effective rules using the
-// same recorded sources and rule-set fallback as restore. Entry is the table
-// at battle entry: a later mode switch can make it differ from the saved
-// battle's current rules (DESIGN_MODS_MUTATORS §7.3). Today's mounted mod,
+// saveSummaryDifficulty reads the selected save's recorded entry table, which
+// fixes its AI plan/persona and parameters even after a rule switch
+// (DESIGN_COMMUNITY_PATCH §4.8). Today's mounted mod,
 // preferences and running battle never participate in this label.
 // Without a sidecar the format alone establishes retail's index order; an
 // unreadable sidecar leaves the label empty rather than guessing a tier.
@@ -354,15 +353,7 @@ func saveSummaryDifficulty(bankPath string, index int32) int32 {
 	if !ok {
 		return index
 	}
-	sel, err := resolveSidecarSelection(sc)
-	if err != nil {
-		return -1
-	}
-	features, err := session.ResolveCommunity(sel.gameplay, sel.sources)
-	if err != nil {
-		return -1
-	}
-	return int32(session.DifficultyTier(features, int(index)))
+	return int32(session.DifficultyTier(sc.Community.Entry, int(index)))
 }
 
 func installSaveSidecarLine(window *gui.Window) {

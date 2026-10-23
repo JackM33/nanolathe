@@ -504,20 +504,29 @@ turns the switch on.
 
 | Contract | Owner / where the rule lives | Strict | Community (switch on) |
 |---|---|---|---|
-| Difficulty order (`AIDifficultyReversed`) | `session.DifficultyTier`, read by `sessionDifficultyWord` and `sessionSeatDifficultyWord` (`internal/session/composition.go`), so by the Classic plan gate, the Modern persona (`ControllerDifficulty`), the AI-parameter difficulty layer, the ledger's and the construction refunds' discount word; the battle Game Options, online lobby and Load Game labels read the same helper | the stored index is the tier, 0 easy, 1 medium, 2 hard `[08 R-AI-01 §12]` `[05 R-ECO-01 §3]` | the stored index `i` plays tier `2 - i`; the setup, the lobby, the save summary and the menus keep the index as stored, so a save keeps its meaning and the content's own `Hard\|Medium\|Easy` stages show the tier played |
+| Difficulty order (`AIDifficultyReversed`) | `session.DifficultyTier` (`internal/session/composition.go`), read with the entry table by the Classic plan gate and Modern persona (`ControllerDifficulty`), with the initial resolved table by the AI-parameter layer, and with the current table by the ledger and construction refunds; the battle Game Options, online lobby and Load Game labels read the same helper | the stored index is the tier, 0 easy, 1 medium, 2 hard `[08 R-AI-01 §12]` `[05 R-ECO-01 §3]` | the stored index `i` plays tier `2 - i`; the setup, the lobby, the save summary and the menus keep the index as stored, so a save keeps its meaning and the content's own `Hard\|Medium\|Easy` stages show the tier played |
 
 The income factors themselves stay the selected rule set's; Escalation's own
 Easy/Medium/Hard `1/2/4` table is a separate contract this switch does not add.
 Campaign schema choice still takes the stored index in retail's order:
 whether the swapped slots reorder it too is Unknown.
 
-The Load Game label resolves the selected save's recorded rule set and
-Community sources with the same rule-set fallback as restore. The recorded
-entry table alone is insufficient after a mode switch. Mounted content,
-current preferences and a running battle do not affect this label. With no
-sidecar, it uses the retail index order; with an unreadable sidecar or invalid
-recorded selection, it leaves the difficulty label empty. This display
-fallback does not change the no-sidecar restore policy.
+AI plan/persona and merged AI parameters remain battle-entry choices across
+rule switches, as the existing Modern AI controller contract requires
+([DESIGN_SESSIONS_AI_SAVE, "Switching"](DESIGN_SESSIONS_AI_SAVE.md#modern-ai-computer-player)).
+`sessionAIDifficulty` and `sessionAIDifficultyFor` read the retained
+`EntryCommunity` table; restore rebuilds the same profile from that recorded
+table. A zero entry table is a real Strict entry, even if current rules later
+reverse the index. Income/refunds continue following the current bound rules;
+this does not retune or restart a controller or change its merged parameters.
+
+The battle Game Options and Load Game difficulty labels name that entry AI
+tier. Load Game reads the selected save's recorded `community.entry` table.
+Mounted content, current preferences and a running battle do not affect it.
+With no sidecar it uses the retail index order; an unreadable sidecar leaves
+the difficulty label empty. This display fallback does not change the
+no-sidecar restore policy. Online lobby rows use the room's effective table,
+which will become the battle's entry table.
 
 ## 5. Content interface
 

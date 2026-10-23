@@ -104,7 +104,7 @@ func battleGameOptionsRows(b *battleSession) []battleGameOptionsRow {
 		{"Starting Locations:", gameOptionsLabel(gameOptionsStartLocation[:], location)},
 		{"Mapping Mode:", gameOptionsLabel(gameOptionsMapping[:], mapping)},
 		{"Line of Sight:", battleGameOptionsLineOfSight(mode)},
-		{"Difficulty:", gameOptionsLabel(gameOptionsDifficulty[:], session.DifficultyTier(b.sess.Community, cfg.Difficulty))},
+		{"Difficulty:", gameOptionsLabel(gameOptionsDifficulty[:], session.DifficultyTier(b.sess.EntryCommunity, cfg.Difficulty))},
 		{"Map:", cfg.MapName},
 		{"Starting Metal:", strconv.Itoa(metal)},
 		{"Starting Energy:", strconv.Itoa(energy)},
