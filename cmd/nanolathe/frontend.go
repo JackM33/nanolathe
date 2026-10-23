@@ -545,7 +545,9 @@ func runGameShell(launch, opts Options, cs *contentSet) error {
 	nlScreenInst = newNLScreen(func() *gameShell { return host.shell })
 	toolsScreenInst = &toolsScreen{}
 	defer toolsScreenInst.release()
-	options.Screen = &frontendScreens{settings: nlScreenInst, tools: toolsScreenInst}
+	mapgenScreenInst = newMapgenScreen(func() *gameShell { return host.shell })
+	defer mapgenScreenInst.release()
+	options.Screen = &frontendScreens{settings: nlScreenInst, tools: toolsScreenInst, generator: mapgenScreenInst}
 	// The map browser's preview is host content: while it is on screen the
 	// window lays out at the display's resolution and the preview draws above
 	// the scaled retail canvas, so the minimap keeps its full detail.

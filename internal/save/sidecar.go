@@ -49,6 +49,13 @@ const SidecarSchemaAddons = 3
 // the bank as an ordinary skirmish.
 const SidecarSchemaSurvival = 4
 
+// SidecarSchemaGeneratedMap is the layout of a sidecar that records the
+// recipe of the generated map its battle was played on, with or without unit
+// restrictions, official add-ons and a Survival director
+// (docs/DESIGN_MAP_GENERATOR.md §10). A build that cannot make the map again
+// refuses it rather than loading the bank on whatever map has that name.
+const SidecarSchemaGeneratedMap = 5
+
 // sidecarMaxBytes bounds ordinary selection records. A Survival director also
 // carries the whole planned wave and its history, so schema 4 has a larger
 // bounded allowance (DESIGN_MODS_MUTATORS §7.2). Writers enforce the same bound
@@ -57,7 +64,7 @@ const sidecarMaxBytes = 1 << 20
 const survivalSidecarMaxBytes = 16 << 20
 
 func sidecarByteLimit(schema int) int {
-	if schema == SidecarSchemaSurvival {
+	if schema == SidecarSchemaSurvival || schema == SidecarSchemaGeneratedMap {
 		return survivalSidecarMaxBytes
 	}
 	return sidecarMaxBytes
@@ -181,6 +188,10 @@ type Sidecar struct {
 	// not know it loads the battle with sight kept separate, which is a
 	// presentation of the same simulation rather than a misread bank.
 	AlliedSight bool `json:"alliedSight,omitempty"`
+	// GeneratedMap is the recipe of the generated map the battle was played
+	// on (docs/DESIGN_MAP_GENERATOR.md §10), raw like AI: the command owns
+	// its shape. Its presence makes the file schema 5.
+	GeneratedMap json.RawMessage `json:"generatedMap,omitempty"`
 }
 
 // SidecarPath is the sidecar file of the bank at bankPath.
@@ -188,9 +199,10 @@ func SidecarPath(bankPath string) string { return bankPath + SidecarSuffix }
 
 // WriteSidecar writes the sidecar of the bank at bankPath through a
 // temporary file and a rename, so a reader never sees half a file (§7.1).
-// It is schema 4 when it records a Survival director, else schema 3 when
-// it records official add-ons, else schema 2 when it records unit
-// restrictions, and schema 1 otherwise (§7.2, §15.5, §5.7).
+// It is schema 5 when it records a generated map's recipe, else schema 4
+// when it records a Survival director, else schema 3 when it records
+// official add-ons, else schema 2 when it records unit restrictions, and
+// schema 1 otherwise (§7.2, §15.5, §5.7).
 func WriteSidecar(bankPath string, s Sidecar) error {
 	s.Schema = SidecarSchema
 	if len(s.Restrictions) != 0 {
@@ -205,6 +217,9 @@ func WriteSidecar(bankPath string, s Sidecar) error {
 	}
 	if len(s.Survival) != 0 {
 		s.Schema = SidecarSchemaSurvival
+	}
+	if len(s.GeneratedMap) != 0 {
+		s.Schema = SidecarSchemaGeneratedMap
 	}
 	if err := validateSurvivalSidecar(s); err != nil {
 		return sidecarError(SidecarPath(bankPath), err.Error())
@@ -248,9 +263,10 @@ func WriteSidecar(bankPath string, s Sidecar) error {
 // would silently drop the selection it records. So is a schema 1 sidecar
 // that names unit restrictions, a schema 2 one without a non-empty set
 // (§15.5), and one that names add-ons in any schema but 3 or 4, or schema 3
-// without them (§5.7). A Survival record requires schema 4, and schema 4
-// requires a non-null director; its host eligibility record requires that
-// same director (§7.2).
+// without them (§5.7). A Survival record requires schema 4 or 5, and schema
+// 4 requires a non-null director; its host eligibility record requires that
+// same director (§7.2). A generated map's recipe requires schema 5, and
+// schema 5 requires one (DESIGN_MAP_GENERATOR §10).
 func ReadSidecar(bankPath string) (Sidecar, bool, error) {
 	path := SidecarPath(bankPath)
 	file, err := os.Open(path)
@@ -298,11 +314,15 @@ func ReadSidecar(bankPath string) (Sidecar, bool, error) {
 		return Sidecar{}, false, sidecarError(path, "schema 1 with unit restrictions")
 	case s.Schema == SidecarSchemaRestrictions && len(s.Restrictions) == 0:
 		return Sidecar{}, false, sidecarError(path, "schema 2 without unit restrictions")
-	case s.Schema != SidecarSchemaAddons && s.Schema != SidecarSchemaSurvival && present.Addons != nil:
+	case s.Schema != SidecarSchemaAddons && s.Schema != SidecarSchemaSurvival && s.Schema != SidecarSchemaGeneratedMap && present.Addons != nil:
 		return Sidecar{}, false, sidecarError(path, fmt.Sprintf("schema %d with official add-ons", s.Schema))
 	case s.Schema == SidecarSchemaAddons && len(s.Addons) == 0:
 		return Sidecar{}, false, sidecarError(path, "schema 3 without official add-ons")
-	case s.Schema != SidecarSchema && s.Schema != SidecarSchemaRestrictions && s.Schema != SidecarSchemaAddons && s.Schema != SidecarSchemaSurvival:
+	case s.Schema != SidecarSchemaGeneratedMap && len(s.GeneratedMap) != 0:
+		return Sidecar{}, false, sidecarError(path, fmt.Sprintf("schema %d with a generated map", s.Schema))
+	case s.Schema == SidecarSchemaGeneratedMap && (len(s.GeneratedMap) == 0 || bytes.Equal(bytes.TrimSpace(s.GeneratedMap), []byte("null"))):
+		return Sidecar{}, false, sidecarError(path, "schema 5 without a generated map")
+	case s.Schema != SidecarSchema && s.Schema != SidecarSchemaRestrictions && s.Schema != SidecarSchemaAddons && s.Schema != SidecarSchemaSurvival && s.Schema != SidecarSchemaGeneratedMap:
 		return Sidecar{}, false, sidecarError(path, fmt.Sprintf("schema %d", s.Schema))
 	}
 	for _, a := range s.Addons {
@@ -317,12 +337,15 @@ func ReadSidecar(bankPath string) (Sidecar, bool, error) {
 // the director or host eligibility record. Their owners validate those
 // records' versions and contents (docs/DESIGN_MODS_MUTATORS.md §7.2).
 func validateSurvivalSidecar(s Sidecar) error {
+	null := bytes.Equal(bytes.TrimSpace(s.Survival), []byte("null"))
 	switch {
-	case s.Schema != SidecarSchemaSurvival && len(s.Survival) != 0:
+	case s.Schema != SidecarSchemaSurvival && s.Schema != SidecarSchemaGeneratedMap && len(s.Survival) != 0:
 		return fmt.Errorf("schema %d with a Survival director", s.Schema)
-	case s.Schema == SidecarSchemaSurvival && (len(s.Survival) == 0 || bytes.Equal(bytes.TrimSpace(s.Survival), []byte("null"))):
+	case s.Schema == SidecarSchemaSurvival && (len(s.Survival) == 0 || null):
 		return errors.New("schema 4 without a non-null Survival director")
-	case s.Schema != SidecarSchemaSurvival && len(s.SurvivalBest) != 0:
+	case s.Schema == SidecarSchemaGeneratedMap && len(s.Survival) != 0 && null:
+		return errors.New("schema 5 with a null Survival director")
+	case len(s.Survival) == 0 && len(s.SurvivalBest) != 0:
 		return errors.New("survival best-score eligibility without a Survival director")
 	}
 	return nil

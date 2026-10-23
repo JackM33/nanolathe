@@ -434,6 +434,8 @@ func (g *gameShell) activateGadget(name string) {
 			if err := g.openMapsFetch(); err != nil {
 				reportRetailMessageError(g.showRetailMessage(err.Error()))
 			}
+		case "GENMAP":
+			g.openMapGenerator()
 		case "PREVMENU":
 			g.leaveMapPicker()
 		case "LOAD", "MAPNAMES":

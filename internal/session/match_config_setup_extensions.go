@@ -1,6 +1,7 @@
 package session
 
 import (
+	"bytes"
 	"fmt"
 
 	"github.com/nanolathe-gg/nanolathe/internal/content"
@@ -16,10 +17,14 @@ const (
 	matchChosenStartsExtension = 17
 	matchAlliedSightExtension  = 18
 	matchBuilderSpeedExtension = 19
+	// matchGeneratedMapExtension is not a gameplay choice: it carries what
+	// reproducing the battle needs, which belongs in a required record
+	// (§10 "Header extensions"), with the same admission contract.
+	matchGeneratedMapExtension = 20
 )
 
 func matchSetupExtension(id uint16) bool {
-	return id == matchChosenStartsExtension || id == matchAlliedSightExtension || id == matchBuilderSpeedExtension
+	return id == matchChosenStartsExtension || id == matchAlliedSightExtension || id == matchBuilderSpeedExtension || id == matchGeneratedMapExtension
 }
 
 func (r *MatchConfigRequest) hasChosenStarts() bool {
@@ -99,6 +104,14 @@ func (r *MatchConfigRequest) consumeSetupExtensions() error {
 				return matchFieldError("mutators.builderSpeed", "typed Builder speed equal to extension 19 when both are supplied")
 			}
 			r.Mutators.BuilderSpeed = factor
+		case matchGeneratedMapExtension:
+			if len(e.Data) == 0 {
+				return matchFieldError("generatedMap", "omit extension 20 for a map that was not generated")
+			}
+			if r.GeneratedMap != nil && !bytes.Equal(r.GeneratedMap, e.Data) {
+				return matchFieldError("generatedMap", "typed recipe equal to extension 20 when both are supplied")
+			}
+			r.GeneratedMap = append([]byte(nil), e.Data...)
 		default:
 			kept = append(kept, e)
 		}
@@ -131,6 +144,9 @@ func (r *MatchConfigRequest) setupExtensions() ([]MatchConfigExtension, error) {
 			return nil, matchFieldError("mutators.builderSpeed", "the identity or a factor on the Builder speed step list")
 		}
 		fields = append(fields, MatchConfigExtension{ID: matchBuilderSpeedExtension, Required: true, Data: []byte{index}})
+	}
+	if len(r.GeneratedMap) != 0 {
+		fields = append(fields, MatchConfigExtension{ID: matchGeneratedMapExtension, Required: true, Data: append([]byte(nil), r.GeneratedMap...)})
 	}
 	fields = append(fields, r.Extensions...)
 	if len(fields) > matchConfigMaxExtensions {

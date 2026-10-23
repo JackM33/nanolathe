@@ -287,6 +287,14 @@ type MatchConfigRequest struct {
 
 	// AlliedSight is the typed value of required extension 18.
 	AlliedSight MatchAlliedSight
+
+	// GeneratedMap is the typed value of required extension 20: the recipe
+	// of the generated map the battle is played on, as the host wrote it
+	// (docs/DESIGN_MAP_GENERATOR.md §10); empty for any other map. It
+	// changes nothing a tick computes, since the map's own bytes are the
+	// content identity's, but a build that cannot make the map again from it
+	// refuses the configuration rather than play another map of that name.
+	GeneratedMap []byte
 }
 
 // MatchAlliedSight is required extension 18: whether a skirmish's teams share sight and
@@ -431,8 +439,8 @@ func resolveMatchConfig(r MatchConfigRequest, version uint16) (EffectiveMatchCon
 	if err := c.consumeSetupExtensions(); err != nil {
 		return EffectiveMatchConfig{}, err
 	}
-	if version == 1 && (c.hasChosenStarts() || c.AlliedSight != MatchAlliedSightVersion1 || !c.Mutators.BuilderSpeed.IsIdentity()) {
-		return EffectiveMatchConfig{}, matchFieldError("configuration.version", "version 2 for chosen starts, allied sight or Builder speed")
+	if version == 1 && (c.hasChosenStarts() || c.AlliedSight != MatchAlliedSightVersion1 || !c.Mutators.BuilderSpeed.IsIdentity() || len(c.GeneratedMap) != 0) {
+		return EffectiveMatchConfig{}, matchFieldError("configuration.version", "version 2 for chosen starts, allied sight, Builder speed or a generated map")
 	}
 	if _, err := c.validate(); err != nil {
 		return EffectiveMatchConfig{}, err
@@ -499,6 +507,9 @@ func (r MatchConfigRequest) clone() MatchConfigRequest {
 		out.RoomContent = append([]MatchContentEntry{}, r.RoomContent...)
 	}
 	out.Extensions = cloneMatchExtensions(r.Extensions)
+	if r.GeneratedMap != nil {
+		out.GeneratedMap = append([]byte(nil), r.GeneratedMap...)
+	}
 	return out
 }
 
@@ -621,6 +632,9 @@ func (r *MatchConfigRequest) validate() (RuleSet, error) {
 	// 16. Room content.
 	if err := r.validateRoomContent(); err != nil {
 		return RuleSet{}, err
+	}
+	if len(r.GeneratedMap) > matchConfigMaxExtensionLen {
+		return RuleSet{}, matchFieldError("generatedMap", fmt.Sprintf("at most %d bytes", matchConfigMaxExtensionLen))
 	}
 	if err := validateMatchExtensions(r.Extensions); err != nil {
 		return RuleSet{}, err

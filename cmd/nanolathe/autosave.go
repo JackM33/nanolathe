@@ -52,11 +52,6 @@ func (g *gameShell) slotSaveDir() string {
 	return g.opts.SaveDir
 }
 
-// autosavePath is the Autosave slot's bank.
-func (g *gameShell) autosavePath() string {
-	return session.RetailSavePath(g.slotSaveDir(), autosaveName)
-}
-
 // autosaveAllowed reports whether a battle is live and the host selected a
 // save directory: the battle is not ended, its result has not latched, and it
 // is neither an online battle nor a replay's playback. A Survival battle

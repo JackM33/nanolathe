@@ -36,7 +36,6 @@ github.com/nanolathe-gg/nanolathe/internal/construction NewService
 github.com/nanolathe-gg/nanolathe/internal/content ApplyDownloadMenus
 github.com/nanolathe-gg/nanolathe/internal/content ApplyMovementFootprints
 github.com/nanolathe-gg/nanolathe/internal/content CompileCategories
-github.com/nanolathe-gg/nanolathe/internal/content CompileMaps
 github.com/nanolathe-gg/nanolathe/internal/content CompileUnits
 github.com/nanolathe-gg/nanolathe/internal/content CompileWeaponsWithDuplicates
 github.com/nanolathe-gg/nanolathe/internal/content canonicalUnitMap

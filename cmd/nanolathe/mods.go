@@ -631,10 +631,12 @@ func (h *shellHost) reload(request contentReloadRequest, cl *client.Client) {
 	old.releaseAudio()
 	// A settings preview staged while the main menu idled reads the old set's
 	// archives; wait for it, and stop the screen's picture loader, before they
-	// close. A reload from the screen itself has done this already.
+	// close. A reload from the screen itself has done this already. The map
+	// generator's panel closes too, joining the work that reads them.
 	if nlScreenInst != nil {
 		nlScreenInst.releasePreview(true)
 	}
+	closeMapGenerator()
 	_ = old.cs.Close()
 	h.shell = shell
 	modDownload.rememberMounted(shell.cs.mod)
