@@ -340,20 +340,32 @@ const (
 )
 
 // saveSummaryDifficulty reads the selected save's recorded entry table, which
-// fixes its AI plan/persona and parameters even after a rule switch
-// (DESIGN_COMMUNITY_PATCH §4.8). Today's mounted mod,
+// fixes its AI plan/persona and parameters even after a rule switch. A
+// continuation instead starts the next mission fresh under its recorded
+// current selection (DESIGN_COMMUNITY_PATCH §4.8). Today's mounted mod,
 // preferences and running battle never participate in this label.
 // Without a sidecar the format alone establishes retail's index order; an
 // unreadable sidecar leaves the label empty rather than guessing a tier.
-func saveSummaryDifficulty(bankPath string, index int32) int32 {
+func saveSummaryDifficulty(bankPath string, summary save.Summary) int32 {
 	sc, ok, err := save.ReadSidecar(bankPath)
 	if err != nil {
 		return -1
 	}
 	if !ok {
-		return index
+		return summary.Difficulty
 	}
-	return int32(session.DifficultyTier(sc.Community.Entry, int(index)))
+	features := sc.Community.Entry
+	if summary.BetweenMissions == 1 {
+		sel, err := resolveSidecarSelection(sc)
+		if err != nil {
+			return -1
+		}
+		features, err = session.ResolveCommunity(sel.gameplay, sel.sources)
+		if err != nil {
+			return -1
+		}
+	}
+	return int32(session.DifficultyTier(features, int(summary.Difficulty)))
 }
 
 func installSaveSidecarLine(window *gui.Window) {

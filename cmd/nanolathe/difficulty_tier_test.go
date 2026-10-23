@@ -19,18 +19,18 @@ import (
 func TestSaveDifficultyUsesRecordedRules(t *testing.T) {
 	on, off := true, false
 	for _, tc := range []struct {
-		name, rules, base string
-		entry             bool
-		player            *bool
-		reverse           bool
+		name, rules, base    string
+		entry                bool
+		player               *bool
+		reverse, nextReverse bool
 	}{
-		{"Community", string(gameplay.Community39), string(gameplay.Community39), true, nil, true},
-		{"Modern", string(gameplay.Modern), string(gameplay.Modern), true, nil, true},
-		{"Strict entry", string(gameplay.Strict31), string(gameplay.Strict31), false, nil, false},
-		{"switched to Strict", string(gameplay.Strict31), string(gameplay.Strict31), true, nil, true},
-		{"switched from Strict", string(gameplay.Community39), string(gameplay.Community39), false, nil, false},
-		{"later player override", string(gameplay.Community39), string(gameplay.Community39), true, &off, true},
-		{"unknown current set keeps entry", "unavailable-set", string(gameplay.Strict31), true, nil, true},
+		{"Community", string(gameplay.Community39), string(gameplay.Community39), true, nil, true, true},
+		{"Modern", string(gameplay.Modern), string(gameplay.Modern), true, nil, true, true},
+		{"Strict entry", string(gameplay.Strict31), string(gameplay.Strict31), false, nil, false, false},
+		{"switched to Strict", string(gameplay.Strict31), string(gameplay.Strict31), true, nil, true, false},
+		{"switched from Strict", string(gameplay.Community39), string(gameplay.Community39), false, nil, false, true},
+		{"later player override", string(gameplay.Community39), string(gameplay.Community39), true, &off, true, false},
+		{"unknown current set keeps entry", "unavailable-set", string(gameplay.Strict31), true, nil, true, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			path := filepath.Join(t.TempDir(), "saved.SAV")
@@ -49,20 +49,28 @@ func TestSaveDifficultyUsesRecordedRules(t *testing.T) {
 				if tc.reverse {
 					want = 2 - index
 				}
-				if got := saveSummaryDifficulty(path, index); got != want {
+				if got := saveSummaryDifficulty(path, save.Summary{Difficulty: index}); got != want {
 					t.Fatalf("index %d displayed as tier %d, want %d", index, got, want)
 				}
+			}
+			// A continuation names the next mission, entered under current rules.
+			wantNext := int32(0)
+			if tc.nextReverse {
+				wantNext = 2
+			}
+			if got := saveSummaryDifficulty(path, save.Summary{BetweenMissions: 1}); got != wantNext {
+				t.Fatalf("continuation displayed tier %d, want next-entry tier %d", got, wantNext)
 			}
 			if err := save.RemoveSidecar(path); err != nil {
 				t.Fatal(err)
 			}
-			if got := saveSummaryDifficulty(path, 0); got != 0 {
+			if got := saveSummaryDifficulty(path, save.Summary{}); got != 0 {
 				t.Fatalf("no-sidecar index 0 displayed as tier %d", got)
 			}
 			if err := os.WriteFile(save.SidecarPath(path), []byte("{broken"), 0o600); err != nil {
 				t.Fatal(err)
 			}
-			if got := retailSummaryPanelFields(save.Summary{Difficulty: saveSummaryDifficulty(path, 0)}, true, nil)["DIFF"]; got != "" {
+			if got := retailSummaryPanelFields(save.Summary{Difficulty: saveSummaryDifficulty(path, save.Summary{})}, true, nil)["DIFF"]; got != "" {
 				t.Fatalf("unreadable sidecar displayed guessed difficulty %q", got)
 			}
 		})
@@ -80,8 +88,10 @@ func TestSaveDialogDifficultyFollowsSelection(t *testing.T) {
 	on := true
 	for _, mode := range []gameplay.Mode{gameplay.Strict31, gameplay.Community39} {
 		path := session.RetailSavePath(dir, string(mode))
-		summary := save.Summary{Description: string(mode), Gametype: 2, Players: 2, Difficulty: 0, BetweenMissions: 1}
-		if err := session.WriteRetailContinuationSave(path, summary); err != nil {
+		summary := save.Summary{Description: string(mode), Gametype: 2, Players: 2, Difficulty: 0}
+		bank := save.NewBuilder()
+		save.WriteSummary(bank, summary)
+		if err := save.WriteFile(path, bank.Bytes()); err != nil {
 			t.Fatal(err)
 		}
 		sc := save.Sidecar{Rules: string(mode), Gameplay: string(mode), Community: save.SidecarCommunity{
