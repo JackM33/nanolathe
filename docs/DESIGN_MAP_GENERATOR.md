@@ -290,38 +290,48 @@ under a typed name and description. An online room's picker greys Generate
 (§11). `--nl-shot DIR --nl-shot-only generator` captures the panel and its
 Save form for review.
 
-**Sources.** The world's maps are the content's archive maps of that planet
-(providers of the HPI family): never loose files, downloaded or saved maps,
-or generated ones, so a code's result is tied to the content's own maps and
-no generated map feeds the generator. They are ordered by the mount order
-of their archives, which retail's archive precedence fixes from the
-archives' names, then by name; the first 16 readable ones are the sources.
+**Sources.** The world's maps are the install's and the mod's archive maps
+of that planet (providers of the HPI family): never loose files, maps held
+in memory, or any package of the map library, whether downloaded or saved,
+even when it is an archive. A code's result is thus tied to the content's
+own maps, not to what one machine has downloaded, and no generated map
+feeds the generator. They are ordered by the mount order of their archives,
+which retail's archive precedence fixes from the archives' names, then by
+name; the first 16 readable ones are the sources.
 A world needs three to be offered. Each source's identity is the logical
 path of its TNT, the archive that supplied it and the SHA-256 of the TNT
 and OTA the generator read.
 
-**Background work** (`mapgen_job.go`). The worlds are listed once per
-content, and the chosen world's indexed art is kept while the panel is
-open. Every change starts a request with a new serial number and cancels
-the running one, whose result can no longer replace the picture; a failed
+**Background work** (`mapgen_job.go`). The worlds are listed each time the
+panel opens, and the chosen world's indexed art is kept while it is open.
+Every change starts a request with a new serial number and cancels the
+running one, whose result can no longer replace the picture; a failed
 request clears it, so Use and Save always take the map shown, made from the
-settings beside it. `Generator.Workers` is the core count less one, at
-least one, so the window stays responsive. Closing the panel cancels the
-work, joins every goroutine reading the content before the host may
-remount it, and lets the indexed art go.
+settings beside it. One world at most is indexed at a time: a request for
+the world being indexed waits for that index, which is kept for it even
+though an older request started it, and a request for another world
+cancels it between source maps. `Generator.Workers` is the core count less
+one, at least one, so the window stays responsive. Closing the panel
+cancels the work, joins every goroutine reading the content, and forgets
+the content, its worlds, the map shown and the indexed art. Every remount
+that closes the content — a library refresh, a mod reload — closes the
+panel first.
 
 **Use.** The map is mounted from memory: its OTA and TNT as an HPI archive
 in memory under the provider name `generated:<code>`, below every other
 provider, so it adds its two files and overrides nothing. Every later mount
 of the run holds the run's generated maps (at most six; the oldest the
 setup does not use goes first), the mount is replaced as a library refresh
-replaces it, and the setup takes the map as the picker's Load does. Nothing
-is written to disk; a setting naming the map falls back the next run, as
-for a removed map.
+replaces it, as does the archive remount of a battle restart, and the
+setup takes the map as the picker's Load does. Use refuses when the picker
+lists another map under the map's name with other files, which would hide
+it. Nothing is written to disk; a setting naming the map falls back the next
+run, as for a removed map.
 
 **Save.** The map is installed in the map library as a package of its two
 files, under a name of letters, digits, spaces and a little punctuation
-that no listed map has. The package's receipt names the code as a
+that no listed map has, and a description without `//` or `/*`, which would
+open a comment in its OTA. The package's receipt names the code as a
 download's names its URL (`generated:<code>`) and records the recipe, and
 the picker removes the map as it removes a downloaded map. Keeping the files
 is how a saved map survives generator updates: it plays whatever later
@@ -331,9 +341,11 @@ versions make of its code, and its recipe still says how it was made.
 versions, the code, the world, the name and description its OTA carries,
 the sources with their identities in the order the generator read them, and
 the SHA-256 of the TNT and OTA. Making the map again needs the same
-generator version, reads exactly the recorded sources, each with the bytes
-it had (never another selection), and compares the hashes; a difference is
-an error that names it.
+generator version, reads exactly the recorded sources, each from the
+archive it names and with the bytes it had (never another selection), and
+compares the hashes; a difference is an error that names it. A recipe comes
+from a save or a replay file, so one naming more than 16 sources, or a
+source twice, is refused before anything is read.
 
 **Saves and replays.** A battle's map must stay recoverable after its
 memory mount is gone. A save's sidecar records the recipe as `generatedMap`,

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
@@ -46,11 +47,9 @@ type mapgenSourceID struct {
 	OTA     string `json:"ota"`
 }
 
-// mapgenSourceArchive reports whether a map comes from an archive of the
-// install or a mod rather than a loose folder. Downloaded, saved and
-// generated maps are loose files or memory; leaving them out keeps a code's
-// result tied to the content's own maps, and keeps generated maps from
-// feeding the generator.
+// mapgenSourceArchive reports whether a map comes from an archive rather
+// than a loose folder or memory. Saved and generated maps are loose files or
+// memory, so this alone keeps generated maps from feeding the generator.
 func mapgenSourceArchive(provider string) bool {
 	switch strings.ToLower(path.Ext(provider)) {
 	case ".hpi", ".ufo", ".ccx", ".gp3", ".gpf", ".gp4", ".kbm":
@@ -59,11 +58,26 @@ func mapgenSourceArchive(provider string) bool {
 	return false
 }
 
+// mapgenInMapLibrary reports whether a map's terrain comes from one of the
+// map library's packages, mapRoots: a downloaded map may be an archive too,
+// and what one machine has downloaded must not change what a code makes.
+func mapgenInMapLibrary(fs vfs.FSOps, logicalTNT string, mapRoots []string) bool {
+	if len(mapRoots) == 0 {
+		return false
+	}
+	info, err := fs.Stat(logicalTNT)
+	if err != nil {
+		return true
+	}
+	return slices.ContainsFunc(mapRoots, func(root string) bool { return pathInsideMapPackage(root, info.Source.SourcePath) })
+}
+
 // mapgenWorlds lists the worlds with archive maps to take tiles from, most
-// maps first. A world's maps are in the order the generator reads them: by
-// the mount order of their archives, which retail's archive precedence
-// fixes from the archives' names, then by name.
-func mapgenWorlds(fs vfs.FSOps) ([]mapgenWorldInfo, error) {
+// maps first: the install's and the mod's archives, never a package of the
+// map library, mapRoots. A world's maps are in the order the generator
+// reads them: by the mount order of their archives, which retail's archive
+// precedence fixes from the archives' names, then by name.
+func mapgenWorlds(fs vfs.FSOps, mapRoots []string) ([]mapgenWorldInfo, error) {
 	maps, err := content.CompileMaps(fs)
 	if err != nil {
 		return nil, err
@@ -72,6 +86,9 @@ func mapgenWorlds(fs vfs.FSOps) ([]mapgenWorldInfo, error) {
 	var order []string
 	for _, m := range maps {
 		if strings.TrimSpace(m.Planet) == "" || !mapgenSourceArchive(m.TNTProvenance.ProviderID) || m.TNTWidth%2 != 0 || m.TNTHeight%2 != 0 {
+			continue
+		}
+		if mapgenInMapLibrary(fs, m.LogicalTNT, mapRoots) {
 			continue
 		}
 		key := content.CanonicalKey(m.Planet)
@@ -107,9 +124,10 @@ func mapgenWorlds(fs vfs.FSOps) ([]mapgenWorldInfo, error) {
 // palette, the features its maps use by how often they use them, the median
 // climate, and its source maps with their identities. With want nil the
 // sources are the first readable maps in the world's order; otherwise they
-// are exactly those want names, each with the bytes it had, or an error
-// naming the first one that is missing or differs.
-func mapgenWorld(fs vfs.FSOps, info mapgenWorldInfo, maxTNTBytes int64, want []mapgenSourceID) (mapgen.World, []mapgenSourceID, error) {
+// are exactly those want names, from the archives it names, each with the
+// bytes it had, or an error naming the first one that is missing or
+// differs. A cancelled ctx stops it between source maps.
+func mapgenWorld(ctx context.Context, fs vfs.FSOps, info mapgenWorldInfo, maxTNTBytes int64, want []mapgenSourceID) (mapgen.World, []mapgenSourceID, error) {
 	w := mapgen.World{Name: info.Planet}
 	features, err := content.CompileFeatures(fs)
 	if err != nil {
@@ -172,15 +190,24 @@ func mapgenWorld(fs vfs.FSOps, info mapgenWorldInfo, maxTNTBytes int64, want []m
 			if len(reads) == mapgenMaxSources {
 				break
 			}
+			if err := ctx.Err(); err != nil {
+				return w, nil, err
+			}
 			if r, err := readMap(m); err == nil {
 				reads = append(reads, r)
 			}
 		}
 	} else {
 		for _, id := range want {
+			if err := ctx.Err(); err != nil {
+				return w, nil, err
+			}
 			i := slices.IndexFunc(info.Maps, func(m *content.MapHeader) bool { return strings.EqualFold(m.LogicalTNT, id.Map) })
 			if i < 0 {
 				return w, nil, fmt.Errorf("nanolathe: map generator: source map %s from %s is not among the content's %s maps", id.Map, id.Archive, info.Planet)
+			}
+			if from := info.Maps[i].TNTProvenance.ProviderID; !strings.EqualFold(from, id.Archive) {
+				return w, nil, fmt.Errorf("nanolathe: map generator: source map %s comes from %s, not from %s the recipe was made from", id.Map, from, id.Archive)
 			}
 			r, err := readMap(info.Maps[i])
 			if r.id.TNT != "" && (r.id.TNT != id.TNT || r.id.OTA != id.OTA) {
@@ -221,6 +248,9 @@ func mapgenWorld(fs vfs.FSOps, info mapgenWorldInfo, maxTNTBytes int64, want []m
 				moho = append(moho, int(ota.Schemas[0].Section.IntValue("mohometal", 0)))
 			}
 		}
+	}
+	if err := ctx.Err(); err != nil {
+		return w, nil, err
 	}
 	if len(w.Sources) == 0 {
 		return w, nil, fmt.Errorf("nanolathe: map generator: world %q: no readable terrain files, expected archive maps of that planet", info.Planet)

@@ -25,7 +25,7 @@ func TestGeneratedRetailMapPlaysAndReplays(t *testing.T) {
 	t.Setenv("XDG_DATA_HOME", t.TempDir())
 	base := replayTestOptions(t)
 	plain := replayTestContent(t, base)
-	worlds, err := mapgenWorlds(plain.fs)
+	worlds, err := mapgenWorlds(plain.fs, plain.mapRoots)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -33,7 +33,7 @@ func TestGeneratedRetailMapPlaysAndReplays(t *testing.T) {
 	if i < 0 {
 		t.Fatalf("no Archipelago world among %d", len(worlds))
 	}
-	world, sources, err := mapgenWorld(plain.fs, worlds[i], maplibrary.MaxTNTBytes, nil)
+	world, sources, err := mapgenWorld(context.Background(), plain.fs, worlds[i], maplibrary.MaxTNTBytes, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -110,9 +110,9 @@ func (g *gameShell) mapGeneratorAvailable() bool {
 	return g.online == nil || !g.online.room.choosingMap
 }
 
-// openMapGenerator opens the panel over the map picker: the worlds are
-// listed in the background the first time for the mounted content, and the
-// first map starts at once.
+// openMapGenerator opens the panel over the map picker: the mounted
+// content's worlds are listed in the background, and the first map starts
+// at once.
 func (g *gameShell) openMapGenerator() {
 	s := mapgenScreenInst
 	if !g.mapGeneratorAvailable() || s.open {
@@ -130,24 +130,30 @@ func (g *gameShell) openMapGenerator() {
 	}
 	s.open, s.editing, s.edit, s.naming, s.message = true, false, "", false, ""
 	s.job.bind(g.cs)
-	r, _, _, _, _, _ := s.job.state()
-	if r != nil && content.CanonicalKey(r.world) == s.world && r.m.Code == mapgen.Code(r.world, s.p) {
-		return
-	}
 	s.regenerate()
 }
 
-// closePanel closes the panel. The running generation stops, and every
-// goroutine reading the content is joined before the host may unmount it.
+// closePanel closes the panel. The running generation stops, every
+// goroutine reading the content is joined before the host may unmount it,
+// and the job forgets the content, its worlds and the map it showed.
 func (s *mapgenScreen) closePanel() {
 	if !s.open {
 		return
 	}
 	s.job.stop()
+	s.job.bind(nil)
 	if s.pic != nil {
 		s.pic.Deallocate()
 	}
 	s.open, s.pic, s.shown, s.naming, s.editing = false, nil, nil, false, false
+}
+
+// closeMapGenerator closes the generator's panel, if it is open, before a
+// remount closes the content its work reads.
+func closeMapGenerator() {
+	if mapgenScreenInst != nil {
+		mapgenScreenInst.closePanel()
+	}
 }
 
 // release closes the panel and forgets the content; the window calls it on
@@ -277,6 +283,10 @@ func (s *mapgenScreen) use(g *gameShell) {
 		s.message = noticeReason(err)
 		return
 	}
+	if g.mapNameTaken(made) {
+		s.message = "A map of that name is already listed"
+		return
+	}
 	// The remount replaces the content the panel reads, so it closes first;
 	// a failure is then the picker's to show.
 	s.closePanel()
@@ -311,6 +321,26 @@ func mapgenTDFText(text string) string {
 		}
 		return r
 	}, text))
+}
+
+// mapNameTaken reports whether the picker lists another map under made's
+// name, which would hide the one made below it: a generated map this run
+// holds in memory under that name is replaced by made, and a map with
+// made's very files is the same map.
+func (g *gameShell) mapNameTaken(made *generatedMap) bool {
+	name := made.recipe.Name
+	if !slices.ContainsFunc(g.maps, func(m string) bool { return strings.EqualFold(m, name) }) {
+		return false
+	}
+	if info, err := g.cs.unmappedMount.Stat("maps/" + name + ".tnt"); err == nil && strings.HasPrefix(info.Source.ProviderID(), "generated:") {
+		return false
+	}
+	tnt, err := g.cs.fs.ReadFileLimit("maps/"+name+".tnt", int64(len(made.tnt)))
+	if err != nil || mapgenSum(tnt) != made.recipe.TNT {
+		return true
+	}
+	ota, err := g.cs.fs.ReadFileLimit("maps/"+name+".ota", int64(len(made.ota)))
+	return err != nil || mapgenSum(ota) != made.recipe.OTA
 }
 
 // mapgenNameValid reports whether a typed name can be a map's file name:
@@ -355,15 +385,24 @@ func (s *mapgenScreen) save(g *gameShell) {
 	case slices.ContainsFunc(g.maps, func(m string) bool { return strings.EqualFold(m, name) }):
 		s.message = "A map of that name is already listed"
 		return
+	case strings.Contains(description, "//") || strings.Contains(description, "/*"):
+		// Either opens a comment in the map's TDF file, which cannot
+		// escape it [fmt tdf].
+		s.message = "Leave // and /* out of the description"
+		return
 	}
 	made, err := newGeneratedMap(r.m, r.world, r.sources, name, description)
 	if err == nil {
-		// The library refresh replaces the content the panel reads.
-		s.job.stop()
+		// The library refresh that follows the install closes the panel
+		// before it replaces the content the panel reads.
 		err = g.saveGeneratedMap(made)
 	}
 	if err != nil {
-		s.message = noticeReason(err)
+		if s.open {
+			s.message = noticeReason(err)
+		} else {
+			reportRetailMessageError(g.showRetailMessage(noticeReason(err)))
+		}
 		return
 	}
 	s.closePanel()

@@ -43,7 +43,7 @@ func (g *gameShell) recoverGeneratedMap(raw json.RawMessage) (*generatedMap, err
 		}
 		return nil, refuseLoad("This game was played on a generated map that differs from the map %s here", r.Name)
 	}
-	made, err := regenerateMap(context.Background(), g.cs.fs, limit, r)
+	made, err := regenerateMap(context.Background(), g.cs.fs, g.cs.mapRoots, limit, r)
 	if err != nil {
 		return nil, refuseLoad("This game's generated map %s could not be made again: %s", r.Name, noticeReason(err))
 	}

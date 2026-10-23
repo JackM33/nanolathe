@@ -4,12 +4,15 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/nanolathe-gg/nanolathe/internal/content"
 	"github.com/nanolathe-gg/nanolathe/internal/gui"
 	"github.com/nanolathe-gg/nanolathe/internal/mapgen"
 	"github.com/nanolathe-gg/nanolathe/internal/maplibrary"
@@ -110,11 +113,11 @@ func mapgenFixtureContent(t *testing.T) string {
 // generateFromContent makes a map of the fixture content's Test World.
 func generateFromContent(t *testing.T, cs *contentSet, seed uint64) *mapgenResult {
 	t.Helper()
-	worlds, err := mapgenWorlds(cs.fs)
+	worlds, err := mapgenWorlds(cs.fs, cs.mapRoots)
 	if err != nil || len(worlds) != 1 || worlds[0].Planet != "Test World" || len(worlds[0].Maps) != 3 {
 		t.Fatalf("worlds %+v, err %v; want Test World with its three archive maps", worlds, err)
 	}
-	w, sources, err := mapgenWorld(cs.fs, worlds[0], maplibrary.MaxTNTBytes, nil)
+	w, sources, err := mapgenWorld(context.Background(), cs.fs, worlds[0], maplibrary.MaxTNTBytes, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -146,7 +149,7 @@ func TestRecipeMakesItsMapAgain(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	again, err := regenerateMap(context.Background(), cs.fs, maplibrary.MaxTNTBytes, made.recipe)
+	again, err := regenerateMap(context.Background(), cs.fs, cs.mapRoots, maplibrary.MaxTNTBytes, made.recipe)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -157,18 +160,90 @@ func TestRecipeMakesItsMapAgain(t *testing.T) {
 	changed := made.recipe
 	changed.Sources = slices.Clone(changed.Sources)
 	changed.Sources[1].TNT = strings.Repeat("0", 64)
-	if _, err := regenerateMap(context.Background(), cs.fs, maplibrary.MaxTNTBytes, changed); err == nil || !strings.Contains(strings.ToLower(err.Error()), "fixture b") {
+	if _, err := regenerateMap(context.Background(), cs.fs, cs.mapRoots, maplibrary.MaxTNTBytes, changed); err == nil || !strings.Contains(strings.ToLower(err.Error()), "fixture b") {
 		t.Fatalf("a changed source map: %v, want an error naming it", err)
 	}
 	other := made.recipe
 	other.Generator = mapgen.Version + 1
-	if _, err := regenerateMap(context.Background(), cs.fs, maplibrary.MaxTNTBytes, other); err == nil || !strings.Contains(err.Error(), "generator") {
+	if _, err := regenerateMap(context.Background(), cs.fs, cs.mapRoots, maplibrary.MaxTNTBytes, other); err == nil || !strings.Contains(err.Error(), "generator") {
 		t.Fatalf("another generator version: %v", err)
 	}
 	wrong := made.recipe
 	wrong.TNT = strings.Repeat("0", 64)
-	if _, err := regenerateMap(context.Background(), cs.fs, maplibrary.MaxTNTBytes, wrong); err == nil || !strings.Contains(err.Error(), "differ") {
+	if _, err := regenerateMap(context.Background(), cs.fs, cs.mapRoots, maplibrary.MaxTNTBytes, wrong); err == nil || !strings.Contains(err.Error(), "differ") {
 		t.Fatalf("a recipe whose files differ: %v", err)
+	}
+	// The archive is part of a source's identity, and a recipe from a save
+	// or a replay file never makes the generator read more than it would.
+	moved := made.recipe
+	moved.Sources = slices.Clone(moved.Sources)
+	moved.Sources[0].Archive = "elsewhere.hpi"
+	if _, err := regenerateMap(context.Background(), cs.fs, cs.mapRoots, maplibrary.MaxTNTBytes, moved); err == nil || !strings.Contains(err.Error(), "elsewhere.hpi") {
+		t.Fatalf("a source from another archive: %v, want an error naming it", err)
+	}
+	twice := made.recipe
+	twice.Sources = append(slices.Clone(twice.Sources), twice.Sources[0])
+	if _, err := regenerateMap(context.Background(), cs.fs, cs.mapRoots, maplibrary.MaxTNTBytes, twice); err == nil || !strings.Contains(err.Error(), "twice") {
+		t.Fatalf("a source named twice: %v", err)
+	}
+	many := made.recipe
+	for len(many.Sources) <= mapgenMaxSources {
+		many.Sources = append(many.Sources, mapgenSourceID{Map: fmt.Sprintf("maps/extra %d.tnt", len(many.Sources))})
+	}
+	if _, err := regenerateMap(context.Background(), cs.fs, cs.mapRoots, maplibrary.MaxTNTBytes, many); err == nil || !strings.Contains(err.Error(), "at most") {
+		t.Fatalf("more sources than the generator reads: %v", err)
+	}
+}
+
+// A map library package never feeds the generator, even an archive one
+// mounted before the install: what a machine has downloaded must not change
+// what a code makes (docs/DESIGN_MAP_GENERATOR.md §10).
+func TestMapLibraryArchivesNeverFeedTheGenerator(t *testing.T) {
+	base := mapgenFixtureContent(t)
+	archive, err := os.ReadFile(filepath.Join(base, "fixmaps.hpi"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	pkg := t.TempDir()
+	if err := os.WriteFile(filepath.Join(pkg, "downloaded.ufo"), archive, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(filepath.Join(base, "fixmaps.hpi")); err != nil {
+		t.Fatal(err)
+	}
+	// The install keeps one archive map of its own; the package, mounted
+	// first as the map library is, holds the three fixture maps.
+	files := []vfs.ArchiveFile{}
+	src := vfs.New()
+	defer src.Close()
+	if _, err := src.MountArchiveReader("fixmaps.hpi", bytes.NewReader(archive), int64(len(archive)), 0, vfs.ArchiveOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	for _, ext := range []string{".ota", ".tnt"} {
+		data, err := src.ReadFileLimit("maps/Fixture A"+ext, maplibrary.MaxTNTBytes)
+		if err != nil {
+			t.Fatal(err)
+		}
+		files = append(files, vfs.ArchiveFile{Path: "maps/Own Map" + ext, Data: data})
+	}
+	var own bytes.Buffer
+	if err := vfs.WriteArchive(&own, files, vfs.ArchiveWriteOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(base, "own.hpi"), own.Bytes(), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	fs := vfs.New()
+	defer fs.Close()
+	if err := fs.MountGameRoots([]vfs.GameRoot{{Dir: pkg}, {Dir: base}}); err != nil {
+		t.Fatal(err)
+	}
+	worlds, err := mapgenWorlds(fs, []string{pkg})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(worlds) != 1 || len(worlds[0].Maps) != 1 || worlds[0].Maps[0].TNTProvenance.ProviderID != "own.hpi" {
+		t.Fatalf("worlds %+v, want only the install's own archive map", worlds)
 	}
 }
 
@@ -205,7 +280,10 @@ func TestGeneratedMapMountsFromMemory(t *testing.T) {
 	if got := g.cs.generatedRecipe(name); got == nil || got.Code != r.m.Code {
 		t.Fatalf("recipe of the mounted map: %+v", got)
 	}
-	worlds, err := mapgenWorlds(g.cs.fs)
+	if g.mapNameTaken(made) {
+		t.Fatal("Use again of a map held in memory is refused")
+	}
+	worlds, err := mapgenWorlds(g.cs.fs, g.cs.mapRoots)
 	if err != nil || len(worlds) != 1 || len(worlds[0].Maps) != 3 {
 		t.Fatalf("a generated map feeds the generator: %+v (%v)", worlds, err)
 	}
@@ -248,6 +326,132 @@ func TestGeneratedMapSaves(t *testing.T) {
 	}
 	if _, target := g.removableLibraryMap("maps/Lakeside Duel.ota"); target == nil {
 		t.Fatal("the picker cannot remove a saved generated map")
+	}
+	if got := g.cs.generatedRecipe("Fixture A"); got != nil {
+		t.Fatalf("an archive map has a recipe: %+v", got)
+	}
+	// Use would hide nothing behind the saved map's own files, but refuses
+	// to put other files under its name.
+	if g.mapNameTaken(made) {
+		t.Fatal("the saved map's own files count as another map")
+	}
+	other := generateFromContent(t, g.cs, 31)
+	hidden, err := newGeneratedMap(other.m, other.world, other.sources, "Lakeside Duel", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !g.mapNameTaken(hidden) {
+		t.Fatal("Use would hide another map under a saved map's name")
+	}
+	// A description that would open a TDF comment is refused by the form
+	// with its reason, before anything is written.
+	s := &mapgenScreen{open: true, naming: true, name: "Comment Duel", description: "see //here"}
+	s.job.result = other
+	s.save(g)
+	if s.message != "Leave // and /* out of the description" || slices.Contains(g.maps, "Comment Duel") {
+		t.Fatalf("a description with // saved, or refused with %q", s.message)
+	}
+}
+
+// A battle restart's archive remount keeps the run's generated maps, held
+// only in memory, so a battle on one restarts on it (DESIGN_MAP_GENERATOR §10).
+func TestBattleRestartKeepsGeneratedMaps(t *testing.T) {
+	base := mapgenFixtureContent(t)
+	cs, err := openContent(Options{Root: base, Mod: "none", ModSet: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	g := &gameShell{cs: cs, frontend: ui.NewFrontend(modeMenuSkirmish), setup: newSkirmishMenuConfig("")}
+	defer func() { g.releaseAudio(); _ = g.cs.Close() }()
+	r := generateFromContent(t, cs, 21)
+	made, err := newGeneratedMap(r.m, r.world, r.sources, mapgenName(r.world, r.m), mapgenDescription(r))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := g.mountGeneratedMap(made); err != nil {
+		t.Fatal(err)
+	}
+	if !g.prepareBattleRestartContent() {
+		t.Fatal("restart remount failed")
+	}
+	if got := g.cs.generatedRecipe(made.recipe.Name); got == nil || got.TNT != made.recipe.TNT {
+		t.Fatalf("after the restart remount the generated map is %+v", got)
+	}
+}
+
+// A burst of requests ends on the latest one's map, whose world's index the
+// job keeps; stopping joins the work and lets the index go, and nothing
+// arrives after it (DESIGN_MAP_GENERATOR §10).
+func TestGeneratorJobKeepsTheLatestRequest(t *testing.T) {
+	base := mapgenFixtureContent(t)
+	cs, err := mountContent(Options{}, []string{base}, modSelection{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cs.Close()
+	var j mapgenJob
+	j.bind(cs)
+	defer j.bind(nil)
+	world := content.CanonicalKey("Test World")
+	p := mapgen.Params{Players: 2, Size: 6, Relief: 1, Metal: 1, Seed: 1}
+	j.start(world, p)
+	for _, ready, _ := j.listed(); !ready; _, ready, _ = j.listed() {
+		time.Sleep(time.Millisecond)
+	}
+	if !j.waiting() {
+		t.Fatal("a request made before the worlds were listed is not waiting")
+	}
+	for seed := uint64(100); seed < 106; seed++ {
+		p.Seed = seed
+		j.start(world, p)
+	}
+	for _, running, _, _, _, _ := j.state(); running; _, running, _, _, _, _ = j.state() {
+		time.Sleep(time.Millisecond)
+	}
+	r, _, _, _, _, err := j.state()
+	if err != nil || r == nil || r.m.Code != mapgen.Code("Test World", p) {
+		t.Fatalf("result %v (%v), want the latest request's map", r, err)
+	}
+	j.mu.Lock()
+	kept := j.gen != nil && j.genWorld == world && j.indexing == ""
+	j.mu.Unlock()
+	if !kept {
+		t.Fatal("the latest world's index is not kept")
+	}
+	p.Seed = 999
+	j.start(world, p)
+	j.stop()
+	after, _, _, _, _, _ := j.state()
+	j.mu.Lock()
+	gone := j.gen == nil
+	j.mu.Unlock()
+	if after != r || !gone {
+		t.Fatalf("after stop: result changed %v, index kept %v", after != r, !gone)
+	}
+}
+
+// A library refresh closes an open generator panel, joining its work,
+// before it closes the content that work reads (DESIGN_MAP_GENERATOR §10).
+func TestLibraryRefreshClosesTheGenerator(t *testing.T) {
+	base := mapgenFixtureContent(t)
+	cs, err := mountContent(Options{}, []string{base}, modSelection{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	g := &gameShell{cs: cs, frontend: ui.NewFrontend(modeMenuSkirmish), setup: newSkirmishMenuConfig("")}
+	defer func() { g.releaseAudio(); _ = g.cs.Close() }()
+	previous := mapgenScreenInst
+	s := newMapgenScreen(func() *gameShell { return g })
+	mapgenScreenInst = s
+	defer func() { mapgenScreenInst = previous }()
+	s.open, s.world, s.p = true, content.CanonicalKey("Test World"), mapgen.Params{Players: 2, Size: 6, Relief: 1, Metal: 1, Seed: 7}
+	s.job.bind(cs)
+	s.regenerate()
+	if err := g.refreshMapLibrary(); err != nil {
+		t.Fatal(err)
+	}
+	if s.open || s.job.cs != nil {
+		t.Fatalf("after a refresh the panel is open %v, bound %v", s.open, s.job.cs != nil)
 	}
 }
 

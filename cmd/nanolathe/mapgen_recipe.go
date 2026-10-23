@@ -133,11 +133,14 @@ func mapgenWorkers() int {
 	return max(1, min(mapgen.Candidates, runtime.GOMAXPROCS(0)-1))
 }
 
-// regenerateMap makes a recipe's map again from the mounted content: the
-// recipe's own source maps, each with the bytes it had, the same generator
-// version, and files with the recipe's hashes. Any difference is an error
-// that names it; nothing is made from other sources.
-func regenerateMap(ctx context.Context, fs vfs.FSOps, maxTNTBytes int64, r mapgenRecipe) (*generatedMap, error) {
+// regenerateMap makes a recipe's map again from the mounted content, whose
+// map library packages are mapRoots: the recipe's own source maps, from the
+// archives it names, each with the bytes it had, the same generator version,
+// and files with the recipe's hashes. Any difference is an error that names
+// it; nothing is made from other sources. A recipe comes from a save or a
+// replay file, so one with more sources than the generator reads, or with a
+// source twice, is refused before anything is read.
+func regenerateMap(ctx context.Context, fs vfs.FSOps, mapRoots []string, maxTNTBytes int64, r mapgenRecipe) (*generatedMap, error) {
 	if r.Format != mapgenRecipeFormat {
 		return nil, fmt.Errorf("nanolathe: generated map %q: recipe format %d, this build reads %d", r.Name, r.Format, mapgenRecipeFormat)
 	}
@@ -151,7 +154,15 @@ func regenerateMap(ctx context.Context, fs vfs.FSOps, maxTNTBytes int64, r mapge
 	if slug != mapgen.Slug(r.World) || len(r.Sources) == 0 {
 		return nil, fmt.Errorf("nanolathe: generated map %q: recipe code %s does not match its world %q and sources", r.Name, r.Code, r.World)
 	}
-	worlds, err := mapgenWorlds(fs)
+	if len(r.Sources) > mapgenMaxSources {
+		return nil, fmt.Errorf("nanolathe: generated map %q: recipe names %d source maps, expected at most %d", r.Name, len(r.Sources), mapgenMaxSources)
+	}
+	for i, id := range r.Sources {
+		if slices.ContainsFunc(r.Sources[:i], func(o mapgenSourceID) bool { return strings.EqualFold(o.Map, id.Map) }) {
+			return nil, fmt.Errorf("nanolathe: generated map %q: recipe names source map %s twice", r.Name, id.Map)
+		}
+	}
+	worlds, err := mapgenWorlds(fs, mapRoots)
 	if err != nil {
 		return nil, err
 	}
@@ -159,7 +170,7 @@ func regenerateMap(ctx context.Context, fs vfs.FSOps, maxTNTBytes int64, r mapge
 	if i < 0 {
 		return nil, fmt.Errorf("nanolathe: generated map %q: the content has no %s maps, expected %s from %s", r.Name, r.World, r.Sources[0].Map, r.Sources[0].Archive)
 	}
-	world, _, err := mapgenWorld(fs, worlds[i], maxTNTBytes, r.Sources)
+	world, _, err := mapgenWorld(ctx, fs, worlds[i], maxTNTBytes, r.Sources)
 	if err != nil {
 		return nil, err
 	}

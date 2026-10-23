@@ -722,6 +722,7 @@
   "The code's world is not in this content": "Світу з цього коду немає в цьому вмісті",
   "Use letters, digits and spaces for the name": "Назва — лише з літер, цифр і пробілів",
   "A map of that name is already listed": "Карта з такою назвою вже є в списку",
+  "Leave // and /* out of the description": "Приберіть з опису // та /*",
   "No world has enough maps to take tiles from": "Жоден світ не має досить карт, щоб узяти з них графіку",
   "No layout of {#} players on a {#}x{#} map kept every base apart; try another seed, less relief or a larger map": "Жодне розташування {} гравців на карті {}x{} не розвело бази; спробуйте іншу карту, менший рельєф або більший розмір",
   "No layout of {#} players on a {#}x{#} map connected every base; try another seed, less relief or a larger map": "Жодне розташування {} гравців на карті {}x{} не з'єднало всі бази; спробуйте іншу карту, менший рельєф або більший розмір",

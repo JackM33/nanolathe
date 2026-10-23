@@ -653,6 +653,9 @@ func (g *gameShell) refreshMapLibraryExcluding(exclude string) error {
 	if nlScreenInst != nil {
 		nlScreenInst.releasePreview(true)
 	}
+	// The map generator reads the old set too; its work stops and joins
+	// before that set closes.
+	closeMapGenerator()
 	g.releaseAudio()
 	g.audioOwner, g.frontendAliasesBound = nil, false
 	g.cs = fresh

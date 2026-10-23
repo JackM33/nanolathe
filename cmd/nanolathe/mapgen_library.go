@@ -147,6 +147,11 @@ func (c *contentSet) generatedRecipe(mapName string) *mapgenRecipe {
 		}
 		return nil
 	}
+	// Only a map library package can be a saved one; any other map is
+	// answered without reading the library.
+	if !slices.ContainsFunc(c.mapRoots, func(root string) bool { return pathInsideMapPackage(root, info.Source.SourcePath) }) {
+		return nil
+	}
 	root, err := maplibrary.DefaultRoot()
 	if err != nil {
 		return nil
