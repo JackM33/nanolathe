@@ -524,8 +524,10 @@ The battle Game Options and Load Game difficulty labels name that entry AI
 tier. For an in-battle save, Load Game reads its recorded `community.entry`
 table. A between-missions continuation instead names the next mission, which
 starts fresh under the recorded current rule set and Community sources; its
-label resolves that selection with the same rule-set fallback as load. This
-changes no campaign schema selection or difficulty index.
+label resolves that selection with the same rule-set fallback as load. The
+`BetweenMissions` scalar's presence selects this route, including a present
+zero payload; an absent scalar selects battle restoration. This changes no
+campaign schema selection or difficulty index.
 Mounted content, current preferences and a running battle do not affect it.
 With no sidecar it uses the retail index order; an unreadable sidecar leaves
 the difficulty label empty. This display fallback does not change the

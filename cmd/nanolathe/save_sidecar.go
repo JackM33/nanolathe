@@ -355,7 +355,9 @@ func saveSummaryDifficulty(bankPath string, summary save.Summary) int32 {
 		return summary.Difficulty
 	}
 	features := sc.Community.Entry
-	if summary.BetweenMissions == 1 {
+	// Load preflight branches on scalar presence, including a zero payload
+	// [08 R-SAVE-02 §11]; the label must describe that same fresh entry.
+	if summary.HasBetweenMissions {
 		sel, err := resolveSidecarSelection(sc)
 		if err != nil {
 			return -1

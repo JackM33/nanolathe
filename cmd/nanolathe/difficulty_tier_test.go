@@ -58,7 +58,7 @@ func TestSaveDifficultyUsesRecordedRules(t *testing.T) {
 			if tc.nextReverse {
 				wantNext = 2
 			}
-			if got := saveSummaryDifficulty(path, save.Summary{BetweenMissions: 1}); got != wantNext {
+			if got := saveSummaryDifficulty(path, save.Summary{BetweenMissions: 1, HasBetweenMissions: true}); got != wantNext {
 				t.Fatalf("continuation displayed tier %d, want next-entry tier %d", got, wantNext)
 			}
 			if err := save.RemoveSidecar(path); err != nil {
@@ -77,6 +77,72 @@ func TestSaveDifficultyUsesRecordedRules(t *testing.T) {
 	}
 }
 
+// The loader routes by marker presence, including a present zero payload.
+// Decode real Summary banks so the label and preflight use the same evidence.
+func TestSaveDifficultyUsesSummaryRoutingPresence(t *testing.T) {
+	on := true
+	for _, tc := range []struct {
+		mode       gameplay.Mode
+		entry      bool
+		battleTier int32
+		nextTier   int32
+	}{
+		{gameplay.Strict31, true, 2, 0},
+		{gameplay.Community39, false, 0, 2},
+	} {
+		t.Run(string(tc.mode), func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "routing.SAV")
+			sc := save.Sidecar{Rules: string(tc.mode), Gameplay: string(tc.mode), Community: save.SidecarCommunity{
+				Entry:   community.Features{AIDifficultyReversed: tc.entry},
+				Sources: save.SidecarCommunitySources{Content: []community.Overrides{{AIDifficultyReversed: &on}}},
+			}}
+			if err := save.WriteSidecar(path, sc); err != nil {
+				t.Fatal(err)
+			}
+			for _, marker := range []struct {
+				name    string
+				present bool
+				value   int32
+			}{
+				{"absent", false, 0},
+				{"present zero", true, 0},
+				{"present one", true, 1},
+			} {
+				t.Run(marker.name, func(t *testing.T) {
+					builder := save.NewBuilder()
+					account := builder.Add(save.SummaryAccount)
+					account.SetInt("Gametype", session.GametypeCampaign)
+					account.SetInt("Difficulty", 0)
+					if marker.present {
+						account.SetInt("BetweenMissions", marker.value)
+					}
+					if err := save.WriteFile(path, builder.Bytes()); err != nil {
+						t.Fatal(err)
+					}
+					bank, err := save.Open(path)
+					if err != nil {
+						t.Fatal(err)
+					}
+					loaded, err := session.PreflightRetailLoad(bank)
+					if err != nil {
+						t.Fatal(err)
+					}
+					wantRoute, wantTier := session.RetailLoadRouteBattleRestoration, tc.battleTier
+					if marker.present {
+						wantRoute, wantTier = session.RetailLoadRouteCampaignContinuation, tc.nextTier
+					}
+					if loaded.Route != wantRoute || loaded.Summary.HasBetweenMissions != marker.present || loaded.Summary.BetweenMissions != marker.value {
+						t.Fatalf("decoded route %v, marker %d present=%t; want route %v, marker %d present=%t", loaded.Route, loaded.Summary.BetweenMissions, loaded.Summary.HasBetweenMissions, wantRoute, marker.value, marker.present)
+					}
+					if got := saveSummaryDifficulty(path, loaded.Summary); got != wantTier {
+						t.Fatalf("decoded route %v displays tier %d, want %d", loaded.Route, got, wantTier)
+					}
+				})
+			}
+		})
+	}
+}
+
 // Selecting another file refreshes the production dialog from that file's
 // sidecar, even while the shell and the mounted content select other rules.
 func TestSaveDialogDifficultyFollowsSelection(t *testing.T) {
@@ -88,7 +154,7 @@ func TestSaveDialogDifficultyFollowsSelection(t *testing.T) {
 	on := true
 	for _, mode := range []gameplay.Mode{gameplay.Strict31, gameplay.Community39} {
 		path := session.RetailSavePath(dir, string(mode))
-		summary := save.Summary{Description: string(mode), Gametype: 2, Players: 2, Difficulty: 0}
+		summary := save.Summary{Description: string(mode), Gametype: 2, Players: 2, Difficulty: 0, IsBattle: true}
 		bank := save.NewBuilder()
 		save.WriteSummary(bank, summary)
 		if err := save.WriteFile(path, bank.Bytes()); err != nil {
