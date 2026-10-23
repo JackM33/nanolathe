@@ -646,8 +646,20 @@ reads the service's projected table copy. Modern embeds Community.
 - **Table identity locks.** The resolved table for retail content under
   Community 3.9 equals the embedded `prota` table; under Strict it is zero
   whatever the sources say; a mod config's `communityFeatures` resolves to
-  exactly the value the removed table and profile produced (digests locked);
+  exactly the value the removed table and profile produced (digests locked),
+  plus only the explicitly declared post-migration additions in
+  `shippedConfig.added`. Escalation's difficulty reversal is that config's
+  sole addition; the frozen replica still matches its original digest;
   a settings override wins over the config and the command line over both.
+- **Escalation difficulty order (§4.8).** `TestDifficultyTierReversesOnlyUnderTheSwitch`,
+  `TestReversedSeatWordsReachEveryReader` and
+  `TestEscalationConfigPlaysIndexZeroHard` lock the plan/persona, ledger and
+  refund interpretation and Strict bypass. The parameter-layer and codec
+  matrix keeps all three stored indices under every reserved mode;
+  `TestReversedDifficultySurvivesSaveRestore` keeps the raw bank index and
+  recorded rules after a mode switch. The host tests select saves under
+  opposing current rules and check the room's effective labels. Checkpoint
+  schema 6 retains the flag explicitly in every full table copy.
 - **ProTA package switches (§4.7).** The mainline table leaves them false and
   keeps its digest; a config's `communityFeatures` enables them and a later source
   disables them field by field; Strict projects zero onto the economy, combat

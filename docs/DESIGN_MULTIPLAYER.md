@@ -3055,6 +3055,7 @@ every resolved Community table, after `AIDifficultyIncome` in source-field
 lexical order. The table is now 32 boolean bytes and fourteen i64s (144
 bytes), including false values. The shared version also changes the AI
 application-history hash domains; their receipt payloads are unchanged.
+
 Schema 5 (2026-10-20) adds the stateless feature-pool policy tag. Modern
 feature allocation grows to the plot-cell count; Strict/Community admission
 keeps 2,048, and a switch preserves already existing records

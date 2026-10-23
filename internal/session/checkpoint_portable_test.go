@@ -201,7 +201,7 @@ func checkpointPortableHeader(t *testing.T, data []byte, id checkpoint.Identity)
 	want = append(want, id.Config[:]...)
 	want = append(want, 13, 0)
 	if !bytes.HasPrefix(data, want) {
-		t.Fatal("capture lacks the complete schema-5 header")
+		t.Fatal("capture lacks the complete schema-6 header")
 	}
 }
 
