@@ -525,7 +525,10 @@ tier. For an in-battle save, Load Game reads its recorded `community.entry`
 table. A between-missions continuation instead names the next mission, which
 starts fresh under the recorded current rule set and Community sources; its
 label resolves that selection with the same rule-set fallback as load. The
-`BetweenMissions` scalar's presence selects this route, including a present
+loaded briefing captures the saved sources for its Start action without
+changing the host's Community preferences; a later fresh briefing uses the
+host's sources (DESIGN_MODS_MUTATORS §7.3).
+The `BetweenMissions` scalar's presence selects this route, including a present
 zero payload; an absent scalar selects battle restoration. This changes no
 campaign schema selection or difficulty index.
 Mounted content, current preferences and a running battle do not affect it.
@@ -673,8 +676,12 @@ reads the service's projected table copy. Modern embeds Community.
   matrix keeps all three stored indices under every reserved mode;
   `TestReversedDifficultySurvivesSaveRestore` keeps the raw bank index and
   recorded rules after a mode switch. The host tests select saves under
-  opposing current rules and check the room's effective labels. Checkpoint
-  schema 6 retains the flag explicitly in every full table copy.
+  opposing current rules and check the room's effective labels.
+  `TestContinuationDifficultyMatchesBriefingStart` follows the loaded
+  continuation through Start with opposing current overrides, including a
+  present-zero marker, then checks that fresh briefings and sidecar-free
+  continuations still use the host's sources. Checkpoint schema 6 retains
+  the flag explicitly in every full table copy.
 - **ProTA package switches (§4.7).** The mainline table leaves them false and
   keeps its digest; a config's `communityFeatures` enables them and a later source
   disables them field by field; Strict projects zero onto the economy, combat

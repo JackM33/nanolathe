@@ -3,14 +3,17 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 
 	"github.com/nanolathe-gg/nanolathe/internal/client"
 	"github.com/nanolathe-gg/nanolathe/internal/community"
 	"github.com/nanolathe-gg/nanolathe/internal/frame"
 	"github.com/nanolathe-gg/nanolathe/internal/gameplay"
+	"github.com/nanolathe-gg/nanolathe/internal/gui"
 	"github.com/nanolathe-gg/nanolathe/internal/save"
 	"github.com/nanolathe-gg/nanolathe/internal/session"
+	"github.com/nanolathe-gg/nanolathe/internal/ui"
 )
 
 // A selected save's label follows its recorded entry rules, including a
@@ -232,5 +235,105 @@ func TestDifficultyLabelsUseTheOwningBattleAndRoom(t *testing.T) {
 		if got := battleGameOptionsRows(&battleSession{sess: sess})[4].Value; got != want || sess.Skirmish.Difficulty != 0 {
 			t.Fatalf("battle reverse=%t: label %q, stored index %d", reverse, got, sess.Skirmish.Difficulty)
 		}
+	}
+}
+
+// A continuation's displayed tier must reach the actual briefing Start request,
+// even when today's overrides disagree. Its recorded sources belong to that
+// briefing only (DESIGN_MODS_MUTATORS §7.3, DESIGN_COMMUNITY_PATCH §4.8).
+func TestContinuationDifficultyMatchesBriefingStart(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		mode     gameplay.Mode
+		reversed bool
+		marker   int32
+	}{
+		{"Community Hard", gameplay.Community39, true, 1},
+		{"Community Easy, zero marker", gameplay.Community39, false, 0},
+		{"Modern Hard, zero marker", gameplay.Modern, true, 0},
+		{"Modern Easy", gameplay.Modern, false, 1},
+		{"Strict ignores reversal", gameplay.Strict31, true, 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			resetSaveLoadScreenState(t)
+			t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+			t.Setenv("XDG_DATA_HOME", t.TempDir())
+			cs, campaigns := campaignWorkflowFixture(t)
+			defer cs.Close()
+			savedReverse, currentReverse := tc.reversed, !tc.reversed
+			g := &gameShell{cs: cs, campaigns: campaigns, frontend: ui.NewFrontend(modeMenuSingle),
+				opts: Options{Seed: 7, Gameplay: gameplay.Strict31, GameplayOverrides: []community.Overrides{{AIDifficultyReversed: &currentReverse}}},
+				assets: &menuAssets{
+					panel:    map[shellMode]*retailPanelAssets{modeMenuMission: {window: newgameTestWindow()}},
+					briefing: &retailPanelAssets{window: &gui.Window{Gadgets: []gui.Gadget{{Kind: gui.KindPanel, Active: 1}}}},
+				}}
+			t.Cleanup(func() {
+				if g.audioOwner != nil {
+					g.audioOwner.Close()
+				}
+			})
+			path := filepath.Join(t.TempDir(), "continuation.SAV")
+			summary := save.Summary{Campaign: "camps/arm.tdf", Mission: "Second", Gametype: session.GametypeCampaign,
+				Players: 1, Difficulty: 0, Side: 0, BetweenMissions: tc.marker, HasBetweenMissions: true}
+			bank := save.NewBuilder()
+			save.WriteSummary(bank, summary)
+			bank.Add(save.SummaryAccount).SetInt("BetweenMissions", tc.marker)
+			if err := save.WriteFile(path, bank.Bytes()); err != nil {
+				t.Fatal(err)
+			}
+			sc := save.Sidecar{Rules: string(tc.mode), Gameplay: string(tc.mode), Community: save.SidecarCommunity{
+				Entry: community.Features{AIDifficultyReversed: currentReverse},
+				Sources: save.SidecarCommunitySources{
+					Content: []community.Overrides{{AIDifficultyReversed: &currentReverse}},
+					Player:  community.Overrides{AIDifficultyReversed: &savedReverse},
+				},
+			}}
+			if err := save.WriteSidecar(path, sc); err != nil {
+				t.Fatal(err)
+			}
+			start := func(want session.CommunitySources) int {
+				t.Helper()
+				if g.briefing == nil {
+					t.Fatal("continuation did not open a briefing")
+				}
+				event, err := g.briefing.Dispatch(BriefingActionStart)
+				if err != nil || !event.Valid {
+					t.Fatalf("briefing Start: valid=%t, error=%v", event.Valid, err)
+				}
+				req := event.Request.value
+				if req.Gameplay != tc.mode || req.Difficulty != 0 || req.SimulationSeed != 7 || req.CRTSeed != 7 {
+					t.Fatalf("Start changed recorded mode/index or host seeds: %+v", req)
+				}
+				if !reflect.DeepEqual(req.CommunitySources, want) {
+					t.Error("Start did not retain the expected Community source layers")
+				}
+				features, err := session.ResolveCommunity(req.Gameplay, req.CommunitySources)
+				if err != nil {
+					t.Fatal(err)
+				}
+				return session.DifficultyTier(features, req.Difficulty)
+			}
+			if err := g.loadRetailSavePath(path); err != nil {
+				t.Fatal(err)
+			}
+			if got, want := start(session.SidecarCommunitySources(sc.Community)), int(saveSummaryDifficulty(path, summary)); got != want {
+				t.Fatalf("briefing starts tier %d, Load Game displays %d", got, want)
+			}
+			// Back abandons the saved briefing. A fresh one reads today's sources.
+			if err := g.loadRetailSavePath(path); err != nil {
+				t.Fatal(err)
+			}
+			g.dispatchBriefing(BriefingActionPrev)
+			g.openCampaignBriefing()
+			start(communitySources(g.opts, g.cs))
+			// A bank without a sidecar keeps the existing fresh-entry policy.
+			if err := save.RemoveSidecar(path); err != nil {
+				t.Fatal(err)
+			}
+			if err := g.loadRetailSavePath(path); err != nil {
+				t.Fatal(err)
+			}
+			start(communitySources(g.opts, g.cs))
+		})
 	}
 }
