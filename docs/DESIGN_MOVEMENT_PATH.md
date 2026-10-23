@@ -1513,7 +1513,7 @@ charge no resources and allocate no projectile. Reload, aim and incoming-damage
 coordination waits supply no physical refusal.
 
 After choosing a clear escape point, the same bounded candidate set supplies a
-companion point. It must meet the same lateral distance from the first point,
+companion point. It must meet the same lateral distance in both directions,
 preview clear at both ends and at the quarter, half and three-quarter positions
 between them, and minimize the existing exposure/wingman/distance score.
 The pilot alternates these two points on arrival. This preserves a usable
@@ -1526,6 +1526,13 @@ fire. A new order, restore or gap in Modern hover visits discards the plan.
 When no pair is proven clear, ordinary point selection continues. Sampling
 does not prove every point of the aircraft's curved flight clear, predict
 future obstacles, or bypass any pellet's final admission.
+If every candidate is blocked or unproven, retain the fallback goal for up to
+15 ticks before another full physical search. Failed shots do not start reload,
+so otherwise each tick would repeat the search and replace the movement goal.
+Arrival, changed target geometry or threats, or changed under-fire status
+invalidates this failed result sooner; a previously clear point that becomes
+blocked gets an immediate search. This retry interval applies only after a
+failed search, not to the first observed refusal.
 
 **Issue 121 follow-up.** A move between the two rings on the same bearing is
 large enough to pass the former 64-unit travel test, but is entirely radial:
@@ -1666,7 +1673,10 @@ including tick wrap; `TestAirHoverUsesPhysicalRefusalForFiringPoint` checks
 immediate recovery, retention of a clear escape leg, candidate altitude and
 RNG-neutral preview. `TestAirHoverKeepsClearSlideUntilConditionsChange` and
 `TestAirHoverClearEndpointsDoNotProveClearSlide` lock the reusable path's
-evidence and lifetime. The retail-content
+evidence and lifetime.
+`TestAirHoverClearSlideMovesLaterallyInBothDirections` checks mixed-ring return
+legs, and `TestAirHoverFailedFiringSearchKeepsMovingUntilRetry` bounds unsuccessful
+searches without replacing their moving fallback. The retail-content
 `airdiag.TestGunshipsSlideAndFireThroughRealFlight` checks each of three
 Brawlers' actual emitted pellets in consecutive 240-tick windows, lateral
 travel and bounded stops during direct attacks and patrols around an

@@ -224,6 +224,104 @@ func TestAirHoverKeepsClearSlideUntilConditionsChange(t *testing.T) {
 	}
 }
 
+func TestAirHoverFailedFiringSearchKeepsMovingUntilRetry(t *testing.T) {
+	for _, change := range []string{"wait", "position", "threats", "arrival"} {
+		t.Run(change, func(t *testing.T) {
+			sys, w, u := wideAirFixture(t)
+			target := airTargetFor(t, sys, w, 64, 32)
+			u.InstallWeapon(0, &content.WeaponDef{ID: 1, Range: 360})
+			u.X, u.Z = target.X+240<<16, target.Z
+			n := &orders.Node{ID: orders.Lookup("AirToGroundHover"), Owner: u.Handle, Target: target.Handle, Phase: 2}
+			p := sys.airPilotFor(u, n, 100)
+			p.fresh = false
+			previews := 0
+			orders.QueueOfUnit(u).Binding().Weapons = orders.NewWeaponAdapter(orders.WeaponAdapterConfig{
+				CanEngage:             func(*units.Unit, pool.Handle, int) bool { return true },
+				FiringPositionBlocked: func(*units.Unit, *units.Unit, uint32) bool { return true },
+				FiringPositionClear: func(*units.Unit, *units.Unit, uint32, numeric.Fixed, numeric.Fixed, numeric.Fixed) bool {
+					previews++
+					return false
+				},
+			})
+			sys.legAirToGroundHoverModern(u, n, 101)
+			if p.noClearTarget != target || previews == 0 {
+				t.Fatal("first physical refusal did not search immediately")
+			}
+			flight := sys.FlightCommandFor(u.Handle, u)
+			point, marker := [2]int64{p.standX, p.standZ}, flight.Payload
+			previews = 0
+			switch change {
+			case "position":
+				target.X++
+			case "threats":
+				sys.airThreats[u.Owner].version++
+			case "arrival":
+				u.X, u.Z = numeric.FixedFromInt(p.standX), numeric.FixedFromInt(p.standZ)
+			}
+			for tick := uint32(102); tick < 116; tick++ {
+				sys.legAirToGroundHoverModern(u, n, tick)
+				if change != "wait" {
+					if p.standTick != tick || previews == 0 {
+						t.Fatal("changed conditions retained an obsolete failed search")
+					}
+					return
+				}
+				if p.standTick != 101 || [2]int64{p.standX, p.standZ} != point || flight.Payload != marker || previews != 0 {
+					t.Fatal("all-blocked search churned its moving fallback before retry")
+				}
+			}
+			sys.legAirToGroundHoverModern(u, n, 116)
+			if p.standTick != 116 || previews == 0 {
+				t.Fatal("failed search did not retry after 15 ticks")
+			}
+		})
+	}
+}
+
+func TestAirHoverClearSlideMovesLaterallyInBothDirections(t *testing.T) {
+	for _, bearing := range []uint16{4096, 8192} {
+		sys, w, u := wideAirFixture(t)
+		target := airTargetFor(t, sys, w, 64, 32)
+		tx, tz := int64(target.X>>16), int64(target.Z>>16)
+		const weaponRange, minimum = int64(370), int64(120)
+		ax, az := airAlong(tx, tz, 0, weaponRange*2/3)
+		bx, bz := airAlong(tx, tz, bearing, weaponRange*17/20)
+		u.X, u.Z = numeric.FixedFromInt(ax+1000), numeric.FixedFromInt(az)
+		n := &orders.Node{ID: orders.Lookup("AirToGroundHover"), Target: target.Handle}
+		p := sys.airPilotFor(u, n, 100)
+		points := make(map[[2]numeric.Fixed]bool)
+		for k := int64(0); k <= 4; k++ {
+			points[[2]numeric.Fixed{numeric.FixedFromInt(ax + (bx-ax)*k/4), numeric.FixedFromInt(az + (bz-az)*k/4)}] = true
+		}
+		orders.QueueOfUnit(u).Binding().Weapons = orders.NewWeaponAdapter(orders.WeaponAdapterConfig{
+			FiringPositionBlocked: func(*units.Unit, *units.Unit, uint32) bool { return true },
+			FiringPositionClear: func(_ *units.Unit, _ *units.Unit, _ uint32, x, y, z numeric.Fixed) bool {
+				return points[[2]numeric.Fixed{x, z}]
+			},
+		})
+		sys.airChooseStandoff(u, p, tx, tz, weaponRange, nil, true, 100)
+		if bearing == 4096 {
+			// This mixed-ring pair moves 120 units laterally one way, but
+			// only 94 on return. It must remain a single escape point.
+			if p.slideTarget != nil {
+				t.Fatal("accepted a return leg below the lateral floor")
+			}
+			continue
+		}
+		if p.slideTarget == nil {
+			t.Fatal("rejected a clear mixed-ring pair with two lateral legs")
+		}
+		dx, dz := p.slideX-p.standX, p.slideZ-p.standZ
+		cross := abs64(dx*(p.standZ-tz) - dz*(p.standX-tx))
+		for _, point := range [][2]int64{{p.standX, p.standZ}, {p.slideX, p.slideZ}} {
+			rx, rz := point[0]-tx, point[1]-tz
+			if cross < minimum*isqrt64(rx*rx+rz*rz) {
+				t.Fatal("retained slide fails a directional lateral floor")
+			}
+		}
+	}
+}
+
 func TestAirHoverClearEndpointsDoNotProveClearSlide(t *testing.T) {
 	sys, w, u := wideAirFixture(t)
 	target := airTargetFor(t, sys, w, 64, 32)

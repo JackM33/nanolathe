@@ -133,14 +133,17 @@ type airPilot struct {
 	standX, standZ int64
 	standTick      uint32
 	standVisit     uint32
+	standAim       Vec3
+	standPicture   uint32
+	standUnder     bool
+	// A failed search retains its fallback briefly; a refused shot can recur
+	// every tick without reloading, so searching again each time churns goals.
+	noClearTarget *units.Unit
 	// A refused shot can establish two firing points and the space between
 	// them. Keep that slide after escaping cover instead of choosing an
 	// unproven point again as soon as firing resumes.
 	slideX, slideZ int64
 	slideTarget    *units.Unit
-	slideAim       Vec3
-	slidePicture   uint32
-	slideUnder     bool
 	standSet       bool
 	standHeld      bool
 	refused        uint8
@@ -1465,6 +1468,7 @@ func (s *System) legAirToGroundHoverModern(u *units.Unit, n *orders.Node, tick u
 		return 5 // *complete*: the issuing order chooses again
 	}
 	under := p.underFire(tick)
+	samePlan := p.standAim == (Vec3{X: tx, Y: ty, Z: tz}) && p.standPicture == pic.version && p.standUnder == under
 	weapons := orderWeapons(u)
 	blocked := tgt != nil && weapons != nil && weapons.FiringPositionBlockedHook() != nil && weapons.FiringPositionBlockedHook()(u, tgt, tick)
 
@@ -1485,7 +1489,10 @@ func (s *System) legAirToGroundHoverModern(u *units.Unit, n *orders.Node, tick u
 		arrived := ds <= 24
 		// A moving gunship may never reach the old refusal sampling window.
 		// React in this weapon visit, but finish an already-clear escape leg.
-		if blocked && !s.airHoverPointClear(u, tgt, p.standX, p.standZ, tick) {
+		// Only an all-blocked search waits for the existing 15-tick refusal
+		// cadence. New target geometry or threats invalidate that result.
+		retry := p.noClearTarget != tgt || !samePlan || tick-p.standTick >= 15
+		if blocked && retry && !s.airHoverPointClear(u, tgt, p.standX, p.standZ, tick) {
 			replan = true
 		}
 		switch {
@@ -1500,14 +1507,13 @@ func (s *System) legAirToGroundHoverModern(u *units.Unit, n *orders.Node, tick u
 		}
 	}
 	if replan {
-		if p.slideTarget != nil && p.slideTarget == tgt && p.slideAim == (Vec3{X: tx, Y: ty, Z: tz}) &&
-			!blocked && p.refused <= 1 && p.slidePicture == pic.version && p.slideUnder == under {
+		if p.slideTarget != nil && p.slideTarget == tgt && samePlan && !blocked && p.refused <= 1 {
 			p.standX, p.slideX = p.slideX, p.standX
 			p.standZ, p.slideZ = p.slideZ, p.standZ
 			p.standTick, p.refused = tick, 0
 		} else {
 			s.airChooseStandoff(u, p, twx, twz, rng, pic.list, under, tick)
-			p.slideAim, p.slidePicture, p.slideUnder = Vec3{X: tx, Y: ty, Z: tz}, pic.version, under
+			p.standAim, p.standPicture, p.standUnder = Vec3{X: tx, Y: ty, Z: tz}, pic.version, under
 		}
 		p.standHeld = false
 		if airBelowThreeQuarters(u) && (under || airPointExposure(p.standX, p.standZ, pic.list) > 0) {
@@ -1657,6 +1663,10 @@ func (s *System) airChooseStandoff(u *units.Unit, p *airPilot, tx, tz, rng int64
 		bx, bz = px, pz
 	}
 	p.slideTarget = nil
+	p.noClearTarget = nil
+	if preview && !bestClear {
+		p.noClearTarget = target
+	}
 	if preview && bestClear {
 		// Endpoints alone can straddle a ridge or feature. Admit a reusable
 		// slide only when quarter, half and three-quarter points also preview
@@ -1670,7 +1680,10 @@ func (s *System) airChooseStandoff(u *units.Unit, p *airPilot, tx, tz, rng int64
 			}
 			dx, dz := c.x-bx, c.z-bz
 			move := isqrt64(dx*dx + dz*dz)
-			if move < minMove || abs64(dx*(bz-tz)-dz*(bx-tx)) < minMove*radial {
+			otherRadius := isqrt64((c.x-tx)*(c.x-tx) + (c.z-tz)*(c.z-tz))
+			// The retained pair is flown both ways. Mixed rings must meet
+			// the lateral floor about either endpoint's target bearing.
+			if move < minMove || abs64(dx*(bz-tz)-dz*(bx-tx)) < minMove*max(radial, otherRadius) {
 				continue
 			}
 			cost := pointCost(c.x, c.z, move)
