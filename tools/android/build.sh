@@ -44,6 +44,7 @@ mkdir -p android/app/libs
 	-androidapi 24 \
 	-javapkg gg.nanolathe.mobile \
 	-trimpath \
+	-ldflags='-s -w' \
 	-o android/app/libs/nanolathe.aar \
 	"./$gen/nanolathe"
 
@@ -51,7 +52,8 @@ gradle=gradle
 if [ -x android/gradlew ]; then
 	gradle=./gradlew
 fi
-(cd android && $gradle --no-daemon "assemble$variant")
+# clean: incremental packaging leaves the old library's bytes as holes in the APK.
+(cd android && $gradle --no-daemon clean "assemble$variant")
 
 lower=$(echo "$variant" | tr '[:upper:]' '[:lower:]')
 apk=$(ls android/app/build/outputs/apk/"$lower"/*.apk | head -1)
