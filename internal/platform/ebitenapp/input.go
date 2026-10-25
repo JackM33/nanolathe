@@ -108,6 +108,7 @@ func readInput(timestamp uint32) sampledInput {
 			}
 		}
 	}
+	nativeTouch.apply(&sample, time.Now())
 	return sample
 }
 

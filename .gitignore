@@ -38,3 +38,10 @@ __pycache__/
 # (which may contain local demo content).
 /build/
 /map-previews
+
+# Android build outputs (docs/ANDROID.md §4).
+/android/.gradle/
+/android/build/
+/android/app/build/
+/android/app/libs/
+/android/local.properties

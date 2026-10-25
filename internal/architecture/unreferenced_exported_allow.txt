@@ -9,6 +9,7 @@
 #
 # Regenerate with:
 #   NANOLATHE_UPDATE_ALLOWLIST=1 go test ./internal/architecture -run TestNoUnreferencedExported
+android/_gobind.Failure  # called from Java as Nanolathe.failure() through the ebitenmobile binding (docs/ANDROID.md §2)
 cmd/nanolathe.BriefingActionNone  # iota anchor of BriefingAction; removal renumbers the siblings
 formats.ThreeDOModel  # unreferenced type alias; delete candidate once its comment mention is settled
 internal/ai.ReasonNone  # iota anchor of ReasonCode

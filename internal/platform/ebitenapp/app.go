@@ -1165,6 +1165,7 @@ func (a *app) Layout(outsideWidth, outsideHeight int) (int, int) {
 	if a.screenActive() {
 		a.layoutW, a.layoutH = a.screenLayout(outsideWidth, outsideHeight)
 		nativeScroll.viewport(a.layoutW, a.layoutH, outsideWidth, outsideHeight)
+		nativeTouch.bounds(a.layoutW, a.layoutH)
 		return a.layoutW, a.layoutH
 	}
 	if a.overlayActive() {
@@ -1181,6 +1182,7 @@ func (a *app) Layout(outsideWidth, outsideHeight int) (int, int) {
 			// authored canvas pixels.
 			a.scrollPointScale = 1 / a.overlayScale
 		}
+		nativeTouch.bounds(a.layoutW, a.layoutH)
 		return a.layoutW, a.layoutH
 	}
 	if a.overlayWasActive {
@@ -1194,6 +1196,7 @@ func (a *app) Layout(outsideWidth, outsideHeight int) (int, int) {
 		a.scrollPointScale = max(float64(w)/float64(outsideWidth), float64(h)/float64(outsideHeight))
 	}
 	a.layoutW, a.layoutH = w, h
+	nativeTouch.bounds(a.layoutW, a.layoutH)
 	return a.layoutW, a.layoutH
 }
 
@@ -1379,5 +1382,5 @@ func Run(c *client.Client, mode RendererMode, options RunOptions) error {
 	defer game.fullscreenPresentation.close()
 	defer game.cursorClip.release()
 	RaiseCurrentThread()
-	return ebiten.RunGame(game)
+	return runGame(game)
 }
