@@ -743,16 +743,12 @@ func (p *pathProvider) Cancel(unit pool.Handle) bool {
 	}
 	return false
 }
+
+// HasRequest is the staged index's answer: the index holds exactly the units
+// with an entry in some player's map (Submit and dropRequest keep it in step,
+// and capture checks it against the maps), so no map need be read.
 func (p *pathProvider) HasRequest(unit pool.Handle) bool {
-	if !p.isStaged(int(unit)) {
-		return false
-	}
-	for player := range p.requests {
-		if _, ok := p.requests[player][unit]; ok {
-			return true
-		}
-	}
-	return false
+	return p.isStaged(int(unit))
 }
 func (p *pathProvider) allRequests() []path.Request {
 	var out []path.Request
