@@ -42,8 +42,9 @@ process from the view's side.
    offers to copy plain Total Annihilation without them: mounted that way,
    Escalation replaces shared art while its renamed folders go unread, which
    blanks build buttons ([ESCALATION_SUPPORT](ESCALATION_SUPPORT.md),
-   "Unconfigured upstream installations"). Escalation itself belongs in the
-   mod slot, from **Get more mods**;
+   "Unconfigured upstream installations"). Its recommended choice copies
+   plain Total Annihilation and then installs Escalation the supported way,
+   below;
 2. on **Start game**, shows a `GameView` (an `EbitenView` that also accepts
    the soft keyboard) and calls `Nanolathe.start` with the display's size in
    physical pixels. `StartAndroid` points `HOME` and the `XDG_*` directories
@@ -60,6 +61,18 @@ engine's usual start-up report, which names every mounted archive. Each
 per-gadget picture the window builder cannot resolve (`anims/<name>_gadget.GAF`
 for a build button, [07 R-WGT-01 §3]) is logged once with the reason, so blank
 build buttons can be traced to a missing file or entry.
+
+**TA: Escalation.** Escalation is played as Nanolathe's catalogue package in
+the mod slot, over a plain Total Annihilation copy. The launcher's **Install
+TA: Escalation** (and the folder dialog's recommended choice) calls
+`Nanolathe.installMod`, which runs `AndroidInstallMod` on a goroutine: the
+same catalogue fetch, resumable download, identity check and validated
+install against the base copy that the Mods screen's **Get more mods** runs,
+then the saved mod choice (`settings.Mod`), so every start mounts it. The
+launcher polls `Nanolathe.modStatus` for progress, names the saved mod, and
+keeps **Start game** disabled while an install runs. The package is the
+catalogue's version (Gold 10.2.0), whatever version the player's own folder
+held.
 
 The engine starts once per process. A second start asks the player to reopen
 the app.

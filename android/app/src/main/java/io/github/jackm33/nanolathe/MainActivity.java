@@ -68,6 +68,14 @@ public class MainActivity extends Activity {
     private ProgressBar progress;
     private Button startButton;
     private Button chooseButton;
+    private Button installButton;
+
+    // ---- TA: Escalation ----
+
+    /** The catalogue mod the app installs and selects for Escalation players. */
+    private static final String ESCALATION_ID = "escalation";
+    private static final String ESCALATION_VERSION = "10.2.0";
+    private static final int ESCALATION_MB = 345;
     private boolean copying;
 
     @Override
@@ -124,17 +132,33 @@ public class MainActivity extends Activity {
         }
         column.addView(info);
 
+        if (gameReady()) {
+            TextView mod = new TextView(this);
+            mod.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15);
+            mod.setTypeface(Typeface.DEFAULT_BOLD);
+            String saved = Nanolathe.savedMod(getFilesDir().getAbsolutePath());
+            mod.setText(saved.isEmpty() ? "Game: plain Total Annihilation" : "Game: " + modName(saved));
+            column.addView(mod);
+        }
+
         LinearLayout buttons = new LinearLayout(this);
         buttons.setOrientation(LinearLayout.HORIZONTAL);
         startButton = new Button(this);
         startButton.setText("Start game");
-        startButton.setEnabled(gameReady());
+        startButton.setEnabled(gameReady() && !Nanolathe.modBusy());
         startButton.setOnClickListener(v -> startGame());
         buttons.addView(startButton);
         chooseButton = new Button(this);
         chooseButton.setText(gameReady() ? "Choose a different folder" : "Choose game folder");
         chooseButton.setOnClickListener(v -> chooseFolder());
         buttons.addView(chooseButton);
+        if (gameReady() && !Nanolathe.savedMod(getFilesDir().getAbsolutePath()).startsWith(ESCALATION_ID + "@")) {
+            installButton = new Button(this);
+            installButton.setText("Install TA: Escalation (" + ESCALATION_MB + " MB)");
+            installButton.setOnClickListener(v -> installEscalation());
+            installButton.setEnabled(!Nanolathe.modBusy());
+            buttons.addView(installButton);
+        }
         if (logFile().exists()) {
             Button copy = new Button(this);
             copy.setText("Copy log");
@@ -225,7 +249,7 @@ public class MainActivity extends Activity {
                             + "Choose the folder Total Annihilation is installed in, the one with totala1.hpi.");
                 }
                 if (escalation == 0) {
-                    copyFiles(files, false);
+                    copyFiles(files, false, false);
                     return;
                 }
                 final int found = escalation;
@@ -233,11 +257,13 @@ public class MainActivity extends Activity {
                         .setTitle("TA: Escalation found")
                         .setMessage("This folder has " + found + " TA: Escalation files copied over Total Annihilation. "
                                 + "Nanolathe cannot use Escalation installed that way: it mixes the two and leaves "
-                                + "build buttons blank. Copy plain Total Annihilation without them? "
-                                + "(Escalation itself can be added later from Mods, Get more mods.)")
+                                + "build buttons blank.\n\nRecommended: copy plain Total Annihilation, then install "
+                                + "Nanolathe's own TA: Escalation package (Gold " + ESCALATION_VERSION + ", a "
+                                + ESCALATION_MB + " MB download), which is set up for this engine and becomes the game you play.")
                         .setCancelable(false)
-                        .setPositiveButton("Plain TA (recommended)", (d, w) -> new Thread(() -> copyFiles(files, true)).start())
-                        .setNegativeButton("Copy everything", (d, w) -> new Thread(() -> copyFiles(files, false)).start())
+                        .setPositiveButton("Escalation (recommended)", (d, w) -> new Thread(() -> copyFiles(files, true, true)).start())
+                        .setNeutralButton("Plain TA only", (d, w) -> new Thread(() -> copyFiles(files, true, false)).start())
+                        .setNegativeButton("Copy everything", (d, w) -> new Thread(() -> copyFiles(files, false, false)).start())
                         .show());
             } catch (Exception ex) {
                 copyFailed(ex);
@@ -285,7 +311,7 @@ public class MainActivity extends Activity {
      * already in the previous copy at the same path and size is moved rather
      * than read again, so choosing the same folder again is quick.
      */
-    private void copyFiles(List<Entry> all, boolean skipEscalation) {
+    private void copyFiles(List<Entry> all, boolean skipEscalation, boolean thenEscalation) {
         try {
             List<Entry> files = new ArrayList<>();
             long total = 0;
@@ -359,6 +385,9 @@ public class MainActivity extends Activity {
             main.post(() -> {
                 copying = false;
                 showLauncher(summary + (engineStarted ? " Close and reopen the app to play." : ""));
+                if (thenEscalation) {
+                    installEscalation();
+                }
             });
         } catch (Exception ex) {
             copyFailed(ex);
@@ -422,6 +451,53 @@ public class MainActivity extends Activity {
         }
         //noinspection ResultOfMethodCallIgnored
         file.delete();
+    }
+
+    /**
+     * Installs Nanolathe's TA: Escalation package over the copied game and
+     * selects it, as the Mods screen's Get more mods does (docs/ANDROID.md §2).
+     */
+    private void installEscalation() {
+        if (!gameReady() || Nanolathe.modBusy()) {
+            return;
+        }
+        try {
+            Nanolathe.installMod(getFilesDir().getAbsolutePath(), gameDir().getAbsolutePath(), ESCALATION_ID);
+        } catch (Exception e) {
+            if (status != null) {
+                status.setText("Could not start the install: " + e.getMessage());
+            }
+            return;
+        }
+        if (startButton != null) {
+            startButton.setEnabled(false);
+        }
+        if (installButton != null) {
+            installButton.setEnabled(false);
+        }
+        main.post(watchModInstall);
+    }
+
+    private final Runnable watchModInstall = new Runnable() {
+        @Override
+        public void run() {
+            String text = Nanolathe.modStatus();
+            if (Nanolathe.modBusy()) {
+                if (status != null) {
+                    status.setText(text);
+                }
+                main.postDelayed(this, 500);
+                return;
+            }
+            showLauncher(text + (engineStarted ? " Close and reopen the app to play." : ""));
+        }
+    };
+
+    private static String modName(String selector) {
+        if (selector.startsWith(ESCALATION_ID + "@")) {
+            return "TA: Escalation " + selector.substring(ESCALATION_ID.length() + 1);
+        }
+        return selector;
     }
 
     // ---- Logs ----

@@ -10,7 +10,10 @@
 # Regenerate with:
 #   NANOLATHE_UPDATE_ALLOWLIST=1 go test ./internal/architecture -run TestNoUnreferencedExported
 android/_gobind.Failure  # called from Java as Nanolathe.failure() through the ebitenmobile binding (docs/ANDROID.md §2)
+android/_gobind.ModBusy  # called from Java as Nanolathe.modBusy() through the ebitenmobile binding (docs/ANDROID.md §2)
+android/_gobind.ModStatus  # called from Java as Nanolathe.modStatus() through the ebitenmobile binding (docs/ANDROID.md §2)
 android/_gobind.PressKey  # called from Java as Nanolathe.pressKey() through the ebitenmobile binding (docs/ANDROID.md §3)
+android/_gobind.SavedMod  # called from Java as Nanolathe.savedMod() through the ebitenmobile binding (docs/ANDROID.md §2)
 android/_gobind.SetShift  # called from Java as Nanolathe.setShift() through the ebitenmobile binding (docs/ANDROID.md §3)
 android/_gobind.TypeText  # called from Java as Nanolathe.typeText() through the ebitenmobile binding (docs/ANDROID.md §3)
 cmd/nanolathe.BriefingActionNone  # iota anchor of BriefingAction; removal renumbers the siblings

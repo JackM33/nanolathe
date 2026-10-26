@@ -4,6 +4,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"io"
 	"io/fs"
@@ -15,6 +16,9 @@ import (
 	"sync/atomic"
 
 	"github.com/nanolathe-gg/nanolathe/internal/hud"
+	"github.com/nanolathe-gg/nanolathe/internal/install"
+	"github.com/nanolathe-gg/nanolathe/internal/modfetch"
+	"github.com/nanolathe-gg/nanolathe/internal/modlibrary"
 	"github.com/nanolathe-gg/nanolathe/internal/platform/ebitenapp"
 	"github.com/nanolathe-gg/nanolathe/internal/settings"
 	"github.com/nanolathe-gg/nanolathe/internal/ui"
@@ -34,18 +38,8 @@ var androidFailure atomic.Value
 // A command package cannot be imported, so tools/android/build.sh copies this
 // package into an importable one for the bound Android package to call.
 func StartAndroid(filesDir, gameDir string, screenW, screenH int) error {
-	// Go reports /sdcard as an Android home, which the app may not write. Every
-	// per-user directory the engine resolves goes to private storage instead.
-	for _, dir := range [...]struct{ env, name string }{
-		{"HOME", "home"}, {"XDG_CONFIG_HOME", "config"}, {"XDG_DATA_HOME", "data"}, {"XDG_CACHE_HOME", "cache"},
-	} {
-		path := filepath.Join(filesDir, dir.name)
-		if err := os.MkdirAll(path, 0o755); err != nil {
-			return fmt.Errorf("nanolathe: android start: logical path %s, providers searched [app files], expected a writable directory: %w", path, err)
-		}
-		if err := os.Setenv(dir.env, path); err != nil {
-			return err
-		}
+	if err := androidEnvironment(filesDir); err != nil {
+		return err
 	}
 	logPath := filepath.Join(filesDir, "nanolathe.log")
 	log, err := os.Create(logPath)
@@ -75,6 +69,134 @@ func StartAndroid(filesDir, gameDir string, screenW, screenH int) error {
 		}
 	}()
 	return nil
+}
+
+// androidEnvironment points every per-user directory the engine resolves at
+// the app's private storage: Go reports /sdcard as an Android home, which the
+// app may not write.
+func androidEnvironment(filesDir string) error {
+	for _, dir := range [...]struct{ env, name string }{
+		{"HOME", "home"}, {"XDG_CONFIG_HOME", "config"}, {"XDG_DATA_HOME", "data"}, {"XDG_CACHE_HOME", "cache"},
+	} {
+		path := filepath.Join(filesDir, dir.name)
+		if err := os.MkdirAll(path, 0o755); err != nil {
+			return fmt.Errorf("nanolathe: android start: logical path %s, providers searched [app files], expected a writable directory: %w", path, err)
+		}
+		if err := os.Setenv(dir.env, path); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// The app installs one catalogue mod at a time, before the game starts
+// (docs/ANDROID.md §2): TA: Escalation, which must not be copied over the
+// base game. Progress and outcome are text the launcher polls.
+var (
+	androidModBusy   atomic.Bool
+	androidModStatus atomic.Value
+)
+
+// AndroidInstallMod starts installing catalogue mod id over the copied base
+// game, as the Mods screen's Get more mods does, and saves it as the mod
+// to mount. It returns at once; AndroidModStatus reports progress.
+func AndroidInstallMod(filesDir, gameDir, id string) error {
+	if err := androidEnvironment(filesDir); err != nil {
+		return err
+	}
+	if !androidModBusy.CompareAndSwap(false, true) {
+		return fmt.Errorf("nanolathe: install mod: logical path %s, providers searched [app], expected the running install to finish", id)
+	}
+	androidModStatus.Store("Reading the mod catalogue...")
+	go func() {
+		defer androidModBusy.Store(false)
+		selector, err := androidInstallCatalogueMod(gameDir, id)
+		if err != nil {
+			androidModStatus.Store("Install failed: " + err.Error())
+			return
+		}
+		androidModStatus.Store("Installed " + selector + ".")
+	}()
+	return nil
+}
+
+func androidInstallCatalogueMod(gameDir, id string) (string, error) {
+	base, err := install.Resolve([]string{gameDir})
+	if err != nil {
+		return "", err
+	}
+	lib, err := openModLibrary()
+	if err != nil {
+		return "", err
+	}
+	client := &modfetch.Client{CatalogURL: modfetch.CatalogURL(), CacheDir: lib.Root}
+	ctx := context.Background()
+	fetched, err := client.FetchManifest(ctx)
+	if err != nil {
+		return "", err
+	}
+	var entry modfetch.Entry
+	for _, e := range fetched.Manifest.Mods {
+		if e.ID == id {
+			entry = e
+		}
+	}
+	if entry.ID == "" {
+		return "", fmt.Errorf("nanolathe: install mod: logical path %s, providers searched [%s], expected a catalogue entry", id, modfetch.CatalogURL())
+	}
+	if _, installed, err := lib.Lookup(entry.ID, entry.Version); err != nil {
+		return "", err
+	} else if !installed {
+		// A transfer that stops part-way keeps its part file, so the next
+		// attempt resumes it, as the Mods screen's does.
+		dst := filepath.Join(lib.Root, ".downloads", entry.ArchiveName())
+		if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+			return "", err
+		}
+		err := client.Download(ctx, entry, dst, func(done, total int64) {
+			androidModStatus.Store(fmt.Sprintf("Downloading %s: %d / %d MB", entry.Name, done>>20, total>>20))
+		})
+		if err != nil {
+			return "", err
+		}
+		androidModStatus.Store("Installing " + entry.Name + "...")
+		options := entry.InstallOptions()
+		options.Validate = modlibrary.ContentValidator(base)
+		if _, err := lib.InstallArchive(dst, options); err != nil {
+			return "", err
+		}
+		_ = os.Remove(dst)
+	}
+	s, err := settings.Load()
+	if err != nil {
+		return "", err
+	}
+	s.Mod = settings.ModSelection{ID: entry.ID, Version: entry.Version}
+	if err := s.Save(); err != nil {
+		return "", err
+	}
+	return modSelectorOf(entry.ID, entry.Version), nil
+}
+
+// AndroidModStatus is the running or last mod install's progress, or "".
+func AndroidModStatus() string {
+	text, _ := androidModStatus.Load().(string)
+	return text
+}
+
+// AndroidModBusy reports a mod install in progress.
+func AndroidModBusy() bool { return androidModBusy.Load() }
+
+// AndroidSavedMod is the mod the game will mount, as id@version, or "".
+func AndroidSavedMod(filesDir string) string {
+	if androidEnvironment(filesDir) != nil {
+		return ""
+	}
+	s, err := settings.Load()
+	if err != nil || s.Mod.ID == "" {
+		return ""
+	}
+	return modSelectorOf(s.Mod.ID, s.Mod.Version)
 }
 
 // writeGameFolderReport lists the copied game folder at the head of the log,
