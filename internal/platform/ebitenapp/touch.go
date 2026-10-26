@@ -73,7 +73,7 @@ type touchAdapter struct {
 	until          time.Time // end of the current synthesized press or drag anchor
 	pair           [2]ebiten.TouchID
 	lastCX, lastCY float64
-	lastDistance   float64
+	lastSpread     float64
 	touchFirst     bool   // the host has no mouse cursor to fall back on
 	onArm          func() // feedback when a held finger arms; nil in tests
 }
@@ -233,16 +233,17 @@ func (t *touchAdapter) step(sample *sampledInput, ids []ebiten.TouchID, pos func
 			}
 			break
 		}
-		cx, cy, distance := pairGeometry(t.pair, pos)
+		cx, cy, spread := pairGeometry(t.pair, pos)
 		sample.panX += cx - t.lastCX
 		sample.panY += cy - t.lastCY
-		if t.lastDistance > 0 && distance > 0 && distance != t.lastDistance {
+		if t.lastSpread > 0 && spread > 0 && spread != t.lastSpread {
 			// The battle's smooth pinch doubles a trackpad's magnification
 			// (pinchSensitivity in cmd/nanolathe/trackpad.go); half the log
-			// of the distance ratio keeps the map under the fingers.
-			sample.pinches = append(sample.pinches, input.PinchEvent{Delta: math.Log(distance/t.lastDistance) / 2})
+			// of the distance ratio keeps the map under the fingers. That is
+			// a quarter of the log of the squared ratio, which needs no root.
+			sample.pinches = append(sample.pinches, input.PinchEvent{Delta: math.Log(spread/t.lastSpread) / 4})
 		}
-		t.lastCX, t.lastCY, t.lastDistance = cx, cy, distance
+		t.lastCX, t.lastCY, t.lastSpread = cx, cy, spread
 		t.x, t.y = int32(cx), int32(cy)
 	case touchEdge:
 		if !slices.Contains(ids, t.primary) {
@@ -283,7 +284,7 @@ func (t *touchAdapter) begin(sample *sampledInput, ids []ebiten.TouchID, pos fun
 
 func (t *touchAdapter) beginPair(sample *sampledInput, ids []ebiten.TouchID, pos func(ebiten.TouchID) (int, int)) {
 	t.pair = [2]ebiten.TouchID{ids[0], ids[1]}
-	t.lastCX, t.lastCY, t.lastDistance = pairGeometry(t.pair, pos)
+	t.lastCX, t.lastCY, t.lastSpread = pairGeometry(t.pair, pos)
 	t.x, t.y = int32(t.lastCX), int32(t.lastCY)
 	t.left, t.right, t.middle = false, false, false
 	t.phase = touchTwoFinger
@@ -316,9 +317,11 @@ func (t *touchAdapter) park() {
 	t.y = min(max(t.y, touchEdgeInset), h-1-touchEdgeInset)
 }
 
-func pairGeometry(pair [2]ebiten.TouchID, pos func(ebiten.TouchID) (int, int)) (cx, cy, distance float64) {
+// pairGeometry is two fingers' midpoint and the square of their distance.
+func pairGeometry(pair [2]ebiten.TouchID, pos func(ebiten.TouchID) (int, int)) (cx, cy, spread float64) {
 	ax, ay := pos(pair[0])
 	bx, by := pos(pair[1])
 	cx, cy = float64(ax+bx)/2, float64(ay+by)/2
-	return cx, cy, math.Hypot(float64(bx-ax), float64(by-ay))
+	dx, dy := float64(bx-ax), float64(by-ay)
+	return cx, cy, dx*dx + dy*dy
 }
