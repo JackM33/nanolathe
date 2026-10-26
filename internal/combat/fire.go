@@ -157,6 +157,32 @@ type FirePorts struct {
 
 // The live slot executor is distinct from event reconstruction. A meteor-only
 // or ballistic-only definition has no unit-fire executor [06 §3.3][06 §6.2].
+// fireTrial is the value copies a Modern shot preview draws its spread on:
+// the slot and the simulation stream, committed only when the shot is
+// admitted. The records are a stack on the service, one per preview in
+// progress, so a preview reached from inside another keeps its own. It is
+// scoped scratch, never saved.
+type fireTrial struct {
+	slot Slot
+	rng  rng.Simulation
+}
+
+// takeFireTrial lends the next record of the preview stack.
+func (s *Service) takeFireTrial() *fireTrial {
+	if s.trialDepth == len(s.fireTrials) {
+		s.fireTrials = append(s.fireTrials, &fireTrial{})
+	}
+	t := s.fireTrials[s.trialDepth]
+	s.trialDepth++
+	return t
+}
+
+// releaseFireTrial returns the innermost record, dropping its references.
+func (s *Service) releaseFireTrial() {
+	s.trialDepth--
+	*s.fireTrials[s.trialDepth] = fireTrial{}
+}
+
 func hasLiveWeaponExecutor(w *content.WeaponDef) bool {
 	return w != nil && (w.Turret || w.VLaunch || w.LineOfSight || w.SelfProp || w.Dropped)
 }
@@ -290,16 +316,22 @@ func TryFire(svc *Service, slot *Slot, slotIdx int, tgt Target, tick uint32, por
 	// Modern previews the exact spread on value copies. Rejecting preserves the
 	// shared stream and slot angles; admission commits once, even on pool-full.
 	// The synchronous muzzle query above is never repeated speculatively.
+	//
+	// The two copies live in a record the service lends the preview
+	// (fireTrial). Declared here as locals they escaped through the ports and
+	// the slot pointer, and were made on the heap for every attempt, preview
+	// or none.
 	callerSlot := slot
-	var trialSlot Slot
-	var trialRNG rng.Simulation
+	var trial *fireTrial
 	shotRNG := ports.RNG
 	if ports.Shot != nil {
-		trialSlot = *slot
-		slot = &trialSlot
+		trial = svc.takeFireTrial()
+		defer svc.releaseFireTrial()
+		trial.slot = *slot
+		slot = &trial.slot
 		if shotRNG != nil {
-			trialRNG = *shotRNG
-			ports.RNG = &trialRNG
+			trial.rng = *shotRNG
+			ports.RNG = &trial.rng
 		}
 	}
 
@@ -350,7 +382,7 @@ func TryFire(svc *Service, slot *Slot, slotIdx int, tgt Target, tick uint32, por
 			return 0, false
 		}
 		if shotRNG != nil {
-			*shotRNG = trialRNG
+			*shotRNG = trial.rng
 		}
 		ports.RNG = shotRNG
 		// Restore the caller's slot pointer before creator/callback mutations.

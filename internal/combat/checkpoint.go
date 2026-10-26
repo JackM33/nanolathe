@@ -72,9 +72,10 @@ func (s *Service) CollectCheckpointReferences(c *CheckpointContext) (added int, 
 //
 // Excluded fields (DESIGN_MULTIPLAYER §16.3.5): boxCentres and weaponByID plus
 // weaponByIDCatalog derive from immutable content; pendingAims has no reader;
-// candidateScratch, compactScratch, firingPosition, shotQuery, targetQuery,
-// communityAreaUnits and targets.walkScratch are scoped scratch; presentationIDs
-// and projectilePresentationSequence are presentation identities;
+// candidateScratch, compactScratch, fireAttempts, fireDepth, fireTrials,
+// trialDepth, firingPosition, shotQuery, targetQuery, communityAreaUnits and
+// targets.walkScratch are scoped scratch; presentationIDs and
+// projectilePresentationSequence are presentation identities;
 // communityAreaSaturations is diagnostic. impactStack, TransportDeaths.pending
 // and communityAreaCurrentGen must be empty at capture and have no payload.
 // No query, cache refresh, pruning, compaction, rule or callback runs here.

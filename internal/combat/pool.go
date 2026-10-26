@@ -279,6 +279,14 @@ type Service struct {
 	// scratch owned by the attempt that arms it, which puts back the value it
 	// found; nothing outside the attempt reads it and nothing saves it.
 	shotQuery ShotQuery
+	// fireAttempts is the stack of reusable fire-attempt records, the first
+	// fireDepth of them lent to attempts in progress (fireAttempt). It is
+	// transient scratch; fireDepth is zero whenever no attempt is running.
+	fireAttempts []*fireAttempt
+	fireDepth    int
+	// fireTrials is the same stack for Modern shot previews (fireTrial).
+	fireTrials []*fireTrial
+	trialDepth int
 	// firingPosition belongs only to the most recent unit weapon visit.
 	// It is transient Modern observation, never saved or indexed by unit.
 	firingPosition firingPositionObservation
