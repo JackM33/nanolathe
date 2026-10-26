@@ -747,6 +747,10 @@ type Presentation struct {
 	// side page into its rows, so a magnified rail fits a shorter surface
 	// (docs/ANDROID.md §2). Zero, the default, shows the minimap.
 	HideMinimap int `json:"hideMinimap"`
+	// UnitPickMargin grows each unit's click and tap area by this percentage
+	// of its size, 0..100 (DESIGN_INTERFACE_HUD_INPUT "Unit pick margin").
+	// Zero is the exact retail hull.
+	UnitPickMargin int `json:"unitPickMargin"`
 	// LegacySidebarScale keeps the retired key in the schema used to validate
 	// mod configs. UnmarshalJSON migrates it before decoding, and Normalize
 	// clears it, so ordinary settings never retain or write the retired key.
@@ -892,11 +896,14 @@ type Presentation struct {
 	VictoryCue int `json:"victoryCue"`
 }
 
+// DefaultUnitPickMargin is the default unit pick margin, in percent.
+const DefaultUnitPickMargin = 25
+
 // DefaultPresentation selects the modern executor with a 60 FPS cap and every
 // Enhanced effect on.
 func DefaultPresentation() Presentation {
 	return Presentation{
-		Renderer: "modern", FPS: 60, ExpandedSidebar: 1, SidebarOrders: 1, BuildMenuPageSize: -1, GroupNumbers: 1, Arrival: 1, PlacementWeaponRanges: 1, ShowRanges: -1,
+		Renderer: "modern", FPS: 60, UnitPickMargin: DefaultUnitPickMargin, ExpandedSidebar: 1, SidebarOrders: 1, BuildMenuPageSize: -1, GroupNumbers: 1, Arrival: 1, PlacementWeaponRanges: 1, ShowRanges: -1,
 		ZoomStyle: ZoomSmooth, ZoomLockPercent: ZoomLockDefaultPercent, StrategicIconStyle: StrategicIconsModern,
 		RadarDots:     RadarDotsVisible,
 		MexSnapRadius: -1, WreckSnapRadius: -1, BuildRotateKey: "/", ClickSnapOverrideKey: "alt", BuildRotationOverlay: 1, BuildDrag: 1,
@@ -932,6 +939,7 @@ func (p *Presentation) Normalize() {
 	}
 	p.UIScale = min(p.UIScale, MaxChromeScale)
 	p.HideMinimap = min(max(p.HideMinimap, 0), 1)
+	p.UnitPickMargin = min(max(p.UnitPickMargin, 0), 100)
 	if p.NanoframePreview < 0 || p.NanoframePreview > 3 {
 		p.NanoframePreview = 0
 	}

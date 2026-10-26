@@ -14,7 +14,7 @@ func (b *battleSession) pickPresentedUnit(f *frame.Frame, x, y int32, viewer uin
 	if b.cl != nil && b.cl.StrategicIconsActive() {
 		return b.cl.PickPresentedUnit(f, x, y, viewer)
 	}
-	return client.PickSnapshotUnit(f, x, y, b.cam, viewer)
+	return client.PickSnapshotUnitWithMargin(f, x, y, b.cam, viewer, b.hostPreferences().UnitPickMargin)
 }
 
 // pickRadarAttackTarget is the separate, attack-only adapter for anonymous

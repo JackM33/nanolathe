@@ -2992,6 +2992,23 @@ The consequences of that shape are the contract:
   are all typed commands; nothing in `cmd/nanolathe` writes a unit's selection
   bit directly [I6].
 
+#### Unit pick margin
+
+**Nanolathe host preference (user-requested 2026-10-26).** Retail picks a unit
+only when the pointer lies strictly inside its projected hull quad
+[07 R-REV-01 §5]; on a phone a slightly missed tap selected nothing. The
+`unitPickMargin` presentation setting (percent, 0–100, default 25) adds a
+second pass: when no exact hull or strategic icon holds the pointer, every
+hull quad is scaled about the mean of its corners by (100 + margin)% — and
+each icon square by the same factor about its centre — and the ordinary
+hover-score reduction runs again. An exact hit always wins, so a click on
+one unit never takes a neighbour whose grown area also reaches it. Zero
+restores the exact contract. Selection, footer hover and contextual orders
+share the picker; drag selection and radar-dot attack picking are
+unchanged. The preference never reaches simulation state.
+`TestUnitPickMarginGrowsTheHull` locks the grown bounds and exact-hit
+precedence.
+
 #### Modern submerged wreck picking
 
 **Nanolathe Modern policy (user-authorized 2026-10-09, issue #108).** Retail

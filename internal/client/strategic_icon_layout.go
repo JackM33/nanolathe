@@ -295,20 +295,27 @@ func (c *Client) PickPresentedUnit(f *frame.Frame, x, y int32, viewer uint8) (po
 	// A later predicted fraction must not switch the picker before the display.
 	strategic := c.enhanced && c.strategicIcons != nil && c.strategicViewAtZoom(camera.Zoom(math.Round(view.Factor*float64(camera.ZoomUnit))))
 	if !strategic {
-		return PickSnapshotUnit(f, x, y, c.cam, viewer)
+		return pickSnapshotUnit(f, x, y, c.cam, viewer, c.pickMargin)
 	}
 	c.layoutStrategicMarkers(f, viewer, &c.strategicPick, true)
-	for i := len(c.strategicPick.marks) - 1; i >= 0; i-- {
-		m := c.strategicPick.marks[i]
-		if !markerContains(m, x, y) {
-			continue
+	// An exact icon hit wins before the margin is tried (DESIGN_INTERFACE_HUD_INPUT
+	// "Unit pick margin").
+	for _, margin := range [2]int32{0, c.pickMargin} {
+		for i := len(c.strategicPick.marks) - 1; i >= 0; i-- {
+			m := c.strategicPick.marks[i]
+			if !markerContains(growMarker(m, margin), x, y) {
+				continue
+			}
+			n := c.strategicPick.targets[i]
+			if n == 0 {
+				return 0, frame.UnitView{}, false
+			}
+			u := f.Units[n-1]
+			return u.Slot, u, true
 		}
-		n := c.strategicPick.targets[i]
-		if n == 0 {
-			return 0, frame.UnitView{}, false
+		if c.pickMargin <= 0 {
+			break
 		}
-		u := f.Units[n-1]
-		return u.Slot, u, true
 	}
 	return 0, frame.UnitView{}, false
 }

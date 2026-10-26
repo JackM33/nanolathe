@@ -399,6 +399,9 @@ type Client struct {
 	doubledFrames map[*formats.GAFFrame]*formats.GAFFrame
 	enhanced      bool
 	radarDots     int // Modern main-view preference: none, visible, attackable.
+	// pickMargin grows each unit's pick area by this percentage of its size
+	// (host preference, DESIGN_INTERFACE_HUD_INPUT "Unit pick margin").
+	pickMargin int32
 	// trails is the Enhanced trail layer's retained state (DESIGN_GPU_RENDERER
 	// §15): presentation only, reset with the model registry and the terrain.
 	trails trailState

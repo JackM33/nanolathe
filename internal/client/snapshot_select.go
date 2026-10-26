@@ -98,6 +98,25 @@ func SnapshotPointVisible(m frame.VisibilityView, x, y, z numeric.Fixed, viewer 
 // parameter is variadic so shell callers that hold no model cache keep working.
 // A unit whose model cannot be resolved has no hull and is never picked.
 func PickSnapshotUnit(f *frame.Frame, sx, sy int32, cam *camera.Camera, viewer uint8, models ...UnitHullModels) (pool.Handle, frame.UnitView, bool) {
+	return pickSnapshotUnit(f, sx, sy, cam, viewer, 0, models...)
+}
+
+// PickSnapshotUnitWithMargin is PickSnapshotUnit that, when no exact hull
+// holds the pointer, retries with every hull grown about its centre by margin
+// percent of its size (DESIGN_INTERFACE_HUD_INPUT "Unit pick margin"). An
+// exact hit always wins, so a click on one unit never takes its neighbour.
+func PickSnapshotUnitWithMargin(f *frame.Frame, sx, sy int32, cam *camera.Camera, viewer uint8, margin int, models ...UnitHullModels) (pool.Handle, frame.UnitView, bool) {
+	return pickSnapshotUnit(f, sx, sy, cam, viewer, int32(min(max(margin, 0), 100)), models...)
+}
+
+func pickSnapshotUnit(f *frame.Frame, sx, sy int32, cam *camera.Camera, viewer uint8, margin int32, models ...UnitHullModels) (pool.Handle, frame.UnitView, bool) {
+	if h, v, ok := pickSnapshotHull(f, sx, sy, cam, viewer, 0, models...); ok || margin <= 0 {
+		return h, v, ok
+	}
+	return pickSnapshotHull(f, sx, sy, cam, viewer, margin, models...)
+}
+
+func pickSnapshotHull(f *frame.Frame, sx, sy int32, cam *camera.Camera, viewer uint8, margin int32, models ...UnitHullModels) (pool.Handle, frame.UnitView, bool) {
 	if f == nil || cam == nil {
 		return 0, frame.UnitView{}, false
 	}
@@ -143,14 +162,14 @@ func PickSnapshotUnit(f *frame.Frame, sx, sy int32, cam *camera.Camera, viewer u
 		}
 		// A unit whose hull cannot reach the pointer fails the polygon test
 		// below whatever its visibility, so it is skipped before either.
-		if !hullReachAdmits(box, v, cam, sx, sy) {
+		if !hullReachAdmitsWithMargin(box, v, cam, sx, sy, margin) {
 			continue
 		}
 		// Test 3: ownership, or the mode-selected committed coverage cell.
 		if !SnapshotVisible(f, v, viewer) {
 			continue
 		}
-		corners := hoverHullCornersOf(box, v, cam)
+		corners := growQuad(hoverHullCornersOf(box, v, cam), margin)
 		if !containsStrictPolygon(sx, sy, corners[:]) {
 			continue
 		}

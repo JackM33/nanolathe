@@ -145,6 +145,7 @@ func applyCommunityHUDOptions(cl *client.Client, p settings.Presentation) {
 	cl.SetCommunityColorOptions(client.CommunityColorOptions{TeamColorNanolathe: p.TeamColorNanolathe != 0, PlayerStreamColors: p.PlayerStreamColors, PlayerFrameColors: p.PlayerFrameColors})
 	cl.SetCommunityHUDOptions(client.CommunityHUDOptions{Counters: p.CommunityCounters != 0, ReloadBars: p.ReloadBars != 0, VeteranLabel: p.VeteranLabels != 0, DisableGroupNumbers: p.GroupNumbers == 0})
 	cl.SetRadarDots(p.RadarDots)
+	cl.SetUnitPickMargin(p.UnitPickMargin)
 }
 func (b *battleSession) hostPreferences() settings.Presentation {
 	if b != nil && b.shell != nil {
