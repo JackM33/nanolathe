@@ -39,6 +39,9 @@ func TestOnlineNetworkProductionRecordingClearsScaledChrome(t *testing.T) {
 				b.cl.SetTerrain(b.sess.World)
 				prefs := settings.DefaultPresentation()
 				prefs.UIScale = 0
+				// The trace flags every glyph run recorded inside an affine
+				// region; the quick buttons' captions legitimately are.
+				prefs.QuickButtons = 0
 				b.hostPresentation = &prefs
 				b.fpsVisible = true
 				const tick = 5400

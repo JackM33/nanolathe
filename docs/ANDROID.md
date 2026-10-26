@@ -140,10 +140,24 @@ Samples pass through unchanged until a finger touches and again once a real
 mouse moves, so desktop and browser input is unaffected. Android starts owned
 by touch, because its idle cursor reads (0, 0) and would edge-scroll.
 
-**Shift.** A **SHIFT** button at the bottom right, drawn as a bevelled steel
-button like the game's own, holds Shift while a finger is on it (`Nanolathe.setShift`, `ebitenapp.SetHostShift`), so another
+**Shift.** A **SHIFT** button at the bottom right holds Shift while a finger
+is on it (`Nanolathe.setShift`, `ebitenapp.SetHostShift`), so another
 finger's taps queue orders. The layout splits multi-touch, so that finger
-still reaches the game view. Leaving the app releases it.
+still reaches the game view. Leaving the app releases it. It is drawn like
+the game's quick selection buttons: the battle strip's metal inside a black
+outline and a light top-left, dark bottom-right bevel. At each battle HUD
+load the engine writes that metal (`quickButtonFaceArt`) to
+`files/ui/button-metal.png`, published by a rename, and the app's 300 ms
+poll loads it whenever its time stamp changes; until then the face is plain
+dark steel.
+
+**Quick selection buttons.** DESELECT, SAME TYPE and CON sit at the top
+right of the battle view (DESIGN_INTERFACE_HUD_INPUT "Quick selection
+buttons"); a tap on one is the ordinary left click they answer.
+
+**Tap tolerance.** A tap that misses every unit's exact outline is tried
+again with each outline 25% larger (DESIGN_INTERFACE_HUD_INPUT "Unit pick
+margin"), so a slightly missed unit is still selected.
 
 **Soft keyboard.** The keyboard opens by itself while a text box is
 capturing input and closes when none is. `ui.Panel.ServiceFrame` counts the
@@ -166,8 +180,7 @@ and Backspace, never on a click [08 R-OOS-01 §4]. A phone has no keyboard
 showing, so on a touch-first host (`ebitenapp.TouchFirstHost`) a tap skips it
 too.
 
-Not yet covered: on-screen Shift and Ctrl for queueing and groups, a chrome
-larger than the authored one, and hover-only help.
+Not yet covered: on-screen Ctrl for groups and hover-only help.
 
 ## 4. Building
 

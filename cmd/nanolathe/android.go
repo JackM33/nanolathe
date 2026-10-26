@@ -6,6 +6,8 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"image"
+	"image/png"
 	"io"
 	"io/fs"
 	"math"
@@ -52,6 +54,7 @@ func StartAndroid(filesDir, gameDir string, screenW, screenH int) error {
 	}
 	writeGameFolderReport(log, gameDir)
 	reportMissingGadgetArt(log)
+	shareQuickButtonFace(log, filesDir)
 	if err := seedAndroidDisplay(filesDir, screenW, screenH); err != nil {
 		fmt.Fprintf(log, "nanolathe: warning: the battle size was not fitted to the screen: %v\n", err)
 	}
@@ -236,6 +239,30 @@ func reportMissingGadgetArt(w io.Writer) {
 		}
 		seen[logical] = true
 		fmt.Fprintf(w, "nanolathe: build picture missing: logical path %s: %v\n", logical, err)
+	}
+}
+
+// shareQuickButtonFace writes the quick buttons' metal face where the app
+// reads it for its SHIFT button (docs/ANDROID.md §3). A rename publishes it
+// whole, so the app never decodes a half-written picture.
+func shareQuickButtonFace(w io.Writer, filesDir string) {
+	quickButtonFaceArt = func(face *image.RGBA) {
+		dir := filepath.Join(filesDir, "ui")
+		path := filepath.Join(dir, "button-metal.png")
+		var buf bytes.Buffer
+		err := os.MkdirAll(dir, 0o755)
+		if err == nil {
+			err = png.Encode(&buf, face)
+		}
+		if err == nil {
+			err = os.WriteFile(path+".part", buf.Bytes(), 0o644)
+		}
+		if err == nil {
+			err = os.Rename(path+".part", path)
+		}
+		if err != nil {
+			fmt.Fprintf(w, "nanolathe: warning: the SHIFT button keeps its plain face: %v\n", err)
+		}
 	}
 }
 

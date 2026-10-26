@@ -493,6 +493,7 @@ func loadRetailBattleHUD(fs vfs.FSOps, sess *session.Session, cat *content.Catal
 	}
 	h.minimapAnchor = hud.Rect{X1: 0, Y1: 0, X2: int32(camera.MinimapLongSide - 1), Y2: int32(camera.MinimapLongSide - 1)}
 	h.minimapAnchorOK = true
+	h.publishQuickButtonFace()
 	return h, nil
 }
 
@@ -1032,6 +1033,7 @@ func (h *retailBattleHUD) draw(c *client.Client, b *battleSession, presented cli
 	c.BeginChromeRegion(rail)
 	h.drawCommunityIncome(c, b, cur)
 	h.drawCommunityWeather(c, b, cur)
+	h.drawQuickButtons(c, b, cur)
 	c.EndChromeRegion()
 	if b != nil {
 		b.developer.probes.Font = h.primaryFont

@@ -2992,6 +2992,33 @@ The consequences of that shape are the contract:
   are all typed commands; nothing in `cmd/nanolathe` writes a unit's selection
   bit directly [I6].
 
+#### Quick selection buttons
+
+**Nanolathe host preference (user-requested 2026-10-26).** A player without a
+keyboard has no Escape, Ctrl+Z or idle-constructor key. Three buttons sit at
+the top right of the battle view, 3 rows below the resource strip, on the
+strips' virtual surface: 72×28 each with 3-pixel gaps, right-aligned 3
+pixels from the edge, or left of the allied-income toggle and its list when
+that option is on. Each runs an existing action through ordinary typed
+selection commands [I6]:
+
+| Button | Action |
+| --- | --- |
+| DESELECT | Escape's idle arm: clear the selection, any armed order and any armed placement [07 R-CAM-01 §2] |
+| SAME TYPE | Ctrl+Z: every own selectable unit sharing a selected definition [07 R-CAM-01 §2] |
+| CON | The idle-constructor cycle Ctrl+B runs under community selection (`cycleCommunityIdle`): select the next idle construction unit and centre the view on it. With none idle it posts "No idle construction units" and keeps the selection, unlike the key, which clears it |
+
+A left press that begins on a button belongs to it until release, and the
+action runs only on a release over the same button; right and middle presses
+there never reach the world. DESELECT and SAME TYPE draw their captions grey
+while nothing is selected. Each face is a plain stretch of the side's PANELBOT
+metal from column 48 and row 2, inside a black outline with a light (GUI
+colour 7) top-left and dark (GUI colour 8) bottom-right bevel that inverts
+while pressed, with the caption in the side's GUI font. The
+`quickButtons` presentation setting (default 1) hides them.
+`TestQuickButtonsRunTheirSelectionActions` locks the actions and press
+ownership.
+
 #### Unit pick margin
 
 **Nanolathe host preference (user-requested 2026-10-26).** Retail picks a unit

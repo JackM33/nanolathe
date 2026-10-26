@@ -6,6 +6,8 @@ import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.Intent;
 import android.database.Cursor;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
 import android.graphics.Typeface;
 import android.net.Uri;
 import android.os.Build;
@@ -623,14 +625,15 @@ public class MainActivity extends Activity {
      * game view (docs/ANDROID.md §3).
      */
     private View shiftButton() {
-        final TaButtonDrawable face = new TaButtonDrawable(dp(2));
+        final TaButtonDrawable face = new TaButtonDrawable(Math.max(1, dp(1)));
+        shiftFace = face;
         final TextView button = new TextView(this);
         button.setText("SHIFT");
         button.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
-        button.setTypeface(Typeface.create(Typeface.SANS_SERIF, Typeface.BOLD));
+        button.setTypeface(Typeface.create(Typeface.MONOSPACE, Typeface.BOLD));
         button.setLetterSpacing(0.08f);
         button.setGravity(Gravity.CENTER);
-        button.setTextColor(0xFFE8E4C8);
+        button.setTextColor(0xFFFFFFFF);
         button.setShadowLayer(1, 1, 1, 0xFF000000);
         button.setBackground(face);
         button.setOnTouchListener((v, event) -> {
@@ -644,7 +647,7 @@ public class MainActivity extends Activity {
                 case MotionEvent.ACTION_CANCEL:
                     Nanolathe.setShift(false);
                     face.setPressed(false);
-                    button.setTextColor(0xFFE8E4C8);
+                    button.setTextColor(0xFFFFFFFF);
                     return true;
                 default:
                     return true;
@@ -656,6 +659,8 @@ public class MainActivity extends Activity {
     // ---- The soft keyboard ----
 
     private static final long KEYBOARD_POLL_MS = 300;
+    private TaButtonDrawable shiftFace;
+    private long shiftFaceStamp;
     private long editorServices = -1;
     private int quietPolls;
     private boolean keyboardWanted;
@@ -672,6 +677,7 @@ public class MainActivity extends Activity {
             if (gameView == null) {
                 return;
             }
+            refreshShiftFace();
             long n = Nanolathe.editorServices();
             boolean active = editorServices >= 0 && n != editorServices;
             editorServices = n;
@@ -686,6 +692,23 @@ public class MainActivity extends Activity {
             main.postDelayed(this, KEYBOARD_POLL_MS);
         }
     };
+
+    /**
+     * Gives the SHIFT button the battle strip's metal once the engine has
+     * shared it, and again whenever a battle on another side replaces it.
+     */
+    private void refreshShiftFace() {
+        File art = new File(getFilesDir(), "ui/button-metal.png");
+        long stamp = art.lastModified();
+        if (shiftFace == null || stamp == 0 || stamp == shiftFaceStamp) {
+            return;
+        }
+        shiftFaceStamp = stamp;
+        Bitmap bitmap = BitmapFactory.decodeFile(art.getAbsolutePath());
+        if (bitmap != null) {
+            shiftFace.setFace(bitmap);
+        }
+    }
 
     private void showKeyboard() {
         if (gameView == null) {

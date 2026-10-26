@@ -751,6 +751,10 @@ type Presentation struct {
 	// of its size, 0..100 (DESIGN_INTERFACE_HUD_INPUT "Unit pick margin").
 	// Zero is the exact retail hull.
 	UnitPickMargin int `json:"unitPickMargin"`
+	// QuickButtons shows the Deselect, Same type and Con buttons at the top
+	// right of the battle view (DESIGN_INTERFACE_HUD_INPUT "Quick selection
+	// buttons"). One, the default, shows them.
+	QuickButtons int `json:"quickButtons"`
 	// LegacySidebarScale keeps the retired key in the schema used to validate
 	// mod configs. UnmarshalJSON migrates it before decoding, and Normalize
 	// clears it, so ordinary settings never retain or write the retired key.
@@ -903,7 +907,7 @@ const DefaultUnitPickMargin = 25
 // Enhanced effect on.
 func DefaultPresentation() Presentation {
 	return Presentation{
-		Renderer: "modern", FPS: 60, UnitPickMargin: DefaultUnitPickMargin, ExpandedSidebar: 1, SidebarOrders: 1, BuildMenuPageSize: -1, GroupNumbers: 1, Arrival: 1, PlacementWeaponRanges: 1, ShowRanges: -1,
+		Renderer: "modern", FPS: 60, UnitPickMargin: DefaultUnitPickMargin, QuickButtons: 1, ExpandedSidebar: 1, SidebarOrders: 1, BuildMenuPageSize: -1, GroupNumbers: 1, Arrival: 1, PlacementWeaponRanges: 1, ShowRanges: -1,
 		ZoomStyle: ZoomSmooth, ZoomLockPercent: ZoomLockDefaultPercent, StrategicIconStyle: StrategicIconsModern,
 		RadarDots:     RadarDotsVisible,
 		MexSnapRadius: -1, WreckSnapRadius: -1, BuildRotateKey: "/", ClickSnapOverrideKey: "alt", BuildRotationOverlay: 1, BuildDrag: 1,
@@ -940,6 +944,7 @@ func (p *Presentation) Normalize() {
 	p.UIScale = min(p.UIScale, MaxChromeScale)
 	p.HideMinimap = min(max(p.HideMinimap, 0), 1)
 	p.UnitPickMargin = min(max(p.UnitPickMargin, 0), 100)
+	p.QuickButtons = min(max(p.QuickButtons, 0), 1)
 	if p.NanoframePreview < 0 || p.NanoframePreview > 3 {
 		p.NanoframePreview = 0
 	}

@@ -147,6 +147,9 @@ func (b *battleSession) handleInput(in *input.State, cl *client.Client) {
 	if b.serviceReplayOverlayPointer(&mouse, mx, my) {
 		return
 	}
+	if b.serviceQuickButtons(mouse) {
+		return
+	}
 	if b.serviceCommunityIncome(mouse) {
 		return
 	}
@@ -736,6 +739,22 @@ func (b *battleSession) isTalkGUIActive() bool { // [07 §10]
 	return b != nil && (b.chat.active || b.chat.ownsFrame)
 }
 
+// selectSameTypes is Ctrl+Z: every own selectable unit whose definition
+// matches any currently selected unit's definition [07 R-CAM-01 §2].
+func (b *battleSession) selectSameTypes() {
+	f, ok := b.currentSnapshot()
+	if !ok {
+		return
+	}
+	mask := b.selectedDefinitionMask(f)
+	if mask.IsZero() {
+		return
+	}
+	b.commitSelection(b.ownSelectableHandles(func(v frame.UnitView) bool {
+		return b.inCategory(v, mask)
+	}), false)
+}
+
 // dispatchCtrlLetters is the Ctrl+letter column of [07 R-CAM-01 §2]: Ctrl+A,
 // Ctrl+C, Ctrl+D, Ctrl+S, Ctrl+Z, and the `CTRL_%c` category selects on
 // Ctrl+B and Ctrl+E..R and Ctrl+T..Y. Ctrl+A..Z reach retail as tokens
@@ -770,19 +789,7 @@ func (b *battleSession) dispatchCtrlLetters(kbd *input.KeyboardState) {
 		b.commitSelection(b.ownSelectableHandles(b.onScreenUnit), false)
 		return
 	case kbd.KeyDown(input.KeyZ):
-		// Every own selectable unit whose definition matches any currently
-		// selected unit's definition [07 R-CAM-01 §2].
-		f, ok := b.currentSnapshot()
-		if !ok {
-			return
-		}
-		mask := b.selectedDefinitionMask(f)
-		if mask.IsZero() {
-			return
-		}
-		b.commitSelection(b.ownSelectableHandles(func(v frame.UnitView) bool {
-			return b.inCategory(v, mask)
-		}), false)
+		b.selectSameTypes()
 		return
 	}
 	// The category letters. Ctrl+C additionally sets the follow-camera tracked

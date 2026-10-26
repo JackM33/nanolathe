@@ -46,7 +46,10 @@ type battleSession struct {
 	preview                                bool
 	hostPresentation                       *settings.Presentation
 	incomeMinimized, incomePointerCaptured bool
-	developer                              battleDeveloperState
+	// quickButtonCapture is one more than the quick selection button a left
+	// press began on, zero when none (battle_quick_buttons.go).
+	quickButtonCapture int
+	developer          battleDeveloperState
 	// Host diagnostic request/result state; synchronous writes serialize captures.
 	debugCaptureBusy  bool
 	debugCaptureBase  string // empty uses the user's Desktop
