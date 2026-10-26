@@ -1,6 +1,7 @@
 package movement
 
 import (
+	"math/bits"
 	"sort"
 
 	"github.com/nanolathe-gg/nanolathe/internal/orders"
@@ -724,15 +725,21 @@ func absInt64(v int64) int64 {
 }
 
 // isqrtInt64Arrive is the floor square root of a non-negative value.
+//
+// The integer Newton step descends to the floor root from any start at or
+// above it, so it starts from the power of two just above the root rather
+// than from the value itself, which spent up to thirty extra divisions
+// halving its way down.
 func isqrtInt64Arrive(v int64) int64 {
 	if v <= 0 {
 		return 0
 	}
-	x := v
-	y := (x + 1) / 2
-	for y < x {
+	x := int64(1) << ((bits.Len64(uint64(v)) + 1) / 2)
+	for {
+		y := (x + v/x) / 2
+		if y >= x {
+			return x
+		}
 		x = y
-		y = (x + v/x) / 2
 	}
-	return x
 }
