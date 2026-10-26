@@ -111,10 +111,23 @@ func (s *smoothSearch) Resume(budget int) ([]Point, Status, bool) {
 }
 
 // standable reports whether the footprint can stand with its centre at the
-// world point.
-func (s *smoothSearch) standable(x, z int32) bool {
+// world point. Every call is one probe charged as work, whether or not memo
+// already holds the anchor's answer.
+func (s *smoothSearch) standable(x, z int32, memo *legMemo) bool {
 	c := anchorAt(x, z, s.cfg.FootPrintX, s.cfg.FootPrintZ)
 	s.probes++
+	if ok, known := memo.find(c); known {
+		return ok
+	}
+	ok := s.judge(c)
+	memo.keep(c, ok)
+	return ok
+}
+
+// judge is standable's answer for one anchor. Within one leg it depends on the
+// anchor alone: the leg's sector and cost limit are fixed for the leg, and the
+// views it reads are not written while a finished route is pulled taut.
+func (s *smoothSearch) judge(c Cell) bool {
 	if s.cfg.HasBounds && !InBounds(c, s.cfg.Bounds) {
 		return false
 	}
@@ -125,6 +138,38 @@ func (s *smoothSearch) standable(x, z int32) bool {
 		return s.cfg.LegValue(c) != 0
 	}
 	return s.cfg.PassableValue(c) != 0
+}
+
+// legMemoSize is how many recent anchors one leg remembers. Samples a step
+// apart, and the samples to either side of the line, mostly fall on the
+// anchors the step before them judged.
+const legMemoSize = 8
+
+// legMemo holds the answers of the anchors a leg judged most recently. It is
+// storage only: a probe it answers is still charged, and the answer is the one
+// judge gave for that anchor on the same leg.
+type legMemo struct {
+	cells [legMemoSize]Cell
+	ok    [legMemoSize]bool
+	n     int
+	next  int
+}
+
+func (m *legMemo) find(c Cell) (bool, bool) {
+	for i := 0; i < m.n; i++ {
+		if m.cells[i] == c {
+			return m.ok[i], true
+		}
+	}
+	return false, false
+}
+
+func (m *legMemo) keep(c Cell, ok bool) {
+	m.cells[m.next], m.ok[m.next] = c, ok
+	m.next = (m.next + 1) % legMemoSize
+	if m.n < legMemoSize {
+		m.n++
+	}
 }
 
 // dearest is the greatest extra cost of the anchors along the leg from a to
@@ -172,19 +217,31 @@ func (s *smoothSearch) clear(a, b Point) bool {
 		return false
 	}
 	s.legDir = Octant(dx, dz)
-	// Integer length, rounded up.
-	var length int64
-	for length*length < d2 {
-		length++
-	}
+	length := ceilSqrt(d2)
 	steps := length/smoothStep + 1
 	// The perpendicular of length smoothSide.
 	px, pz := -dz*smoothSide/length, dx*smoothSide/length
+	var memo legMemo
 	for k := int64(0); k <= steps; k++ {
 		x, z := int64(a.X)+dx*k/steps, int64(a.Z)+dz*k/steps
-		if !s.standable(int32(x), int32(z)) || !s.standable(int32(x+px), int32(z+pz)) || !s.standable(int32(x-px), int32(z-pz)) {
+		if !s.standable(int32(x), int32(z), &memo) || !s.standable(int32(x+px), int32(z+pz), &memo) || !s.standable(int32(x-px), int32(z-pz), &memo) {
 			return false
 		}
 	}
 	return true
+}
+
+// ceilSqrt is the integer length of a leg, rounded up: the least length whose
+// square is at least d2, for 0 <= d2 <= smoothSpan*smoothSpan.
+func ceilSqrt(d2 int64) int64 {
+	lo, hi := int64(0), int64(smoothSpan)
+	for lo < hi {
+		mid := (lo + hi) / 2
+		if mid*mid < d2 {
+			lo = mid + 1
+		} else {
+			hi = mid
+		}
+	}
+	return lo
 }
