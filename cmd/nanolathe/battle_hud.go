@@ -172,6 +172,9 @@ type retailBattleHUD struct {
 	// radar canvas; aspect letterbox is inside that canvas [07 §6][07 §10].
 	minimapAnchor   hud.Rect
 	minimapAnchorOK bool
+	// minimapHidden follows the session's hideMinimap presentation: no radar
+	// is drawn or hit while the side rail is raised over its rows.
+	minimapHidden bool
 
 	// assetErr records a required authored page failure encountered while
 	// resolving a committed command page. It is never converted into the
@@ -921,7 +924,7 @@ func (h *retailBattleHUD) draw(c *client.Client, b *battleSession, presented cli
 	// with PANELBOT throughout — each stamp advancing by its frame width until
 	// the running x reaches the surface width [07 R-HUD-03 §1][07 R-HUD-03 §4].
 	// At 640x480 every stock frame reaches the edge in one stamp.
-	rail, strip := b.railRegion(), b.stripRegion()
+	rail, strip, side := b.railRegion(), b.stripRegion(), b.sideRegion()
 	c.BeginChromeRegion(rail)
 	screenW, _ := c.ChromeSize()
 	blitBattlePanel(c, h.panelTop, hud.ChromeRailX, 0)
@@ -958,7 +961,7 @@ func (h *retailBattleHUD) draw(c *client.Client, b *battleSession, presented cli
 	// the panel's only position: the slide does not move it. A host layout
 	// that places rail controls below those rows stretches the art instead
 	// (drawRailBackdrop).
-	c.BeginChromeRegion(rail)
+	c.BeginChromeRegion(side)
 	_, railH := c.ChromeSize()
 	h.drawRailBackdrop(c, b, cur, railH)
 	c.EndChromeRegion()
@@ -976,7 +979,7 @@ func (h *retailBattleHUD) draw(c *client.Client, b *battleSession, presented cli
 		h.drawFooter(c, b, cur)
 		c.EndChromeRegion()
 	}
-	c.BeginChromeRegion(rail)
+	c.BeginChromeRegion(side)
 	h.drawSidePage(c, b, cur)
 	h.drawCommunityRotationMenu(c, b, cur)
 	c.EndChromeRegion()

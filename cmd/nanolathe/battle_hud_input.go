@@ -33,7 +33,7 @@ func (h *retailBattleHUD) updateHoveredGadget(b *battleSession, f *frame.Frame, 
 	if b == nil {
 		return
 	}
-	x, y = b.railPointer(x, y)
+	x, y = b.sidePointer(x, y)
 	window, _, err := h.windowForRequired(b, f)
 	if err != nil {
 		h.assetErr = err
@@ -108,7 +108,7 @@ func (h *retailBattleHUD) consumeClickDelta(b *battleSession, x, y int32, rightC
 		}
 		return true
 	}
-	x, y = b.railPointer(x, y)
+	x, y = b.sidePointer(x, y)
 	// A committed frame is required for every HUD action [I6]. A frame with a
 	// non-empty selection but no command-page builder still exposes the authored
 	// general/order controls; with an empty selection the command windows are
@@ -164,7 +164,7 @@ func (h *retailBattleHUD) hitTestFor(b *battleSession, x, y int32) bool {
 	if unitInfoCovers(x, y) {
 		return true
 	}
-	x, y = b.railPointer(x, y)
+	x, y = b.sidePointer(x, y)
 	// The composed committed frame: its command page is the host's local
 	// selection's (battle_local_interface.go).
 	f, _ := b.currentSnapshot()
@@ -201,7 +201,7 @@ func (h *retailBattleHUD) buttonAt(b *battleSession, x, y int32) int {
 	if h == nil || b == nil {
 		return -1
 	}
-	x, y = b.railPointer(x, y)
+	x, y = b.sidePointer(x, y)
 	// The composed committed frame: its command page is the host's local
 	// selection's (battle_local_interface.go).
 	f, _ := b.currentSnapshot()

@@ -64,13 +64,29 @@ build buttons can be traced to a missing file or entry.
 The engine starts once per process. A second start asks the player to reopen
 the app.
 
-**Battle size.** Once per install, start-up saves the battle size as the
-screen's shape at the minimum battle height of 480, for example 1067x480 on a
-20:9 phone, so a battle fills the screen with no letterbox bars and the
-sidebar and bars are as large as the authored chrome can be drawn (the Modern
-UI scale magnifies only from twice that height). A marker file records the
-fit, so a size later chosen in Graphics is kept. Menus keep their authored
-640x480 canvas and stay letterboxed.
+**Battle layout.** Once per layout version, start-up fits the battle to the
+screen's shape. Where the width allows, the battle is 704 rows tall with the
+Modern UI scale fixed at 2x and the minimap hidden (`presentation.hideMinimap`,
+below): the side rail's 352 rows below the radar then fill the screen's
+height, about 1.4 times the size the authored chrome has on a 480-row
+battle, and the top and bottom bars grow with it. A screen too narrow to
+leave the bars their 512 columns beside the doubled rail
+(`hud.MinBarScaleWidth`) keeps the 480-row fit. The preferred zoom stop is
+saved at the matching factor, and each battle starts at
+`--zoom` height/480 (at most 2), so the world keeps the scale of a 480-row
+battle; pinching changes it as usual. A marker file records the fit, so a
+size later chosen in Graphics is kept. Menus keep their authored 640x480
+canvas and stay letterboxed.
+
+**Hidden minimap.** `presentation.hideMinimap` is a host presentation
+preference of the Enhanced renderer, off by default everywhere but the
+Android fit. While it is on, the side rail proper — its backdrop, side page,
+community rotation menu and their pointer mapping — uses `sideRegion`:
+`railRegion` raised by the 128 radar rows, so those rows leave the top of the
+surface and the rail lays out as if the surface were that much taller. The
+strips, resource readouts and build radial keep `railRegion`, and the radar
+neither draws nor takes hits. The Classic renderer and captures that fix the
+chrome at 1x ignore the preference.
 
 Back is delivered to the game as Escape. The activity keeps the screen on,
 hides the system bars and suspends and resumes the view with its own

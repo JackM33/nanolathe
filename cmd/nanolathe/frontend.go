@@ -384,6 +384,7 @@ func (s battleHUDUIStage) PrepareUI(c *client.Client) {
 	s.battle.syncChromeInsets()
 	if s.hud != nil && c != nil {
 		s.hud.chromeScale = s.battle.chromeScale()
+		s.hud.minimapHidden = s.battle.minimapHidden()
 		s.hud.applyDisplaySize(c.Size())
 	}
 }

@@ -14,6 +14,7 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/nanolathe-gg/nanolathe/internal/hud"
 	"github.com/nanolathe-gg/nanolathe/internal/platform/ebitenapp"
 	"github.com/nanolathe-gg/nanolathe/internal/settings"
 	"github.com/nanolathe-gg/nanolathe/internal/ui"
@@ -60,7 +61,11 @@ func StartAndroid(filesDir, gameDir string, screenW, screenH int) error {
 	if err := seedAndroidDisplay(filesDir, screenW, screenH); err != nil {
 		fmt.Fprintf(log, "nanolathe: warning: the battle size was not fitted to the screen: %v\n", err)
 	}
-	opts, code, ok := mainOptions([]string{"--root", gameDir}, log)
+	args := []string{"--root", gameDir}
+	if zoom := androidEntryZoom(); zoom != "" {
+		args = append(args, "--zoom", zoom)
+	}
+	opts, code, ok := mainOptions(args, log)
 	if !ok {
 		return fmt.Errorf("nanolathe: android start: logical path <arguments>, providers searched [--root %s], expected parsed options, exit code %d", gameDir, code)
 	}
@@ -112,15 +117,24 @@ func reportMissingGadgetArt(w io.Writer) {
 	}
 }
 
-// androidDisplaySeeded marks that the battle size was fitted to the screen
-// once, so a size the player later picks in Graphics is kept.
-const androidDisplaySeeded = "display-fitted"
+// androidDisplaySeeded marks that the battle layout was fitted to the screen,
+// so a size the player later picks in Graphics is kept. A newer layout uses
+// a new marker, so an existing install is fitted to it once.
+const androidDisplaySeeded = "display-fitted-2"
 
-// seedAndroidDisplay sets the saved battle size, once per install, to the
-// screen's shape at the minimum battle height (docs/ANDROID.md §2). The
-// battle then fills the screen without letterbox bars, and the sidebar and
-// bars are as large as the authored chrome can be drawn. Menus keep their
-// authored 640x480 canvas.
+// Touch layout (docs/ANDROID.md §2). The side rail is magnified twice with the
+// minimap hidden, so its 352 rows below the radar fill a 704-row surface:
+// about 1.4 times the size of a 480-row battle. A screen too narrow to leave
+// the bars their 512 columns beside a doubled rail keeps the 480-row fit.
+const (
+	touchRailScale  = 2
+	touchBattleRows = (480 - sideRadarRows) * touchRailScale
+)
+
+// seedAndroidDisplay saves, once per layout, a battle the screen's shape:
+// touchBattleRows tall with the doubled rail and no minimap where the width
+// allows, otherwise the minimum battle height. Menus keep their authored
+// 640x480 canvas.
 func seedAndroidDisplay(filesDir string, screenW, screenH int) error {
 	marker := filepath.Join(filesDir, androidDisplaySeeded)
 	if _, err := os.Stat(marker); err == nil || screenW <= 0 || screenH <= 0 {
@@ -131,12 +145,31 @@ func seedAndroidDisplay(filesDir string, screenW, screenH int) error {
 	if err != nil {
 		return err
 	}
-	s.Display.Height = settings.MinDisplaymodeHeight
-	s.Display.Width = max(settings.MinDisplaymodeWidth, int(math.Round(float64(settings.MinDisplaymodeHeight)*float64(long)/float64(short))))
+	widthAt := func(rows int) int {
+		return max(settings.MinDisplaymodeWidth, int(math.Round(float64(rows)*float64(long)/float64(short))))
+	}
+	s.Display.Height, s.Display.Width = settings.MinDisplaymodeHeight, widthAt(settings.MinDisplaymodeHeight)
+	s.Presentation.UIScale, s.Presentation.HideMinimap = settings.ChromeScaleAuto, 0
+	if w := widthAt(touchBattleRows); w/touchRailScale-hud.ChromeRailX >= hud.MinBarScaleWidth {
+		s.Display.Height, s.Display.Width = touchBattleRows, w
+		s.Presentation.UIScale, s.Presentation.HideMinimap = touchRailScale, 1
+	}
+	s.Presentation.ZoomLockPercent = (100*s.Display.Height + settings.MinDisplaymodeHeight/2) / settings.MinDisplaymodeHeight
 	if err := s.Save(); err != nil {
 		return err
 	}
 	return os.WriteFile(marker, nil, 0o644)
+}
+
+// androidEntryZoom starts each battle at the world scale of a 480-row
+// battle, whatever size the saved layout draws at, as the --zoom factor; ""
+// leaves the native factor. Pinching changes it as usual.
+func androidEntryZoom() string {
+	s, err := settings.Load()
+	if err != nil || s.Display.Height <= settings.MinDisplaymodeHeight {
+		return ""
+	}
+	return fmt.Sprintf("%.4f", min(float64(s.Display.Height)/float64(settings.MinDisplaymodeHeight), 2))
 }
 
 // AndroidTypeText and AndroidPressKey pass the soft keyboard's text and

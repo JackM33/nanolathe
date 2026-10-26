@@ -17,7 +17,7 @@ const radarAllContactsOption uint32 = 1 << 9
 
 // minimapRect returns the battle composer's fixed radar canvas rectangle.
 func (h *retailBattleHUD) minimapRect() (hud.Rect, bool) {
-	if h == nil || !h.minimapAnchorOK {
+	if h == nil || !h.minimapAnchorOK || h.minimapHidden {
 		return hud.Rect{}, false
 	}
 	left, top, right, bottom := h.minimapAnchor.Ordered()

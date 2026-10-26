@@ -25,7 +25,7 @@ func (b *battleSession) resolveChromeScale() {
 	if b == nil {
 		return
 	}
-	b.chromeK, b.barOffsetY = 1, 0
+	b.chromeK, b.barOffsetY, b.sideOffsetY = 1, 0, 0
 	if b.cl == nil || !b.cl.Enhanced() || b.chromeFixed || b.preview {
 		return
 	}
@@ -38,6 +38,9 @@ func (b *battleSession) resolveChromeScale() {
 		b.chromeK--
 	}
 	b.barOffsetY = int32(h) % b.chromeK
+	if p.HideMinimap != 0 {
+		b.sideOffsetY = -sideRadarRows * b.chromeK
+	}
 }
 
 // chromeScale is the sidebar magnification resolveChromeScale last fixed.
@@ -65,31 +68,59 @@ func (b *battleSession) stripRegion() client.ChromeRegion {
 	return r
 }
 
-// railSize is the virtual surface the rail's windows are laid out on.
+// sideRadarRows are the rail's authored radar rows: the 126-pixel radar canvas
+// and its frame above the side page, which stock command pages place at 128
+// and below [07 §6][07 §10].
+const sideRadarRows = 128
+
+// sideRegion is the region of the side rail proper — its backdrop, side page
+// and community rotation menu. It is railRegion, raised by the radar rows
+// while the minimap is hidden (presentation.hideMinimap): those rows leave
+// the top of the surface, the page starts at the top, and the rail lays out
+// as if the surface were that much taller (docs/ANDROID.md §2). The strips,
+// resource readouts and build radial keep railRegion.
+func (b *battleSession) sideRegion() client.ChromeRegion {
+	r := b.railRegion()
+	if b != nil {
+		r.OffsetY = b.sideOffsetY
+	}
+	return r
+}
+
+// minimapHidden reports whether the side rail is raised over the minimap.
+func (b *battleSession) minimapHidden() bool { return b != nil && b.sideOffsetY != 0 }
+
+// railSize is the virtual surface the side rail's windows are laid out on.
 func (b *battleSession) railSize() (int, int) {
 	if b == nil || b.cl == nil {
 		return 0, 0
 	}
 	w, h := b.cl.Size()
-	return b.railRegion().VirtualSize(w, h)
+	return b.sideRegion().VirtualSize(w, h)
 }
 
-// railPointer maps a framebuffer pointer onto the rail's virtual surface.
+// railPointer maps a framebuffer pointer onto the strips' virtual surface,
+// which the resource readouts and the build radial share.
 func (b *battleSession) railPointer(x, y int32) (int32, int32) {
 	return b.railRegion().ToVirtual(x, y)
 }
 
-// railPointerFrame maps a widget pass's pointer and events onto the rail. The
-// mapped events reuse the session's buffer; the frame is consumed within the
-// pass.
+// sidePointer maps a framebuffer pointer onto the side rail's virtual surface.
+func (b *battleSession) sidePointer(x, y int32) (int32, int32) {
+	return b.sideRegion().ToVirtual(x, y)
+}
+
+// railPointerFrame maps a widget pass's pointer and events onto the side
+// rail. The mapped events reuse the session's buffer; the frame is consumed
+// within the pass.
 func (b *battleSession) railPointerFrame(frame ui.WidgetFrame) ui.WidgetFrame {
-	if b == nil || b.railRegion().Identity() {
+	if b == nil || b.sideRegion().Identity() {
 		return frame
 	}
-	frame.PointerX, frame.PointerY = b.railPointer(frame.PointerX, frame.PointerY)
+	frame.PointerX, frame.PointerY = b.sidePointer(frame.PointerX, frame.PointerY)
 	events := b.railEvents[:0]
 	for _, event := range frame.PointerEvents {
-		event.X, event.Y = b.railPointer(event.X, event.Y)
+		event.X, event.Y = b.sidePointer(event.X, event.Y)
 		events = append(events, event)
 	}
 	b.railEvents = events

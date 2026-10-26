@@ -743,6 +743,10 @@ type Presentation struct {
 	// UI scale"): ChromeScaleAuto, the default, follows the window height; 1
 	// to MaxChromeScale is fixed.
 	UIScale int `json:"uiScale"`
+	// HideMinimap removes the Modern renderer's battle minimap and raises the
+	// side page into its rows, so a magnified rail fits a shorter surface
+	// (docs/ANDROID.md §2). Zero, the default, shows the minimap.
+	HideMinimap int `json:"hideMinimap"`
 	// LegacySidebarScale keeps the retired key in the schema used to validate
 	// mod configs. UnmarshalJSON migrates it before decoding, and Normalize
 	// clears it, so ordinary settings never retain or write the retired key.
@@ -927,6 +931,7 @@ func (p *Presentation) Normalize() {
 		p.UIScale = ChromeScaleAuto
 	}
 	p.UIScale = min(p.UIScale, MaxChromeScale)
+	p.HideMinimap = min(max(p.HideMinimap, 0), 1)
 	if p.NanoframePreview < 0 || p.NanoframePreview > 3 {
 		p.NanoframePreview = 0
 	}

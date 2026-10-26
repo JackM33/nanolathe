@@ -59,7 +59,10 @@ type battleSession struct {
 	// chromeK is the sidebar magnification fixed at the last draw, and
 	// chromeFixed holds it at 1 for captures that replay through the classic
 	// executor (DESIGN_INTERFACE_HUD_INPUT "Modern UI scale").
-	chromeK     int32
+	chromeK int32
+	// sideOffsetY raises the side rail by the minimap's rows, in framebuffer
+	// pixels, while the minimap is hidden; zero otherwise.
+	sideOffsetY int32
 	barOffsetY  int32
 	chromeFixed bool
 	railEvents  []input.PointerEvent
