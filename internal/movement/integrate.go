@@ -729,6 +729,12 @@ func (p *pathProvider) stagedRequest(h pool.Handle) (path.Request, int, bool) {
 }
 
 func (p *pathProvider) Cancel(unit pool.Handle) bool {
+	// The staged index holds exactly the units with an entry in some
+	// player's map, so a unit outside it has nothing to cancel and the ten
+	// map lookups are skipped.
+	if !p.isStaged(int(unit)) {
+		return false
+	}
 	for player := range p.requests {
 		if _, ok := p.requests[player][unit]; ok {
 			p.dropRequest(player, unit)
@@ -738,6 +744,9 @@ func (p *pathProvider) Cancel(unit pool.Handle) bool {
 	return false
 }
 func (p *pathProvider) HasRequest(unit pool.Handle) bool {
+	if !p.isStaged(int(unit)) {
+		return false
+	}
 	for player := range p.requests {
 		if _, ok := p.requests[player][unit]; ok {
 			return true
