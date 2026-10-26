@@ -95,6 +95,21 @@ func (s *modelScratch) reset() {
 	}
 }
 
+// rewindStaging hands the draw, piece-state and polygon slots back for the
+// next subject. A stage-one job (record_parallel.go) borrows those three only
+// to stage its own composition: everything its pair carries out of the job is
+// copied into a packet or outline slot, which keep counting until reset, or
+// into the subject's retained store. So the next job may take the same slots.
+// A worker then composes every unit through a few slots that stay grown and
+// warm in cache, instead of one fresh slot per unit it happened to take this
+// frame — which, with the shared job cursor, grew every worker's arena towards
+// the whole battle and reallocated whenever a slot met a larger model. Slots
+// are fully rewritten when borrowed, so the pair is the same values either way
+// (docs/DESIGN_GPU_RENDERER.md §13.9).
+func (s *modelScratch) rewindStaging() {
+	s.drawNext, s.stateNext, s.polyNext = 0, 0, 0
+}
+
 // borrowOutline hands out one subject's outline slot for the frame. Slots never
 // overlap within a frame, so a subject's rings stay valid until the next reset.
 func (c *Client) borrowOutline() *outlineScratch {
