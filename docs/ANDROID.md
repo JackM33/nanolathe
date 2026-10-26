@@ -35,17 +35,26 @@ process from the view's side.
    `files/TotalAnnihilation`, because the engine reads content by path and
    Android lends shared folders only through content URIs. The copy is staged
    and renamed into place, then marked complete;
-2. on **Start game**, shows an `EbitenView` and calls `Nanolathe.start`, which
-   reaches `StartAndroid`. That points `HOME` and the `XDG_*` directories at
-   the app's private storage (Go reports `/sdcard` as an Android home), opens
-   `files/nanolathe.log` for start-up output and crash traces, and runs the
-   ordinary command path with `--root` set to the copied folder on its own
-   goroutine;
+2. on **Start game**, shows a `GameView` (an `EbitenView` that also accepts
+   the soft keyboard) and calls `Nanolathe.start` with the display's size in
+   physical pixels. `StartAndroid` points `HOME` and the `XDG_*` directories
+   at the app's private storage (Go reports `/sdcard` as an Android home),
+   opens `files/nanolathe.log` for start-up output and crash traces, fits the
+   battle size to the screen once (below), and runs the ordinary command path
+   with `--root` set to the copied folder on its own goroutine;
 3. polls `Nanolathe.failure` and returns to the launcher with the log tail if
    the start fails, and offers **Share last log** for reporting.
 
 The engine starts once per process. A second start asks the player to reopen
 the app.
+
+**Battle size.** Once per install, start-up saves the battle size as the
+screen's shape at the minimum battle height of 480, for example 1067x480 on a
+20:9 phone, so a battle fills the screen with no letterbox bars and the
+sidebar and bars are as large as the authored chrome can be drawn (the Modern
+UI scale magnifies only from twice that height). A marker file records the
+fit, so a size later chosen in Graphics is kept. Menus keep their authored
+640x480 canvas and stay letterboxed.
 
 Back is delivered to the game as Escape. The activity keeps the screen on,
 hides the system bars and suspends and resumes the view with its own
@@ -77,8 +86,19 @@ Samples pass through unchanged until a finger touches and again once a real
 mouse moves, so desktop and browser input is unaffected. Android starts owned
 by touch, because its idle cursor reads (0, 0) and would edge-scroll.
 
-Not yet covered: on-screen Shift and Ctrl for queueing and groups, the soft
-keyboard for chat, and hover-only help.
+**Soft keyboard.** An **abc** button at the right edge toggles the soft
+keyboard. `GameView` then reports itself as a text editor whose connection
+keeps no text: committed and composed text goes to the engine through
+`Nanolathe.typeText`, and Backspace, Delete, Enter, Escape and Tab through
+`Nanolathe.pressKey`. `InjectText` and `InjectKey` in `ebitenapp` add the
+characters to the next poll and hold each key for 70 ms with a 40 ms gap
+before the next, because a soft keyboard taps its keys inside one frame,
+which polling can miss. The field uses the visible-password input type so
+the keyboard neither composes words nor corrects them. On Android 11 and
+later the game view shrinks above the keyboard so the field stays visible.
+
+Not yet covered: on-screen Shift and Ctrl for queueing and groups, a chrome
+larger than the authored one, and hover-only help.
 
 ## 4. Building
 
@@ -96,5 +116,16 @@ tools and an NDK, plus a JDK 17 or newer. It:
    `build/android/nanolathe-debug.apk` (`--release` gives an unminified release
    APK signed with the debug key).
 
+`--emulator` binds `android/amd64` instead and writes
+`build/android/nanolathe-debug-x86_64.apk`, which runs natively on an x86_64
+Android emulator image.
+
 Install the APK by opening it on the phone and allowing installs from that
-source.
+source. An update installs over the app only when it is signed with the same
+key, which is the building machine's debug key; a build from another machine
+must be installed after uninstalling, which also removes the copied game
+folder.
+
+The desktop builds come from the same branch with the ordinary
+`go build ./cmd/nanolathe` (and `GOOS=windows` for Windows); the touch and
+keyboard adapters pass desktop input through unchanged.

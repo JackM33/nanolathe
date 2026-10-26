@@ -11,12 +11,18 @@ import android.os.Handler;
 import android.os.Looper;
 import android.os.SystemClock;
 import android.provider.DocumentsContract;
+import android.util.DisplayMetrics;
 import android.util.TypedValue;
+import android.view.Gravity;
 import android.view.InputDevice;
 import android.view.KeyEvent;
 import android.view.View;
+import android.view.ViewGroup;
+import android.view.WindowInsets;
 import android.view.WindowManager;
+import android.view.inputmethod.InputMethodManager;
 import android.widget.Button;
+import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 import android.widget.ProgressBar;
 import android.widget.ScrollView;
@@ -33,7 +39,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 
-import gg.nanolathe.mobile.nanolathe.EbitenView;
 import gg.nanolathe.mobile.nanolathe.Nanolathe;
 
 /**
@@ -53,7 +58,8 @@ public class MainActivity extends Activity {
     private static boolean engineStarted;
 
     private final Handler main = new Handler(Looper.getMainLooper());
-    private EbitenView gameView;
+    private GameView gameView;
+    private boolean imeShown;
     private TextView status;
     private ProgressBar progress;
     private Button startButton;
@@ -104,7 +110,7 @@ public class MainActivity extends Activity {
         if (gameReady()) {
             info.setText("Game files are copied. Tap to play: tap = left click, hold = right click, "
                     + "drag = select box, two fingers = pan and zoom, back = Escape. "
-                    + "Touch the black bars at the edges to scroll the map.");
+                    + "Touch the screen edges to scroll the map. The abc button on the right opens the keyboard.");
         } else {
             info.setText("Copy your Total Annihilation folder onto this phone (for example with a USB cable), "
                     + "then choose it here. Pick the folder that contains totala1.hpi. "
@@ -355,16 +361,72 @@ public class MainActivity extends Activity {
             return;
         }
         engineStarted = true;
-        gameView = new EbitenView(this);
-        setContentView(gameView);
+        gameView = new GameView(this);
+        FrameLayout root = new FrameLayout(this);
+        root.addView(gameView, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        root.addView(keyboardButton(), new FrameLayout.LayoutParams(dp(44), dp(44), Gravity.END | Gravity.CENTER_VERTICAL));
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            // The app places the keyboard itself: the game shrinks above it, so
+            // the field being typed into stays visible.
+            getWindow().setDecorFitsSystemWindows(false);
+            root.setOnApplyWindowInsetsListener((v, insets) -> {
+                boolean shown = insets.isVisible(WindowInsets.Type.ime());
+                v.setPadding(0, 0, 0, shown ? insets.getInsets(WindowInsets.Type.ime()).bottom : 0);
+                if (imeShown && !shown && gameView != null) {
+                    gameView.setKeyboard(false);
+                    hideSystemBars();
+                }
+                imeShown = shown;
+                return insets;
+            });
+        }
+        setContentView(root);
         hideSystemBars();
+        DisplayMetrics metrics = new DisplayMetrics();
+        getWindowManager().getDefaultDisplay().getRealMetrics(metrics);
+        int longSide = Math.max(metrics.widthPixels, metrics.heightPixels);
+        int shortSide = Math.min(metrics.widthPixels, metrics.heightPixels);
         try {
-            Nanolathe.start(getFilesDir().getAbsolutePath(), gameDir().getAbsolutePath());
+            Nanolathe.start(getFilesDir().getAbsolutePath(), gameDir().getAbsolutePath(), longSide, shortSide);
         } catch (Exception e) {
             showLauncher("The game did not start: " + e.getMessage());
             return;
         }
         main.postDelayed(watchFailure, 1000);
+    }
+
+    private View keyboardButton() {
+        TextView button = new TextView(this);
+        button.setText("abc");
+        button.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
+        button.setGravity(Gravity.CENTER);
+        button.setTextColor(0xFFFFFFFF);
+        button.setBackgroundColor(0x66000000);
+        button.setOnClickListener(v -> toggleKeyboard());
+        return button;
+    }
+
+    @SuppressWarnings("deprecation")
+    private void toggleKeyboard() {
+        if (gameView == null) {
+            return;
+        }
+        InputMethodManager imm = (InputMethodManager) getSystemService(INPUT_METHOD_SERVICE);
+        if (gameView.keyboard()) {
+            gameView.setKeyboard(false);
+            imm.hideSoftInputFromWindow(gameView.getWindowToken(), 0);
+            imm.restartInput(gameView);
+            hideSystemBars();
+            return;
+        }
+        gameView.setKeyboard(true);
+        gameView.requestFocus();
+        imm.restartInput(gameView);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && getWindow().getInsetsController() != null) {
+            getWindow().getInsetsController().show(WindowInsets.Type.ime());
+        } else {
+            imm.showSoftInput(gameView, InputMethodManager.SHOW_IMPLICIT);
+        }
     }
 
     /** A start that fails before or outside the window would otherwise be a black screen. */

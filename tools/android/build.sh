@@ -2,17 +2,29 @@
 # Build the Android app (docs/ANDROID.md §4).
 #
 # Needs ANDROID_HOME with an SDK platform, build tools and an NDK, plus a JDK.
-# Writes build/android/nanolathe-debug.apk; pass --release for an unminified
-# release APK signed with the debug key, which suits sideloading.
+# Writes build/android/nanolathe-debug.apk for 64-bit ARM phones.
+#   --release   an unminified release APK signed with the debug key, which
+#               suits sideloading
+#   --emulator  an x86_64 APK for Android emulators on a PC
 set -euo pipefail
 
 root=$(cd "$(dirname "$0")/../.." && pwd)
 cd "$root"
 
 variant=Debug
-if [ "${1:-}" = "--release" ]; then
-	variant=Release
-fi
+target=android/arm64
+abi=arm64-v8a
+suffix=
+for arg in "$@"; do
+	case "$arg" in
+	--release) variant=Release ;;
+	--emulator) target=android/amd64 abi=x86_64 suffix=-x86_64 ;;
+	*)
+		echo "build.sh: unknown option $arg" >&2
+		exit 2
+		;;
+	esac
+done
 
 : "${ANDROID_HOME:?set ANDROID_HOME to the Android SDK directory}"
 export ANDROID_HOME
@@ -40,7 +52,7 @@ GOBIN=$gobin GOFLAGS= go install "github.com/hajimehoshi/ebiten/v2/cmd/ebitenmob
 
 mkdir -p android/app/libs
 "$gobin/ebitenmobile" bind \
-	-target android/arm64 \
+	-target "$target" \
 	-androidapi 24 \
 	-javapkg gg.nanolathe.mobile \
 	-trimpath \
@@ -53,9 +65,9 @@ if [ -x android/gradlew ]; then
 	gradle=./gradlew
 fi
 # clean: incremental packaging leaves the old library's bytes as holes in the APK.
-(cd android && $gradle --no-daemon clean "assemble$variant")
+(cd android && $gradle --no-daemon -PnanolatheAbis="$abi" clean "assemble$variant")
 
 lower=$(echo "$variant" | tr '[:upper:]' '[:lower:]')
 apk=$(ls android/app/build/outputs/apk/"$lower"/*.apk | head -1)
-cp "$apk" "build/android/nanolathe-$lower.apk"
-echo "build/android/nanolathe-$lower.apk"
+cp "$apk" "build/android/nanolathe-$lower$suffix.apk"
+echo "build/android/nanolathe-$lower$suffix.apk"

@@ -8,9 +8,21 @@ package nanolathe
 import app "github.com/nanolathe-gg/nanolathe/build/android/gen/nanolatheapp"
 
 // Start launches the game shell on the copied game folder. MainActivity calls
-// it once per process, after showing its EbitenView.
-func Start(filesDir, gameDir string) error {
-	return app.StartAndroid(filesDir, gameDir)
+// it once per process, after showing its EbitenView, with the display's size
+// in physical pixels.
+func Start(filesDir, gameDir string, screenWidth, screenHeight int) error {
+	return app.StartAndroid(filesDir, gameDir, screenWidth, screenHeight)
+}
+
+// TypeText delivers text the soft keyboard committed.
+func TypeText(text string) {
+	app.AndroidTypeText(text)
+}
+
+// PressKey presses one editing key by name: backspace, delete, enter,
+// escape or tab. It reports whether the name is known.
+func PressKey(name string) bool {
+	return app.AndroidPressKey(name)
 }
 
 // Failure is the log tail of a start that stopped before or outside its
