@@ -190,6 +190,9 @@ type worldBuckets struct {
 	items        []worldDrawable
 	bucket       []worldBucket
 	orderedItems []worldDrawable
+	// orderedValid says orderedItems already holds this build's order, so the
+	// later passes walk it again instead of sorting every row anew (ordered).
+	orderedValid bool
 	// Enhanced keeps the retail row barriers but orders units within each row
 	// by their full world Z, so crossing a plot-row edge cannot flip an overlap
 	// (DESIGN_GPU_RENDERER §5.5).
@@ -216,6 +219,7 @@ func (b *worldBuckets) reset() {
 	b.bucket = b.bucket[:0]
 	b.items = b.items[:0]
 	b.orderedItems = b.orderedItems[:0]
+	b.orderedValid = false
 	for _, slot := range b.childTouched {
 		b.childHead[slot] = 0
 	}
@@ -365,6 +369,7 @@ func (b *worldBuckets) nextChild(child int) int {
 }
 
 func (b *worldBuckets) add(v worldDrawable) {
+	b.orderedValid = false
 	idx := len(b.items)
 	b.items = append(b.items, v)
 	for i := range b.bucket {
@@ -388,8 +393,14 @@ func (b *worldBuckets) add(v worldDrawable) {
 // keeps source order within a row; Enhanced sorts that row's units by full Z.
 // It is idempotent: the two unit passes are two walks over one bucket build,
 // so both call it and both see the same sequence [03 R-RAST-01 §7]
-// (DESIGN_GPU_RENDERER §5.5).
+// (DESIGN_GPU_RENDERER §5.5). The sequence is a pure function of the build,
+// so a call after the first returns the one already made; anything that
+// changes the build (reset, add, the view-cull verdicts) clears it.
 func (b *worldBuckets) ordered() []worldDrawable {
+	if b.orderedValid {
+		return b.orderedItems
+	}
+	b.orderedValid = true
 	b.orderedItems = b.orderedItems[:0]
 	// Insertion sort is allocation-free and the bucket count is bounded by the
 	// distinct rows admitted for this frame. Existing bucket order is not a
@@ -775,6 +786,7 @@ func (c *Client) drawWorldPass(cur *frame.Frame, ok bool) {
 	// never culled (unit_view_cull.go). Its rectangle is the record extent
 	// every world site clips against.
 	recW, recH := c.recordExtent()
+	b.orderedValid = false
 	for i := range b.items {
 		if d := &b.items[i]; d.unit != nil {
 			d.offView = c.unitOutsideView(d.unit, d.screenX, d.screenY, recW, recH)

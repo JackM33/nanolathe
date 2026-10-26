@@ -68,6 +68,13 @@ func resizeScratch[T any](v []T, n int) []T {
 	return v[:n]
 }
 func (s *modelScratch) reset() {
+	// Only the packet and outline slots borrowed since the last reset can
+	// hold anything to clear: their counters are never rewound within a
+	// frame, and every slot past them was cleared by an earlier reset and not
+	// borrowed since. A worker's arena keeps the slots of the largest share of
+	// the units it has ever taken, so clearing all of them every frame was a
+	// visible part of a large battle's record.
+	packets, outlines := s.packets[:s.packetNext], s.outlines[:s.outlineNext]
 	s.polyNext, s.imageNext, s.packetNext, s.drawNext, s.stateNext, s.outlineNext = 0, 0, 0, 0, 0, 0
 	s.projectileNext = 0
 	// Preserve warm storage. Face records also address corner arrays: their
@@ -75,7 +82,7 @@ func (s *modelScratch) reset() {
 	// those references when their lane storage changes. A blanket per-frame
 	// polygon clear would erase data whose backing arrays the slot still owns
 	// [DESIGN_GPU_RENDERER.md §11.5 "CPU"].
-	for _, p := range s.packets {
+	for _, p := range packets {
 		// Preserve the previous face length so refill can clear only the removed
 		// tail. The rest of each packet is frame-local, including the doubled
 		// packet's outline, reveal and shadow references.
@@ -90,9 +97,24 @@ func (s *modelScratch) reset() {
 		p.polys = p.polys[:0]
 		p.corner = 0
 	}
-	for _, o := range s.outlines {
+	for _, o := range outlines {
 		o.faces, o.verts, o.spans = o.faces[:0], o.verts[:0], o.spans[:0]
 	}
+}
+
+// rewindStaging hands the draw, piece-state and polygon slots back for the
+// next subject. A stage-one job (record_parallel.go) borrows those three only
+// to stage its own composition: everything its pair carries out of the job is
+// copied into a packet or outline slot, which keep counting until reset, or
+// into the subject's retained store. So the next job may take the same slots.
+// A worker then composes every unit through a few slots that stay grown and
+// warm in cache, instead of one fresh slot per unit it happened to take this
+// frame — which, with the shared job cursor, grew every worker's arena towards
+// the whole battle and reallocated whenever a slot met a larger model. Slots
+// are fully rewritten when borrowed, so the pair is the same values either way
+// (docs/DESIGN_GPU_RENDERER.md §13.9).
+func (s *modelScratch) rewindStaging() {
+	s.drawNext, s.stateNext, s.polyNext = 0, 0, 0
 }
 
 // borrowOutline hands out one subject's outline slot for the frame. Slots never

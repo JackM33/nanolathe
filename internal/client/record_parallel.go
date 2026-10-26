@@ -221,6 +221,13 @@ func (p *recordPool) drain(c *Client) {
 		v := p.units[idx]
 		body, live := c.unitGeometryPair(v, false)
 		p.pairs[idx] = geometryPair{body: body, live: live, id: unitPresentationID(v), ready: true}
+		if c.recordPool == nil {
+			// A participant's clone (refresh clears its pool) owns its arena
+			// for stage one alone, so the job's staging slots are free again.
+			// The recording client draining a short list itself keeps its
+			// slots counting: stage two borrows from the same arena.
+			c.modelScratch.rewindStaging()
+		}
 	}
 }
 
