@@ -213,7 +213,10 @@ func (s *Session) publishFrame(tick uint32, paused bool) {
 	if s.Snapshot == nil {
 		return
 	}
-	published := s.Snapshot.BeginWrite()
+	// The unit channel rebuilds every unit, order-queue and unit contact
+	// element it reserves (publish_parallel.go), and the projectile contacts
+	// after it are appended whole, so those channels keep their bodies.
+	published := s.Snapshot.BeginRewrite()
 	if published == nil {
 		return
 	}

@@ -251,3 +251,39 @@ func TestFrameResetRetainsUnitAndContactBodies(t *testing.T) {
 		t.Fatalf("reset lost the retained contact body or its ring storage: %#v", c)
 	}
 }
+
+// A rewriting write truncates the unit, order-queue and radar contact
+// channels but leaves their element bodies to the writer that rebuilds them;
+// every other channel resets exactly as an ordinary write resets it.
+func TestBeginRewriteLeavesRebuiltChannelBodies(t *testing.T) {
+	b := NewBuffer()
+	fill := func(f *Frame) {
+		f.Units = append(f.Units[:0], UnitView{Pieces: make([]PieceView, 2, 3)})
+		f.OrderQueues = append(f.OrderQueues[:0], OrderQueueView{Primary: []OrderView{{Kind: "Move", Route: make([]RoutePoint, 1, 2)}}})
+		f.Radar.Contacts = append(f.Radar.Contacts[:0], RadarContactView{Rings: make([]RadarRingView, 1, 2)})
+		f.Effects = append(f.Effects[:0], EffectView{DurationsA: []int32{7}})
+	}
+	for tick := uint32(1); tick <= 2; tick++ {
+		fill(b.BeginWrite())
+		if err := b.Publish(tick); err != nil {
+			t.Fatal(err)
+		}
+	}
+	f := b.BeginRewrite()
+	if len(f.Units) != 0 || len(f.OrderQueues) != 0 || len(f.Radar.Contacts) != 0 || len(f.Effects) != 0 {
+		t.Fatal("rewriting reset left a channel's length")
+	}
+	if len(f.Units[:1][0].Pieces) != 2 || len(f.OrderQueues[:1][0].Primary) != 1 || f.OrderQueues[:1][0].Primary[0].Kind != "Move" || len(f.Radar.Contacts[:1][0].Rings) != 1 {
+		t.Fatal("rewriting reset touched a rebuilt channel's element bodies")
+	}
+	if got := f.Effects[:1][0].DurationsA; len(got) != 0 || cap(got) != 1 {
+		t.Fatalf("rewriting reset kept effect durations %v", got)
+	}
+	if err := b.Publish(3); err != nil {
+		t.Fatal(err)
+	}
+	f = b.BeginWrite()
+	if len(f.Units[:1][0].Pieces) != 0 || len(f.OrderQueues[:1][0].Primary) != 0 || len(f.Radar.Contacts[:1][0].Rings) != 0 {
+		t.Fatal("ordinary reset kept a rebuilt channel's nested lengths")
+	}
+}
