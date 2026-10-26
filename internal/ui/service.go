@@ -2,6 +2,7 @@ package ui
 
 import (
 	"strings"
+	"sync/atomic"
 
 	"github.com/nanolathe-gg/nanolathe/internal/gui"
 	"github.com/nanolathe-gg/nanolathe/internal/input"
@@ -75,11 +76,23 @@ func widgetButton(kind input.PointerEventKind) (uint8, bool, bool) {
 	return 0, false, false
 }
 
+// editorServices counts widget passes that found a captured text editor. A
+// host with an on-screen keyboard polls it and shows the keyboard while the
+// count keeps rising (docs/ANDROID.md §3). Nothing in the game reads it.
+var editorServices atomic.Int64
+
+// EditorServices reports how many widget passes have found a captured text
+// editor since start-up.
+func EditorServices() int64 { return editorServices.Load() }
+
 // ServiceFrame performs one ordered generic widget pass [07 R-WGT-01 §§1-8].
 func (p *Panel) ServiceFrame(frame WidgetFrame, hooks WidgetHooks) ServiceResult {
 	result := ServiceResult{FiredIndex: -1, HoverIndex: -1}
 	if p == nil || p.Window == nil {
 		return result
+	}
+	if p.EditorCaptured() {
+		editorServices.Add(1)
 	}
 	// A held sample outside the window is discarded, preserving the last
 	// accepted pointer until the release sample is accepted.  The input sample

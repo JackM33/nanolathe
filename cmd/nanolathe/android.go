@@ -5,14 +5,18 @@ package main
 import (
 	"bytes"
 	"fmt"
+	"io"
+	"io/fs"
 	"math"
 	"os"
 	"path/filepath"
 	"runtime/debug"
+	"sync"
 	"sync/atomic"
 
 	"github.com/nanolathe-gg/nanolathe/internal/platform/ebitenapp"
 	"github.com/nanolathe-gg/nanolathe/internal/settings"
+	"github.com/nanolathe-gg/nanolathe/internal/ui"
 )
 
 // androidFailure holds the error text that stopped an Android start, for the
@@ -51,6 +55,8 @@ func StartAndroid(filesDir, gameDir string, screenW, screenH int) error {
 	if err := debug.SetCrashOutput(log, debug.CrashOptions{}); err != nil {
 		fmt.Fprintf(log, "nanolathe: warning: crash traces will not be kept: %v\n", err)
 	}
+	writeGameFolderReport(log, gameDir)
+	reportMissingGadgetArt(log)
 	if err := seedAndroidDisplay(filesDir, screenW, screenH); err != nil {
 		fmt.Fprintf(log, "nanolathe: warning: the battle size was not fitted to the screen: %v\n", err)
 	}
@@ -64,6 +70,46 @@ func StartAndroid(filesDir, gameDir string, screenW, screenH int) error {
 		}
 	}()
 	return nil
+}
+
+// writeGameFolderReport lists the copied game folder at the head of the log,
+// so a shared log shows which archives the player's install supplied.
+func writeGameFolderReport(w io.Writer, gameDir string) {
+	const most = 200
+	listed := 0
+	_ = filepath.WalkDir(gameDir, func(path string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return nil
+		}
+		if listed == most {
+			fmt.Fprintf(w, "nanolathe: game folder: more files not listed\n")
+			return filepath.SkipAll
+		}
+		listed++
+		rel, _ := filepath.Rel(gameDir, path)
+		size := int64(-1)
+		if info, err := d.Info(); err == nil {
+			size = info.Size()
+		}
+		fmt.Fprintf(w, "nanolathe: game folder: %s (%d bytes)\n", rel, size)
+		return nil
+	})
+}
+
+// reportMissingGadgetArt logs each per-gadget picture the window builder
+// could not resolve, once per file, for diagnosing blank build buttons.
+func reportMissingGadgetArt(w io.Writer) {
+	var mu sync.Mutex
+	seen := map[string]bool{}
+	gadgetArtMissing = func(logical string, err error) {
+		mu.Lock()
+		defer mu.Unlock()
+		if seen[logical] {
+			return
+		}
+		seen[logical] = true
+		fmt.Fprintf(w, "nanolathe: build picture missing: logical path %s: %v\n", logical, err)
+	}
 }
 
 // androidDisplaySeeded marks that the battle size was fitted to the screen
@@ -101,6 +147,10 @@ func AndroidPressKey(name string) bool { return ebitenapp.InjectKey(name) }
 
 // AndroidSetShift holds Shift while the app's Shift button is pressed.
 func AndroidSetShift(held bool) { ebitenapp.SetHostShift(held) }
+
+// AndroidEditorServices rises while a text box is capturing input, which is
+// when the app shows the soft keyboard (docs/ANDROID.md §3).
+func AndroidEditorServices() int64 { return ui.EditorServices() }
 
 // AndroidFailure is the log tail of a start that failed, or "".
 func AndroidFailure() string {

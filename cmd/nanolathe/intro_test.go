@@ -34,7 +34,7 @@ func TestIntroCharacterSkip(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			in := input.NewState()
 			in.EnqueueToken(tc.token)
-			skip, quit := introSkip(in)
+			skip, quit := introSkip(in, false)
 			if skip != tc.want || quit || in.PendingTokens() != 0 {
 				t.Fatalf("skip=%v quit=%v pending=%d", skip, quit, in.PendingTokens())
 			}
@@ -43,8 +43,20 @@ func TestIntroCharacterSkip(t *testing.T) {
 	in := input.NewState()
 	in.Kbd.SetKey(input.KeyAlt, true)
 	in.Kbd.SetKey(input.KeyF4, true)
-	if skip, quit := introSkip(in); !skip || !quit {
+	if skip, quit := introSkip(in, false); !skip || !quit {
 		t.Fatal("Alt+F4 did not exit")
+	}
+}
+
+// A click never skips on a desktop, while a tap skips on a touch-first host
+// (docs/ANDROID.md §3).
+func TestIntroTapSkipsOnlyOnTouchHosts(t *testing.T) {
+	for _, touch := range []bool{false, true} {
+		in := input.NewState()
+		in.Mouse.SetButton(input.MouseButtonLeft, true)
+		if skip, quit := introSkip(in, touch); skip != touch || quit {
+			t.Fatalf("touch host %v: skip=%v quit=%v", touch, skip, quit)
+		}
 	}
 }
 

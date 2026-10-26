@@ -278,6 +278,12 @@ func (g *gameShell) installRetailWindowButtonArt(window *gui.Window, own *format
 	}
 }
 
+// gadgetArtMissing, when set, hears each per-gadget picture the prepass could
+// not resolve, with the reason. The Android host logs them so a player's
+// blank build buttons can be diagnosed from the shared log
+// (docs/ANDROID.md §2); elsewhere a miss stays silent, as retail's is.
+var gadgetArtMissing func(logical string, err error)
+
 // externalGadgetArt is the odd-gaffile prepass. A failed resource or
 // entry lookup remains a resolved nil result, so later drawing cannot replace
 // this record with normal/common/fallback art [07 R-WGT-01 §3].
@@ -289,11 +295,18 @@ func (g *gameShell) externalGadgetArt(gad gui.Gadget) *formats.GAFEntry {
 	if g == nil || g.cs == nil || g.cs.fs == nil || name == "" {
 		return nil
 	}
-	bank, err := formats.LoadGAFFile(g.cs.fs, "anims/"+name+"_gadget.GAF")
+	logical := "anims/" + name + "_gadget.GAF"
+	bank, err := formats.LoadGAFFile(g.cs.fs, logical)
 	if err != nil {
+		if gadgetArtMissing != nil {
+			gadgetArtMissing(logical, err)
+		}
 		return nil
 	}
-	entry, _ := bank.Find(name)
+	entry, ok := bank.Find(name)
+	if !ok && gadgetArtMissing != nil {
+		gadgetArtMissing(logical, fmt.Errorf("no entry %q among %d", name, len(bank.Entries)))
+	}
 	return entry
 }
 

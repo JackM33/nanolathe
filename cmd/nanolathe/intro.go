@@ -9,6 +9,7 @@ import (
 	"github.com/nanolathe-gg/nanolathe/internal/audio"
 	"github.com/nanolathe-gg/nanolathe/internal/client"
 	"github.com/nanolathe-gg/nanolathe/internal/input"
+	"github.com/nanolathe-gg/nanolathe/internal/platform/ebitenapp"
 	"github.com/nanolathe-gg/nanolathe/vfs"
 )
 
@@ -170,10 +171,12 @@ func (g *gameShell) movieFailure(logical string, cause error) error {
 
 // Character messages skip; navigation/function keys and mouse clicks do not.
 // Editing tokens below represent the control characters emitted by WM_CHAR
-// [08 R-OOS-01 §4]; Alt+F4 also requests application shutdown.
-func introSkip(in *input.State) (skip, quit bool) {
+// [08 R-OOS-01 §4]; Alt+F4 also requests application shutdown. A touch-first
+// host has no keyboard to type with, so there a tap (a left press) skips too;
+// that is Nanolathe host policy (docs/ANDROID.md §3).
+func introSkip(in *input.State, tapSkips bool) (skip, quit bool) {
 	quit = in.Kbd.KeyHeld(input.KeyAlt) && in.Kbd.KeyDown(input.KeyF4)
-	skip = quit
+	skip = quit || tapSkips && in.Mouse.Pressed(input.MouseButtonLeft)
 	for _, token := range in.DrainTokens() {
 		if token.Kind == input.TokenText {
 			skip = true
@@ -190,7 +193,7 @@ func introSkip(in *input.State) (skip, quit bool) {
 
 func (g *gameShell) stepIntro(delta float64, cl *client.Client) {
 	m := g.intro
-	if skip, quit := introSkip(cl.Input()); skip {
+	if skip, quit := introSkip(cl.Input(), ebitenapp.TouchFirstHost()); skip {
 		if quit {
 			g.closeIntro(cl)
 			cl.RequestExit()

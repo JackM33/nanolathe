@@ -30,6 +30,12 @@ func SetShift(held bool) {
 	app.AndroidSetShift(held)
 }
 
+// EditorServices rises while a text box is capturing input. The app polls it
+// to open and close the soft keyboard.
+func EditorServices() int64 {
+	return app.AndroidEditorServices()
+}
+
 // Failure is the log tail of a start that stopped before or outside its
 // window, or "" while the game is running.
 func Failure() string {

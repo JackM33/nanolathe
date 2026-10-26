@@ -117,6 +117,10 @@ func (r *touchPanRegion) contains(x, y int32, now time.Time) bool {
 	return !r.at.IsZero() && now.Sub(r.at) < touchPanLapse && x >= r.x0 && x < r.x1 && y >= r.y0 && y < r.y1
 }
 
+// TouchFirstHost reports a host whose primary pointer is a touch screen, where
+// a tap stands in for keys a keyboard would press (docs/ANDROID.md §3).
+func TouchFirstHost() bool { return nativeTouch.touchFirst }
+
 // bounds records the logical canvas touches are reported in. Layout runs on
 // the game goroutine before each Update's input poll.
 func (t *touchAdapter) bounds(w, h int) {

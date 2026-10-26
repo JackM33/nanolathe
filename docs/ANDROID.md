@@ -43,7 +43,14 @@ process from the view's side.
    battle size to the screen once (below), and runs the ordinary command path
    with `--root` set to the copied folder on its own goroutine;
 3. polls `Nanolathe.failure` and returns to the launcher with the log tail if
-   the start fails, and offers **Share last log** for reporting.
+   the start fails, and offers **Copy log** and **Share log** for reporting:
+   the log's first 12 KB and last 20 KB.
+
+The log starts with the copied game folder's files and sizes, then the
+engine's usual start-up report, which names every mounted archive. Each
+per-gadget picture the window builder cannot resolve (`anims/<name>_gadget.GAF`
+for a build button, [07 R-WGT-01 §3]) is logged once with the reason, so blank
+build buttons can be traced to a missing file or entry.
 
 The engine starts once per process. A second start asks the player to reopen
 the app.
@@ -95,21 +102,31 @@ Samples pass through unchanged until a finger touches and again once a real
 mouse moves, so desktop and browser input is unaffected. Android starts owned
 by touch, because its idle cursor reads (0, 0) and would edge-scroll.
 
-**Shift.** A **SHIFT** button at the bottom right holds Shift while a finger
-is on it (`Nanolathe.setShift`, `ebitenapp.SetHostShift`), so another
+**Shift.** A **SHIFT** button at the bottom right, drawn as a bevelled steel
+button like the game's own, holds Shift while a finger is on it (`Nanolathe.setShift`, `ebitenapp.SetHostShift`), so another
 finger's taps queue orders. The layout splits multi-touch, so that finger
 still reaches the game view. Leaving the app releases it.
 
-**Soft keyboard.** An **abc** button at the right edge toggles the soft
-keyboard. `GameView` then reports itself as a text editor whose connection
-keeps no text: committed and composed text goes to the engine through
-`Nanolathe.typeText`, and Backspace, Delete, Enter, Escape and Tab through
-`Nanolathe.pressKey`. `InjectText` and `InjectKey` in `ebitenapp` add the
-characters to the next poll and hold each key for 70 ms with a 40 ms gap
-before the next, because a soft keyboard taps its keys inside one frame,
-which polling can miss. The field uses the visible-password input type so
-the keyboard neither composes words nor corrects them. On Android 11 and
-later the game view shrinks above the keyboard so the field stays visible.
+**Soft keyboard.** The keyboard opens by itself while a text box is
+capturing input and closes when none is. `ui.Panel.ServiceFrame` counts the
+widget passes that find a captured editor (`ui.EditorServices`); the app polls
+`Nanolathe.editorServices` every 300 ms, opens the keyboard when the count
+rises and closes it after two polls without a rise, and leaves it closed if
+the player dismissed it until the next text box. `GameView` then reports
+itself as a text editor whose connection keeps no text: committed and
+composed text goes to the engine through `Nanolathe.typeText`, and Backspace,
+Delete, Enter, Escape and Tab through `Nanolathe.pressKey`. `InjectText` and
+`InjectKey` in `ebitenapp` add the characters to the next poll and hold each
+key for 70 ms with a 40 ms gap before the next, because a soft keyboard taps
+its keys inside one frame, which polling can miss. The field uses the
+visible-password input type so the keyboard neither composes words nor
+corrects them. On Android 11 and later the game view shrinks above the
+keyboard so the field stays visible.
+
+**Intro.** Retail skips the intro on character keys and Escape, Enter, Tab
+and Backspace, never on a click [08 R-OOS-01 §4]. A phone has no keyboard
+showing, so on a touch-first host (`ebitenapp.TouchFirstHost`) a tap skips it
+too.
 
 Not yet covered: on-screen Shift and Ctrl for queueing and groups, a chrome
 larger than the authored one, and hover-only help.

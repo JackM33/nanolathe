@@ -1,6 +1,8 @@
 package io.github.jackm33.nanolathe;
 
 import android.app.Activity;
+import android.content.ClipData;
+import android.content.ClipboardManager;
 import android.content.Intent;
 import android.database.Cursor;
 import android.graphics.Typeface;
@@ -109,10 +111,11 @@ public class MainActivity extends Activity {
         info.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15);
         info.setPadding(0, dp(8), 0, dp(8));
         if (gameReady()) {
-            info.setText("Game files are copied. Tap = left click. Drag one finger = move the map. "
+            info.setText("Game files are copied. Tap = left click (tap to skip the intro). "
+                    + "Drag one finger = move the map. "
                     + "Hold until it buzzes, then drag = selection box; hold and let go = right click. "
                     + "Two fingers = zoom. Hold SHIFT (bottom right) while tapping to queue orders. "
-                    + "abc (right edge) = keyboard. Back = Escape.");
+                    + "The keyboard opens by itself in text boxes. Back = Escape.");
         } else {
             info.setText("Copy your Total Annihilation folder onto this phone (for example with a USB cable), "
                     + "then choose it here. Pick the folder that contains totala1.hpi. "
@@ -132,8 +135,12 @@ public class MainActivity extends Activity {
         chooseButton.setOnClickListener(v -> chooseFolder());
         buttons.addView(chooseButton);
         if (logFile().exists()) {
+            Button copy = new Button(this);
+            copy.setText("Copy log");
+            copy.setOnClickListener(v -> copyLog());
+            buttons.addView(copy);
             Button share = new Button(this);
-            share.setText("Share last log");
+            share.setText("Share log");
             share.setOnClickListener(v -> shareLog());
             buttons.addView(share);
         }
@@ -324,8 +331,45 @@ public class MainActivity extends Activity {
         Intent send = new Intent(Intent.ACTION_SEND);
         send.setType("text/plain");
         send.putExtra(Intent.EXTRA_SUBJECT, "Nanolathe log");
-        send.putExtra(Intent.EXTRA_TEXT, readTail(logFile(), 24 << 10));
+        send.putExtra(Intent.EXTRA_TEXT, logText());
         startActivity(Intent.createChooser(send, "Share log"));
+    }
+
+    private void copyLog() {
+        ClipboardManager clipboard = (ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
+        clipboard.setPrimaryClip(ClipData.newPlainText("Nanolathe log", logText()));
+        if (status != null) {
+            status.setText("Log copied. Paste it into the chat.");
+        }
+    }
+
+    /**
+     * The log's start, which lists the game folder and loaded archives, and its
+     * end, where a failure is written.
+     */
+    private String logText() {
+        File log = logFile();
+        if (log.length() <= (32 << 10)) {
+            return readTail(log, 32 << 10);
+        }
+        return readHead(log, 12 << 10) + "\n...\n" + readTail(log, 20 << 10);
+    }
+
+    private static String readHead(File file, int keep) {
+        try (FileInputStream in = new FileInputStream(file)) {
+            byte[] data = new byte[keep];
+            int read = 0;
+            while (read < data.length) {
+                int n = in.read(data, read, data.length - read);
+                if (n < 0) {
+                    break;
+                }
+                read += n;
+            }
+            return new String(data, 0, read, StandardCharsets.UTF_8);
+        } catch (IOException e) {
+            return "Could not read the log: " + e.getMessage();
+        }
     }
 
     private static String readTail(File file, int keep) {
@@ -366,8 +410,7 @@ public class MainActivity extends Activity {
         gameView = new GameView(this);
         FrameLayout root = new FrameLayout(this);
         root.addView(gameView, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
-        root.addView(keyboardButton(), new FrameLayout.LayoutParams(dp(44), dp(44), Gravity.END | Gravity.CENTER_VERTICAL));
-        root.addView(shiftButton(), new FrameLayout.LayoutParams(dp(72), dp(56), Gravity.END | Gravity.BOTTOM));
+        root.addView(shiftButton(), new FrameLayout.LayoutParams(dp(76), dp(48), Gravity.END | Gravity.BOTTOM));
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             // The app places the keyboard itself: the game shrinks above it, so
             // the field being typed into stays visible.
@@ -396,6 +439,7 @@ public class MainActivity extends Activity {
             return;
         }
         main.postDelayed(watchFailure, 1000);
+        main.postDelayed(watchKeyboard, KEYBOARD_POLL_MS);
     }
 
     /**
@@ -404,22 +448,28 @@ public class MainActivity extends Activity {
      * game view (docs/ANDROID.md §3).
      */
     private View shiftButton() {
+        final TaButtonDrawable face = new TaButtonDrawable(dp(2));
         final TextView button = new TextView(this);
         button.setText("SHIFT");
-        button.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
+        button.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
+        button.setTypeface(Typeface.create(Typeface.SANS_SERIF, Typeface.BOLD));
+        button.setLetterSpacing(0.08f);
         button.setGravity(Gravity.CENTER);
-        button.setTextColor(0xFFFFFFFF);
-        button.setBackgroundColor(0x66000000);
+        button.setTextColor(0xFFE8E4C8);
+        button.setShadowLayer(1, 1, 1, 0xFF000000);
+        button.setBackground(face);
         button.setOnTouchListener((v, event) -> {
             switch (event.getActionMasked()) {
                 case MotionEvent.ACTION_DOWN:
                     Nanolathe.setShift(true);
-                    button.setBackgroundColor(0xCC2E7D32);
+                    face.setPressed(true);
+                    button.setTextColor(0xFFFFF7A0);
                     return true;
                 case MotionEvent.ACTION_UP:
                 case MotionEvent.ACTION_CANCEL:
                     Nanolathe.setShift(false);
-                    button.setBackgroundColor(0x66000000);
+                    face.setPressed(false);
+                    button.setTextColor(0xFFE8E4C8);
                     return true;
                 default:
                     return true;
@@ -428,30 +478,45 @@ public class MainActivity extends Activity {
         return button;
     }
 
-    private View keyboardButton() {
-        TextView button = new TextView(this);
-        button.setText("abc");
-        button.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
-        button.setGravity(Gravity.CENTER);
-        button.setTextColor(0xFFFFFFFF);
-        button.setBackgroundColor(0x66000000);
-        button.setOnClickListener(v -> toggleKeyboard());
-        return button;
-    }
+    // ---- The soft keyboard ----
 
-    @SuppressWarnings("deprecation")
-    private void toggleKeyboard() {
+    private static final long KEYBOARD_POLL_MS = 300;
+    private long editorServices = -1;
+    private int quietPolls;
+    private boolean keyboardWanted;
+
+    /**
+     * Opens the keyboard when a text box starts capturing input and closes it
+     * when none is, by watching the engine's count of widget passes with a
+     * captured editor (docs/ANDROID.md §3). Closing it by hand is respected
+     * until the next text box.
+     */
+    private final Runnable watchKeyboard = new Runnable() {
+        @Override
+        public void run() {
+            if (gameView == null) {
+                return;
+            }
+            long n = Nanolathe.editorServices();
+            boolean active = editorServices >= 0 && n != editorServices;
+            editorServices = n;
+            quietPolls = active ? 0 : quietPolls + 1;
+            if (active && !keyboardWanted) {
+                keyboardWanted = true;
+                showKeyboard();
+            } else if (keyboardWanted && quietPolls >= 2) {
+                keyboardWanted = false;
+                hideKeyboard();
+            }
+            main.postDelayed(this, KEYBOARD_POLL_MS);
+        }
+    };
+
+    private void showKeyboard() {
         if (gameView == null) {
             return;
         }
         InputMethodManager imm = (InputMethodManager) getSystemService(INPUT_METHOD_SERVICE);
-        if (gameView.keyboard()) {
-            gameView.setKeyboard(false);
-            imm.hideSoftInputFromWindow(gameView.getWindowToken(), 0);
-            imm.restartInput(gameView);
-            hideSystemBars();
-            return;
-        }
         gameView.setKeyboard(true);
         gameView.requestFocus();
         imm.restartInput(gameView);
@@ -460,6 +525,17 @@ public class MainActivity extends Activity {
         } else {
             imm.showSoftInput(gameView, InputMethodManager.SHOW_IMPLICIT);
         }
+    }
+
+    private void hideKeyboard() {
+        if (gameView == null || !gameView.keyboard()) {
+            return;
+        }
+        InputMethodManager imm = (InputMethodManager) getSystemService(INPUT_METHOD_SERVICE);
+        gameView.setKeyboard(false);
+        imm.hideSoftInputFromWindow(gameView.getWindowToken(), 0);
+        imm.restartInput(gameView);
+        hideSystemBars();
     }
 
     /** A start that fails before or outside the window would otherwise be a black screen. */
