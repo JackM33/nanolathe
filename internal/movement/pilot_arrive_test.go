@@ -489,3 +489,39 @@ func TestArriveAdoptsAMoveThatWaited(t *testing.T) {
 		t.Fatalf("its place is %v and its goal cell %d, not the goal it was given", row.place, world.WorldToCell(second.GoalX))
 	}
 }
+
+// The arrival root is the floor square root: the Newton descent from the
+// value itself, which it replaced, over small values, values about every
+// square and a spread of large ones.
+func TestArriveRootIsTheFloorRoot(t *testing.T) {
+	fromValue := func(v int64) int64 {
+		if v <= 0 {
+			return 0
+		}
+		x := v
+		y := (x + 1) / 2
+		for y < x {
+			x = y
+			y = (x + v/x) / 2
+		}
+		return x
+	}
+	check := func(v int64) {
+		if got, want := isqrtInt64Arrive(v), fromValue(v); got != want {
+			t.Fatalf("root of %d = %d, want %d", v, got, want)
+		}
+	}
+	for v := int64(-3); v < 1<<16; v++ {
+		check(v)
+	}
+	for r := int64(1); r < 1<<31; r = r*3/2 + 1 {
+		check(r*r - 1)
+		check(r * r)
+		check(r*r + 1)
+	}
+	seed := uint64(7)
+	for i := 0; i < 100000; i++ {
+		seed = seed*6364136223846793005 + 1442695040888963407
+		check(int64(seed >> (1 + seed%40)))
+	}
+}

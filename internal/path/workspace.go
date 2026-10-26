@@ -150,15 +150,17 @@ func (ix *cellIndex) bindWorkspace(ws *Workspace, bounds Rect, hasBounds bool) {
 	ix.ws, ix.gen, ix.m, ix.overflow = ws, ws.gen, nil, nil
 }
 
-// release hands the workspace back and leaves the index on a fresh map, so an
-// index that outlives its lending cannot read another search's slots.
+// release hands the workspace back and leaves the index on an empty map, so an
+// index that outlives its lending cannot read another search's slots. The map
+// is made by the first write that needs it: a released search is finished
+// with and never writes again, and a nil map reads every cell as the zero
+// entry, exactly as an empty one does.
 func (ix *cellIndex) release() {
 	if ix.ws == nil {
 		return
 	}
 	ix.ws.release()
-	ix.ws, ix.overflow = nil, nil
-	ix.m = make(map[Cell]entry)
+	ix.ws, ix.overflow, ix.m = nil, nil, nil
 }
 
 // reset empties the table without disturbing the lending.
@@ -235,6 +237,9 @@ func (ix *cellIndex) getMap(c Cell) entry {
 //go:noinline
 func (ix *cellIndex) setMap(c Cell, e entry) {
 	if ix.ws == nil {
+		if ix.m == nil {
+			ix.m = make(map[Cell]entry)
+		}
 		ix.m[c] = e
 		return
 	}

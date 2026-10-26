@@ -1326,55 +1326,21 @@ func tryFireForSlot(u *units.Unit, slot *units.Slot, idx int, tick uint32, terra
 	if terrain != nil {
 		gravity = terrain.Gravity
 	}
+	// The attempt's ports read their state from a reusable record rather than
+	// from closures and records made per call (fireAttempt).
+	a := svc.takeFireAttempt()
+	defer svc.releaseFireAttempt()
 	bridge := svc.callbackBridgeForUnit(u)
+	a.u, a.slot, a.w, a.weapon, a.bridge, a.targetPoint = u, slot, w, weapon, bridge, targetPoint
 	// The normal muzzle path — the unit's own position — is where a shot
 	// starts only when no piece resolves: a script that answers a negative
 	// piece, or a unit with no script to ask [06 §4.1].
 	origin := Vec3{X: u.X, Y: u.Y, Z: u.Z}
-	targetWorld := func(h pool.Handle) (Vec3, bool) {
-		if h == 0 || h != slot.Target.Unit || w.Unit(h) == nil {
-			return Vec3{}, false
-		}
-		return targetPoint, true // the resolved point, not the unit's position [06 R-WPN-04 §1]
-	}
 	// [06 §13.2] wire weapon-start events to same service sink installed at composition [06 §4.1] C2
-	fireEvents := &combatFireEvents{svc: svc, tick: tick, shooter: u.Handle, pos: origin}
-	muzzleWorld := func(piece int32) (Vec3, bool) {
-		pos, ok := muzzleWorldPosResolved(u, piece)
-		if ok {
-			// The start sound and start smoke are emitted at the record, which
-			// sits at the muzzle the executor just resolved [06 §4.1].
-			fireEvents.pos = pos
-		}
-		return pos, ok
-	}
-	// The fire-time muzzle query is the FORCED `Query[k]` — cell 0 seeded 0,
-	// `AimFrom[k]` never consulted — run synchronously inside the executor on
-	// every shot [06 §4.1][R-P0-07]. Every executor family calls the same
-	// routine: the turret after its drift gate, line-of-sight before its
-	// solve, vertical launch after its aim-ready test, dropped first of all.
-	// A script without the entry leaves the seed, so the piece is 0, the
-	// root; a unit with no script at all takes the bare-position path.
-	//
-	// This used to hand back the slot's retained word, which the aim-time
-	// visit had overwritten with the AimFrom piece: the aim origin and the
-	// spawn point are two different pieces on most stock models (a Peewee
-	// aims from `ruparm`/`luparm` and fires from `rfire`/`lfire`), so the
-	// shot left from the shoulder.
-	var cSlot Slot
-	muzzlePieceFn := func(slotIdx int) int32 {
-		piece := int32(-1)
-		if bridge != nil {
-			piece = bridge.QueryWeapon(cob.WeaponSlot(slotIdx)).QueryValue()
-		}
-		if weapon.Turret {
-			// The drift gate accepted retail-relative yaw. Convert after the
-			// synchronous muzzle query and before accuracy draws [06 §4.4].
-			cSlot.DesiredYaw += u.Move.Heading
-		}
-		return piece
-	}
-	scriptAdapter := &fireScriptAdapter{bridge: bridge, unit: u}
+	a.events = combatFireEvents{svc: svc, tick: tick, shooter: u.Handle, pos: origin}
+	fireEvents := &a.events
+	a.script = fireScriptAdapter{bridge: bridge, unit: u}
+	scriptAdapter := &a.script
 	ports := FirePorts{
 		ShooterSide: uint8(u.Owner),
 		// The shooter itself, so the fill can run its real-shooter branch in
@@ -1383,7 +1349,7 @@ func tryFireForSlot(u *units.Unit, slot *units.Slot, idx int, tick uint32, terra
 		// only site that binds a real shooter to a fresh projectile record.
 		Shooter:     u,
 		Origin:      origin,
-		MuzzlePiece: muzzlePieceFn,
+		MuzzlePiece: a.muzzlePiece,
 		// The fire-time interceptor rescan, bound ONLY for an `interceptor`
 		// weapon [06 §11.2]. The vertical-launch executor performs it
 		// immediately before firing and the vertical creator stores what it
@@ -1398,8 +1364,8 @@ func tryFireForSlot(u *units.Unit, slot *units.Slot, idx int, tick uint32, terra
 		// is read rather than the live slot to keep the executor reading one
 		// slot record.
 		InterceptorRescan: interceptorRescanPort(svc, u, weapon, catalog),
-		MuzzleWorld:       muzzleWorld,
-		TargetWorld:       targetWorld,
+		MuzzleWorld:       a.muzzleWorld,
+		TargetWorld:       a.targetWorld,
 		Gravity:           gravity,
 		Script:            scriptAdapter,
 		Events:            fireEvents,
@@ -1432,7 +1398,8 @@ func tryFireForSlot(u *units.Unit, slot *units.Slot, idx int, tick uint32, terra
 		svc.shotQuery = ShotQuery{Service: svc, World: w, Shooter: u, Tick: tick, Terrain: terrain, Target: target, Wind: svc.ProjectileWind}
 		ports.Shot = &svc.shotQuery
 	}
-	cSlot = Slot{
+	cSlot := &a.cSlot
+	*cSlot = Slot{
 		Weapon:       weapon,
 		Reload:       slot.Reload,
 		Flags:        slot.Flags,
@@ -1450,11 +1417,11 @@ func tryFireForSlot(u *units.Unit, slot *units.Slot, idx int, tick uint32, terra
 	// Fire and RockUnit run before cSlot is copied back. Bind recoil to the
 	// shot-state owner so RockUnit observes the just-mutated spread [06
 	// R-WPN-05 §5].
-	scriptAdapter.slot = &cSlot
-	_, ok := TryFire(svc, &cSlot, idx, tgt, tick, ports)
+	scriptAdapter.slot = cSlot
+	_, ok := TryFire(svc, cSlot, idx, tgt, tick, ports)
 	blocked := false
 	if ports.Shot != nil {
-		svc.observeFiringPosition(ports.Shot, &cSlot, idx, ok)
+		svc.observeFiringPosition(ports.Shot, cSlot, idx, ok)
 		blocked, svc.shotQuery = ports.Shot.Blocked || ports.Shot.Covered, savedQuery
 	}
 	if blocked {
@@ -1483,6 +1450,105 @@ func tryFireForSlot(u *units.Unit, slot *units.Slot, idx int, tick uint32, terra
 	slot.MuzzlePiece = cSlot.MuzzlePiece
 	slot.Aim = cSlot.Aim
 	return false
+}
+
+// fireAttempt is the state one tryFireForSlot call lends the spawner through
+// its ports: the shooter, its live slot, the per-shot slot copy, the point the
+// target resolved to, the start-event sink and the script adapter. The three
+// port functions are bound to the record once, when it is made, and read its
+// fields when called, so an attempt makes no closure and no record of its own.
+//
+// The records are a stack on the service (Service.fireAttempts): a fire
+// callback may reach another attempt before the outer one returns, and each
+// attempt holds its own record until it returns. Nothing the spawner is given
+// outlives the call, so a record is only ever read by the attempt holding it.
+// It is scoped scratch, like shotQuery, and never saved.
+type fireAttempt struct {
+	u           *units.Unit
+	slot        *units.Slot
+	w           *units.World
+	weapon      *content.WeaponDef
+	bridge      *cob.CallbackBridge
+	targetPoint Vec3
+	cSlot       Slot
+	events      combatFireEvents
+	script      fireScriptAdapter
+
+	targetWorld func(pool.Handle) (Vec3, bool)
+	muzzleWorld func(int32) (Vec3, bool)
+	muzzlePiece func(int) int32
+}
+
+func newFireAttempt() *fireAttempt {
+	a := &fireAttempt{}
+	a.targetWorld = a.resolveTarget
+	a.muzzleWorld = a.resolveMuzzle
+	a.muzzlePiece = a.queryMuzzlePiece
+	return a
+}
+
+// takeFireAttempt lends the next record of the attempt stack.
+func (s *Service) takeFireAttempt() *fireAttempt {
+	if s.fireDepth == len(s.fireAttempts) {
+		s.fireAttempts = append(s.fireAttempts, newFireAttempt())
+	}
+	a := s.fireAttempts[s.fireDepth]
+	s.fireDepth++
+	return a
+}
+
+// releaseFireAttempt returns the innermost record, dropping its references.
+func (s *Service) releaseFireAttempt() {
+	s.fireDepth--
+	a := s.fireAttempts[s.fireDepth]
+	a.u, a.slot, a.w, a.weapon, a.bridge = nil, nil, nil, nil, nil
+	a.cSlot, a.events, a.script = Slot{}, combatFireEvents{}, fireScriptAdapter{}
+}
+
+// resolveTarget is the target port: the resolved point, not the unit's
+// position, for the slot's own target alone [06 R-WPN-04 §1].
+func (a *fireAttempt) resolveTarget(h pool.Handle) (Vec3, bool) {
+	if h == 0 || h != a.slot.Target.Unit || a.w.Unit(h) == nil {
+		return Vec3{}, false
+	}
+	return a.targetPoint, true
+}
+
+// resolveMuzzle is the muzzle port. The start sound and start smoke are
+// emitted at the record, which sits at the muzzle the executor just resolved
+// [06 §4.1].
+func (a *fireAttempt) resolveMuzzle(piece int32) (Vec3, bool) {
+	pos, ok := muzzleWorldPosResolved(a.u, piece)
+	if ok {
+		a.events.pos = pos
+	}
+	return pos, ok
+}
+
+// queryMuzzlePiece is the fire-time muzzle query: the FORCED `Query[k]` —
+// cell 0 seeded 0, `AimFrom[k]` never consulted — run synchronously inside
+// the executor on every shot [06 §4.1][R-P0-07]. Every executor family calls
+// the same routine: the turret after its drift gate, line-of-sight before its
+// solve, vertical launch after its aim-ready test, dropped first of all. A
+// script without the entry leaves the seed, so the piece is 0, the root; a
+// unit with no script at all takes the bare-position path.
+//
+// This used to hand back the slot's retained word, which the aim-time visit
+// had overwritten with the AimFrom piece: the aim origin and the spawn point
+// are two different pieces on most stock models (a Peewee aims from
+// `ruparm`/`luparm` and fires from `rfire`/`lfire`), so the shot left from
+// the shoulder.
+func (a *fireAttempt) queryMuzzlePiece(slotIdx int) int32 {
+	piece := int32(-1)
+	if a.bridge != nil {
+		piece = a.bridge.QueryWeapon(cob.WeaponSlot(slotIdx)).QueryValue()
+	}
+	if a.weapon.Turret {
+		// The drift gate accepted retail-relative yaw. Convert after the
+		// synchronous muzzle query and before accuracy draws [06 §4.4].
+		a.cSlot.DesiredYaw += a.u.Move.Heading
+	}
+	return piece
 }
 
 type fireScriptAdapter struct {

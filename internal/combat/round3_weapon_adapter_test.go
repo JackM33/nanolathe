@@ -277,3 +277,41 @@ func TestVerticalAimUsesZeroArgsAndStockpileGateWithTurretPrecedence(t *testing.
 		})
 	}
 }
+
+// A fire attempt lends its ports one reusable record: a repeated attempt
+// allocates nothing for them, a nested attempt takes a record of its own, and
+// each record's references are dropped when its attempt returns.
+func TestFireAttemptRecordsAreReusedAndNested(t *testing.T) {
+	w, terrain, shooter, _ := newTestWorldAndUnits(t)
+	attachTestCOB(shooter, cob.NewVM(rockRecorderProgram()))
+	weapon := &content.WeaponDef{ID: 701, Turret: true, LineOfSight: true, WeaponVelocity: 4 << 16, Tolerance: wideDriftTolerance}
+	shooter.InstallWeapon(0, weapon)
+	slot := shooter.SlotAt(0)
+	slot.Target = units.Target{Kind: units.TargetGround, X: numeric.FixedFromInt(70), Z: numeric.FixedFromInt(30)}
+	var svc Service
+	for i := 0; i < ProjectileCapacity; i++ {
+		if _, ok := svc.Reserve(); !ok {
+			t.Fatalf("reserve %d", i)
+		}
+	}
+	sim := rng.NewSimulation(17)
+	point := Vec3{X: slot.Target.X, Y: PointTargetHeight(terrain, slot.Target.X, slot.Target.Z), Z: slot.Target.Z}
+	fire := func() { tryFireForSlot(shooter, slot, 0, 9, terrain, &sim, &svc, w, nil, point) }
+	fire()
+	if got := testing.AllocsPerRun(50, fire); got != 0 {
+		t.Fatalf("a repeated fire attempt allocates %v objects", got)
+	}
+	if svc.fireDepth != 0 || len(svc.fireAttempts) != 1 {
+		t.Fatalf("attempt stack depth %d with %d records after the attempts returned", svc.fireDepth, len(svc.fireAttempts))
+	}
+	if a := svc.fireAttempts[0]; a.u != nil || a.slot != nil || a.script.unit != nil || a.events.svc != nil {
+		t.Fatal("a returned attempt kept its references")
+	}
+	outer := svc.takeFireAttempt()
+	outer.u = shooter
+	fire()
+	if svc.fireDepth != 1 || len(svc.fireAttempts) != 2 || outer.u != shooter {
+		t.Fatalf("a nested attempt disturbed the outer record: depth %d, %d records", svc.fireDepth, len(svc.fireAttempts))
+	}
+	svc.releaseFireAttempt()
+}

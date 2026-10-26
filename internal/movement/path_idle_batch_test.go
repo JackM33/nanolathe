@@ -211,3 +211,42 @@ func TestPathProviderInitialCursorBeforeAdvance(t *testing.T) {
 		}
 	}
 }
+
+// HasRequest and Cancel answer from the staged index first; across resubmits
+// to another player, cancels and drops they answer exactly what the players'
+// maps hold.
+func TestPathProviderRequestQueriesFollowTheMaps(t *testing.T) {
+	sys, handles := idleBatchFixture(t, true)
+	p := sys.pathProvider
+	inMaps := func(h pool.Handle) bool {
+		for player := range p.requests {
+			if _, ok := p.requests[player][h]; ok {
+				return true
+			}
+		}
+		return false
+	}
+	check := func(step string) {
+		t.Helper()
+		for _, h := range handles {
+			if got, want := p.HasRequest(h), inMaps(h); got != want {
+				t.Fatalf("%s: HasRequest(%d) = %v, maps hold %v", step, h, got, want)
+			}
+		}
+	}
+	check("empty")
+	p.Submit(path.Request{Unit: handles[1], Player: 0})
+	p.Submit(path.Request{Unit: handles[3], Player: 1})
+	check("submitted")
+	p.Submit(path.Request{Unit: handles[1], Player: 1})
+	check("resubmitted to another player")
+	if p.Cancel(handles[2]) {
+		t.Fatal("cancelled a unit with no request")
+	}
+	if !p.Cancel(handles[1]) || p.Cancel(handles[1]) {
+		t.Fatal("cancel did not remove exactly one request")
+	}
+	check("cancelled")
+	p.dropRequest(1, handles[3])
+	check("dropped")
+}

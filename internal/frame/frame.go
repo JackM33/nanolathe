@@ -1412,13 +1412,24 @@ func reserve[T any](s []T, n int) []T {
 // alone (internal/session feature_publication.go). Every retained value
 // references only immutable catalog data or the frame's own nested storage,
 // so nothing transient is kept alive by leaving them in place.
-func (f *Frame) Reset() {
+func (f *Frame) Reset() { f.reset(false) }
+
+// reset is Reset, except that a rewriting reset leaves the element bodies of
+// the unit, order-queue and radar contact channels exactly as they are beneath
+// the truncated lengths, nested slices included. Those three channels are
+// then the writer's to rebuild: every element it reserves it assigns in full,
+// taking only the storage of the element's nested slices, so the per-element
+// truncation and clearing a plain Reset performs would be overwritten unread
+// (Buffer.BeginRewrite).
+func (f *Frame) reset(rewritten bool) {
 	if f == nil {
 		return
 	}
-	for i := range f.Units {
-		f.Units[i].Pieces = f.Units[i].Pieces[:0]
-		f.Units[i].Cargo = f.Units[i].Cargo[:0]
+	if !rewritten {
+		for i := range f.Units {
+			f.Units[i].Pieces = f.Units[i].Pieces[:0]
+			f.Units[i].Cargo = f.Units[i].Cargo[:0]
+		}
 	}
 	for i := range f.Effects {
 		a, b := f.Effects[i].DurationsA, f.Effects[i].DurationsB
@@ -1426,11 +1437,13 @@ func (f *Frame) Reset() {
 		clear(b)
 		f.Effects[i] = EffectView{DurationsA: a[:0], DurationsB: b[:0]}
 	}
-	for i := range f.OrderQueues {
-		primary, secondary := f.OrderQueues[i].Primary, f.OrderQueues[i].Secondary
-		resetOrders(primary)
-		resetOrders(secondary)
-		f.OrderQueues[i] = OrderQueueView{Primary: primary[:0], Secondary: secondary[:0]}
+	if !rewritten {
+		for i := range f.OrderQueues {
+			primary, secondary := f.OrderQueues[i].Primary, f.OrderQueues[i].Secondary
+			resetOrders(primary)
+			resetOrders(secondary)
+			f.OrderQueues[i] = OrderQueueView{Primary: primary[:0], Secondary: secondary[:0]}
+		}
 	}
 	for i := range f.Events {
 		a, b := f.Events[i].DurationsA, f.Events[i].DurationsB
@@ -1505,8 +1518,10 @@ func (f *Frame) Reset() {
 	f.Fog.Ch0 = f.Fog.Ch0[:0]
 	f.Fog.Ch1 = f.Fog.Ch1[:0]
 	f.Visibility = VisibilityView{Visible: f.Visibility.Visible, WordVisible: f.Visibility.WordVisible}
-	for i := range f.Radar.Contacts {
-		f.Radar.Contacts[i].Rings = f.Radar.Contacts[i].Rings[:0]
+	if !rewritten {
+		for i := range f.Radar.Contacts {
+			f.Radar.Contacts[i].Rings = f.Radar.Contacts[i].Rings[:0]
+		}
 	}
 	f.Radar.Contacts = f.Radar.Contacts[:0]
 	f.Radar = RadarView{Contacts: f.Radar.Contacts}
@@ -1656,7 +1671,18 @@ func (b *Buffer) rotationLocked() int {
 // oldest slot in the rotation that is neither committed nor pinned. Only one
 // simulation writer may call this method. Calling it again before Publish
 // restarts the same pending write.
-func (b *Buffer) BeginWrite() *Frame {
+func (b *Buffer) BeginWrite() *Frame { return b.beginWrite(false) }
+
+// BeginRewrite is BeginWrite for a writer that rebuilds the unit, order-queue
+// and radar contact channels element by element: each element it reserves
+// beneath a channel's capacity it assigns in full, reading only the storage of
+// the element's nested slices, and it never reads past a channel's length. The
+// slot is reset as BeginWrite resets it except that those three channels'
+// element bodies are left as they are beneath their truncated lengths, which
+// the writer's own rebuild then overwrites.
+func (b *Buffer) BeginRewrite() *Frame { return b.beginWrite(true) }
+
+func (b *Buffer) beginWrite(rewritten bool) *Frame {
 	if b == nil {
 		return nil
 	}
@@ -1683,7 +1709,7 @@ func (b *Buffer) BeginWrite() *Frame {
 	// The chosen slot is neither committed nor pinned, so no reader can reach
 	// it while it is reset outside the lock.
 	f := &b.slots[idx]
-	f.Reset()
+	f.reset(rewritten)
 	return f
 }
 

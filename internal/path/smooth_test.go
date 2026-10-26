@@ -118,3 +118,101 @@ func TestSmoothJudgesALegAtTheMoversAnchors(t *testing.T) {
 		t.Fatalf("a leg across a blocked cell of its row was taken: %v", out)
 	}
 }
+
+// A leg's length is the least integer whose square reaches the squared
+// distance, over every distance a leg may span.
+func TestSmoothLegLengthRoundsUp(t *testing.T) {
+	for d2 := int64(0); d2 <= smoothSpan*smoothSpan; d2++ {
+		l := ceilSqrt(d2)
+		if l*l < d2 || l > 0 && (l-1)*(l-1) >= d2 {
+			t.Fatalf("length of squared distance %d is %d", d2, l)
+		}
+	}
+}
+
+// Remembering a leg's recent anchors changes neither the route nor the work
+// charged: every probe is counted, and each anchor's answer is the one a
+// fresh judgement gives on that leg.
+func TestSmoothLegMemoKeepsRouteAndWork(t *testing.T) {
+	route := routeCells(Cell{0, 0}, Cell{6, 9}, Cell{14, 11}, Cell{22, 20}, Cell{30, 21}, Cell{37, 30})
+	blocked := func(c Cell) bool { return (c.X*7+c.Z*13)%61 == 0 }
+	dear := func(c Cell, dir uint8) int32 { return (c.X*3 + c.Z + int32(dir)) % 5 * 4 }
+	cfg := SearchConfig{FootPrintX: 2, FootPrintZ: 2,
+		PassableValue: func(c Cell) uint8 {
+			if blocked(c) {
+				return 0
+			}
+			return 3
+		},
+		CostDir: dear,
+	}
+	s := &smoothSearch{Search: &cannedSearch{route: route}, cfg: cfg}
+	s.Resume(100)
+	got, _, _ := s.Resume(100)
+
+	// The reference judges every probe afresh.
+	probes := 0
+	standable := func(x, z int32, dir uint8, limit int32) bool {
+		c := anchorAt(x, z, 2, 2)
+		probes++
+		return dear(c, dir) <= limit && !blocked(c)
+	}
+	clearLeg := func(a, b Point, limit int32) bool {
+		dx, dz := int64(b.X-a.X), int64(b.Z-a.Z)
+		d2 := dx*dx + dz*dz
+		if d2 > smoothSpan*smoothSpan || d2 == 0 {
+			return false
+		}
+		dir := Octant(dx, dz)
+		var length int64
+		for length*length < d2 {
+			length++
+		}
+		steps := length/smoothStep + 1
+		px, pz := -dz*smoothSide/length, dx*smoothSide/length
+		for k := int64(0); k <= steps; k++ {
+			x, z := int64(a.X)+dx*k/steps, int64(a.Z)+dz*k/steps
+			if !standable(int32(x), int32(z), dir, limit) || !standable(int32(x+px), int32(z+pz), dir, limit) || !standable(int32(x-px), int32(z-pz), dir, limit) {
+				return false
+			}
+		}
+		return true
+	}
+	ref := &smoothSearch{cfg: cfg}
+	points := append([]Point(nil), route...)
+	var worst [straightenCap]int32
+	for i := 0; i+1 < len(points); i++ {
+		worst[i] = ref.dearest(points[i], points[i+1])
+	}
+	probes += ref.probes
+	want := []Point{points[0]}
+	for i := 0; i < len(points)-1; {
+		j := i + 1
+		for k := len(points) - 1; k > i+1 && probes < smoothBudget; k-- {
+			limit := int32(0)
+			for m := i; m < k; m++ {
+				limit = max(limit, worst[m])
+			}
+			if clearLeg(points[i], points[k], limit) {
+				j = k
+				break
+			}
+		}
+		want = append(want, points[j])
+		i = j
+	}
+	if len(got) != len(want) {
+		t.Fatalf("smoothed to %v, want %v", got, want)
+	}
+	for i := range got {
+		if got[i] != want[i] {
+			t.Fatalf("smoothed to %v, want %v", got, want)
+		}
+	}
+	if s.probes != probes {
+		t.Fatalf("charged %d probes, want %d", s.probes, probes)
+	}
+	if len(want) == len(route) || len(want) == 2 {
+		t.Fatalf("fixture exercises no partial smoothing: %v", want)
+	}
+}

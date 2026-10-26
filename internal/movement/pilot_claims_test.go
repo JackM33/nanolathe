@@ -105,3 +105,53 @@ func TestClaimsChargeMoreAgainstTheWay(t *testing.T) {
 		}
 	}
 }
+
+// The claim cost is the per-sector sum: along and against counted apart, the
+// own claim left out of the side it falls on, each side capped.
+func TestClaimCostIsThePerSectorSum(t *testing.T) {
+	perSector := func(row *[8]uint8, mine int32, dir uint8, per, against int32) int32 {
+		var along, facing int32
+		for sector := int32(0); sector < 8; sector++ {
+			n := int32(row[sector])
+			if sector == mine && n > 0 {
+				n--
+			}
+			if n == 0 {
+				continue
+			}
+			if against > 0 && dir < 8 {
+				if off := (sector - int32(dir)) & 7; off >= 3 && off <= 5 {
+					facing += n
+					continue
+				}
+			}
+			along += n
+		}
+		return min(along, claimCap)*per + min(facing, claimCap)*against
+	}
+	seed := uint32(12345)
+	next := func() uint32 { seed = seed*1664525 + 1013904223; return seed >> 8 }
+	for i := 0; i < 4000; i++ {
+		var row [8]uint8
+		for s := range row {
+			switch next() % 4 {
+			case 0:
+			case 1:
+				row[s] = 1
+			case 2:
+				row[s] = uint8(next() % 8)
+			default:
+				row[s] = uint8(next())
+			}
+		}
+		for mine := int32(-1); mine < 8; mine++ {
+			for _, dir := range []uint8{0, 1, 2, 3, 4, 5, 6, 7, 8, path.DirNone} {
+				for _, pa := range [][2]int32{{8, 0}, {8, 16}, {4, 24}, {0, 0}} {
+					if got, want := claimCost(&row, mine, dir, pa[0], pa[1]), perSector(&row, mine, dir, pa[0], pa[1]); got != want {
+						t.Fatalf("row %v mine %d dir %d per %d against %d: cost %d, want %d", row, mine, dir, pa[0], pa[1], got, want)
+					}
+				}
+			}
+		}
+	}
+}
