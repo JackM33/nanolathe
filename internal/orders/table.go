@@ -366,6 +366,10 @@ var (
 	rowRepairPatrol     ID
 	rowVTOLRepairPatrol ID
 	rowResurrect        ID
+	rowAttackNoMove     ID
+	rowGuardNoMove      ID
+	rowWait             ID
+	rowVTOLPatrol       ID
 )
 
 func resolveRows() {
@@ -397,6 +401,10 @@ func resolveRows() {
 	rowRepairPatrol = Lookup("RepairPatrol")
 	rowVTOLRepairPatrol = Lookup("VTOL_RepairPatrol")
 	rowResurrect = Lookup("Resurrect")
+	rowAttackNoMove = Lookup("Attack_NoMove")
+	rowGuardNoMove = Lookup("Guard_NoMove")
+	rowWait = Lookup("Wait")
+	rowVTOLPatrol = Lookup("VTOL_Patrol")
 }
 
 // handlerInstallers is the ordered list of per-family handler installers — the

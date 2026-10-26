@@ -73,8 +73,8 @@ func firingPositionEligible(q *Queue, u *units.Unit, n *Node, b *QueueBinding) *
 		return nil
 	}
 	automatic := n.automaticAttack || q.danger.response == n
-	stationary := n.ID == Lookup("Attack_NoMove") && automatic
-	if n.ID != Lookup("Attack_Chase") && !stationary {
+	stationary := n.ID == rowAttackNoMove && automatic
+	if n.ID != rowAttackChase && !stationary {
 		return nil
 	}
 	// Hold Position and Hold Fire restrain only automatic attacks. An explicit
@@ -178,7 +178,7 @@ func (q *Queue) NoFiringPosition(u, target *units.Unit, tick uint32) bool {
 	}
 	n := q.Head()
 	automatic := n != nil && (n.automaticAttack || q.danger.response == n)
-	if n != nil && !automatic && n.ID == Lookup("Attack_NoMove") && n.Owner == u.Handle && n.Target == target.Handle {
+	if n != nil && !automatic && n.ID == rowAttackNoMove && n.Owner == u.Handle && n.Target == target.Handle {
 		return true
 	}
 	if u.Flags>>stanceMoveShift&stanceFieldMask == 0 && (n == nil || automatic) {
@@ -195,7 +195,7 @@ func firingPositionWithinLeash(q *Queue, u *units.Unit, n *Node, x, z numeric.Fi
 		leash := int64(n.Param3)
 		return dangerDistance(x, z, numeric.FixedFromInt(int64(n.GuardX)), numeric.FixedFromInt(int64(n.GuardY))) < leash*leash
 	}
-	if n.ID != Lookup("Attack_NoMove") || u.Flags>>stanceMoveShift&stanceFieldMask != 1 {
+	if n.ID != rowAttackNoMove || u.Flags>>stanceMoveShift&stanceFieldMask != 1 {
 		return true
 	}
 	if q.danger.response != n || !q.danger.anchored {

@@ -333,3 +333,26 @@ func TestCorrectedDescriptorIdentities(t *testing.T) {
 		}
 	}
 }
+
+// A resolved row stands for its name: the row's descriptor carries exactly
+// that name and no other row does, so comparing a node's identity with the row
+// is comparing its descriptor's name with the string.
+func TestResolvedRowsStandForTheirNames(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		row  ID
+	}{
+		{"Attack_NoMove", rowAttackNoMove}, {"Attack_Chase", rowAttackChase},
+		{"Guard_NoMove", rowGuardNoMove}, {"Wait", rowWait}, {"VTOL_Patrol", rowVTOLPatrol},
+	} {
+		name, row := tc.name, tc.row
+		if row == 0 || DescriptorFor(row).Name != name {
+			t.Fatalf("row for %q is %d named %q", name, row, DescriptorFor(row).Name)
+		}
+		for i := range table {
+			if ID(i) != row && table[i].Name == name {
+				t.Fatalf("rows %d and %d are both named %q", row, i, name)
+			}
+		}
+	}
+}

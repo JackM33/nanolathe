@@ -394,7 +394,7 @@ func (*ModernRules) StepDangerResponse(u *units.Unit, tick uint32) {
 	}
 	// Reconsider a holding wait before the normal pump can complete it and
 	// run the suspended assignment during an otherwise still-dangerous visit.
-	if d.response != nil && d.response.ID == Lookup("Wait") && int32(tick-d.nextDecision) >= 0 {
+	if d.response != nil && d.response.ID == rowWait && int32(tick-d.nextDecision) >= 0 {
 		q.finishDangerResponse()
 	}
 	if d.response != nil {
@@ -486,7 +486,7 @@ func (*ModernRules) StepDangerResponse(u *units.Unit, tick uint32) {
 	if selected != nil {
 		id := Resolve(3, u, selected, nil)
 		if selectedStationary {
-			id = Lookup("Attack_NoMove")
+			id = rowAttackNoMove
 		}
 		if id != 0 {
 			q.suspendDangerAssignment(u)
@@ -510,7 +510,7 @@ func (*ModernRules) StepDangerResponse(u *units.Unit, tick uint32) {
 	// must not replace that route. Visible counterattacks above still suspend
 	// it normally. Nanolathe Modern policy: DESIGN_UNITS_ORDERS_COB
 	// "Modern danger response".
-	if unitCanFly(u) && len(q.primary) > 0 && q.primary[0].ID == Lookup("VTOL_Patrol") {
+	if unitCanFly(u) && len(q.primary) > 0 && q.primary[0].ID == rowVTOLPatrol {
 		return
 	}
 	// No suitable visible threat can be answered within this stance. Other
@@ -522,7 +522,7 @@ func (*ModernRules) StepDangerResponse(u *units.Unit, tick uint32) {
 	if !ok {
 		if d.withdrew {
 			q.suspendDangerAssignment(u)
-			d.response = q.PushHead(Lookup("Wait"), Node{Owner: u.Handle, Param1: dangerDecisionTicks})
+			d.response = q.PushHead(rowWait, Node{Owner: u.Handle, Param1: dangerDecisionTicks})
 		}
 		return
 	}
@@ -616,7 +616,7 @@ func (q *Queue) reconsiderDangerTarget(u *units.Unit, tick uint32) bool {
 	id := Resolve(3, u, target, nil)
 	stationary := slot == 0 && !unitCanFly(u)
 	if stationary {
-		id = Lookup("Attack_NoMove")
+		id = rowAttackNoMove
 	}
 	if id == 0 {
 		return false
@@ -746,8 +746,9 @@ func (q *Queue) reconsiderAutomaticTarget(u *units.Unit, tick uint32) {
 	if n == nil || n == q.danger.response {
 		return
 	}
-	name := DescriptorFor(n.ID).Name
-	if name != "Guard_NoMove" && (!n.automaticAttack || name != "Attack_Chase" && name != "Attack_NoMove") {
+	// The rows by resolved identity: each named row is the one row whose
+	// descriptor carries that name.
+	if n.ID != rowGuardNoMove && (!n.automaticAttack || n.ID != rowAttackChase && n.ID != rowAttackNoMove) {
 		return
 	}
 	// Admission still belongs to the handler; do not skip it or an accepted air pass.
