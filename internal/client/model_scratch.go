@@ -68,6 +68,13 @@ func resizeScratch[T any](v []T, n int) []T {
 	return v[:n]
 }
 func (s *modelScratch) reset() {
+	// Only the packet and outline slots borrowed since the last reset can
+	// hold anything to clear: their counters are never rewound within a
+	// frame, and every slot past them was cleared by an earlier reset and not
+	// borrowed since. A worker's arena keeps the slots of the largest share of
+	// the units it has ever taken, so clearing all of them every frame was a
+	// visible part of a large battle's record.
+	packets, outlines := s.packets[:s.packetNext], s.outlines[:s.outlineNext]
 	s.polyNext, s.imageNext, s.packetNext, s.drawNext, s.stateNext, s.outlineNext = 0, 0, 0, 0, 0, 0
 	s.projectileNext = 0
 	// Preserve warm storage. Face records also address corner arrays: their
@@ -75,7 +82,7 @@ func (s *modelScratch) reset() {
 	// those references when their lane storage changes. A blanket per-frame
 	// polygon clear would erase data whose backing arrays the slot still owns
 	// [DESIGN_GPU_RENDERER.md §11.5 "CPU"].
-	for _, p := range s.packets {
+	for _, p := range packets {
 		// Preserve the previous face length so refill can clear only the removed
 		// tail. The rest of each packet is frame-local, including the doubled
 		// packet's outline, reveal and shadow references.
@@ -90,7 +97,7 @@ func (s *modelScratch) reset() {
 		p.polys = p.polys[:0]
 		p.corner = 0
 	}
-	for _, o := range s.outlines {
+	for _, o := range outlines {
 		o.faces, o.verts, o.spans = o.faces[:0], o.verts[:0], o.spans[:0]
 	}
 }
