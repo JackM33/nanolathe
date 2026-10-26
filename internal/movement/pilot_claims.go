@@ -326,23 +326,31 @@ func (p ClaimsPilot) Search(s *System, r path.Request, cfg *path.SearchConfig) {
 		if own[b]>>3 == serial {
 			mine = int32(own[b] & 7)
 		}
-		var along, facing int32
-		for sector := int32(0); sector < 8; sector++ {
-			n := int32(row[sector])
-			if sector == mine && n > 0 {
-				n--
-			}
-			if n == 0 {
-				continue
-			}
-			if against > 0 && dir < 8 {
-				if off := (sector - int32(dir)) & 7; off >= 3 && off <= 5 {
-					facing += n
-					continue
-				}
-			}
-			along += n
-		}
-		return min(along, claimCap)*per + min(facing, claimCap)*against
+		return claimCost(row, mine, dir, per, against)
 	}
+}
+
+// claimCost is what one block's claims add to a step in sector dir: each
+// claim in a sector three or more off dir is against the step when against is
+// positive, every other claim is along it, and the requester's own claim in
+// sector mine (-1 for none) is left out. Each side is capped at claimCap.
+//
+// It is the per-sector sum taken in two strokes: the whole row, then the
+// three sectors facing dir, the own claim taken off the side it falls on.
+func claimCost(row *[8]uint8, mine int32, dir uint8, per, against int32) int32 {
+	total := int32(row[0]) + int32(row[1]) + int32(row[2]) + int32(row[3]) +
+		int32(row[4]) + int32(row[5]) + int32(row[6]) + int32(row[7])
+	facing := int32(0)
+	split := against > 0 && dir < 8
+	if split {
+		d := int32(dir)
+		facing = int32(row[(d+3)&7]) + int32(row[(d+4)&7]) + int32(row[(d+5)&7])
+	}
+	if mine >= 0 && row[mine] > 0 {
+		total--
+		if off := (mine - int32(dir)) & 7; split && off >= 3 && off <= 5 {
+			facing--
+		}
+	}
+	return min(total-facing, claimCap)*per + min(facing, claimCap)*against
 }
