@@ -511,7 +511,7 @@ baseline (ms/tick of publication proxy):
 |---|---:|---|
 | No piece lanes at all (the case of a strategic view; an interest region would publish some) | 0.259 → 0.202 | needs a host-to-publication interest channel and first-frame lanes for the Enhanced blend; the lanes are built on the workers |
 | Order queues only for the viewer's and the local seat's units | 0.259 → 0.223 | the F11 developer overlay and the developer probe read any unit's queue; the snapshots run on the workers |
-| `Frame.Reset` leaving unit, queue and contact bodies uncleared | 0.274 → 0.259 | inside the run-to-run noise; a weaker reset contract for no measurable gain |
+| `Frame.Reset` leaving unit, queue and contact bodies uncleared | 0.274 → 0.259 | inside the run-to-run noise; a weaker reset contract for no measurable gain. Adopted on 2026-10-26 as the separate `Buffer.BeginRewrite` entry, below |
 | Visibility stamp table as a dense slice | profile share 0.2% of the tick | the stamp sweep's 3.9% is the observer ray walk (`visibility.Refresh` 3.3%), not the map write |
 
 ## Behaviour-identical simulation work comparison (2026-10-15)
@@ -623,3 +623,46 @@ comparison establishes the matched ordinary battle workload and allocation
 cost without attributing the time difference to the change. The standard
 battle stays below the old live-record cap; the focused fixtures above supply
 the expanded-wreck workload.
+
+## Demo-content tick sweep (2026-10-26)
+
+Branch `perf-sim` against `926462f` on the `android-port` line: ten changes
+that leave every answer unchanged. No retail install was available, so the
+scene was the free TA demo with a four-player skirmish schema overlaid on its
+AC03 and AC01 maps: a passive human and three computer armies of demo ARM
+units built like this benchmark's, about 1,090 units at start and 910 live in
+a 900-tick window after 300 warm-up ticks, `GOMAXPROCS=2`, three alternating
+base/candidate pairs on a host whose load varied widely. The harness was not
+committed.
+
+| Scene | Process CPU ms/tick | allocs/tick |
+|---|---|---|
+| Modern, Classic AI | 20.9 → 18.5 | 1727 → 844 |
+| Modern, Modern AI | 30.0 → 27.2 | 2205 → 1301 |
+| Strict 3.1, Classic AI | 7.71 → 8.09 (within noise) | 334 → 311 |
+
+Seven scenarios across Strict 3.1, Community 3.9 and Modern with Classic and
+Modern computer players, two of them admitted with checkpoint capture, matched
+the base at every 50-tick checkpoint: the partial state fingerprint, both RNG
+draw counts, the live-unit count, a rolling SHA-256 over every committed frame
+and its drained events, and the checkpoint history.
+
+The changes: path smoothing judges each anchor once per leg (an eight-entry
+memo, probes still charged) and finds a leg's rounded-up length by bisection;
+a route-claim block is summed as the whole row less its own claim, then the
+three facing sectors; a released search's cell map is made only on its first
+write; damage overrides compare an ASCII unit name folded in place; the
+arrival square root starts from the power of two just above the root; fire
+attempts and Modern shot previews borrow records from stacks on the combat
+service instead of making closures and copies per attempt; path-request
+queries consult the staged index before (or instead of) the per-player maps;
+the Modern danger and firing-position rows are resolved at table build; and
+publication begins its slot with `Buffer.BeginRewrite`.
+
+`BeginRewrite` is the candidate the publication comparison above did not
+adopt. Every writer of the three channels it leaves uncleared assigns each
+element it reserves in full and truncates the nested slices itself
+(`fillUnitView`, `fillUnitContact`, `setOrderQueueView`), and the projectile
+contacts are appended whole. In this 900-unit scene the per-element reset was
+4.1% of Strict CPU before and 1.3% after; `BeginWrite` and `Frame.Reset` keep
+their contract for every other writer.
