@@ -1,6 +1,7 @@
 package io.github.jackm33.nanolathe;
 
 import android.app.Activity;
+import android.app.AlertDialog;
 import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.Intent;
@@ -208,70 +209,168 @@ public class MainActivity extends Activity {
         status.setText("Reading the folder...");
         new Thread(() -> {
             try {
-                List<Entry> files = new ArrayList<>();
+                final List<Entry> files = new ArrayList<>();
                 list(tree, DocumentsContract.getTreeDocumentId(tree), "", files);
-                long total = 0;
                 boolean archives = false;
+                int escalation = 0;
                 for (Entry e : files) {
-                    total += e.size;
                     String lower = e.path.toLowerCase(Locale.ROOT);
                     archives |= lower.endsWith(".hpi") || lower.endsWith(".ufo") || lower.endsWith(".ccx") || lower.endsWith(".gp3");
+                    if (isEscalation(e.path)) {
+                        escalation++;
+                    }
                 }
                 if (!archives) {
                     throw new IOException("That folder has no .hpi, .ufo, .ccx or .gp3 files. "
                             + "Choose the folder Total Annihilation is installed in, the one with totala1.hpi.");
                 }
-                File staging = new File(getFilesDir(), GAME_FOLDER + ".copying");
-                deleteTree(staging);
-                if (getFilesDir().getUsableSpace() < total + (64L << 20)) {
-                    throw new IOException(String.format(Locale.ROOT, "Not enough free space: the folder needs %d MB.", total >> 20));
+                if (escalation == 0) {
+                    copyFiles(files, false);
+                    return;
                 }
-                long done = 0;
-                long shownAt = 0;
-                byte[] buffer = new byte[1 << 20];
-                for (Entry e : files) {
-                    File out = new File(staging, e.path);
-                    File parent = out.getParentFile();
-                    if (parent != null && !parent.isDirectory() && !parent.mkdirs()) {
-                        throw new IOException("Could not create " + parent);
-                    }
-                    try (InputStream in = getContentResolver().openInputStream(e.uri);
-                         OutputStream os = new FileOutputStream(out)) {
-                        if (in == null) {
-                            throw new IOException("Could not open " + e.path);
-                        }
-                        int n;
-                        while ((n = in.read(buffer)) > 0) {
-                            os.write(buffer, 0, n);
-                            done += n;
-                            long now = SystemClock.uptimeMillis();
-                            if (now - shownAt > 250) {
-                                shownAt = now;
-                                showCopyProgress(e.path, done, total);
-                            }
-                        }
-                    }
-                }
-                if (!new File(staging, READY_MARKER).createNewFile()) {
-                    throw new IOException("Could not mark the copy complete.");
-                }
-                deleteTree(gameDir());
-                if (!staging.renameTo(gameDir())) {
-                    throw new IOException("Could not move the copied files into place.");
-                }
-                final String summary = String.format(Locale.ROOT, "Copied %d files (%d MB).", files.size(), total >> 20);
-                main.post(() -> {
-                    copying = false;
-                    showLauncher(summary + (engineStarted ? " Close and reopen the app to play." : ""));
-                });
+                final int found = escalation;
+                main.post(() -> new AlertDialog.Builder(this)
+                        .setTitle("TA: Escalation found")
+                        .setMessage("This folder has " + found + " TA: Escalation files copied over Total Annihilation. "
+                                + "Nanolathe cannot use Escalation installed that way: it mixes the two and leaves "
+                                + "build buttons blank. Copy plain Total Annihilation without them? "
+                                + "(Escalation itself can be added later from Mods, Get more mods.)")
+                        .setCancelable(false)
+                        .setPositiveButton("Plain TA (recommended)", (d, w) -> new Thread(() -> copyFiles(files, true)).start())
+                        .setNegativeButton("Copy everything", (d, w) -> new Thread(() -> copyFiles(files, false)).start())
+                        .show());
             } catch (Exception ex) {
-                final String why = ex.getMessage() != null ? ex.getMessage() : ex.toString();
-                main.post(() -> {
-                    copying = false;
-                    showLauncher("Copy failed: " + why);
-                });
+                copyFailed(ex);
             }
         }).start();
+    }
+
+    /**
+     * TA: Escalation's archives and renamed content folders. Copied over a
+     * Total Annihilation install they replace shared art without the renamed
+     * folders being read, which leaves build buttons blank
+     * (docs/ESCALATION_SUPPORT.md, "Unconfigured upstream installations").
+     */
+    static boolean isEscalation(String path) {
+        String lower = path.toLowerCase(Locale.ROOT);
+        int slash = lower.indexOf('/');
+        String top = slash >= 0 ? lower.substring(0, slash) : "";
+        String name = lower.substring(lower.lastIndexOf('/') + 1);
+        if (name.equals("taesc.gp3") || name.matches("t[0-9x]esc[0-9]*\\.ufo")) {
+            return true;
+        }
+        switch (top) {
+            case "unitse":
+            case "weapone":
+            case "gamedate":
+            case "unitpice":
+            case "guie":
+            case "downloadse":
+            case "ae":
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    /** Files the engine never reads: crash logs and Windows programs. */
+    static boolean isJunk(String path) {
+        String name = path.toLowerCase(Locale.ROOT);
+        name = name.substring(name.lastIndexOf('/') + 1);
+        return name.startsWith("errorlog") || name.endsWith(".exe") || name.endsWith(".dll");
+    }
+
+    /**
+     * Copies the chosen files into a staging folder and swaps it in. A file
+     * already in the previous copy at the same path and size is moved rather
+     * than read again, so choosing the same folder again is quick.
+     */
+    private void copyFiles(List<Entry> all, boolean skipEscalation) {
+        try {
+            List<Entry> files = new ArrayList<>();
+            long total = 0;
+            int skipped = 0;
+            for (Entry e : all) {
+                if (isJunk(e.path) || skipEscalation && isEscalation(e.path)) {
+                    skipped++;
+                    continue;
+                }
+                files.add(e);
+                total += e.size;
+            }
+            File staging = new File(getFilesDir(), GAME_FOLDER + ".copying");
+            deleteTree(staging);
+            File previous = gameDir();
+            // The previous copy gives up files below, so it is no longer whole.
+            //noinspection ResultOfMethodCallIgnored
+            new File(previous, READY_MARKER).delete();
+            long reusable = 0;
+            for (Entry e : files) {
+                File old = new File(previous, e.path);
+                if (e.size > 0 && old.isFile() && old.length() == e.size) {
+                    reusable += e.size;
+                }
+            }
+            if (getFilesDir().getUsableSpace() < total - reusable + (64L << 20)) {
+                throw new IOException(String.format(Locale.ROOT, "Not enough free space: the folder needs %d MB more.", (total - reusable) >> 20));
+            }
+            long done = 0;
+            long shownAt = 0;
+            int reused = 0;
+            byte[] buffer = new byte[1 << 20];
+            for (Entry e : files) {
+                File out = new File(staging, e.path);
+                File parent = out.getParentFile();
+                if (parent != null && !parent.isDirectory() && !parent.mkdirs()) {
+                    throw new IOException("Could not create " + parent);
+                }
+                File old = new File(previous, e.path);
+                if (e.size > 0 && old.isFile() && old.length() == e.size && old.renameTo(out)) {
+                    reused++;
+                    done += e.size;
+                    continue;
+                }
+                try (InputStream in = getContentResolver().openInputStream(e.uri);
+                     OutputStream os = new FileOutputStream(out)) {
+                    if (in == null) {
+                        throw new IOException("Could not open " + e.path);
+                    }
+                    int n;
+                    while ((n = in.read(buffer)) > 0) {
+                        os.write(buffer, 0, n);
+                        done += n;
+                        long now = SystemClock.uptimeMillis();
+                        if (now - shownAt > 250) {
+                            shownAt = now;
+                            showCopyProgress(e.path, done, total);
+                        }
+                    }
+                }
+            }
+            if (!new File(staging, READY_MARKER).createNewFile()) {
+                throw new IOException("Could not mark the copy complete.");
+            }
+            deleteTree(previous);
+            if (!staging.renameTo(previous)) {
+                throw new IOException("Could not move the copied files into place.");
+            }
+            final String summary = String.format(Locale.ROOT, "Copied %d files (%d MB), %d reused from the last copy, %d skipped.",
+                    files.size(), total >> 20, reused, skipped);
+            main.post(() -> {
+                copying = false;
+                showLauncher(summary + (engineStarted ? " Close and reopen the app to play." : ""));
+            });
+        } catch (Exception ex) {
+            copyFailed(ex);
+        }
+    }
+
+    private void copyFailed(Exception ex) {
+        final String why = ex.getMessage() != null ? ex.getMessage() : ex.toString();
+        main.post(() -> {
+            copying = false;
+            showLauncher("Copy failed: " + why);
+        });
     }
 
     private void showCopyProgress(final String path, final long done, final long total) {

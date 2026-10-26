@@ -34,7 +34,16 @@ process from the view's side.
 1. copies a folder the player picks with the system folder picker into
    `files/TotalAnnihilation`, because the engine reads content by path and
    Android lends shared folders only through content URIs. The copy is staged
-   and renamed into place, then marked complete;
+   and renamed into place, then marked complete. A file the previous copy
+   already holds at the same path and size is moved instead of read again.
+   Crash logs and Windows programs are never copied. When the folder holds
+   TA: Escalation copied over Total Annihilation (`TAESC.gp3`, the
+   `T*ESC*.ufo` archives or the renamed `unitsE`-style folders), the app
+   offers to copy plain Total Annihilation without them: mounted that way,
+   Escalation replaces shared art while its renamed folders go unread, which
+   blanks build buttons ([ESCALATION_SUPPORT](ESCALATION_SUPPORT.md),
+   "Unconfigured upstream installations"). Escalation itself belongs in the
+   mod slot, from **Get more mods**;
 2. on **Start game**, shows a `GameView` (an `EbitenView` that also accepts
    the soft keyboard) and calls `Nanolathe.start` with the display's size in
    physical pixels. `StartAndroid` points `HOME` and the `XDG_*` directories
