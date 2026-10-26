@@ -99,6 +99,9 @@ func AndroidTypeText(text string) { ebitenapp.InjectText(text) }
 
 func AndroidPressKey(name string) bool { return ebitenapp.InjectKey(name) }
 
+// AndroidSetShift holds Shift while the app's Shift button is pressed.
+func AndroidSetShift(held bool) { ebitenapp.SetHostShift(held) }
+
 // AndroidFailure is the log tail of a start that failed, or "".
 func AndroidFailure() string {
 	text, _ := androidFailure.Load().(string)

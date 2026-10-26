@@ -25,6 +25,11 @@ func PressKey(name string) bool {
 	return app.AndroidPressKey(name)
 }
 
+// SetShift holds Shift while the on-screen Shift button is down.
+func SetShift(held bool) {
+	app.AndroidSetShift(held)
+}
+
 // Failure is the log tail of a start that stopped before or outside its
 // window, or "" while the game is running.
 func Failure() string {

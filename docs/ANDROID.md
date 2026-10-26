@@ -69,22 +69,36 @@ host policy, not retail behaviour.
 | Gesture | Mouse |
 | --- | --- |
 | Tap | Left click where the finger first touched |
-| Hold still for 450 ms | Right click |
-| Move one finger past 8 logical pixels | Left drag from where it first touched |
+| Move one finger past 8 logical pixels over the battle viewport | Middle-button drag, which pans the camera in both renderers |
+| Move one finger anywhere else (menus, sidebar, minimap, modal windows) | Left drag, so sliders, lists and the minimap keep working |
+| Hold still for 450 ms | Arms the finger with a short vibration; nothing is pressed yet |
+| Move an armed finger | Left drag from where it first touched: a selection box |
+| Lift an armed finger in place | Right click |
 | Two fingers | Direct pan and pinch, the fields a trackpad fills (DESIGN_GPU_RENDERER §16.6) |
 | A finger in the letterbox or within 4 pixels of the canvas edge | Pointer only, so the camera edge-scrolls |
+
+The battle viewport is published by the battle's camera pass with
+`ebitenapp.SetTouchPanRegion` on every host step in which middle-button drags
+pan: the region `overBattleViewport` tests, outside TALK, the megamap and the
+build radial. It lapses 500 ms after the last publication, so a menu shown
+after a battle gets left drags again.
 
 A synthesized press lasts 70 ms so that it spans two 30 Hz host services, and a
 drag's first service sees its press at the starting point. A lifted pointer
 parks at least 4 pixels inside the canvas so it does not keep edge-scrolling.
 Pinch magnification is half the log of the finger distance ratio, because the
 battle's smooth pinch doubles a trackpad's magnification; the map then stays
-under the fingers. Pan and pinch reach the camera only in the Enhanced
+under the fingers. Two-finger pan and pinch reach the camera only in the Enhanced
 renderer, as trackpad gestures do.
 
 Samples pass through unchanged until a finger touches and again once a real
 mouse moves, so desktop and browser input is unaffected. Android starts owned
 by touch, because its idle cursor reads (0, 0) and would edge-scroll.
+
+**Shift.** A **SHIFT** button at the bottom right holds Shift while a finger
+is on it (`Nanolathe.setShift`, `ebitenapp.SetHostShift`), so another
+finger's taps queue orders. The layout splits multi-touch, so that finger
+still reaches the game view. Leaving the app releases it.
 
 **Soft keyboard.** An **abc** button at the right edge toggles the soft
 keyboard. `GameView` then reports itself as a text editor whose connection

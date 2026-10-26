@@ -12,7 +12,8 @@ import (
 // keys arrive as a press and release inside one frame, which polling can
 // miss (docs/ANDROID.md §3). Characters join the next poll's character batch;
 // each key is held for two 30 Hz services and released for one before the
-// next, so repeated presses each produce a fresh edge.
+// next, so repeated presses each produce a fresh edge. An on-screen Shift
+// button holds Shift for as long as it is pressed.
 const (
 	hostKeyHold = 70 * time.Millisecond
 	hostKeyGap  = 40 * time.Millisecond
@@ -25,6 +26,7 @@ type hostText struct {
 	held    input.Key // zero while no key is held
 	until   time.Time // end of the current hold or gap
 	pending bool      // the gap after a release has not ended
+	shift   bool      // the host's Shift button is down
 }
 
 var nativeHostText hostText
@@ -60,9 +62,22 @@ func InjectKey(name string) bool {
 	return true
 }
 
+// SetHostShift holds or releases Shift for a host button outside Ebitengine,
+// such as the Android app's on-screen Shift. It is safe to call from any
+// thread.
+func SetHostShift(held bool) {
+	nativeHostText.mu.Lock()
+	defer nativeHostText.mu.Unlock()
+	nativeHostText.shift = held
+}
+
 func (h *hostText) apply(sample *sampledInput, now time.Time) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	if h.shift {
+		sample.modifiers.Shift, sample.heldModifiers.Shift = true, true
+		sample.keys[input.KeyShift], sample.heldKeys[input.KeyShift] = true, true
+	}
 	if len(h.runes) > 0 {
 		sample.characters = append(sample.characters, h.runes...)
 		h.runes = h.runes[:0]

@@ -16,6 +16,7 @@ import android.util.TypedValue;
 import android.view.Gravity;
 import android.view.InputDevice;
 import android.view.KeyEvent;
+import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.WindowInsets;
@@ -108,9 +109,10 @@ public class MainActivity extends Activity {
         info.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15);
         info.setPadding(0, dp(8), 0, dp(8));
         if (gameReady()) {
-            info.setText("Game files are copied. Tap to play: tap = left click, hold = right click, "
-                    + "drag = select box, two fingers = pan and zoom, back = Escape. "
-                    + "Touch the screen edges to scroll the map. The abc button on the right opens the keyboard.");
+            info.setText("Game files are copied. Tap = left click. Drag one finger = move the map. "
+                    + "Hold until it buzzes, then drag = selection box; hold and let go = right click. "
+                    + "Two fingers = zoom. Hold SHIFT (bottom right) while tapping to queue orders. "
+                    + "abc (right edge) = keyboard. Back = Escape.");
         } else {
             info.setText("Copy your Total Annihilation folder onto this phone (for example with a USB cable), "
                     + "then choose it here. Pick the folder that contains totala1.hpi. "
@@ -365,6 +367,7 @@ public class MainActivity extends Activity {
         FrameLayout root = new FrameLayout(this);
         root.addView(gameView, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
         root.addView(keyboardButton(), new FrameLayout.LayoutParams(dp(44), dp(44), Gravity.END | Gravity.CENTER_VERTICAL));
+        root.addView(shiftButton(), new FrameLayout.LayoutParams(dp(72), dp(56), Gravity.END | Gravity.BOTTOM));
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             // The app places the keyboard itself: the game shrinks above it, so
             // the field being typed into stays visible.
@@ -393,6 +396,36 @@ public class MainActivity extends Activity {
             return;
         }
         main.postDelayed(watchFailure, 1000);
+    }
+
+    /**
+     * Holds Shift while a finger is on it, so another finger's taps queue
+     * orders. The layout splits multi-touch, so that finger still reaches the
+     * game view (docs/ANDROID.md §3).
+     */
+    private View shiftButton() {
+        final TextView button = new TextView(this);
+        button.setText("SHIFT");
+        button.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
+        button.setGravity(Gravity.CENTER);
+        button.setTextColor(0xFFFFFFFF);
+        button.setBackgroundColor(0x66000000);
+        button.setOnTouchListener((v, event) -> {
+            switch (event.getActionMasked()) {
+                case MotionEvent.ACTION_DOWN:
+                    Nanolathe.setShift(true);
+                    button.setBackgroundColor(0xCC2E7D32);
+                    return true;
+                case MotionEvent.ACTION_UP:
+                case MotionEvent.ACTION_CANCEL:
+                    Nanolathe.setShift(false);
+                    button.setBackgroundColor(0x66000000);
+                    return true;
+                default:
+                    return true;
+            }
+        });
+        return button;
     }
 
     private View keyboardButton() {
@@ -468,6 +501,7 @@ public class MainActivity extends Activity {
     protected void onPause() {
         super.onPause();
         if (gameView != null) {
+            Nanolathe.setShift(false);
             gameView.suspendGame();
         }
     }

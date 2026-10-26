@@ -9,17 +9,20 @@ import (
 	"github.com/nanolathe-gg/nanolathe/internal/input"
 )
 
-// touchScript drives the adapter with fake fingers on a 640x480 canvas.
+// touchScript drives the adapter with fake fingers on a 640x480 canvas whose
+// battle viewport, where one finger pans, starts at x 130.
 type touchScript struct {
 	t       *testing.T
 	adapter touchAdapter
 	fingers map[ebiten.TouchID][2]int
 	now     time.Time
+	armed   int
 }
 
 func newTouchScript(t *testing.T, touchFirst bool) *touchScript {
 	s := &touchScript{t: t, fingers: map[ebiten.TouchID][2]int{}, now: time.Unix(0, 0)}
 	s.adapter.touchFirst = touchFirst
+	s.adapter.onArm = func() { s.armed++ }
 	s.adapter.bounds(640, 480)
 	return s
 }
@@ -33,7 +36,9 @@ func (s *touchScript) poll(after time.Duration) sampledInput {
 		}
 	}
 	sample := sampledInput{}
-	s.adapter.step(&sample, ids, func(id ebiten.TouchID) (int, int) { return s.fingers[id][0], s.fingers[id][1] }, 0, 0, s.now)
+	pos := func(id ebiten.TouchID) (int, int) { return s.fingers[id][0], s.fingers[id][1] }
+	panAt := func(x, y int32) bool { return x >= 130 }
+	s.adapter.step(&sample, ids, pos, panAt, 0, 0, s.now)
 	return sample
 }
 
@@ -47,6 +52,7 @@ func (s *touchScript) want(sample sampledInput, x, y int32, held, pressed input.
 
 func TestTouchGesturesTranslateToMouse(t *testing.T) {
 	none, left, right := input.MouseButtons{}, input.MouseButtons{Left: true}, input.MouseButtons{Right: true}
+	middle := input.MouseButtons{Middle: true}
 
 	t.Run("tap clicks where the finger landed", func(t *testing.T) {
 		s := newTouchScript(t, false)
@@ -60,26 +66,52 @@ func TestTouchGesturesTranslateToMouse(t *testing.T) {
 		s.want(s.poll(touchClickHold), 100, 100, none, none)
 	})
 
-	t.Run("drag presses at the start and follows the finger", func(t *testing.T) {
+	t.Run("one finger pans the battle viewport with a middle drag", func(t *testing.T) {
 		s := newTouchScript(t, false)
-		s.fingers[0] = [2]int{100, 100}
+		s.fingers[0] = [2]int{300, 200}
 		s.poll(0)
-		s.fingers[0] = [2]int{130, 100}
-		s.want(s.poll(16*time.Millisecond), 100, 100, left, left)
-		s.fingers[0] = [2]int{160, 120}
-		s.want(s.poll(touchDragAnchor), 160, 120, left, none)
+		s.fingers[0] = [2]int{330, 200}
+		s.want(s.poll(16*time.Millisecond), 300, 200, middle, middle)
+		s.fingers[0] = [2]int{360, 220}
+		s.want(s.poll(touchDragAnchor), 360, 220, middle, none)
 		delete(s.fingers, 0)
-		s.want(s.poll(16*time.Millisecond), 160, 120, none, none)
+		s.want(s.poll(16*time.Millisecond), 360, 220, none, none)
 	})
 
-	t.Run("holding still right-clicks once", func(t *testing.T) {
+	t.Run("one finger outside the viewport drags the left button", func(t *testing.T) {
+		s := newTouchScript(t, false)
+		s.fingers[0] = [2]int{60, 100}
+		s.poll(0)
+		s.fingers[0] = [2]int{60, 140}
+		s.want(s.poll(16*time.Millisecond), 60, 100, left, left)
+		delete(s.fingers, 0)
+		s.want(s.poll(touchDragAnchor), 60, 100, none, none)
+	})
+
+	t.Run("a held finger lifted in place right-clicks", func(t *testing.T) {
 		s := newTouchScript(t, false)
 		s.fingers[0] = [2]int{200, 200}
 		s.poll(0)
-		s.want(s.poll(touchLongPress), 200, 200, right, right)
-		s.want(s.poll(touchClickHold), 200, 200, none, none)
+		s.want(s.poll(touchLongPress), 200, 200, none, none)
+		if s.armed != 1 {
+			t.Fatalf("armed %d times; want one vibration", s.armed)
+		}
 		delete(s.fingers, 0)
-		s.want(s.poll(16*time.Millisecond), 200, 200, none, none)
+		s.want(s.poll(16*time.Millisecond), 200, 200, right, right)
+		s.want(s.poll(touchClickHold), 200, 200, none, none)
+	})
+
+	t.Run("a held finger that moves draws a selection box", func(t *testing.T) {
+		s := newTouchScript(t, false)
+		s.fingers[0] = [2]int{200, 200}
+		s.poll(0)
+		s.poll(touchLongPress)
+		s.fingers[0] = [2]int{260, 240}
+		s.want(s.poll(16*time.Millisecond), 200, 200, left, left)
+		s.fingers[0] = [2]int{300, 260}
+		s.want(s.poll(touchDragAnchor), 300, 260, left, none)
+		delete(s.fingers, 0)
+		s.want(s.poll(16*time.Millisecond), 300, 260, none, none)
 	})
 
 	t.Run("two fingers pan and pinch without clicking", func(t *testing.T) {
@@ -132,7 +164,7 @@ func TestTouchYieldsToAMovedMouse(t *testing.T) {
 	s.poll(touchClickHold)
 	s.poll(touchClickHold)
 	sample := sampledInput{x: 7, y: 9}
-	s.adapter.step(&sample, nil, nil, 7, 9, s.now)
+	s.adapter.step(&sample, nil, nil, nil, 7, 9, s.now)
 	if sample.x != 7 || sample.y != 9 || s.adapter.owned {
 		t.Fatalf("moved mouse at (%d,%d) owned %v; want the mouse's (7,9) and touch released", sample.x, sample.y, s.adapter.owned)
 	}

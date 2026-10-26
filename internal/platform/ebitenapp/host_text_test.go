@@ -32,3 +32,12 @@ func TestHostTextSeparatesRepeatedKeys(t *testing.T) {
 		t.Fatalf("the second backspace should press after the gap")
 	}
 }
+
+func TestHostShiftHoldsShift(t *testing.T) {
+	h := hostText{shift: true}
+	var sample sampledInput
+	h.apply(&sample, time.Unix(0, 0))
+	if !sample.modifiers.Shift || !sample.heldModifiers.Shift || !sample.keys[input.KeyShift] || !sample.heldKeys[input.KeyShift] {
+		t.Fatalf("a held host Shift should hold the modifier and the key")
+	}
+}

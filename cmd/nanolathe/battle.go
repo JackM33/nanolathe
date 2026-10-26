@@ -1596,6 +1596,13 @@ func (b *battleSession) viewerStep(delta float64, cl *client.Client) {
 				b.cam.Drag(dx, dy)
 			}
 		}
+		// A touch screen pans with one finger where a middle drag would
+		// (docs/ANDROID.md §3); the region is the viewport overBattleViewport
+		// tests, and lapses on its own once this pass stops publishing it.
+		if !talkActive && !b.megamapShown() && !radialOwnsPointer {
+			left, top, bottom := b.cam.ChromeInset()
+			ebitenapp.SetTouchPanRegion(left+1, top, b.cam.ViewW, b.cam.ViewH-bottom)
+		}
 		// The wheel over the battle viewport is smooth zoom
 		// (DESIGN_GPU_RENDERER §16.6). It is a Nanolathe binding, not a retail
 		// one: retail leaves the wheel to the active GUI list under the pointer
