@@ -29,6 +29,11 @@ type retailBattleHUD struct {
 	expandedSidebar expandedSidebarLayout
 	sidebarPaging   sidebarRowPaging
 	sidebarProducts map[sidebarProductCatalogKey]*sidebarProductCatalog
+	// stockTabs holds the ORDERS/BUILD pair supplied to builders whose pages
+	// author none (HUD design §3.3 "Tall orders windows"); nil when the side's
+	// art lacks either tab.
+	stockTabs        *gui.Window
+	stockTabsChecked bool
 
 	commandWindowInput commandWindowInputState
 	// palettePanels retain the generic widget state per selected command-window

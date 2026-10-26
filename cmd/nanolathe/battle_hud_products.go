@@ -225,6 +225,14 @@ func (h *retailBattleHUD) sidebarCombinedCommands(c *sidebarProductCatalog) bool
 		seen[strings.ToUpper(sidebarCommandIdentity(c.orders.window.Gadgets[i].Name))] = true
 	}
 	collect(build, &extra)
+	// A builder whose tall orders window authors no tabs could never reach
+	// its dedicated Orders page; it takes the stock pair (HUD §3.3 "Tall
+	// orders windows"). Orders-only compaction has no build pages to tab to.
+	stockTabs := false
+	if len(c.tabs) == 0 && len(c.cells) > 0 && sidebarTallWindow(c.orders.window) {
+		c.tabs = h.sidebarStockTabs()
+		stockTabs = len(c.tabs) > 0
+	}
 	pack := func(items []sidebarProduct, offset int32, gaps *[]sidebarCommandGap) int32 {
 		indices := make([]int, len(items))
 		for i := range indices {
@@ -254,6 +262,9 @@ func (h *retailBattleHUD) sidebarCombinedCommands(c *sidebarProductCatalog) bool
 		return height
 	}
 	margins := h.sidebarCommandMargins(build, c.orders, extra)
+	if stockTabs {
+		margins.grid = stockProductTop - (stockTabY + stockTabH)
+	}
 	c.upperHeight = pack(c.tabs, 0, nil)
 	compose := func(panel []sidebarProduct, spacing *[]sidebarCommandGap) ([]sidebarProduct, int32) {
 		prefix, panel := slices.Clone(extra), slices.Clone(panel)
@@ -415,6 +426,22 @@ func (h *retailBattleHUD) sidebarProductsWindow(b *battleSession, f *frame.Frame
 	p.anchorSource = c.cells[start].products[0].source
 	// Commands stay stationary across build partitions, including a short last
 	// page. Hidden orders are accessed through the dedicated page zero.
+	if dedicatedOrders {
+		end = start
+	}
+	window := h.composeSidebarWindow(c, height, commands, spacing, layout.commandTop, c.cells[start:end], 128+c.upperHeight+gridGap)
+	key.localPage = p.state.Page
+	h.expandedSidebar.key = key
+	h.expandedSidebar.selection = append([]pool.Handle(nil), f.Selection.Handles...)
+	return window
+}
+
+// composeSidebarWindow installs the private composed window: the Orders
+// scaffold's header across the rail below the radar, the tabs, every command
+// record — visible ones at their packed rows from commandTop, hidden ones as
+// key-only records — and the product cells, two per row from gridTop. The
+// caller records the layout key.
+func (h *retailBattleHUD) composeSidebarWindow(c *sidebarProductCatalog, height int, commands []sidebarProduct, spacing []sidebarCommandGap, commandTop int32, cells []sidebarBuildCell, gridTop int32) *gui.Window {
 	scaffold := c.orders
 	h.retireExpandedSidebar()
 	l := &h.expandedSidebar
@@ -457,14 +484,11 @@ func (h *retailBattleHUD) sidebarProductsWindow(b *battleSession, f *frame.Frame
 				r.Y += gap.pixels
 			}
 		}
-		r.Y += layout.commandTop
+		r.Y += commandTop
 		appendGadget(item.source, r)
 	}
-	if dedicatedOrders {
-		end = start
-	}
-	for n, cell := range c.cells[start:end] {
-		x, y := int32(n%2)*64, 128+c.upperHeight+gridGap+int32(n/2)*64
+	for n, cell := range cells {
+		x, y := int32(n%2)*64, gridTop+int32(n/2)*64
 		for _, product := range cell.products {
 			r := product.rect
 			r.X, r.Y = r.X+x, r.Y+y
@@ -488,9 +512,6 @@ func (h *retailBattleHUD) sidebarProductsWindow(b *battleSession, f *frame.Frame
 		l.window.Gadgets[i].Assoc = groups[k]
 	}
 	l.window.Header.TotalGadgets = int16(len(l.window.Gadgets) - 1)
-	key.localPage = p.state.Page
-	l.key = key
-	l.selection = append([]pool.Handle(nil), f.Selection.Handles...)
 	return l.window
 }
 

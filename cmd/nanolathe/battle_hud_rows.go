@@ -27,7 +27,8 @@ func (h *retailBattleHUD) expandedSidebarPaging(b *battleSession, f *frame.Frame
 	if _, _, err := h.windowForRequired(b, f); err != nil {
 		return sidebarPagingState{}, false
 	}
-	return h.sidebarPaging.state, h.expandedSidebar.window != nil
+	// A compacted orders window has no pages; authored paging stays in force.
+	return h.sidebarPaging.state, h.expandedSidebar.window != nil && !h.expandedSidebar.key.ordersOnly
 }
 
 func (h *retailBattleHUD) selectExpandedSidebarPage(b *battleSession, f *frame.Frame, page int) (changed, handled bool) {

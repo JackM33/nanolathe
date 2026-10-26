@@ -2233,6 +2233,37 @@ over a mod recommendation, dedicated Orders accessibility, stable partial pages,
 resize anchoring, source identities and persisted defaults. Existing stock and
 oversized-mod tests check safe geometry and every product's reachability.
 
+#### Tall orders windows
+
+**Nanolathe host presentation policy.** TA: Escalation authors its side
+`GEN` window as a 640-row canvas from row 128 for a 768-row screen: it
+comments out the ORDERS/BUILD pair and places every order below an empty
+build area (rows 514–766). On a shorter rail — 640×480, or the Android touch
+layout's 480 virtual rows — a non-builder therefore showed only panel art,
+and a builder's composed pages had no control that opened the dedicated
+Orders page.
+
+- When the selection opens an orders window with no product slots whose
+  controls reach below the rail, its command rows are packed from the rail
+  top exactly as the dedicated Orders page packs them, compressing only gaps
+  (`compactOrdersWindow`). A window that fits keeps its authored layout, so
+  stock pages and taller surfaces are unchanged. This composition has no
+  pages, so authored page navigation stays in force.
+- When a builder's composed sidebar draws on such a tall orders window and
+  no source authors the ORDERS/BUILD pair, the host adds the stock pair:
+  59×19 tabs at (3, 4) and (65, 4) in association group 8, the records
+  Escalation comments out, with products from row 27. They resolve the
+  side's own `<prefix>ORDERS`/`<prefix>BUILD` art through the ordinary
+  lookup chain; a side whose art lacks either gets no tabs.
+
+Both apply on either renderer and in every gameplay mode, and neither
+mutates a source window, catalog or committed frame.
+`TestTallOrdersWindowPacksIntoTheRail`, `TestStockOrdersWindowIsNeverCompacted`
+and `TestTallOrdersBuilderGetsStockTabs` lock the behavior on authored
+fixtures. A local 2026-10-26 layout of Escalation 10.2.0's own `guiE` ARMGEN,
+ARMCK1/ARMCK2 and `commongui.gaf` at 480, 540 and 1080 rows placed every
+control within the rail.
+
 #### Rail backdrop
 
 **Nanolathe host presentation policy.** Retail stamps the side's `PANELSIDE`

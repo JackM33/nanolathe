@@ -23,6 +23,7 @@ type expandedSidebarKey struct {
 	lock                    int
 	inlineOrders            bool
 	flat                    bool
+	ordersOnly              bool
 	transport               bool
 	builder                 pool.Handle
 }
@@ -53,6 +54,9 @@ func (h *retailBattleHUD) expandedSidebarWindow(b *battleSession, f *frame.Frame
 		}
 	}
 	if window, ok := h.overflowSidebarWindow(b, f, base); ok {
+		return window
+	}
+	if window := h.compactOrdersWindow(b, f, base, art); window != nil {
 		return window
 	}
 	h.retireExpandedSidebar()
