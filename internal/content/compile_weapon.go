@@ -210,6 +210,18 @@ func (w *WeaponDef) DamageOverride(unitName string) (int32, bool) {
 	if len(fold) != len(keys) {
 		fold = nil
 	}
+	if fold != nil && asciiOnly(unitName) {
+		// For an ASCII name the lower-cased copy is the byte-wise ASCII fold,
+		// so the same lower bound is found comparing the folded keys against
+		// the name folded byte by byte, without building the copy. The stock
+		// unit names are upper case, which made that copy an allocation per
+		// damage query.
+		i := sort.Search(len(keys), func(i int) bool { return compareASCIIFolded(fold[i], unitName) >= 0 })
+		if i < len(keys) && strings.EqualFold(keys[i], unitName) {
+			return w.Damage[keys[i]], true
+		}
+		return 0, false
+	}
 	name := strings.ToLower(unitName)
 	i := sort.Search(len(keys), func(i int) bool {
 		if fold != nil {
@@ -221,6 +233,41 @@ func (w *WeaponDef) DamageOverride(unitName string) (int32, bool) {
 		return w.Damage[keys[i]], true
 	}
 	return 0, false
+}
+
+// asciiOnly reports whether s holds no byte outside seven-bit ASCII.
+func asciiOnly(s string) bool {
+	for i := 0; i < len(s); i++ {
+		if s[i] >= 0x80 {
+			return false
+		}
+	}
+	return true
+}
+
+// compareASCIIFolded compares a with the ASCII lower-cased form of name, as
+// strings.Compare(a, strings.ToLower(name)) does for an ASCII name.
+func compareASCIIFolded(a, name string) int {
+	n := min(len(a), len(name))
+	for i := 0; i < n; i++ {
+		c := name[i]
+		if 'A' <= c && c <= 'Z' {
+			c += 'a' - 'A'
+		}
+		if a[i] != c {
+			if a[i] < c {
+				return -1
+			}
+			return 1
+		}
+	}
+	switch {
+	case len(a) < len(name):
+		return -1
+	case len(a) > len(name):
+		return 1
+	}
+	return 0
 }
 
 // UnknownKeysSorted returns inert keys sorted for hash stability (I1).

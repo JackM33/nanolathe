@@ -81,3 +81,30 @@ func BenchmarkCompiledDamageLookup(b *testing.B) {
 		}
 	})
 }
+
+// An ASCII name of any case finds the compiled override the lower-cased name
+// finds, without allocating, and compares as the lower-cased copy would.
+func TestCompiledDamageLookupFoldsASCIINamesInPlace(t *testing.T) {
+	fs := newFixtureFS(t, fixtureFile{path: "weapons/lookup.tdf", data: "[w]{ID=7;[DAMAGE]{ARMCOM=20;armck=-7;CORAK=5;cor_ak=6;corak2=9;Z=1;}}"})
+	weapons, _, err := CompileWeaponsWithDuplicates(fs, RetailLimits())
+	if err != nil {
+		t.Fatal(err)
+	}
+	w := weapons["w"]
+	for _, name := range []string{"ARMCOM", "ArmCk", "corak", "CORAK", "COR_AK", "CORAK2", "z", "Z", "", "CORA", "CORAK3", "ARMCOMX", "[", "@"} {
+		lower := strings.ToLower(name)
+		got, ok := w.DamageOverride(name)
+		want, wantOK := w.DamageOverride(lower)
+		if got != want || ok != wantOK {
+			t.Fatalf("lookup %q = %d, %t; lower-cased %q = %d, %t", name, got, ok, lower, want, wantOK)
+		}
+		for _, key := range w.damageFold {
+			if c := compareASCIIFolded(key, name); c != strings.Compare(key, lower) {
+				t.Fatalf("compare %q with %q = %d, want %d", key, name, c, strings.Compare(key, lower))
+			}
+		}
+	}
+	if got := testing.AllocsPerRun(100, func() { w.DamageOverride("ARMCOM") }); got != 0 {
+		t.Fatalf("upper-case compiled lookup allocates %v objects", got)
+	}
+}
