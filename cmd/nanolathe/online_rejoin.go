@@ -154,8 +154,12 @@ func (g *gameShell) startOnlineRejoin() {
 		g.onlineFail(err)
 		return
 	}
-	address := record.Server
-	options := relay.HostedDialOptions{InsecureLoopback: strings.HasPrefix(strings.ToLower(address), "ws://"), Name: s.name}
+	address, options, err := onlineServerAddress(record.Server)
+	if err != nil {
+		g.onlineFail(err)
+		return
+	}
+	options.Name = s.name
 	s.phase, s.status = onlineDescribing, "Rejoining game "+ticket.Code+"..."
 	s.detail = "Server " + address
 	s.run(func(ctx context.Context) onlineJobResult {

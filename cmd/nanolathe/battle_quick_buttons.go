@@ -10,6 +10,7 @@ package main
 import (
 	"image"
 	"image/draw"
+	"runtime"
 
 	"github.com/nanolathe-gg/nanolathe/internal/client"
 	"github.com/nanolathe-gg/nanolathe/internal/frame"
@@ -39,8 +40,13 @@ const (
 	quickButtonIncomeClearance = 18 + 205 + 4
 )
 
+// quickButtonsHost reports a touch build, the only one that shows the quick
+// buttons: a desktop player has Escape, Ctrl+Z and the idle-constructor key
+// for the same actions.
+var quickButtonsHost = runtime.GOOS == "android"
+
 func (b *battleSession) quickButtonsShown() bool {
-	return b != nil && b.hostPreferences().QuickButtons != 0
+	return b != nil && quickButtonsHost && b.hostPreferences().QuickButtons != 0
 }
 
 // quickButtonRect is button i's rectangle on the strips' virtual surface.

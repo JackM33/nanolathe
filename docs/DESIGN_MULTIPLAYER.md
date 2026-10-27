@@ -6716,6 +6716,32 @@ computed the same match; `TestPacedDriverFastForwardRunsTheBacklog` locks the
 catch-up; `online_rejoin_test.go` the kept ticket, the chooser's Rejoin and
 the plain words.
 
+### 16.10 LAN relay
+
+**Purpose.** A bounded increment of this fork, requested by its owner on
+2026-10-27: players at home host a relay on one of their own computers, with
+no TLS certificate, tunnel or Internet connection. It is §12.1's LAN battle
+by a separate process rather than a relay embedded in the hosting client.
+
+**Server.** `nanolathe-server --lan` serves the WebSocket relay in plaintext
+on every interface, port 39032 unless `--listen` names another, and prints
+the computer's private IPv4 addresses for players to type. Because nothing
+is encrypted, it closes at once every connection whose remote address is not
+loopback, private (RFC 1918, IPv6 unique local) or link-local, so a forwarded
+port reaches nothing. `--lan` refuses TLS, proxy and loopback-test options.
+Rooms, reconnection and every other rule are the hosted relay's.
+
+**Client.** The Server control takes a LAN relay as its numeric address:
+`192.168.1.20` means `ws://192.168.1.20:39032/relay`, `192.168.1.20:4000`
+names the port, and a typed `ws://` URL on a private address is taken as
+typed; `127.0.0.1` reaches a LAN relay on the same computer. The dial
+options' `LAN` switch permits plaintext only to such a numeric address, and
+never with TLS. A host name or public address still means TLS.
+
+**Tests.** `TestLANRelayPlaysAndRefusesTheInternet` plays a match through a
+LAN relay and locks the peer and address rules; `TestOnlineServerAddress`
+locks how typed addresses read.
+
 ## 17. Verification
 
 **In force now.**

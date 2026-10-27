@@ -164,13 +164,17 @@ func hostedWebSocketURL(address string, options HostedDialOptions) (*url.URL, st
 	}
 	target := net.JoinHostPort(u.Hostname(), port)
 	if u.Scheme == "ws" {
-		if !options.InsecureLoopback || options.TLSConfig != nil {
-			return nil, "", hostedError("WebSocket TLS", "explicit numeric-loopback plaintext without TLS configuration")
+		if !options.InsecureLoopback && !options.LAN || options.TLSConfig != nil {
+			return nil, "", hostedError("WebSocket TLS", "explicit numeric-loopback or LAN plaintext without TLS configuration")
 		}
-		if err := localAddress(target, false); err != nil {
+		if options.LAN {
+			if err := lanAddress(target); err != nil {
+				return nil, "", err
+			}
+		} else if err := localAddress(target, false); err != nil {
 			return nil, "", err
 		}
-	} else if options.InsecureLoopback || (options.TLSConfig != nil && options.TLSConfig.InsecureSkipVerify) {
+	} else if options.InsecureLoopback || options.LAN || (options.TLSConfig != nil && options.TLSConfig.InsecureSkipVerify) {
 		return nil, "", hostedError("WebSocket TLS", "verified TLS without the plaintext switch")
 	}
 	return u, target, nil

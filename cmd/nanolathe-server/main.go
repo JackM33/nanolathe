@@ -8,6 +8,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"net"
 	"os"
 	"os/signal"
 	"runtime"
@@ -40,11 +41,25 @@ func run(ctx context.Context, args []string, out io.Writer) error {
 	maxConnections := flags.Int("max-connections", 512, "maximum established and pending connections, 2..1024 and at least two per room")
 	healthAddress := flags.String("health-listen", "", "also answer HTTP GET /healthz here, outside the relay's connection limit; never route it publicly")
 	drainTimeout := flags.Duration("drain-timeout", 100*time.Second, "on SIGTERM or interrupt, refuse new rooms and let running matches finish for at most this long; 0 stops at once; keep it below the platform's termination grace")
+	lan := flags.Bool("lan", false, "host players on this computer's own networks: plaintext WebSocket on every interface (port 39032 unless --listen), refusing anyone else")
 	if err := flags.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return nil
 		}
 		return err
+	}
+	listenSet := false
+	flags.Visit(func(f *flag.Flag) { listenSet = listenSet || f.Name == "listen" })
+	if *lan {
+		// A LAN relay is the WebSocket relay without TLS, reachable from the
+		// other computers at home (DESIGN_MULTIPLAYER §16.10).
+		if *insecure || *proxyTLS || *certFile != "" || *keyFile != "" {
+			return serverError("LAN transport", "--lan without TLS, proxy or loopback options")
+		}
+		*websocket = true
+		if !listenSet {
+			*address = ":39032"
+		}
 	}
 	if *drainTimeout < 0 {
 		return serverError("drain timeout", "zero or a positive duration")
@@ -56,10 +71,12 @@ func run(ctx context.Context, args []string, out io.Writer) error {
 		return serverError("proxy transport", "--websocket without local TLS or loopback options")
 	}
 	out = &lockedWriter{w: out}
-	config := relay.HostedConfig{InsecureLoopback: *insecure, MaxRooms: *maxRooms, MaxConnections: *maxConnections,
+	config := relay.HostedConfig{InsecureLoopback: *insecure, LAN: *lan, MaxRooms: *maxRooms, MaxConnections: *maxConnections,
 		Finished: func(f relay.FinishedRoom) { logFinishedRoom(out, f) }}
 	transport := "TLS"
-	if *proxyTLS {
+	if *lan {
+		transport = "LAN, plaintext WebSocket for this computer's own networks only"
+	} else if *proxyTLS {
 		transport = "WebSocket behind HTTPS proxy"
 	} else if *insecure {
 		if *certFile != "" || *keyFile != "" {
@@ -96,6 +113,22 @@ func run(ctx context.Context, args []string, out io.Writer) error {
 		fmt.Fprintf(out, "Nanolathe relay health on %s\n", health.Addr())
 	}
 	fmt.Fprintf(out, "Nanolathe relay listening on %s (%s, at most %d rooms and %d connections)\n", server.Addr(), transport, *maxRooms, *maxConnections)
+	if host, port, _ := net.SplitHostPort(server.Addr()); *lan {
+		ips := []string{host}
+		if a := net.ParseIP(host); a == nil || a.IsUnspecified() {
+			ips = relay.LANAddresses()
+		}
+		for _, ip := range ips {
+			server := ip
+			if port != "39032" {
+				server = net.JoinHostPort(ip, port)
+			}
+			fmt.Fprintf(out, "Players nearby choose MULTI, then Server, and type: %s\n", server)
+		}
+		if port == "39032" {
+			fmt.Fprintln(out, "On this computer you can also type: 127.0.0.1")
+		}
+	}
 	ticker := time.NewTicker(time.Minute)
 	defer ticker.Stop()
 	for {

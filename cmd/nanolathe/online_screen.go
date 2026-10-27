@@ -12,7 +12,10 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/netip"
+	"net/url"
 	"os"
+	"strconv"
 	"strings"
 
 	"github.com/nanolathe-gg/nanolathe/internal/client"
@@ -103,6 +106,9 @@ func onlineServerAddress(typed string) (string, relay.HostedDialOptions, error) 
 	if address == "" {
 		address = defaultOnlineServer
 	}
+	if lan, ok := onlineLANAddress(address); ok {
+		return lan, relay.HostedDialOptions{LAN: true}, nil
+	}
 	if !strings.Contains(address, "://") {
 		if _, _, err := net.SplitHostPort(address); err != nil {
 			address = "wss://" + address + "/relay"
@@ -113,6 +119,38 @@ func onlineServerAddress(typed string) (string, relay.HostedDialOptions, error) 
 		return "", options, err
 	}
 	return address, options, nil
+}
+
+// onlineLANPort is the port `nanolathe-server --lan` listens on unless told
+// otherwise.
+const onlineLANPort = "39032"
+
+// onlineLANAddress turns a numeric address on this computer or a private
+// network — 192.168.1.20, 192.168.1.20:4000 or ws://192.168.1.20:39032/relay —
+// into the WebSocket URL of a LAN relay there (DESIGN_MULTIPLAYER §16.10).
+// A ws:// URL on loopback stays the explicit local test relay it was.
+func onlineLANAddress(address string) (string, bool) {
+	hostport, typedURL := address, false
+	if strings.HasPrefix(strings.ToLower(address), "ws://") {
+		u, err := url.Parse(address)
+		if err != nil || u.User != nil || u.Path != "/relay" || u.RawQuery != "" || strings.Contains(address, "#") {
+			return "", false
+		}
+		hostport, typedURL = u.Host, true
+	}
+	var addr netip.Addr
+	port := onlineLANPort
+	if ap, err := netip.ParseAddrPort(hostport); err == nil && ap.Port() != 0 {
+		addr, port = ap.Addr(), strconv.Itoa(int(ap.Port()))
+	} else if a, err := netip.ParseAddr(hostport); err == nil && !typedURL {
+		addr = a
+	} else {
+		return "", false
+	}
+	if addr.Zone() != "" || !(addr.IsPrivate() || addr.IsLinkLocalUnicast() || addr.IsLoopback() && !typedURL) {
+		return "", false
+	}
+	return "ws://" + net.JoinHostPort(addr.String(), port) + "/relay", true
 }
 
 // onlineRefusalText says in plain words why the relay or this client refused,
@@ -164,6 +202,8 @@ func onlineRefusalText(err error) string {
 		return "That map comes from loose files in your Total Annihilation folder, which online games do not use. Choose another map."
 	case errors.As(err, &restricted):
 		return "The unit restrictions cannot be applied: " + onlineRestrictionIssues(restricted) + "."
+	case has("logical path LAN relay address,"):
+		return "A LAN server is reached at its local address, such as 192.168.1.20."
 	case has("logical path relay address,"), has("logical path relay URL,"), has("logical path WebSocket transport,"), has("logical path plaintext relay,"):
 		return "That is not a server address. Use a host name such as " + defaultOnlineServer + ", host:port, or wss://host/relay."
 	case has("logical path hosted dial,"), has("logical path WebSocket"), has("logical path hosted handshake,"), has("logical path envelope length,"):
@@ -217,6 +257,7 @@ const (
 	onlineHostPrompt = "Enter the server address"
 	onlineNamePrompt = "Enter the name other players see"
 	onlineNameHint   = "Up to 16 letters, digits, spaces and punctuation. Leave it empty to play as Player 1, Player 2 and so on."
+	onlineServerHint = "A host name such as relay.nanolathe.gg. For a LAN server on a computer nearby, its local address, such as 192.168.1.20."
 )
 
 // onlinePopupTemplate loads an authored popup window from the mounted
@@ -436,6 +477,8 @@ func (g *gameShell) refreshOnlinePanel() {
 			status = "Paste or type the six letters and digits, then choose Join."
 		case s.view == onlineNameEntry:
 			status = onlineNameHint
+		case s.view == onlineServerEntry:
+			status = onlineServerHint
 		}
 		p.SetText("STATUS", g.fitDetail(status, 295, 3))
 		retailGreyGadget(p.Window, "OK", busy)

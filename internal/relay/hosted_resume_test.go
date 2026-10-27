@@ -3,6 +3,7 @@ package relay
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"net"
 	"strings"
 	"testing"
@@ -411,5 +412,60 @@ func TestGrantHistoryKeepsTheNewestWithinItsBound(t *testing.T) {
 	}
 	if !h.keeps(n, n) {
 		t.Fatal("nothing to resend must always be kept")
+	}
+}
+
+// A LAN relay is plaintext WebSocket that admits only this computer's own
+// and private-network peers, and a client dials one only at such a numeric
+// address (DESIGN_MULTIPLAYER §16.10).
+func TestLANRelayPlaysAndRefusesTheInternet(t *testing.T) {
+	for _, bad := range []HostedConfig{{LAN: true, InsecureLoopback: true}, {LAN: true, TLSConfig: &tls.Config{}}} {
+		if s, err := ListenHostedWebSocket("127.0.0.1:0", bad, false); err == nil {
+			_ = s.Close()
+			t.Fatalf("accepted %+v", bad)
+		}
+	}
+	if s, err := ListenHosted("127.0.0.1:0", HostedConfig{LAN: true}); err == nil {
+		_ = s.Close()
+		t.Fatal("a LAN relay without WebSocket was accepted")
+	}
+	s, err := ListenHostedWebSocket("127.0.0.1:0", HostedConfig{LAN: true}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = s.Close() })
+	address := "ws://" + s.Addr() + "/relay"
+	options := HostedDialOptions{LAN: true}
+	var clients [2]*LocalClient
+	code := ""
+	for seat := range uint8(2) {
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		c, joined, err := DialHosted(ctx, address, code, localTestHello(seat), options)
+		cancel()
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = c.Close() })
+		c.idle = 0
+		clients[seat], code = c, joined
+	}
+	stepResume(t, 1, clients[0], clients[1])
+	for _, public := range []string{"ws://192.0.2.1:39032/relay", "ws://relay.example.test:39032/relay"} {
+		if _, _, err := hostedWebSocketURL(public, options); err == nil {
+			t.Fatalf("a LAN client would dial %s", public)
+		}
+	}
+	if _, _, err := hostedWebSocketURL("wss://relay.example.test/relay", options); err == nil {
+		t.Fatal("the LAN switch was taken with TLS")
+	}
+	for addr, want := range map[string]bool{"192.168.1.20:5": true, "10.1.2.3:5": true, "172.31.0.1:5": true, "127.0.0.1:5": true, "[fd00::1]:5": true, "[fe80::1]:5": true,
+		"8.8.8.8:5": false, "172.32.0.1:5": false, "[2001:db8::1]:5": false} {
+		tcp, err := net.ResolveTCPAddr("tcp", addr)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if lanPeer(tcp) != want {
+			t.Errorf("peer %s admitted %v, want %v", addr, !want, want)
+		}
 	}
 }

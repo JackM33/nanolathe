@@ -2995,7 +2995,9 @@ The consequences of that shape are the contract:
 #### Quick selection buttons
 
 **Nanolathe host preference (user-requested 2026-10-26).** A player without a
-keyboard has no Escape, Ctrl+Z or idle-constructor key. Three buttons sit at
+keyboard has no Escape, Ctrl+Z or idle-constructor key. On the Android build
+only — a desktop player has those keys, and the buttons covered the battle
+view there (user-requested 2026-10-27) — three buttons sit at
 the top right of the battle view, 3 rows below the resource strip, on the
 strips' virtual surface: 72×28 each with 3-pixel gaps, right-aligned 3
 pixels from the edge, or left of the allied-income toggle and its list when

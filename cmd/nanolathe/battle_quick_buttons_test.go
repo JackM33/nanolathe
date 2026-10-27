@@ -27,6 +27,14 @@ func clickQuickButton(t *testing.T, b *battleSession, i int) {
 }
 
 func TestQuickButtonsRunTheirSelectionActions(t *testing.T) {
+	saved := quickButtonsHost
+	t.Cleanup(func() { quickButtonsHost = saved })
+	// A desktop build shows none of them.
+	quickButtonsHost = false
+	if b := newTestBattle(testCatalogON05(), testWorldON05(40, 40)); b.quickButtonsShown() {
+		t.Fatal("a desktop build showed the touch buttons")
+	}
+	quickButtonsHost = true
 	b := newTestBattle(testCatalogON05(), testWorldON05(40, 40))
 	at := func(n int64) numeric.Fixed { return numeric.FixedFromInt(n * 16) }
 	first := placeUnit(b, "armcons", at(8), at(8))

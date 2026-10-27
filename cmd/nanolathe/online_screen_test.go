@@ -446,6 +446,20 @@ func TestOnlineServerAddress(t *testing.T) {
 	if got, options, err := onlineServerAddress("ws://127.0.0.1:8080/relay"); err != nil || got != "ws://127.0.0.1:8080/relay" || !options.InsecureLoopback {
 		t.Fatalf("loopback plaintext: %q %+v %v", got, options, err)
 	}
+	// A LAN server is typed as its local address (DESIGN_MULTIPLAYER §16.10).
+	for typed, want := range map[string]string{
+		"192.168.1.20":                "ws://192.168.1.20:39032/relay",
+		" 10.0.0.7:4000 ":             "ws://10.0.0.7:4000/relay",
+		"127.0.0.1":                   "ws://127.0.0.1:39032/relay",
+		"ws://172.16.3.4:39032/relay": "ws://172.16.3.4:39032/relay",
+		"fd00::5":                     "ws://[fd00::5]:39032/relay",
+		"[fe80::1]:39032":             "ws://[fe80::1]:39032/relay",
+	} {
+		got, options, err := onlineServerAddress(typed)
+		if err != nil || got != want || !options.LAN || options.InsecureLoopback {
+			t.Fatalf("LAN %q: %q %+v %v, want %q", typed, got, options, err, want)
+		}
+	}
 	for _, typed := range []string{"ws://relay.example.test/relay", "ws://192.0.2.1:8080/relay", "https://relay.example.test/relay", "wss://relay.example.test/", "relay.example.test:0", "wss://user@relay.example.test/relay", "relay example"} {
 		if _, _, err := onlineServerAddress(typed); err == nil {
 			t.Fatalf("admitted %q", typed)

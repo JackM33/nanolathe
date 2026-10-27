@@ -16,11 +16,14 @@ import (
 )
 
 // HostedConfig selects the bounded room service of DESIGN_MULTIPLAYER §16.5.1.
-// TLS is required unless InsecureLoopback explicitly selects numeric loopback
-// or ListenHostedWebSocket explicitly selects a hosting TLS terminator.
+// TLS is required unless InsecureLoopback explicitly selects numeric loopback,
+// ListenHostedWebSocket explicitly selects a hosting TLS terminator, or LAN
+// selects a plaintext WebSocket relay that admits only peers on the host's
+// private networks (§16.10).
 type HostedConfig struct {
 	TLSConfig        *tls.Config
 	InsecureLoopback bool
+	LAN              bool
 	MaxRooms         int // Zero selects 16; otherwise 1..256.
 	// MaxConnections bounds established and pending connections together.
 	// Zero selects 512; otherwise 2..1024, and at least two per room.
@@ -35,6 +38,9 @@ type HostedConfig struct {
 type HostedDialOptions struct {
 	TLSConfig        *tls.Config
 	InsecureLoopback bool
+	// LAN permits a plaintext ws:// relay at a numeric private-network
+	// address, a LAN relay (§16.10).
+	LAN bool
 	// Name is the player's display name, carried by the hello and shown to
 	// the room's other version-8 seats: ValidHostedName, empty for none. It
 	// is fixed for the connection; a room description ignores it.
@@ -187,7 +193,11 @@ func listenHostedTransport(address string, config HostedConfig, timeouts hostedT
 	if config.MaxConnections < 2*config.MaxRooms || config.MaxConnections > 1024 {
 		return nil, hostedError("connection capacity", "2..1024 connections and at least two per room")
 	}
-	if behindTLSProxy {
+	if config.LAN {
+		if !websocket || behindTLSProxy || config.TLSConfig != nil || config.InsecureLoopback {
+			return nil, hostedError("LAN relay", "a plaintext WebSocket relay with no TLS, proxy or loopback mode")
+		}
+	} else if behindTLSProxy {
 		if !websocket || config.TLSConfig != nil || config.InsecureLoopback {
 			return nil, hostedError("TLS proxy", "WebSocket HTTP with neither native TLS nor loopback mode")
 		}
@@ -293,7 +303,9 @@ func (s *HostedServer) accept() {
 			return
 		default:
 		}
-		if len(s.conns) == s.config.MaxConnections {
+		if len(s.conns) == s.config.MaxConnections || s.config.LAN && !lanPeer(conn.RemoteAddr()) {
+			// A LAN relay speaks plaintext, so it serves only the host's
+			// own networks; a forwarded port reaches nothing (§16.10).
 			_ = conn.Close()
 			s.mu.Unlock()
 			continue
