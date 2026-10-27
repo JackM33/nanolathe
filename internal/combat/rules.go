@@ -372,6 +372,17 @@ func previewsShot(r Rules) bool {
 func (StrictRules) SelectTarget(_ *Service, q *TargetQuery) (pool.Handle, bool) {
 	return acquireFilteredTarget(q.Candidates, q.Acquisition)
 }
+
+// SelectTarget runs the retail sampled selection with the `+ShootAll` option
+// bit set, so a human player's units also pick enemy buildings that omit
+// `shootme`. Nanolathe policy: docs/DESIGN_WEAPONS_PROJECTILES.md "Shoot All
+// by default"; Strict 3.1 keeps the bit clear as a stock retail session does
+// [06 §3.2 "The option bit of check 2"].
+func (CommunityRules) SelectTarget(_ *Service, q *TargetQuery) (pool.Handle, bool) {
+	a := q.Acquisition
+	a.ShootAll = true
+	return acquireFilteredTarget(q.Candidates, a)
+}
 func (StrictRules) ReconsiderTarget(*units.Unit, *units.Slot, *units.Unit, *visibility.Service) bool {
 	return false
 }

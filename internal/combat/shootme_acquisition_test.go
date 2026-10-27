@@ -140,3 +140,37 @@ func TestCandidateShootMeComesFromTheDefinition(t *testing.T) {
 		})
 	}
 }
+
+// Nanolathe's "Shoot All by default" policy (docs/DESIGN_WEAPONS_PROJECTILES.md):
+// Community and Modern select as if `+ShootAll` were typed, so a human's units
+// pick unmarked buildings, while Strict 3.1 keeps the stock clear bit. Modern's
+// weaponless kamikaze search delegates to the same sampled selection and keeps
+// the policy.
+func TestShootAllByDefaultOutsideStrict(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		rules Rules
+		armed bool
+		want  bool
+	}{
+		{"Strict 3.1 refuses an unmarked building", StrictRules{}, true, false},
+		{"Community 3.9 picks it", CommunityRules{}, true, true},
+		{"Modern's weaponless search picks it", &ModernRules{}, false, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			r := rng.NewSimulation(1)
+			a := base(&r)
+			a.ShooterControlByte = ControlByteHuman
+			q := TargetQuery{Candidates: []Candidate{unmarkedCandidate()}, Acquisition: a, Shooter: &units.Unit{}, Slot: &units.Slot{}, World: &units.World{}}
+			if tc.armed {
+				q.Slot.Weapon = &content.WeaponDef{}
+			}
+			if _, ok := tc.rules.SelectTarget(&Service{}, &q); ok != tc.want {
+				t.Fatalf("acquired=%v want %v", ok, tc.want)
+			}
+			if q.Acquisition.ShootAll {
+				t.Fatal("selection changed the caller's acquisition")
+			}
+		})
+	}
+}

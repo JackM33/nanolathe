@@ -400,10 +400,11 @@ type Acquisition struct {
 	// until someone types the command [06 §3.2 "The option bit of check 2"]
 	// [07 R-CAM-01 §6].
 	//
-	// Service.ShootAll is the only producer and nothing sets it yet: nanolathe
-	// has no `+shootall` typed command. The field is the seam that command
-	// would write, and it is what makes check 2 testable as the contract states
-	// it rather than as two thirds of itself.
+	// Nanolathe has no `+shootall` typed command. Community and Modern set the
+	// field in their SelectTarget (docs/DESIGN_WEAPONS_PROJECTILES.md "Shoot
+	// All by default"); Strict 3.1 leaves it clear. It is also what makes
+	// check 2 testable as the contract states it rather than as two thirds of
+	// itself.
 	ShootAll bool
 
 	// Paralyzer marks the slot's weapon as a paralyzer, which is the only thing

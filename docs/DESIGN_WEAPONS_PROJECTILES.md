@@ -880,6 +880,31 @@ pilots. The policy belongs to
 [DESIGN_MOVEMENT_PATH "Modern aircraft tactics"](DESIGN_MOVEMENT_PATH.md#modern-aircraft-tactics);
 `aircraft_antiair_test.go` locks it.
 
+### Shoot All by default
+
+**Nanolathe policy — user-authorized 2026-10-27 (this fork).** Strict 3.1
+keeps retail: the `+ShootAll` option bit of check 2 is clear in a stock
+session, so a human player's units never autonomously pick an enemy
+definition that omits `shootme` — the non-combat buildings
+[06 §3.2 "The option bit of check 2"]. Community 3.9 and Modern select as if
+the bit were set from the first tick: `CommunityRules.SelectTarget` runs the
+retail sampled selection with `Acquisition.ShootAll` true, so a human's units
+also engage factories, power, metal, radar, storage, mines and walls once no
+better candidate wins. Every other check, the draw order and the fifty-pick
+limit are unchanged; only check 2's verdict differs, so a candidate it used
+to reject now takes its scoring draw [06 §3.2 "Draw consequence"].
+
+Modern's armed selection already admits such opportunities (above); the bit
+reaches Modern only through the weaponless kamikaze search it delegates to the
+sampled selection, which now arms a human's mines and crawling bombs against
+buildings too. Computer players already admitted every candidate and are
+unaffected. Manual attack orders, Guard and the damage reaction never reached
+check 2. The policy adds no session state, RNG stream, resource effect or saved
+field: the bound rule set answers it, so saves, replays and every seat of an
+online room agree on it, and Strict 3.1's fingerprint locks are untouched.
+Nanolathe still has no `+shootall` typed command to turn it off.
+`TestShootAllByDefaultOutsideStrict` locks the three answers.
+
 ### 2.4 Aiming
 
 The composed unit-death observer releases combat's pending Aim tracking before

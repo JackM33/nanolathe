@@ -183,6 +183,8 @@ DESIGN_MULTIPLAYER §16.6). It is owned by
 
 Current policies: [terrain admission](docs/DESIGN_WEAPONS_PROJECTILES.md#231-modern-terrain-admission),
 [Hold Fire](docs/DESIGN_UNITS_ORDERS_COB.md#modern-hold-fire), and
+[Shoot All by default](docs/DESIGN_WEAPONS_PROJECTILES.md#shoot-all-by-default) (user-authorized
+2026-10-27; Community 3.9 binds it too), and
 [factory-exit yielding](docs/DESIGN_ECONOMY_CONSTRUCTION.md#modern-factory-exit-yielding), and
 [construction-site clearance](docs/DESIGN_ECONOMY_CONSTRUCTION.md#modern-construction-site-yielding), and
 [authored build membership](docs/DESIGN_ECONOMY_CONSTRUCTION.md#modern-authored-build-membership), and

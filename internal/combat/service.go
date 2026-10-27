@@ -955,13 +955,14 @@ func (s *Service) acquireTargetForSlotRange(u *units.Unit, slot *units.Slot, idx
 		acq.NoChaseMask = u.Def.NoChaseCategoryMask
 	}
 	acq.SightScan = rangeLimit >= 0
-	// acq.ShootAll stays false: it is the session mode-flags word's bit 10,
-	// whose only retail writer is the `+ShootAll` chat command, and the word is
-	// zero-filled with no loader, settings writer or save restore touching that
-	// bit — so a stock session runs with it clear
-	// [06 §3.2 "The option bit of check 2"][07 R-CAM-01 §6]. Nanolathe has no
-	// `+shootall` typed command; when one is added it writes a session flag
-	// that arrives here.
+	// acq.ShootAll stays false here: it is the session mode-flags word's bit
+	// 10, whose only retail writer is the `+ShootAll` chat command, and the
+	// word is zero-filled with no loader, settings writer or save restore
+	// touching that bit — so a stock session runs with it clear
+	// [06 §3.2 "The option bit of check 2"][07 R-CAM-01 §6]. The bound rule
+	// set's SelectTarget sets it where Nanolathe's "Shoot All by default"
+	// policy applies (Community and Modern); Nanolathe has no `+shootall`
+	// typed command.
 	fromSecondary := false
 	if len(candidates) == 0 && acq.HasUpgrade {
 		candidates = s.secondaryCandidates(u, w, seaLevel, vis, econ, catalog, acq.FilterRange)

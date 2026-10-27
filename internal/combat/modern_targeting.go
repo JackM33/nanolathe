@@ -476,9 +476,10 @@ func (*ModernRules) SelectTarget(s *Service, q *TargetQuery) (pool.Handle, bool)
 	// "Modern threat targeting and incoming fire". This adds no departure: the
 	// scan is a detonation TRIGGER, not a weapon aim, and a deterministic
 	// ranker feeding `Standby_Mine`'s grounded-target post-check could starve
-	// a mine that a sampled search would have fired.
+	// a mine that a sampled search would have fired. It keeps the Shoot All
+	// default Modern shares with Community ("Shoot All by default").
 	if q.Slot.Weapon == nil {
-		return StrictRules{}.SelectTarget(s, q)
+		return CommunityRules{}.SelectTarget(s, q)
 	}
 
 	var best, retained pool.Handle
