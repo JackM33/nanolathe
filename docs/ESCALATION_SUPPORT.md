@@ -7,7 +7,12 @@ install holds such a copy, the game mounts it as the plain game, leaving out
 Escalation's archives (`TAESC.gp3` and the `T*ESC*.ufo` files) and its renamed
 content folders (`unitsE`, `weaponE`, `gamedatE`, `unitpicE`, `guiE`,
 `downloadsE`, `aE`), and the main menu says so (`install.UpstreamEscalation*`,
-`baseGameRoot`). A command line that stacks its own roots or names a config
+`baseGameRoot`). On the desktop such a folder still plays Escalation: with no
+mod mounted, the main menu switches once to the Escalation package, first
+downloading and installing it from the catalogue with its progress on the
+status line, and records the switch (`escalationAuto` in the settings), so a
+later choice of plain Total Annihilation stands (`escalation_auto.go`,
+user-requested 2026-10-27). A command line that stacks its own roots or names a config
 mounts exactly what it names, so the diagnostic comparison below still works.
 The Android launcher leaves the same files out when it copies a folder. Use Community
 3.9 or Modern gameplay; its scripts require extension queries that Strict 3.1

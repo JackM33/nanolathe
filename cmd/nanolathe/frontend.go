@@ -175,6 +175,7 @@ type gameShell struct {
 	windowSize       retailDisplayMode // committed host size; options edits apply on OK
 	fullscreen       bool              // Nanolathe host preference (DESIGN_PRESENTATION_CLIENT §2.1)
 	displayFitted    int               // desktop's one-time monitor fit, done (window_settings.go)
+	escalationAuto   int               // desktop's one-time switch to Escalation, done (escalation_auto.go)
 	language         string            // saved interface language, empty for English (language.go)
 	scrollSpeed      int               // persisted scrollspeed [02 "Settings"] [07 §10] C2 presentation-only
 	// display is the live `DisplaymodeWidth`/`Height` pair and the `VISUALS`
@@ -1122,6 +1123,7 @@ func (g *gameShell) step(delta float64, cl *client.Client) {
 	}
 	g.serviceSaveSlots()
 	g.fitDesktopDisplay()
+	g.serviceEscalationAuto()
 	if g.startupMoviePending {
 		g.startupMoviePending = false
 		reportRetailMessageError(g.startMovie(cl, startupMoviePath, false))

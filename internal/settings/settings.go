@@ -588,6 +588,11 @@ type Settings struct {
 	// whose size is still that default takes the monitor's proportions once,
 	// fullscreen (cmd/nanolathe fitDesktopDisplay, user-requested 2026-10-27).
 	DisplayFitted int `json:"displayFitted,omitempty"`
+	// EscalationAuto records the desktop's one-time switch to the
+	// Escalation package for a TA folder with TA: Escalation copied over it
+	// (cmd/nanolathe escalation_auto.go, user-requested 2026-10-27); 0 for
+	// none.
+	EscalationAuto int `json:"escalationAuto,omitempty"`
 	// Language is the interface language (internal/i18n, docs/DESIGN_I18N.md): a language
 	// code such as `ukrainian`, or empty for English, the language the
 	// interface is written in. It is presentation only. Normalize keeps it
