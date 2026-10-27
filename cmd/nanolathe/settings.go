@@ -90,6 +90,7 @@ func (g *gameShell) applySettings(s settings.Settings) {
 	g.keyMap = keyMapFromSettings(s.KeyBindings)
 	g.builderOptions = s.BuilderOptions
 	g.fullscreen = s.Fullscreen
+	g.displayFitted = s.DisplayFitted
 	// The interface language is presentation only (language.go).
 	g.language = s.Language
 	g.applyLanguage()
@@ -222,11 +223,12 @@ func (g *gameShell) liveSettings() settings.Settings {
 	// records the skirmish rows set aside for it.
 	setup, controllers := g.persistedSkirmishSetup(), g.persistedSkirmishControllers()
 	s := settings.Settings{
-		Version:     settings.FileVersion,
-		Fullscreen:  g.fullscreen,
-		Language:    g.language,
-		Difficulty:  g.missionDifficultyValue,
-		ScrollSpeed: g.scrollSpeed,
+		Version:       settings.FileVersion,
+		Fullscreen:    g.fullscreen,
+		DisplayFitted: g.displayFitted,
+		Language:      g.language,
+		Difficulty:    g.missionDifficultyValue,
+		ScrollSpeed:   g.scrollSpeed,
 		// The whole block is rewritten from live state, so the interface
 		// word's bit 0 is what the file records [07 R-HUD-03 §7].
 		DamageBars: damageBarsSettingValue(),

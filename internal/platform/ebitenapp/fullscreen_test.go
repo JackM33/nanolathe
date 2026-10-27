@@ -63,6 +63,35 @@ func TestFullscreenShortcutConsumesEnterUntilRelease(t *testing.T) {
 	}
 }
 
+// F11 alone toggles once per press and never reaches the game; with Ctrl or
+// Shift it stays the quick-save, capture and developer key.
+func TestF11TogglesFullscreen(t *testing.T) {
+	a := app{}
+	in := input.NewState()
+	for i, state := range []struct {
+		f11    bool
+		mods   input.Modifiers
+		toggle bool
+		leaks  bool
+	}{
+		{true, input.Modifiers{}, true, false}, {true, input.Modifiers{}, false, false},
+		{true, input.Modifiers{Ctrl: true}, false, false}, {false, input.Modifiers{}, false, false},
+		{true, input.Modifiers{Ctrl: true}, false, true}, {false, input.Modifiers{}, false, false},
+		{true, input.Modifiers{Shift: true}, false, true}, {false, input.Modifiers{}, false, false},
+		{true, input.Modifiers{}, true, false},
+	} {
+		s := sampledInput{modifiers: state.mods}
+		s.keys[input.KeyF11] = state.f11
+		if got := a.consumeFullscreenShortcut(&s); got != state.toggle {
+			t.Fatalf("sample %d toggle = %v", i, got)
+		}
+		applyInput(in, s)
+		if in.Kbd.KeyHeld(input.KeyF11) != state.leaks {
+			t.Fatalf("sample %d: F11 reached the game = %v", i, in.Kbd.KeyHeld(input.KeyF11))
+		}
+	}
+}
+
 func TestFullscreenPersistsOnlyObservedChanges(t *testing.T) {
 	var changes []bool
 	a := app{options: RunOptions{FullscreenChanged: func(v bool) { changes = append(changes, v) }}}

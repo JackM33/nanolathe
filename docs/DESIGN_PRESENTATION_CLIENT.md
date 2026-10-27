@@ -364,6 +364,15 @@ opening the page cannot silently replace it. All additions share the minimum
 640×480 filter and sorting/deduplication. The list stays fixed during an options
 session to preserve slider capture; reopening Options queries the monitor again.
 
+Retail's default 800×600 is 4:3, which a widescreen monitor letterboxes. A
+desktop build whose saved battle size is still that default therefore takes
+the monitor's physical pixel size once, the first time the window can read the
+monitor, scaled down at the monitor's own aspect to at most 2560 wide, and
+enters fullscreen unless `--fullscreen` was given (user-requested 2026-10-27).
+The settings field `displayFitted` records that the fit ran, so it never
+repeats and every later choice in Options or the Nanolathe screen stands; a
+size the player had already chosen is kept. Android has its own fit ([ANDROID §2](ANDROID.md#2-start-up)); screenshots and tests never run it.
+
 The Visuals page shows the selected size's reduced aspect beside its read-out
 and the detected monitor's aspect below that. Ratios use exact integer reduction
 (with 8:5 displayed as the customary 16:10). These labels extend the authored
@@ -374,7 +383,10 @@ monitor mode. The top-level settings field `fullscreen` defaults to false
 when absent. `--fullscreen[=true|false]` overrides startup; omission restores
 the saved value. Alt+Enter toggles from any screen and is consumed before
 game input publication, including the rest of that Enter hold, so it cannot
-activate a menu default or submit chat. Observed fullscreen changes, including
+activate a menu default or submit chat. F11 with no modifier toggles the same
+way and its hold is consumed too (user-requested 2026-10-27); Ctrl+F11 stays
+the quick save, Ctrl+Shift+F11 the debug capture, and an authorized
+developer's film switch is reached with Shift+F11. Observed fullscreen changes, including
 native window controls, update only the saved fullscreen preference; they do
 not save pending options edits. While fullscreen the
 adapter continues tracking the selected window size for restoration on exit.

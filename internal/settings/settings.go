@@ -582,6 +582,12 @@ type Settings struct {
 	// Fullscreen is Nanolathe's desktop presentation preference, independent of
 	// retail display options. Absent in older settings files means windowed.
 	Fullscreen bool `json:"fullscreen"`
+	// DisplayFitted records the desktop's one-time fit of the battle size to
+	// the monitor (the version of that fit; 0 for none). Retail's default
+	// 800x600 is 4:3, which a widescreen monitor letterboxes, so a desktop
+	// whose size is still that default takes the monitor's proportions once,
+	// fullscreen (cmd/nanolathe fitDesktopDisplay, user-requested 2026-10-27).
+	DisplayFitted int `json:"displayFitted,omitempty"`
 	// Language is the interface language (internal/i18n, docs/DESIGN_I18N.md): a language
 	// code such as `ukrainian`, or empty for English, the language the
 	// interface is written in. It is presentation only. Normalize keeps it

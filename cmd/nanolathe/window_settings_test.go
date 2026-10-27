@@ -134,3 +134,40 @@ func TestHostWindowOptionsFollowTheSwappedShell(t *testing.T) {
 		t.Fatal("ShowFPS without a battle")
 	}
 }
+
+// A desktop at retail's 4:3 default takes the monitor's shape once, scaled
+// to at most desktopFitWidth wide; a chosen size is kept, and either way the
+// fit is recorded and saved so it never repeats (DESIGN_PRESENTATION_CLIENT
+// §2.1).
+func TestDesktopFitTakesTheMonitorShapeOnce(t *testing.T) {
+	t.Setenv(settings.EnvPath, filepath.Join(t.TempDir(), "settings.json"))
+	for _, c := range []struct {
+		start, monitor, want retailDisplayMode
+		changed              bool
+	}{
+		{retailDisplayMode{800, 600}, retailDisplayMode{1920, 1080}, retailDisplayMode{1920, 1080}, true},
+		{retailDisplayMode{800, 600}, retailDisplayMode{3840, 2160}, retailDisplayMode{2560, 1440}, true},
+		{retailDisplayMode{800, 600}, retailDisplayMode{3440, 1440}, retailDisplayMode{2560, 1072}, true},
+		{retailDisplayMode{800, 600}, retailDisplayMode{800, 600}, retailDisplayMode{800, 600}, false},
+		{retailDisplayMode{1024, 768}, retailDisplayMode{1920, 1080}, retailDisplayMode{1024, 768}, false},
+	} {
+		g := &gameShell{cs: &contentSet{}}
+		g.applySettings(settings.Defaults())
+		g.display.Width, g.display.Height = c.start.W, c.start.H
+		g.commitWindowSize()
+		if got := g.fitDisplayTo(c.monitor.W, c.monitor.H); got != c.changed || g.windowSize != c.want || g.display.Width != c.want.W || g.displayFitted != desktopDisplayFit {
+			t.Fatalf("%+v on %+v: %v, %+v", c.start, c.monitor, got, g.windowSize)
+		}
+		g.settingsWritable = true
+		g.saveSettings()
+		saved, err := settings.Load()
+		if err != nil {
+			t.Fatal(err)
+		}
+		again := &gameShell{cs: &contentSet{}}
+		again.applySettings(saved)
+		if again.displayFitted != desktopDisplayFit || again.display.Width != c.want.W || again.display.Height != c.want.H {
+			t.Fatalf("saved fit %+v", saved.Display)
+		}
+	}
+}

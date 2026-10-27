@@ -81,6 +81,8 @@ type app struct {
 	options                RunOptions
 	fullscreen             bool
 	fullscreenEnterHeld    bool
+	fullscreenF11Held      bool
+	fullscreenF11Seen      bool
 	fullscreenPresentation *nativeFullscreenPresentation
 	// cursorClip keeps the pointer on the presented canvas in fullscreen
 	// (presentedCursorRect); a no-op on hosts without a native clip.
@@ -1110,10 +1112,27 @@ func (a *app) desiredWindowSize() (int, int) {
 	return a.c.Size()
 }
 
-// Consume Alt+Enter before input publication so fullscreen cannot also activate
-// the selected menu button or submit battle chat. Suppress the whole Enter hold,
-// even if Alt is released first; holding the chord toggles only once.
+// Consume Alt+Enter and F11 before input publication so fullscreen cannot also
+// activate the selected menu button or submit battle chat. Suppress the whole
+// Enter hold, even if Alt is released first; holding the chord toggles only
+// once.
 func (a *app) consumeFullscreenShortcut(sample *sampledInput) bool {
+	// F11 alone toggles too, as in most PC games (user-requested
+	// 2026-10-27), and its hold is consumed like Enter's. Ctrl+F11 and
+	// Ctrl+Shift+F11 keep their quick-save and capture meanings, and the
+	// authorized developer's film switch is still Shift+F11.
+	f11 := sample.keys[input.KeyF11]
+	f11Toggle := f11 && !a.fullscreenF11Seen && !sample.modifiers.Ctrl && !sample.modifiers.Shift && !sample.modifiers.Alt
+	if f11Toggle {
+		a.fullscreenF11Held = true
+	}
+	if a.fullscreenF11Held {
+		sample.keys[input.KeyF11] = false
+	}
+	a.fullscreenF11Seen = f11
+	if !f11 {
+		a.fullscreenF11Held = false
+	}
 	enter := sample.keys[input.KeyEnter]
 	toggle := enter && sample.modifiers.Alt && !a.fullscreenEnterHeld
 	if toggle {
@@ -1132,7 +1151,7 @@ func (a *app) consumeFullscreenShortcut(sample *sampledInput) bool {
 	if !enter {
 		a.fullscreenEnterHeld = false
 	}
-	return toggle
+	return toggle || f11Toggle
 }
 
 func (a *app) observeFullscreen(fullscreen bool) {

@@ -3,8 +3,10 @@ package main
 import (
 	"fmt"
 	"os"
+	"runtime"
 	"time"
 
+	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/nanolathe-gg/nanolathe/internal/drawlist"
 	"github.com/nanolathe-gg/nanolathe/internal/platform/ebitenapp"
 	"github.com/nanolathe-gg/nanolathe/internal/settings"
@@ -90,6 +92,54 @@ func windowOptionsFor(current func() *gameShell) ebitenapp.RunOptions {
 // (DESIGN_PRESENTATION_CLIENT §2.1).
 func (g *gameShell) commitWindowSize() {
 	g.windowSize = retailDisplayMode{g.display.Width, g.display.Height}
+}
+
+// desktopDisplayFit is the version of the one-time monitor fit; a desktop
+// whose saved fit is older is fitted again, once.
+const desktopDisplayFit = 1
+
+// desktopFitWidth caps the fitted battle's width: past it the software
+// presentation costs more than the larger view gives.
+const desktopFitWidth = 2560
+
+// fitDesktopDisplay gives a desktop still at retail's 4:3 default battle size
+// its monitor's proportions once, fullscreen, the first time the window can
+// read the monitor (user-requested 2026-10-27; DESIGN_PRESENTATION_CLIENT
+// §2.1). A size the player chose is kept, and later choices in the options
+// and the Nanolathe screen stand: the fit is recorded and not repeated.
+func (g *gameShell) fitDesktopDisplay() {
+	if g == nil || !g.settingsWritable || g.displayFitted >= desktopDisplayFit || runtime.GOOS == "android" || runtime.GOOS == "js" {
+		return
+	}
+	pw, ph := ebitenapp.DesktopPixelSize()
+	if pw < settings.MinDisplaymodeWidth || ph < settings.MinDisplaymodeHeight {
+		return
+	}
+	if g.fitDisplayTo(pw, ph) && !g.opts.FullscreenSet && !g.fullscreen {
+		ebiten.SetFullscreen(true)
+	}
+	g.saveSettings()
+}
+
+// fitDisplayTo records the fit and, when the battle size is still the
+// default, takes the monitor's pixel size, scaled down at its own aspect to
+// desktopFitWidth. It reports whether the size changed.
+func (g *gameShell) fitDisplayTo(pw, ph int) bool {
+	g.displayFitted = desktopDisplayFit
+	if g.display.Width != settings.DefaultDisplaymodeWidth || g.display.Height != settings.DefaultDisplaymodeHeight {
+		return false
+	}
+	w, h := pw, ph
+	if w > desktopFitWidth {
+		w, h = desktopFitWidth, (desktopFitWidth*ph+pw/2)/pw
+	}
+	h = max(h, settings.MinDisplaymodeHeight)
+	if w == g.display.Width && h == g.display.Height {
+		return false
+	}
+	g.display.Width, g.display.Height = w, h
+	g.commitWindowSize()
+	return true
 }
 
 // A host fullscreen toggle is independent of the options transaction. Read the
