@@ -207,7 +207,7 @@ func (g *gameShell) openMapsFetch() error {
 	// chooser has its own layout. No mod configuration is applied here.
 	base := vfs.New()
 	defer base.Close()
-	if err := base.MountGameDirectories(g.cs.baseRoots); err != nil {
+	if err := base.MountGameRoots(g.cs.baseGameRoots()); err != nil {
 		return err
 	}
 	w, err := gui.LoadWithTranslation(base, modsTemplateGUI, g.cs.translations)
