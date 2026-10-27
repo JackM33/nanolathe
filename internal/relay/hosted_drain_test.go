@@ -143,7 +143,9 @@ func drainRoomTest(t *testing.T, autoStart bool) (*HostedServer, *hostedRoom, [2
 		server, client := net.Pipe()
 		clients[i] = client
 		peers[i] = newHostedPeer(server, localTestHello(uint8(i)), time.Second)
-		peers[i].version = hostedVersion
+		// Version 8: a full output queue fails the room rather than
+		// holding the seat for a resume.
+		peers[i].version = hostedChatVersion
 	}
 	t.Cleanup(func() {
 		for i, p := range peers {

@@ -14,6 +14,11 @@ type hostedOutput struct {
 	// report marks the queue position of the peer's latest progress report,
 	// whose body the writer takes when it reaches this entry.
 	report bool
+	// backlog marks the queue position of a returning seat's kept grants,
+	// from through to, which the writer streams from the room's history
+	// (§16.9).
+	backlog  bool
+	from, to uint32
 }
 
 type hostedPeer struct {
@@ -75,6 +80,24 @@ func (p *hostedPeer) enqueue(body []byte, last bool) error {
 	select {
 	case p.out <- hostedOutput{body: body, last: last}:
 		p.bytes += n
+		return nil
+	default:
+		return hostedError("peer write queue", "at most 64 queued frames")
+	}
+}
+
+// enqueueBacklog queues a returning seat's kept grants, which cost the queue
+// nothing: the writer reads them from the room's history when it gets there.
+func (p *hostedPeer) enqueueBacklog(from, to uint32) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	select {
+	case <-p.written:
+		return hostedError("peer write queue", "an open writer")
+	default:
+	}
+	select {
+	case p.out <- hostedOutput{backlog: true, from: from, to: to}:
 		return nil
 	default:
 		return hostedError("peer write queue", "at most 64 queued frames")
@@ -164,6 +187,13 @@ func (p *hostedPeer) write() {
 		case <-p.stopped:
 			return
 		case message := <-p.out:
+			if message.backlog {
+				if err := p.writeBacklog(message.from, message.to); err != nil {
+					p.room.send(hostedEvent{peer: p, err: err})
+					return
+				}
+				continue
+			}
 			body := message.body
 			if message.report {
 				p.mu.Lock()

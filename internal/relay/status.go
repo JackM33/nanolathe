@@ -21,6 +21,7 @@ const (
 	finishExpired      = "lobby expired"
 	finishStalled      = "no progress"
 	finishDisconnected = "player disconnected"
+	finishLeft         = "player left"
 	finishDiverged     = "simulations diverged"
 	finishFlooded      = "command flood"
 	finishProtocol     = "protocol error"
@@ -88,6 +89,7 @@ type seatSnapshot struct {
 	team, side     uint8
 	acked, behind  uint32
 	final, left    bool
+	away           bool // dropped, held for a resume (§16.9)
 	rtt, ackLag    time.Duration
 }
 
@@ -135,6 +137,20 @@ type serverStats struct {
 	// Chat lines the relay queued for a recipient, and lines and deliveries
 	// it dropped.
 	chatRelayed, chatDropped uint64
+	// Version-9 seats held after a lost connection, and resumes admitted.
+	drops, resumes uint64
+}
+
+func (s *HostedServer) recordDrop() {
+	s.mu.Lock()
+	s.stats.drops++
+	s.mu.Unlock()
+}
+
+func (s *HostedServer) recordResume() {
+	s.mu.Lock()
+	s.stats.resumes++
+	s.mu.Unlock()
 }
 
 // recordChat counts chat deliveries, never their text or anyone's name.
@@ -241,6 +257,7 @@ type SeatStatus struct {
 	BehindTicks uint32  `json:"behind_ticks,omitempty"`
 	Defeated    bool    `json:"defeated,omitempty"`
 	Left        bool    `json:"left,omitempty"`
+	Away        bool    `json:"away,omitempty"`
 }
 
 // FinishedRoom is one of the most recently closed rooms.
@@ -307,7 +324,7 @@ func (s *HostedServer) Status() HostedStatus {
 		for _, seat := range snap.seats {
 			rs.Seats = append(rs.Seats, SeatStatus{Seat: seat.seat, Slot: seat.slot, Ready: seat.ready, Team: int(seat.team), Side: int(seat.side),
 				RTTMillis: millis(seat.rtt), AckLagMs: millis(seat.ackLag), AckedTick: seat.acked, BehindTicks: seat.behind,
-				Defeated: seat.final, Left: seat.left})
+				Defeated: seat.final, Left: seat.left, Away: seat.away})
 			if !seat.left {
 				out.Players++
 			}
@@ -354,7 +371,7 @@ th,td{text-align:left;padding:6px 8px;border-bottom:1px solid var(--line);white-
 <tr><th colspan="8">Room {{.ID}} · {{.Phase}} · {{.Players}}/{{.Size}} players · {{if eq .Phase "playing"}}{{secs .DurationSeconds}} · tick {{.Ticks}} · {{printf "%.1f" .TicksPerSecond}} ticks/s · {{printf "%.1f" .OrdersPerSecond}} orders/s ({{.Orders}} total) · checked to tick {{.CheckedTick}}{{else}}open {{secs .AgeSeconds}}{{end}} · in {{kib .BytesIn}} / out {{kib .BytesOut}} · queued {{kib .QueuedBytes}}</th></tr>
 <tr><th>Seat</th><th>Team</th><th>Side</th><th>State</th><th>RTT</th><th>Ack lag</th><th>Acked</th><th>Behind</th></tr>
 {{range .Seats}}<tr><td>{{.Seat}}{{if ge .Slot 0}} (slot {{.Slot}}){{end}}</td><td>{{if .Team}}{{.Team}}{{else}}—{{end}}</td><td>{{.Side}}</td>
-<td>{{if .Left}}left{{else if .Defeated}}defeated{{else if .Ready}}ready{{else}}not ready{{end}}</td>
+<td>{{if .Left}}left{{else if .Away}}reconnecting{{else if .Defeated}}defeated{{else if .Ready}}ready{{else}}not ready{{end}}</td>
 <td>{{if .RTTMillis}}{{printf "%.0f" .RTTMillis}} ms{{else}}—{{end}}</td><td>{{if .AckLagMs}}{{printf "%.0f" .AckLagMs}} ms{{else}}—{{end}}</td>
 <td>{{if .AckedTick}}{{.AckedTick}}{{else}}—{{end}}</td><td>{{if .BehindTicks}}{{.BehindTicks}}{{else}}—{{end}}</td></tr>{{end}}
 </table></div>{{end}}

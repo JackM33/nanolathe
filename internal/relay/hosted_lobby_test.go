@@ -550,7 +550,8 @@ func TestHostedDefeatedSeatMayLeave(t *testing.T) {
 	if len(st.Rooms) != 1 || !st.Rooms[0].Seats[2].Left || !st.Rooms[0].Seats[2].Defeated || st.Rooms[0].Phase != "playing" {
 		t.Fatalf("status after a defeated seat left: %+v", st.Rooms)
 	}
-	// A seat still playing leaving ends the match for everyone.
+	// A seat still playing leaving on purpose ends the match for everyone;
+	// a version-9 seat says so before it closes (§16.9).
 	_ = battles[1].Close()
 	for {
 		if _, err := battles[0].ReadGrant(); err != nil {
@@ -562,7 +563,7 @@ func TestHostedDefeatedSeatMayLeave(t *testing.T) {
 	}
 	awaitHostedCapacity(t, s, 0, 0)
 	// The record names the seat whose departure ended the room.
-	if st := s.Status(); len(st.Recent) != 1 || st.Recent[0].Outcome != finishDisconnected || st.Recent[0].Players != 3 || st.Recent[0].Seat != 1 {
+	if st := s.Status(); len(st.Recent) != 1 || st.Recent[0].Outcome != finishLeft || st.Recent[0].Players != 3 || st.Recent[0].Seat != 1 {
 		t.Fatalf("recent rooms: %+v", st.Recent)
 	}
 }

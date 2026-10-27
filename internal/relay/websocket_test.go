@@ -26,11 +26,12 @@ func listenWebSocketTest(t *testing.T, config HostedConfig, proxy bool, timeouts
 	return s
 }
 
+// dialWebSocketTest connects a version-8 seat, as dialHostedTest does.
 func dialWebSocketTest(t *testing.T, address, room string, seat uint8, options HostedDialOptions) (*LocalClient, string) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
-	c, code, err := DialHostedWebSocket(ctx, address, room, localTestHello(seat), options)
+	c, code, err := dialHostedStreamVersions(ctx, []uint16{hostedChatVersion}, address, room, localTestHello(seat), options)
 	if err != nil {
 		t.Fatal(err)
 	}

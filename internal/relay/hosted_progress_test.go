@@ -191,28 +191,43 @@ func TestHostedClientRefusesAnotherWelcomeVersion(t *testing.T) {
 		t.Fatal(err)
 	}
 	var traffic trafficCounter
-	if _, _, err := exchangeHostedHello(client, &traffic, hostedVersion, hello, "", 0); err == nil || !strings.Contains(err.Error(), "version 8; this relay answered version 7") {
+	if _, _, err := exchangeHostedHello(client, &traffic, hostedVersion, hello, "", 0); err == nil || !strings.Contains(err.Error(), "version 9; this relay answered version 7") {
 		t.Fatalf("welcome in another version: %v", err)
 	}
 }
 
-// Reports round-trip, and a malformed one is refused.
+// Reports round-trip, and a malformed one is refused. Before version 9 a
+// playing seat reads as connected; version 9 carries the bit, clear while the
+// relay holds the match for the seat to resume (§16.9).
 func TestHostedProgressReportEncoding(t *testing.T) {
 	p := hostedProgress{n: 2, compared: 41}
 	p.active[0], p.final[1], p.acked[0], p.acked[1] = true, true, 44, 41
-	body := encodeHostedProgress(&p, 50, func(slot int) time.Duration { return time.Duration(slot+1) * 1500 * time.Microsecond })
-	got, err := decodeHostedProgress(body)
+	body := encodeHostedProgress(&p, 50, func(slot int) time.Duration { return time.Duration(slot+1) * 1500 * time.Microsecond }, false)
+	got, err := decodeHostedProgress(body, hostedChatVersion)
 	if err != nil || got.Agreed != 41 || got.Sealed != 50 || len(got.Seats) != 2 ||
-		got.Seats[0] != (HostedSeatProgress{Playing: true, Acked: 44, RTT: 1500 * time.Microsecond}) ||
+		got.Seats[0] != (HostedSeatProgress{Playing: true, Connected: true, Acked: 44, RTT: 1500 * time.Microsecond}) ||
 		got.Seats[1] != (HostedSeatProgress{Final: true, Acked: 41, RTT: 3 * time.Millisecond}) {
 		t.Fatalf("round trip: %+v %v", got, err)
 	}
-	early := encodeHostedProgress(&p, 43, func(int) time.Duration { return 0 })
-	late := encodeHostedProgress(&p, 40, func(int) time.Duration { return 0 })
+	early := encodeHostedProgress(&p, 43, func(int) time.Duration { return 0 }, false)
+	late := encodeHostedProgress(&p, 40, func(int) time.Duration { return 0 }, false)
 	for _, bad := range [][]byte{append(body, 0), body[:len(body)-1], {hostedProgressMessage, 0, 0}, {hostedProgressMessage, 0, 1, 4, 0, 0}, early, late} {
-		if _, err := decodeHostedProgress(bad); err == nil {
+		if _, err := decodeHostedProgress(bad, hostedChatVersion); err == nil {
 			t.Fatalf("accepted malformed report %v", bad)
 		}
+	}
+	p.away[0] = true
+	v9 := encodeHostedProgress(&p, 50, func(int) time.Duration { return 0 }, true)
+	if got, err := decodeHostedProgress(v9, hostedResumeVersion); err != nil || !got.Seats[0].Playing || got.Seats[0].Connected {
+		t.Fatalf("an away seat: %+v %v", got, err)
+	}
+	p.away[0] = false
+	v9 = encodeHostedProgress(&p, 50, func(int) time.Duration { return 0 }, true)
+	if got, err := decodeHostedProgress(v9, hostedResumeVersion); err != nil || !got.Seats[0].Connected {
+		t.Fatalf("a connected seat: %+v %v", got, err)
+	}
+	if _, err := decodeHostedProgress(v9, hostedChatVersion); err == nil {
+		t.Fatal("a version-8 client accepted the connected bit")
 	}
 }
 

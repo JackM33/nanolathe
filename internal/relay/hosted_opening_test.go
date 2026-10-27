@@ -315,7 +315,9 @@ func TestHostedOpeningClientIdleBound(t *testing.T) {
 	c := newHostedClient(conn)
 	c.version, c.idle = hostedVersion, 40*time.Millisecond
 	written := make(chan error, 1)
-	go func() { written <- writeLocalFrame(server, []byte{hostedStartedMessage, 0}) }()
+	go func() {
+		written <- writeLocalFrame(server, encodeHostedStarted(0, hostedVersion, [hostedCredentialSize]byte{}))
+	}()
 	if g, err := c.ReadGrant(); err == nil || !strings.Contains(err.Error(), "relay traffic within 40ms") {
 		t.Fatalf("silent opening: %+v %v", g, err)
 	}

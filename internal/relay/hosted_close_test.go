@@ -92,7 +92,7 @@ func TestHostedLastFrameSurvivesLateClientWrites(t *testing.T) {
 				}
 			}()
 			defer func() { close(stop); <-sent }()
-			if _, err := c.ReadGrant(); err == nil || !strings.Contains(err.Error(), "submit or acknowledgment after hello") {
+			if _, err := c.ReadGrant(); err == nil || !strings.Contains(err.Error(), "acknowledgment or leave after hello") {
 				t.Fatalf("late writes lost the relay's reason: %v", err)
 			}
 			awaitHostedCapacity(t, s, 0, 0)

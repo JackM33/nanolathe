@@ -188,6 +188,9 @@ func (c *LocalClient) SendChat(recipients uint16, text string) error {
 	}
 	c.writeMu.Lock()
 	defer c.writeMu.Unlock()
+	if r := c.resume; r != nil && !r.connected {
+		return hostedError("chat", "the relay connection back")
+	}
 	c.chatRate.every = hostedClientChatInterval
 	if !c.chatRate.allow(time.Now()) {
 		return ErrHostedChatRate

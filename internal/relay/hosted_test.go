@@ -32,11 +32,14 @@ func listenHostedTest(t *testing.T, config HostedConfig, deadlines hostedTimeout
 	return s
 }
 
+// dialHostedTest connects a version-8 seat, whose lost connection ends its
+// match: the contracts these tests lock predate reconnection, which
+// hosted_resume_test.go covers.
 func dialHostedTest(t *testing.T, s *HostedServer, room string, seat uint8) (*LocalClient, string) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
-	c, code, err := DialHosted(ctx, s.Addr(), room, localTestHello(seat), HostedDialOptions{InsecureLoopback: true})
+	c, code, err := dialHostedStreamVersions(ctx, []uint16{hostedChatVersion}, s.Addr(), room, localTestHello(seat), HostedDialOptions{InsecureLoopback: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -658,10 +661,10 @@ func TestHostedVersionAndHelloFraming(t *testing.T) {
 		}
 	}
 	// Another version is told the served versions and its own (§12.2).
-	for _, version := range []byte{1, 5, 6, 9} {
+	for _, version := range []byte{1, 5, 6, 10} {
 		other := bytes.Clone(body)
 		other[1] = version
-		if _, err := decodeHostedHello(other); err == nil || !strings.Contains(err.Error(), fmt.Sprintf("version 7 or 8; this client sent version %d", version)) {
+		if _, err := decodeHostedHello(other); err == nil || !strings.Contains(err.Error(), fmt.Sprintf("version 7 to 9; this client sent version %d", version)) {
 			t.Fatalf("version %d: %v", version, err)
 		}
 	}

@@ -10,13 +10,15 @@ import (
 
 // unknownMessage is the room's refusal of a client message kind it does not
 // serve.
-var unknownMessage = hostedError("client message", "ready, team, side, colour, configuration, start, opening-ready, chat, submit or acknowledgment after hello")
+var unknownMessage = hostedError("client message", "ready, team, side, colour, configuration, start, opening-ready, chat, submit, acknowledgment or leave after hello")
 
 type hostedEvent struct {
 	peer *hostedPeer
 	body []byte
 	err  error
 	join bool
+	// resume is a version-9 seat's returning connection (hosted_resume.go).
+	resume *hostedResumeRequest
 }
 
 // hostedRoom is one room: a lobby of up to HostedMaxSeats seats, then a
@@ -34,6 +36,15 @@ type hostedRoom struct {
 	config  []byte
 	taken   [HostedMaxSeats]bool
 	started bool
+	// Also under server.mu once started: each version-9 seat's credential,
+	// every seat's slot and the lobby as it stood at Start, for a rejoin
+	// (hosted_resume.go).
+	issued      [HostedMaxSeats]bool
+	credentials [HostedMaxSeats][hostedCredentialSize]byte
+	slots       [HostedMaxSeats]uint8
+	startState  HostedLobbyState
+	// history keeps every sealed grant for a returning seat.
+	history grantHistory
 	events  chan hostedEvent
 	done    chan struct{}
 	status  roomStatusBox
@@ -61,8 +72,11 @@ type hostedAck struct {
 // bounds the spread to 30 ticks (§16.5.2). A slot that leaves after its
 // result became final is no longer waited for or compared.
 type hostedProgress struct {
-	n        int
-	active   [HostedMaxSeats]bool
+	n      int
+	active [HostedMaxSeats]bool
+	// away marks an active version-9 slot whose connection dropped: still
+	// waited for and compared, but sent nothing until it resumes (§16.9).
+	away     [HostedMaxSeats]bool
 	final    [HostedMaxSeats]bool
 	acked    [HostedMaxSeats]uint32
 	last     [HostedMaxSeats]time.Time
@@ -217,7 +231,7 @@ func (r *hostedRoom) run() {
 	every := func(fn func(*hostedPeer)) {
 		if started {
 			for slot := range progress.n {
-				if progress.active[slot] {
+				if progress.active[slot] && !progress.away[slot] {
 					fn(players[slot])
 				}
 			}
@@ -240,7 +254,7 @@ func (r *hostedRoom) run() {
 			for slot := range progress.n {
 				p := players[slot]
 				seat := seatSnapshot{seat: int(p.seat), slot: slot, present: true, ready: true, team: seats[p.seat].team, side: seats[p.seat].side,
-					acked: progress.acked[slot], final: progress.final[slot], left: !progress.active[slot], rtt: p.rtt(), ackLag: stats.ackLag[slot]}
+					acked: progress.acked[slot], final: progress.final[slot], left: !progress.active[slot], away: progress.away[slot], rtt: p.rtt(), ackLag: stats.ackLag[slot]}
 				if tick > progress.acked[slot] {
 					seat.behind = tick - progress.acked[slot]
 				}
@@ -351,7 +365,7 @@ func (r *hostedRoom) run() {
 	// lobby sends every seat the lobby state in its own version: a version-7
 	// seat's bytes are unchanged, and only version 8 carries names and the
 	// chat bit (§12.2, §16.6.1).
-	lobby := func() error {
+	lobbyState := func() HostedLobbyState {
 		st := HostedLobbyState{Size: r.size, Mismatch: mismatch(), ConfigVersion: configVersion}
 		for i := range r.size {
 			s := seats[i]
@@ -360,6 +374,10 @@ func (r *hostedRoom) run() {
 				st.Seats[i].Name, st.Seats[i].Chat = s.peer.name, s.peer.version >= hostedChatVersion
 			}
 		}
+		return st
+	}
+	lobby := func() error {
+		st := lobbyState()
 		var bodies [hostedVersion - hostedMinVersion + 1][]byte
 		var err error
 		every(func(p *hostedPeer) {
@@ -388,7 +406,7 @@ func (r *hostedRoom) run() {
 		var delivered, dropped uint64
 		for i := range r.size {
 			q := seats[i].peer
-			if recipients&(1<<i) == 0 || q == nil || q == from || q.version < hostedChatVersion || (started && !progress.active[q.slot]) {
+			if recipients&(1<<i) == 0 || q == nil || q == from || q.version < hostedChatVersion || (started && (!progress.active[q.slot] || progress.away[q.slot])) {
 				continue
 			}
 			if q.offer(body) {
@@ -414,10 +432,29 @@ func (r *hostedRoom) run() {
 	// report sends every playing seat the match's progress and restarts the
 	// interval (§16.5.2).
 	report := func() {
-		body := encodeHostedProgress(&progress, tick, func(slot int) time.Duration { return players[slot].rtt() })
+		// Version 9 adds each slot's connected bit; older seats read the
+		// bytes they always have.
+		var bodies [2][]byte
+		rtt := func(slot int) time.Duration {
+			if progress.away[slot] {
+				return 0
+			}
+			return players[slot].rtt()
+		}
 		for slot := range progress.n {
-			if p := players[slot]; progress.active[slot] && p.report(body) {
-				stats.bytesOut += uint64(len(body))
+			p := players[slot]
+			if !progress.active[slot] || progress.away[slot] {
+				continue
+			}
+			v := 0
+			if p.version >= hostedResumeVersion {
+				v = 1
+			}
+			if bodies[v] == nil {
+				bodies[v] = encodeHostedProgress(&progress, tick, rtt, v == 1)
+			}
+			if p.report(bodies[v]) {
+				stats.bytesOut += uint64(len(bodies[v]))
 			}
 		}
 		reports.Reset(r.server.timeouts.report)
@@ -429,6 +466,70 @@ func (r *hostedRoom) run() {
 			seal.Reset(max(0, time.Until(lastSeal.Add(localTickInterval))))
 			ready = seal.C
 		}
+	}
+	// owing is the connected slot that owes the oldest acknowledgement: the
+	// one the execution-progress bound waits for, or -1 when every connected
+	// slot has run every sealed tick. A room held for an away slot therefore
+	// waits without a progress bound for the others (§16.9).
+	owing := func() int {
+		slot := -1
+		for s := range progress.n {
+			if progress.active[s] && !progress.away[s] && progress.acked[s] < tick && (slot < 0 || progress.last[s].Before(progress.last[slot])) {
+				slot = s
+			}
+		}
+		return slot
+	}
+	rearmProgress := func() {
+		if !started || opening {
+			return
+		}
+		if slot := owing(); slot >= 0 {
+			deadline.Reset(max(0, time.Until(progress.last[slot].Add(r.server.timeouts.progress))))
+		} else {
+			deadline.Stop()
+		}
+	}
+	// The rejoin grace runs from each away slot's drop (§16.9).
+	var droppedAt [HostedMaxSeats]time.Time // by slot
+	var rejoining [HostedMaxSeats]bool      // by slot, until its first new acknowledgement
+	rejoin := time.NewTimer(time.Hour)
+	rejoin.Stop()
+	defer rejoin.Stop()
+	var rejoinDue <-chan time.Time
+	armRejoin := func() {
+		earliest := -1
+		for s := range progress.n {
+			if progress.active[s] && progress.away[s] && (earliest < 0 || droppedAt[s].Before(droppedAt[earliest])) {
+				earliest = s
+			}
+		}
+		if earliest < 0 {
+			rejoin.Stop()
+			rejoinDue = nil
+			return
+		}
+		rejoin.Reset(max(0, time.Until(droppedAt[earliest].Add(r.server.timeouts.rejoin))))
+		rejoinDue = rejoin.C
+	}
+	// drop holds a version-9 slot out of play when its connection ends: the
+	// room seals no further than 30 ticks past its last acknowledgement, so
+	// the others wait, until it resumes or its grace passes.
+	drop := func(slot int) {
+		p := players[slot]
+		_ = p.conn.Close()
+		p.stop()
+		progress.away[slot], rejoining[slot] = true, false
+		droppedAt[slot] = time.Now()
+		r.server.recordDrop()
+		armRejoin()
+		rearmProgress()
+		report()
+		publish()
+	}
+	// resumable reports a slot whose loss is held for a resume.
+	resumable := func(slot int) bool {
+		return players[slot].version >= hostedResumeVersion && !progress.final[slot]
 	}
 	// Finish the presentation barrier with a fresh execution-progress budget.
 	// No grant timer has run, so opening time creates no catch-up debt
@@ -447,7 +548,7 @@ func (r *hostedRoom) run() {
 		for slot := range progress.n {
 			progress.last[slot] = now
 		}
-		deadline.Reset(r.server.timeouts.progress)
+		rearmProgress()
 		arm()
 	}
 	// begin starts the match: present seats become slots in ascending seat
@@ -461,6 +562,25 @@ func (r *hostedRoom) run() {
 			return hostedDrainingError
 		}
 		r.started = true
+		// A version-9 seat may rejoin with its credential; the room keeps
+		// the lobby as it stood, which a restarted seat composes from.
+		r.startState = lobbyState()
+		n := 0
+		var credentials [HostedMaxSeats][hostedCredentialSize]byte
+		for i := range r.size {
+			if p := seats[i].peer; p != nil {
+				r.slots[i] = uint8(n)
+				n++
+				if p.version >= hostedResumeVersion {
+					c, err := newHostedCredential()
+					if err != nil {
+						r.server.mu.Unlock()
+						return err
+					}
+					credentials[i], r.credentials[i], r.issued[i] = c, c, true
+				}
+			}
+		}
 		r.server.mu.Unlock()
 		started, opening = true, true
 		stats.startedAt = time.Now()
@@ -475,7 +595,8 @@ func (r *hostedRoom) run() {
 			}
 		}
 		for slot := range progress.n {
-			if err := enqueue(players[slot], []byte{hostedStartedMessage, uint8(slot)}, false); err != nil {
+			p := players[slot]
+			if err := enqueue(p, encodeHostedStarted(uint8(slot), p.version, credentials[p.seat]), false); err != nil {
 				return err
 			}
 		}
@@ -485,6 +606,84 @@ func (r *hostedRoom) run() {
 		releaseOpening()
 		publish()
 		return nil
+	}
+	// leaveFinal lets a seat whose result is final leave while the others
+	// play on, and reports false once the room has finished.
+	leaveFinal := func(p *hostedPeer) bool {
+		_ = p.conn.Close()
+		p.stop()
+		progress.active[p.slot] = false
+		if progress.playing() == 0 {
+			finish(nil, finishCompleted)
+			return false
+		}
+		complete, err := progress.compare()
+		if err != nil {
+			finish(err, finishDiverged)
+			return false
+		}
+		if complete {
+			finish(nil, finishCompleted)
+			return false
+		}
+		armRejoin()
+		rearmProgress()
+		report()
+		arm()
+		publish()
+		return true
+	}
+	// resume adopts a returning version-9 seat's connection, which the
+	// server admitted with its credential, or refuses it (§16.9). A resume
+	// of a connected seat replaces that connection.
+	resume := func(q *hostedPeer, request hostedResumeRequest) {
+		refuse := func(err error) {
+			if q.enqueue(localFailureBody(localRefusedMessage, err), true) != nil {
+				_ = q.conn.Close()
+				q.stop()
+			}
+		}
+		slot := int(r.slots[q.seat])
+		switch {
+		case !started || slot >= progress.n || !progress.active[slot]:
+			refuse(hostedError("seat", "a player still in the game"))
+			return
+		case request.from > tick:
+			refuse(hostedError("resume tick", "a tick the relay has sealed"))
+			return
+		case !r.history.keeps(request.from, tick):
+			refuse(hostedError("rejoin history", "a game short enough to replay from the resumed tick"))
+			return
+		}
+		if old := players[slot]; !progress.away[slot] {
+			_ = old.conn.Close()
+			old.stop()
+		}
+		q.slot = uint8(slot)
+		q.name = players[slot].name
+		players[slot] = q
+		seats[q.seat].peer = q
+		progress.away[slot], rejoining[slot] = false, true
+		droppedAt[slot] = time.Time{}
+		progress.last[slot] = time.Now()
+		r.server.recordResume()
+		resumed := hostedResumed{slot: uint8(slot), acked: progress.acked[slot], accepted: sequences[slot], sealed: tick}
+		if err := q.enqueue(encodeHostedResumed(resumed), false); err != nil {
+			drop(slot)
+			return
+		}
+		if request.from < tick {
+			// The kept grants go first, then the live ones queued behind.
+			if err := q.enqueueBacklog(request.from+1, tick); err != nil {
+				drop(slot)
+				return
+			}
+		}
+		armRejoin()
+		rearmProgress()
+		report()
+		arm()
+		publish()
 	}
 	if err := enqueue(r.creator, configuration(), false); err != nil {
 		finish(err, finishProtocol)
@@ -521,7 +720,18 @@ func (r *hostedRoom) run() {
 				}
 				finish(hostedError("opening readiness", "every seat to finish its opening within 30 minutes"), finishExpired)
 			} else if started {
-				culprit = progress.stalled(players)
+				slot := owing()
+				if slot < 0 || time.Since(progress.last[slot]) < r.server.timeouts.progress {
+					rearmProgress()
+					continue
+				}
+				culprit = int(players[slot].seat)
+				if resumable(slot) {
+					// A seat that stopped running, such as an app the
+					// phone suspended, may resume like a lost one.
+					drop(slot)
+					continue
+				}
 				finish(hostedError("execution progress", "execution progress from every seat within ten seconds"), finishStalled)
 			} else {
 				finish(hostedError("room wait", "a started match within 30 minutes"), finishExpired)
@@ -548,22 +758,59 @@ func (r *hostedRoom) run() {
 			stats.tickAt(now)
 			commands := pending.release(now)
 			body := encodeLocalGrant(LocalGrant{Tick: tick, Position: pending.sealed, Commands: commands})
+			r.history.append(tick, body)
 			var err error
-			every(func(p *hostedPeer) {
-				if err == nil {
-					err = enqueue(p, body, false)
+			var full []int
+			for slot := range progress.n {
+				if !progress.active[slot] || progress.away[slot] {
+					continue
 				}
-			})
+				// A seat that had run every earlier tick owes this one from
+				// now: the progress bound counts from here, not from its last
+				// acknowledgement before a hold.
+				if progress.acked[slot] == tick-1 {
+					progress.last[slot] = now
+				}
+				if e := enqueue(players[slot], body, false); e != nil {
+					if resumable(slot) {
+						// A version-9 reader too slow for its queue resumes
+						// from the kept grants instead (§16.9).
+						full = append(full, slot)
+					} else if err == nil {
+						err = e
+					}
+				}
+			}
 			if err != nil {
 				finish(err, finishDisconnected)
 				return
 			}
+			for _, slot := range full {
+				drop(slot)
+			}
+			rearmProgress()
 			arm()
 			if tick%30 == 0 {
 				publish()
 			}
 		case <-reporting:
 			report()
+		case <-rejoinDue:
+			rejoinDue = nil
+			late := -1
+			for slot := range progress.n {
+				if progress.active[slot] && progress.away[slot] && time.Since(droppedAt[slot]) >= r.server.timeouts.rejoin {
+					late = slot
+					break
+				}
+			}
+			if late < 0 {
+				armRejoin()
+				continue
+			}
+			culprit = int(players[late].seat)
+			finish(hostedError("reconnection", "every dropped player back within three minutes"), finishDisconnected)
+			return
 		case e := <-r.events:
 			culprit = int(e.peer.seat)
 			stats.bytesIn += uint64(len(e.body))
@@ -598,9 +845,13 @@ func (r *hostedRoom) run() {
 				}
 				continue
 			}
+			if e.resume != nil {
+				resume(e.peer, *e.resume)
+				continue
+			}
 			p := e.peer
-			if (started && (players[p.slot] != p || !progress.active[p.slot])) || (!started && seats[p.seat].peer != p) {
-				continue // a released or departed seat's late event
+			if (started && (players[p.slot] != p || !progress.active[p.slot] || progress.away[p.slot])) || (!started && seats[p.seat].peer != p) {
+				continue // a released, departed or replaced connection's late event
 			}
 			if e.err != nil {
 				switch {
@@ -622,25 +873,11 @@ func (r *hostedRoom) run() {
 					return
 				case progress.final[p.slot]:
 					// A defeated seat may leave; the match goes on without it.
-					_ = p.conn.Close()
-					p.stop()
-					progress.active[p.slot] = false
-					if progress.playing() == 0 {
-						finish(nil, finishCompleted)
+					if !leaveFinal(p) {
 						return
 					}
-					complete, err := progress.compare()
-					if err != nil {
-						finish(err, finishDiverged)
-						return
-					}
-					if complete {
-						finish(nil, finishCompleted)
-						return
-					}
-					report()
-					arm()
-					publish()
+				case resumable(int(p.slot)):
+					drop(int(p.slot))
 				default:
 					finish(e.err, finishDisconnected)
 					return
@@ -848,6 +1085,14 @@ func (r *hostedRoom) run() {
 				}
 				now := time.Now()
 				slot := int(p.slot)
+				if rejoining[slot] && ack.tick <= progress.acked[slot] && ack.tick > 0 {
+					// A restarted seat replaying ticks the relay already
+					// holds: progress, but nothing to compare (§16.9).
+					progress.last[slot] = now
+					rearmProgress()
+					continue
+				}
+				rejoining[slot] = false
 				wasFinal := progress.final[slot]
 				complete, err := progress.acknowledge(slot, tick, ack, flags&ackSeatFinal != 0, now)
 				if err != nil {
@@ -868,13 +1113,36 @@ func (r *hostedRoom) run() {
 				if !wasFinal && progress.final[slot] {
 					report()
 				}
-				_, oldest := progress.slowest()
-				deadline.Reset(max(0, time.Until(oldest.Add(r.server.timeouts.progress))))
+				rearmProgress()
 				if progress.terminal != 0 {
 					seal.Stop()
 					ready = nil
 				}
 				arm()
+			case hostedLeaveMessage:
+				if err := d.End(); err != nil {
+					finish(err, finishProtocol)
+					return
+				}
+				if p.version < hostedResumeVersion {
+					finish(unknownMessage, finishProtocol)
+					return
+				}
+				// A player leaving on purpose is not held for a resume: a
+				// defeated one leaves as before, anyone else ends the match
+				// as a lost connection used to (§16.9). In the lobby the
+				// closing connection says it.
+				if !started {
+					continue
+				}
+				if progress.final[p.slot] {
+					if !leaveFinal(p) {
+						return
+					}
+					continue
+				}
+				finish(hostedError("player", "every player to stay until the game ends; a player left"), finishLeft)
+				return
 			case hostedChatMessage:
 				// Version 7 has no chat message: from such a seat it is as
 				// unknown as any other kind.

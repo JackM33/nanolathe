@@ -66,13 +66,22 @@ const (
 	// recipient seats and text, from the relay its sender's seat and text
 	// (hosted_chat.go).
 	hostedChatMessage = hostedOpeningReadyMessage + 1
+	// Version 9 reconnection (hosted_resume.go): a seat's first frame may
+	// resume its started match or describe it for a rejoin, the relay
+	// answers a resume, and a seat may leave on purpose.
+	hostedResumeMessage            = hostedChatMessage + 1
+	hostedResumedMessage           = hostedResumeMessage + 1
+	hostedRejoinDescribeMessage    = hostedResumedMessage + 1
+	hostedRejoinDescriptionMessage = hostedRejoinDescribeMessage + 1
+	hostedLeaveMessage             = hostedRejoinDescriptionMessage + 1
 	// hostedVersion is the protocol this build's clients speak; the relay
 	// also serves seats that speak hostedMinVersion, each in its own
 	// version, in the same rooms (§12.2). Version 8 adds display names and
-	// chat.
-	hostedVersion     = 8
-	hostedMinVersion  = 7
-	hostedChatVersion = 8
+	// chat; version 9 adds reconnection.
+	hostedVersion       = 9
+	hostedMinVersion    = 7
+	hostedChatVersion   = 8
+	hostedResumeVersion = 9
 	// hostedV7CommandSchema is the historical version-7 hello's schema.
 	// Version 8 carries any nonzero schema; the room requires exact equality.
 	hostedV7CommandSchema = uint16(1)
@@ -109,6 +118,8 @@ const (
 // also lets socket tests exercise expiry without waiting minutes (§16.5.1–2).
 type hostedTimeouts struct {
 	handshake, waiting, opening, write, progress time.Duration
+	// rejoin is how long a dropped version-9 seat is held (§16.9).
+	rejoin time.Duration
 	// ping is the WebSocket keepalive interval; report the interval between
 	// a running match's progress reports.
 	ping, report time.Duration
@@ -121,7 +132,7 @@ type hostedTimeouts struct {
 // bound (DESIGN_MULTIPLAYER §16.5.1–2, §16.6.1).
 var hostedDefaultTimeouts = hostedTimeouts{
 	handshake: 10 * time.Second, waiting: 30 * time.Minute, opening: 30 * time.Minute,
-	write: 5 * time.Second, progress: 10 * time.Second,
+	write: 5 * time.Second, progress: 10 * time.Second, rejoin: hostedRejoinGrace,
 	ping: websocketPingInterval, report: time.Second, linger: time.Second,
 }
 
@@ -325,10 +336,19 @@ func (s *HostedServer) serve(raw net.Conn) {
 		return
 	}
 	_ = conn.SetWriteDeadline(minDeadline(handshakeDeadline, time.Now().Add(s.timeouts.write)))
-	if body[0] == hostedDescribeMessage {
+	switch body[0] {
+	case hostedDescribeMessage:
 		if writeLocalFrame(conn, s.describe(body)) == nil {
 			s.finish(conn)
 		}
+		return
+	case hostedRejoinDescribeMessage:
+		if writeLocalFrame(conn, s.describeRejoin(body)) == nil {
+			s.finish(conn)
+		}
+		return
+	case hostedResumeMessage:
+		s.serveResume(conn, body, handshakeDeadline)
 		return
 	}
 	hello, err := decodeHostedHello(body)
@@ -358,6 +378,12 @@ func (s *HostedServer) serve(raw net.Conn) {
 		<-peer.written
 		return
 	}
+	s.readPeer(conn, room, peer)
+}
+
+// readPeer hands the peer's frames to its room until either ends, then
+// drains the connection as its last frame requires.
+func (s *HostedServer) readPeer(conn net.Conn, room *hostedRoom, peer *hostedPeer) {
 	for {
 		body, err := readLocalFrame(conn, hostedMaxClientFrame)
 		if !room.send(hostedEvent{peer: peer, body: body, err: err}) || err != nil {
@@ -457,8 +483,11 @@ func (r *hostedRoom) free() int {
 var hostedDrainingError = hostedError("relay", "a relay that is not restarting; try again in a minute")
 
 // hostedVersionError is the relay's refusal of a version it does not serve.
+// A newer client recognizes the "this client sent version" tail from relays of
+// every served version and speaks an older version instead
+// (hostedOlderRelay).
 func hostedVersionError(sent uint16) error {
-	return hostedError("handshake", fmt.Sprintf("hosted protocol version %d or %d; this client sent version %d", hostedMinVersion, hostedVersion, sent))
+	return hostedError("handshake", fmt.Sprintf("hosted protocol version %d to %d; this client sent version %d", hostedMinVersion, hostedVersion, sent))
 }
 
 // hostedCommandSchema is the required schema, or zero for any nonzero
@@ -702,17 +731,34 @@ func DialHosted(ctx context.Context, address, room string, hello LocalHello, opt
 	return dialHostedStream(ctx, address, room, hello, options)
 }
 
+// hostedDialVersions are the versions a client offers, newest first: a relay
+// that predates version 9 refuses it by name, and the client then speaks
+// version 8, without reconnection, to it.
+var hostedDialVersions = []uint16{hostedVersion, hostedChatVersion}
+
 func dialHostedStream(ctx context.Context, address, room string, hello LocalHello, options HostedDialOptions) (*LocalClient, string, error) {
+	return dialHostedStreamVersions(ctx, hostedDialVersions, address, room, hello, options)
+}
+
+// dialHostedStreamVersions offers versions in turn; tests pin one.
+func dialHostedStreamVersions(ctx context.Context, versions []uint16, address, room string, hello LocalHello, options HostedDialOptions) (*LocalClient, string, error) {
 	var flags uint8
 	size := 0
 	if room == "" {
 		flags, size = hostedAutoStart, 2
 	}
-	body, err := encodeHostedHello(room, flags, size, hello, nil, options.Name)
-	if err != nil {
-		return nil, "", err
+	var c *LocalClient
+	var code string
+	var err error
+	for _, version := range versions {
+		var body []byte
+		if body, err = encodeHostedHelloVersion(version, room, flags, size, hello, nil, options.Name); err != nil {
+			return nil, "", err
+		}
+		if c, code, _, err = hostedHandshake(ctx, version, address, options, body, room, hello.Seat); !hostedOlderRelay(err) {
+			break
+		}
 	}
-	c, code, _, err := hostedHandshake(ctx, hostedVersion, address, options, body, room, hello.Seat)
 	if err != nil {
 		return nil, "", err
 	}
@@ -742,6 +788,7 @@ func hostedHandshake(ctx context.Context, version uint16, address string, option
 	c.version = version
 	stop := context.AfterFunc(ctx, func() { _ = conn.Close() })
 	code, assigned, err := exchangeHostedHello(conn, &c.traffic, version, body, room, seat)
+	c.dial = &hostedDial{address: address, options: options, code: code, seat: assigned}
 	stopped := stop()
 	if expired := handshakeExpired(ctx); err != nil || !stopped || expired != nil {
 		_ = conn.Close()
@@ -810,7 +857,7 @@ func exchangeHostedHello(conn net.Conn, traffic *trafficCounter, version uint16,
 }
 
 func newHostedClient(conn net.Conn) *LocalClient {
-	return &LocalClient{conn: hostedClientConn{Conn: conn}, idle: hostedClientIdle, maxCommand: hostedMaxCommandBytes}
+	return &LocalClient{conn: hostedClientConn{Conn: conn}, idle: hostedClientIdle, maxCommand: hostedMaxCommandBytes, closing: make(chan struct{})}
 }
 
 // LocalClient serializes all writes. Apply the hosted write bound without

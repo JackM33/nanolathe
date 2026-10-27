@@ -344,7 +344,8 @@ func (r *LocalRelay) run() {
 // Acknowledge, OpeningReady and SendChat writers, and Close and DrainChat
 // from any goroutine (DESIGN_MULTIPLAYER §16.4.2, §16.5.2, §12.2).
 type LocalClient struct {
-	conn          net.Conn
+	conn          net.Conn      // connMu guards replacement by a resume
+	connMu        sync.Mutex    // hosted_resume.go
 	idle          time.Duration // zero for the loopback prototype
 	maxCommand    int           // the hosted relay's smaller per-command bound, or zero
 	writeMu       sync.Mutex
@@ -362,6 +363,14 @@ type LocalClient struct {
 	progress      *HostedMatchProgress // the latest report; never modified
 	chatMu        sync.Mutex
 	chat          []HostedChatLine // chatMu: unread lines, oldest first
+	// Version 9 reconnection (hosted_resume.go): where a hosted client
+	// connected, and once Started carried a credential, what a resume needs.
+	dial      *hostedDial
+	resume    *hostedResume // writeMu
+	closed    atomic.Bool
+	finished  atomic.Bool   // the relay's last frame was read
+	closing   chan struct{} // closed by Close; nil for a literal client
+	closeOnce sync.Once
 }
 
 func DialLocal(ctx context.Context, address string, hello LocalHello) (*LocalClient, error) {
@@ -376,7 +385,7 @@ func DialLocal(ctx context.Context, address string, hello LocalHello) (*LocalCli
 	if err != nil {
 		return nil, localIOError("dial", err)
 	}
-	c := &LocalClient{conn: conn}
+	c := &LocalClient{conn: conn, closing: make(chan struct{})}
 	stop := context.AfterFunc(ctx, func() { _ = conn.Close() })
 	err = c.writeFrame(body)
 	stopped := stop()
@@ -390,11 +399,29 @@ func DialLocal(ctx context.Context, address string, hello LocalHello) (*LocalCli
 	return c, nil
 }
 
+// Close ends the client. A version-9 seat still in its match first tells
+// the relay it is leaving on purpose, which ends the match for every seat as
+// a lost connection used to; without that word the relay holds the seat for
+// a resume (DESIGN_MULTIPLAYER §16.9).
 func (c *LocalClient) Close() error {
 	if c == nil {
 		return nil
 	}
-	return c.conn.Close()
+	c.closed.Store(true)
+	c.closeOnce.Do(func() {
+		if c.closing != nil {
+			close(c.closing)
+		}
+	})
+	if !c.finished.Load() && c.writeMu.TryLock() {
+		if r := c.resume; r != nil && r.connected {
+			conn := c.currentConn()
+			_ = conn.SetWriteDeadline(time.Now().Add(time.Second))
+			_ = c.writeFrame([]byte{hostedLeaveMessage})
+		}
+		c.writeMu.Unlock()
+	}
+	return c.currentConn().Close()
 }
 
 func (c *LocalClient) Submit(payload []byte) (uint64, error) {
@@ -418,6 +445,21 @@ func (c *LocalClient) Submit(payload []byte) (uint64, error) {
 	w.U64(sequence)
 	w.U32(uint32(len(payload)))
 	w.Raw(payload)
+	if r := c.resume; r != nil {
+		// A resumable seat keeps the order until a grant seals it, and while
+		// its connection is lost only keeps it (§16.9).
+		if len(r.unconfirmed) == hostedMaxUnconfirmed {
+			return 0, hostedError("command", "the relay connection back before more orders")
+		}
+		c.sequence = sequence
+		r.unconfirmed = append(r.unconfirmed, hostedSentFrame{key: sequence, body: w.Bytes()})
+		if r.connected {
+			if err := c.writeFrame(w.Bytes()); err != nil {
+				c.lostLocked()
+			}
+		}
+		return sequence, nil
+	}
 	if err := c.writeFrame(w.Bytes()); err != nil {
 		return 0, err
 	}
@@ -439,12 +481,20 @@ func (c *LocalClient) ReadGrant() (LocalGrant, error) {
 		if c.idle > 0 && c.started.Load() {
 			// After Started, the relay sends a grant, report or failure
 			// well within this bound; silence means the route is gone.
-			if err := c.conn.SetReadDeadline(time.Now().Add(c.idle)); err != nil {
+			if err := c.currentConn().SetReadDeadline(time.Now().Add(c.idle)); err != nil {
 				return LocalGrant{}, err
 			}
 		}
 		var err error
 		if body, err = c.readFrame(localMaxGrantFrame); err != nil {
+			// A version-9 seat resumes a lost connection; the relay holds
+			// its seat meanwhile (§16.9).
+			if r := c.resumable(); r != nil {
+				if err := c.reconnect(r, err); err != nil {
+					return LocalGrant{}, err
+				}
+				continue
+			}
 			if c.idle > 0 && c.started.Load() && errors.Is(err, os.ErrDeadlineExceeded) {
 				return LocalGrant{}, fmt.Errorf("%w: %w", hostedError("relay connection", fmt.Sprintf("relay traffic within %s", c.idle)), err)
 			}
@@ -467,15 +517,11 @@ func (c *LocalClient) ReadGrant() (LocalGrant, error) {
 		// A hosted room without a lobby still reports its state and Started
 		// before the first grant (§16.6.1).
 		if c.readTick == 0 && body[0] == hostedStartedMessage {
-			r := netproto.NewReader(body, hostedError)
-			r.U8()
-			if r.U8() >= HostedMaxSeats {
-				r.Abort(hostedError("Started slot", "a slot below 10"))
-			}
-			if err := r.End(); err != nil {
+			slot, credential, err := decodeHostedStarted(body, c.version)
+			if err != nil {
 				return LocalGrant{}, err
 			}
-			c.started.Store(true)
+			c.adoptStarted(slot, credential)
 			if c.autoOpening {
 				if err := c.OpeningReady(); err != nil {
 					return LocalGrant{}, err
@@ -508,6 +554,9 @@ func (c *LocalClient) ReadGrant() (LocalGrant, error) {
 		if g.Position != position {
 			return LocalGrant{}, localError("sealed position", "the last accepted command position")
 		}
+		if slot, ok := c.ownSlot(); ok && sequences[slot] != c.readSequences[slot] {
+			c.confirmOwn(sequences[slot])
+		}
 		c.readTick, c.readPosition, c.readSequences = g.Tick, position, sequences
 		return g, nil
 	case localRefusedMessage, localFailedMessage:
@@ -515,11 +564,15 @@ func (c *LocalClient) ReadGrant() (LocalGrant, error) {
 		if err := r.End(); err != nil {
 			return LocalGrant{}, err
 		}
+		if body[0] == localFailedMessage {
+			c.finished.Store(true)
+		}
 		return LocalGrant{}, errors.New(message)
 	case localDoneMessage:
 		if err := r.End(); err != nil {
 			return LocalGrant{}, err
 		}
+		c.finished.Store(true)
 		return LocalGrant{}, io.EOF
 	default:
 		return LocalGrant{}, localError("server message", "grant, refusal, failure or stream completion")
@@ -545,7 +598,17 @@ func (c *LocalClient) OpeningReady() error {
 	if !c.started.Load() {
 		return hostedError("opening readiness", "OpeningReady after Started")
 	}
+	if r := c.resume; r != nil && !r.connected {
+		// A resume sends the marker (adoptResumed).
+		c.openingReady = true
+		return nil
+	}
 	if err := c.writeFrame([]byte{hostedOpeningReadyMessage}); err != nil {
+		if c.resume != nil {
+			c.openingReady = true
+			c.lostLocked()
+			return nil
+		}
 		return err
 	}
 	c.openingReady = true
@@ -561,11 +624,11 @@ func (c *LocalClient) writeMessage(body []byte) error {
 
 // readFrame and writeFrame move one envelope and count it for Traffic.
 func (c *LocalClient) readFrame(limit int) ([]byte, error) {
-	return c.traffic.read(c.conn, limit)
+	return c.traffic.read(c.currentConn(), limit)
 }
 
 func (c *LocalClient) writeFrame(body []byte) error {
-	return c.traffic.write(c.conn, body)
+	return c.traffic.write(c.currentConn(), body)
 }
 
 // Acknowledgement flags: the shared battle has ended, and this seat's own
@@ -598,6 +661,17 @@ func (c *LocalClient) Acknowledge(tick uint32, checksum [32]byte, ended, final b
 	w.U8(flags)
 	if tick%30 == 0 {
 		w.Digest(checksum)
+	}
+	if r := c.resume; r != nil {
+		// Kept until the relay has it: a resume resends those after the
+		// relay's last (adoptResumed).
+		r.acks = keepSent(r.acks, uint64(tick), w.Bytes(), hostedAckRing)
+		if r.connected {
+			if err := c.writeFrame(w.Bytes()); err != nil {
+				c.lostLocked()
+			}
+		}
+		return nil
 	}
 	return c.writeFrame(w.Bytes())
 }

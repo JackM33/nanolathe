@@ -28,10 +28,14 @@ type HostedMatchProgress struct {
 
 // HostedSeatProgress is one slot in a HostedMatchProgress.
 type HostedSeatProgress struct {
-	Playing bool          // still connected and compared; false once it left
-	Final   bool          // its result is final, so it may leave
-	Acked   uint32        // the last tick it acknowledged
-	RTT     time.Duration // the relay's latest ping round trip; 0 when unmeasured
+	Playing bool // still in the match and compared; false once it left
+	// Connected is false while a playing seat's connection is lost and the
+	// relay holds the match for it to resume (§16.9). A relay older than
+	// version 9 reports every playing seat connected.
+	Connected bool
+	Final     bool          // its result is final, so it may leave
+	Acked     uint32        // the last tick it acknowledged
+	RTT       time.Duration // the relay's latest ping round trip; 0 when unmeasured
 }
 
 // LocalTraffic counts a client's relay messages since it connected, and their
@@ -68,13 +72,14 @@ func (c *LocalClient) Traffic() LocalTraffic {
 const (
 	progressPlaying = 1 << iota
 	progressFinal
+	progressConnected // version 9
 	progressFlagsMask = progressPlaying | progressFinal
 )
 
 // encodeHostedProgress is one report: the agreed and sealed ticks and the
 // slot count, then per slot its flags, last acknowledged tick and round trip
-// in microseconds.
-func encodeHostedProgress(p *hostedProgress, sealed uint32, rtt func(slot int) time.Duration) []byte {
+// in microseconds. A version-9 report adds the connected flag.
+func encodeHostedProgress(p *hostedProgress, sealed uint32, rtt func(slot int) time.Duration, connected bool) []byte {
 	var w netproto.Writer
 	w.U8(hostedProgressMessage)
 	w.U32(p.compared)
@@ -88,6 +93,9 @@ func encodeHostedProgress(p *hostedProgress, sealed uint32, rtt func(slot int) t
 		if p.final[slot] {
 			flags |= progressFinal
 		}
+		if connected && p.active[slot] && !p.away[slot] {
+			flags |= progressConnected
+		}
 		w.U8(flags)
 		w.U32(p.acked[slot])
 		w.U32(uint32(min(max(rtt(slot).Microseconds(), 0), math.MaxUint32)))
@@ -95,7 +103,11 @@ func encodeHostedProgress(p *hostedProgress, sealed uint32, rtt func(slot int) t
 	return w.Bytes()
 }
 
-func decodeHostedProgress(body []byte) (HostedMatchProgress, error) {
+func decodeHostedProgress(body []byte, version uint16) (HostedMatchProgress, error) {
+	mask := uint8(progressFlagsMask)
+	if version >= hostedResumeVersion {
+		mask |= progressConnected
+	}
 	r := netproto.NewReader(body, hostedError)
 	if r.U8() != hostedProgressMessage {
 		r.Abort(hostedError("progress report", "a progress report"))
@@ -111,10 +123,14 @@ func decodeHostedProgress(body []byte) (HostedMatchProgress, error) {
 	p.Seats = make([]HostedSeatProgress, n)
 	for i := range p.Seats {
 		flags := r.U8()
-		if flags&^progressFlagsMask != 0 {
-			r.Abort(hostedError("progress report", "the playing and final bits"))
+		if flags&^mask != 0 {
+			r.Abort(hostedError("progress report", "the playing, final and connected bits"))
 		}
-		p.Seats[i] = HostedSeatProgress{Playing: flags&progressPlaying != 0, Final: flags&progressFinal != 0, Acked: r.U32(), RTT: time.Duration(r.U32()) * time.Microsecond}
+		connected := flags&progressPlaying != 0
+		if version >= hostedResumeVersion {
+			connected = flags&progressConnected != 0
+		}
+		p.Seats[i] = HostedSeatProgress{Playing: flags&progressPlaying != 0, Connected: connected, Final: flags&progressFinal != 0, Acked: r.U32(), RTT: time.Duration(r.U32()) * time.Microsecond}
 		if p.Seats[i].Acked > p.Sealed {
 			r.Abort(hostedError("progress report", "acknowledged ticks no later than the sealed tick"))
 		}
@@ -127,7 +143,7 @@ func decodeHostedProgress(body []byte) (HostedMatchProgress, error) {
 
 // recordProgress keeps a report for Progress.
 func (c *LocalClient) recordProgress(body []byte) error {
-	p, err := decodeHostedProgress(body)
+	p, err := decodeHostedProgress(body, c.version)
 	if err != nil {
 		return err
 	}

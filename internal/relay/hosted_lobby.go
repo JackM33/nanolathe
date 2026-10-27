@@ -93,9 +93,11 @@ func DescribeHostedRoom(ctx context.Context, address, room string, options Hoste
 	defer conn.Close()
 	stop := context.AfterFunc(ctx, func() { _ = conn.Close() })
 	defer stop()
+	// A description is the same in every served version, so ask in the one
+	// every relay since version 8 serves.
 	var w netproto.Writer
 	w.U8(hostedDescribeMessage)
-	w.U16(hostedVersion)
+	w.U16(hostedChatVersion)
 	w.Text(room)
 	if err := writeLocalFrame(conn, w.Bytes()); err != nil {
 		return HostedRoomDescription{}, err
@@ -132,7 +134,13 @@ func DescribeHostedRoom(ctx context.Context, address, room string, options Hoste
 // or joins one, passing config nil and size 0, and takes its lowest free
 // seat. options.Name is the player's display name for the room's seats.
 func OpenHostedLobby(ctx context.Context, address, room string, hello LocalHello, config []byte, size int, options HostedDialOptions) (*HostedLobby, error) {
-	return openHostedLobby(ctx, hostedVersion, address, room, hello, config, size, options)
+	l, err := openHostedLobby(ctx, hostedVersion, address, room, hello, config, size, options)
+	if hostedOlderRelay(err) {
+		// A relay that predates version 9 refuses it by name; speak
+		// version 8, without reconnection, to it.
+		return openHostedLobby(ctx, hostedChatVersion, address, room, hello, config, size, options)
+	}
+	return l, err
 }
 
 // openHostedLobby speaks a served version; tests use it to play a version-7
@@ -196,15 +204,12 @@ func (l *HostedLobby) read() {
 			l.state.ConfigVersion = version
 			l.mu.Unlock()
 		case hostedStartedMessage:
-			slot := r.U8()
-			if slot >= HostedMaxSeats {
-				r.Abort(hostedError("Started slot", "a slot below 10"))
-			}
-			if err := r.End(); err != nil {
+			slot, credential, err := decodeHostedStarted(body, l.client.version)
+			if err != nil {
 				l.fail(err)
 				return
 			}
-			l.client.started.Store(true)
+			l.client.adoptStarted(slot, credential)
 			l.mu.Lock()
 			l.state.Started, l.state.Slot = true, slot
 			l.mu.Unlock()
