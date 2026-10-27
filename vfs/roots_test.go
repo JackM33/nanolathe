@@ -325,3 +325,32 @@ func TestGameRootExtraTierOrdersAnAddonLayer(t *testing.T) {
 		t.Fatal("an override at the loose tier was admitted")
 	}
 }
+
+// LooseSkip leaves out the loose files under the top-level entries it names,
+// and only those: a nested folder of the same name still mounts.
+func TestGameRootLooseSkipLeavesOutTopLevelEntries(t *testing.T) {
+	base := t.TempDir()
+	for _, f := range []string{"unitsE/armcom.fbi", "units/armcom.fbi", "gamedata/unitsE/x.tdf", "readme.txt"} {
+		path := filepath.Join(base, filepath.FromSlash(f))
+		if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(f), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	fs := vfs.New()
+	defer fs.Close()
+	skip := func(top string) bool { return top == "unitsE" }
+	if err := fs.MountGameRoots([]vfs.GameRoot{{Dir: base, LooseSkip: skip}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fs.Stat("unitse/armcom.fbi"); err == nil {
+		t.Fatal("a skipped top-level folder mounted")
+	}
+	for _, kept := range []string{"units/armcom.fbi", "gamedata/unitse/x.tdf", "readme.txt"} {
+		if _, err := fs.Stat(kept); err != nil {
+			t.Fatalf("%s: %v", kept, err)
+		}
+	}
+}

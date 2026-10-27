@@ -373,10 +373,16 @@ func New() *FS { return &FS{} }
 // time, including on case-sensitive host filesystems. An equal full path
 // already mounted is suppressed [02 §2].
 func (f *FS) MountDirectory(root string, priority int) error {
+	return f.mountDirectoryFiltered(root, priority, nil)
+}
+
+// mountDirectoryFiltered is MountDirectory leaving out the top-level entries
+// skip names (GameRoot.LooseSkip).
+func (f *FS) mountDirectoryFiltered(root string, priority int, skip func(top string) bool) error {
 	if f.alreadyMounted(root, "loose root") {
 		return nil
 	}
-	p, err := newLooseProvider(root, priority, f.nextOrder)
+	p, err := newLooseProvider(root, priority, f.nextOrder, skip)
 	if err != nil {
 		return err
 	}
@@ -454,10 +460,15 @@ func (f *FS) MountGameDirectories(roots []string) error {
 // extension's, so an add-on layer mounts above the retail tiers; the tier
 // must be one below Loose, and the mount refuses one that is not (§5.7
 // "Mounting", §5.8).
+//
+// LooseSkip, when set, leaves out the loose files under the top-level
+// entries it names, as Archives leaves out archives. A base install with
+// another game's renamed content folders copied into it mounts this way.
 type GameRoot struct {
 	Dir         string
 	Archives    func(name string) bool
 	NoLoose     bool
+	LooseSkip   func(top string) bool
 	Extra       []string
 	ExtraLayout func(full string) Layout
 	ExtraTier   func(full string) (tier MountTier, ok bool)
@@ -471,7 +482,7 @@ func (f *FS) MountGameRoots(roots []GameRoot) error {
 	plan := DefaultRetailMountPlan()
 	span := int(max(plan.HPI, plan.UFO, plan.CCX, plan.GP3, plan.Loose)) * 10
 	for i, root := range roots {
-		if err := f.mountGameDirectoryFiltered(root.Dir, plan, i*span, root.Archives, !root.NoLoose, root.Extra, root.ExtraLayout, root.ExtraTier); err != nil {
+		if err := f.mountGameDirectoryFiltered(root.Dir, plan, i*span, root.Archives, !root.NoLoose, root.LooseSkip, root.Extra, root.ExtraLayout, root.ExtraTier); err != nil {
 			return fmt.Errorf("mounting root %q: %w", root.Dir, err)
 		}
 	}
@@ -514,7 +525,7 @@ func (f *FS) MountGameDirectoryWithPlan(root string, plan MountPlan) error {
 }
 
 func (f *FS) mountGameDirectory(root string, plan MountPlan, basePriority int) error {
-	return f.mountGameDirectoryFiltered(root, plan, basePriority, nil, true, nil, nil, nil)
+	return f.mountGameDirectoryFiltered(root, plan, basePriority, nil, true, nil, nil, nil, nil)
 }
 
 // gameArchive is one archive a game directory mount plans: its file name,
@@ -528,7 +539,7 @@ type gameArchive struct {
 	tierSet bool
 }
 
-func (f *FS) mountGameDirectoryFiltered(root string, plan MountPlan, basePriority int, admit func(string) bool, loose bool, extra []string, extraLayout func(string) Layout, extraTier func(string) (MountTier, bool)) error {
+func (f *FS) mountGameDirectoryFiltered(root string, plan MountPlan, basePriority int, admit func(string) bool, loose bool, looseSkip func(string) bool, extra []string, extraLayout func(string) Layout, extraTier func(string) (MountTier, bool)) error {
 	if err := plan.Validate(); err != nil {
 		return err
 	}
@@ -619,7 +630,7 @@ func (f *FS) mountGameDirectoryFiltered(root string, plan MountPlan, basePriorit
 	if !loose {
 		return nil
 	}
-	return f.MountDirectory(root, basePriority+int(plan.Loose)*10)
+	return f.mountDirectoryFiltered(root, basePriority+int(plan.Loose)*10, looseSkip)
 }
 
 // IsArchiveName reports whether a game directory's file is one the mount
@@ -969,7 +980,7 @@ type looseProvider struct {
 	indexedEntries []EntryInfo
 }
 
-func newLooseProvider(root string, priority, order int) (*looseProvider, error) {
+func newLooseProvider(root string, priority, order int, skip func(top string) bool) (*looseProvider, error) {
 	absolute, err := filepath.Abs(root)
 	if err != nil {
 		return nil, err
@@ -984,18 +995,21 @@ func newLooseProvider(root string, priority, order int) (*looseProvider, error) 
 	p := &looseProvider{root: absolute, providerIndex: newProviderIndex()}
 	rootInfo := EntryInfo{Path: "", Name: "", IsDir: true, OriginalPath: "", Source: Provenance{ProviderType: "directory", SourcePath: absolute, MountRoot: absolute, Priority: priority, MountOrder: order}}
 	p.entries[""] = &providerEntry{info: rootInfo}
-	if err := p.indexDir(absolute, "", priority, order); err != nil {
+	if err := p.indexDir(absolute, "", priority, order, skip); err != nil {
 		return nil, err
 	}
 	return p, nil
 }
 
-func (p *looseProvider) indexDir(dirname, parent string, priority, order int) error {
+func (p *looseProvider) indexDir(dirname, parent string, priority, order int, skip func(top string) bool) error {
 	items, err := os.ReadDir(dirname)
 	if err != nil {
 		return err
 	}
 	for _, item := range items {
+		if parent == "" && skip != nil && skip(item.Name()) {
+			continue
+		}
 		if item.Type()&os.ModeSymlink != 0 {
 			// A loose mount is a logical content root. Do not make a host
 			// symlink an alternate path into arbitrary files outside it.
@@ -1023,7 +1037,7 @@ func (p *looseProvider) indexDir(dirname, parent string, priority, order int) er
 			entry.readRange = func(offset int64, length int) ([]byte, error) {
 				return readFileRangeOS(full, offset, length)
 			}
-		} else if err := p.indexDir(full, logical, priority, order); err != nil {
+		} else if err := p.indexDir(full, logical, priority, order, nil); err != nil {
 			return err
 		}
 		p.entries[logical] = entry

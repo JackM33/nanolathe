@@ -525,7 +525,7 @@ func (s *mapgenScreen) readyArt(g *gameShell) bool {
 	}
 	if s.base == nil {
 		base := vfs.New()
-		if err := base.MountGameDirectories(g.cs.baseRoots); err != nil {
+		if err := base.MountGameRoots(g.cs.baseGameRoots()); err != nil {
 			base.Close()
 			return false
 		}

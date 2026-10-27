@@ -2,7 +2,14 @@
 
 Escalation is available as an experimental content package. Install it through
 **Mods & Mutators → Get more mods** in Nanolathe. Manually copying the upstream
-package over a Total Annihilation install is currently unsupported. Use Community
+package over a Total Annihilation install is currently unsupported: when a base
+install holds such a copy, the game mounts it as the plain game, leaving out
+Escalation's archives (`TAESC.gp3` and the `T*ESC*.ufo` files) and its renamed
+content folders (`unitsE`, `weaponE`, `gamedatE`, `unitpicE`, `guiE`,
+`downloadsE`, `aE`), and the main menu says so (`install.UpstreamEscalation*`,
+`baseGameRoot`). A command line that stacks its own roots or names a config
+mounts exactly what it names, so the diagnostic comparison below still works.
+The Android launcher leaves the same files out when it copies a folder. Use Community
 3.9 or Modern gameplay; its scripts require extension queries that Strict 3.1
 deliberately disables. Its Nanolathe config (`nanolathe-mod.json` in the
 hosted zip, `modconfigs/escalation-10.2.0/` in this repository) declares this

@@ -204,7 +204,7 @@ func (s *nlScreen) warm(g *gameShell) {
 	}
 	if s.baseFS == nil {
 		base := vfs.New()
-		if err := base.MountGameDirectories(g.cs.baseRoots); err == nil {
+		if err := base.MountGameRoots(g.cs.baseGameRoots()); err == nil {
 			s.baseFS = base
 		} else {
 			base.Close()
@@ -286,7 +286,7 @@ func (s *nlScreen) bindShell(g *gameShell) {
 	s.tendPictures(g)
 	if s.baseFS == nil {
 		base := vfs.New()
-		if err := base.MountGameDirectories(g.cs.baseRoots); err == nil {
+		if err := base.MountGameRoots(g.cs.baseGameRoots()); err == nil {
 			s.baseFS = base
 		} else {
 			base.Close()

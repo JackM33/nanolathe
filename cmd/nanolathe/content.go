@@ -116,6 +116,60 @@ type contentSet struct {
 	// mod (--mod-config on a manual stack). It is offered once
 	// (docs/DESIGN_MODS_MUTATORS.md §4.3); a mod carries its own in mod.
 	profileControls string
+	// plainBase marks base roots mounted as the plain game, without a TA:
+	// Escalation copied over them (baseGameRoot); baseNotice tells the
+	// player when that left files out, on the main menu below a mod notice.
+	plainBase  bool
+	baseNotice string
+}
+
+// plainBaseInstall reports whether the base install mounts as the plain
+// game: always, unless the command line stacked its own roots or named a
+// config, which mount exactly what they name (docs/ESCALATION_SUPPORT.md,
+// "Unconfigured upstream installations"). The manual-stack test is
+// resolveModSelection's.
+func plainBaseInstall(opts Options) bool {
+	explicit := len(opts.Roots)
+	if explicit == 0 && opts.Root != "" {
+		explicit = 1
+	}
+	return strings.TrimSpace(opts.ModConfig) == "" && (explicit < 2 || opts.modBaseRoots)
+}
+
+// baseGameRoot mounts a base install folder as the plain game it was: TA:
+// Escalation's upstream installer copies its archives and renamed folders
+// into the install, and mounted with the base game they blank build buttons,
+// so they are left out. Escalation plays as Nanolathe's package in the mod
+// slot instead. The Android launcher leaves the same files out when it copies
+// a folder (docs/ANDROID.md §2).
+func baseGameRoot(dir string) vfs.GameRoot {
+	return vfs.GameRoot{Dir: dir, Archives: func(name string) bool { return !install.UpstreamEscalationArchive(name) }, LooseSkip: install.UpstreamEscalationFolder}
+}
+
+// baseGameRoots is the base install as this content set mounted it, for the
+// screens that mount it again on its own.
+func (c *contentSet) baseGameRoots() []vfs.GameRoot {
+	roots := make([]vfs.GameRoot, len(c.baseRoots))
+	for i, dir := range c.baseRoots {
+		roots[i] = vfs.GameRoot{Dir: dir}
+		if c.plainBase {
+			roots[i] = baseGameRoot(dir)
+		}
+	}
+	return roots
+}
+
+// escalationCopiedNotice is the main menu's word when the base install holds
+// a TA: Escalation copied over it and no Escalation package is running.
+func escalationCopiedNotice(baseRoots []string, mod *modlibrary.Mod) (string, []string) {
+	var found []string
+	for _, dir := range baseRoots {
+		found = append(found, install.UpstreamEscalationFiles(dir)...)
+	}
+	if len(found) == 0 || mod != nil && mod.ID == "escalation" {
+		return "", found
+	}
+	return "TA: Escalation copied into your TA folder is left out. To play it, get Escalation in Mods & Mutators.", found
 }
 
 // buildMenuPageSize is the running content's build page lock: a mounted
@@ -245,9 +299,20 @@ func mountContent(opts Options, baseRoots []string, selection modSelection) (*co
 	printNotes(addons.notes)
 	mapRootsCount := len(mapRoots)
 	roots = append(mapRoots, roots...)
+	plain := plainBaseInstall(opts) && !selection.manual
 	gameRoots := make([]vfs.GameRoot, len(roots))
 	for i, root := range roots {
 		gameRoots[i] = vfs.GameRoot{Dir: root}
+		if plain && i >= mapRootsCount && i < mapRootsCount+len(baseRoots) {
+			gameRoots[i] = baseGameRoot(root)
+		}
+	}
+	baseNotice := ""
+	if plain {
+		var left []string
+		if baseNotice, left = escalationCopiedNotice(baseRoots, selection.mod); len(left) > 0 {
+			fmt.Fprintf(os.Stderr, "nanolathe: left out of the base install, TA: Escalation copied over it (docs/ESCALATION_SUPPORT.md): %s\n", strings.Join(left, ", "))
+		}
 	}
 	gameRoots[mapRootsCount].Extra = addonExtras(addons.mounted)
 	gameRoots[mapRootsCount].ExtraLayout = addonExtraLayout(profile.Layout(), addons.factions, addons.models)
@@ -303,6 +368,7 @@ func mountContent(opts Options, baseRoots []string, selection modSelection) (*co
 		mapRoots:  append([]string(nil), mapRoots...),
 		generated: append([]*generatedMap(nil), opts.generatedMaps...),
 		addons:    addons.mounted, addonSelection: addons.selection, addonsOff: addons.off,
+		plainBase: plain, baseNotice: baseNotice,
 	}
 	set.notes = append(set.notes, mapNotes...)
 	set.notes = append(set.notes, addons.notes...)

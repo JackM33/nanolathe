@@ -179,7 +179,7 @@ func (s *toolsScreen) preparePaint() {
 		if len(s.cs.baseRoots) > 0 {
 			base := vfs.New()
 			defer base.Close()
-			if base.MountGameDirectories(s.cs.baseRoots) == nil {
+			if base.MountGameRoots(s.cs.baseGameRoots()) == nil {
 				fs = base
 			}
 		}

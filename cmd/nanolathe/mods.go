@@ -738,9 +738,13 @@ func (g *gameShell) refreshMainMenuModStatus(p *ui.Panel) {
 		return
 	}
 	text := g.modStatusLine()
-	if g.cs != nil && g.cs.modNotice != "" {
+	if g.cs != nil && (g.cs.modNotice != "" || g.cs.baseNotice != "") {
 		// A notice may carry a failure's reason; it keeps to one line.
-		text = g.fitDetail(g.cs.modNotice, retailScreenW-16, 1)
+		notice := g.cs.modNotice
+		if notice == "" {
+			notice = g.cs.baseNotice
+		}
+		text = g.fitDetail(notice, retailScreenW-16, 1)
 	}
 	p.SetActive("MODSTATUS", true)
 	p.SetText("MODSTATUS", text)
@@ -1144,7 +1148,7 @@ func (g *gameShell) openModsScreen() error {
 		return err
 	}
 	base := vfs.New()
-	if err := base.MountGameDirectories(g.cs.baseRoots); err != nil {
+	if err := base.MountGameRoots(g.cs.baseGameRoots()); err != nil {
 		base.Close()
 		base = nil
 	}

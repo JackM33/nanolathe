@@ -9,6 +9,7 @@ package main
 
 import (
 	"fmt"
+	"github.com/nanolathe-gg/nanolathe/internal/install"
 	"os"
 	"runtime"
 	"sort"
@@ -352,9 +353,11 @@ func composeAddons(profile contentprofiles.Profile, baseRoots []string, mod *mod
 	}
 	roots := make([]vfs.GameRoot, 0, len(baseRoots)+1)
 	for i, dir := range baseRoots {
-		root := vfs.GameRoot{Dir: dir}
+		root := baseGameRoot(dir)
 		if i == 0 {
-			root.Archives = func(name string) bool { return !replaced[strings.ToLower(name)] }
+			root.Archives = func(name string) bool {
+				return !replaced[strings.ToLower(name)] && !install.UpstreamEscalationArchive(name)
+			}
 			root.Extra = addonExtras(addons)
 			root.ExtraLayout = addonExtraLayout(profile.Layout(), factions, models)
 			root.ExtraTier = addonExtraTier(factions, models)
@@ -488,9 +491,11 @@ func addonOthers(profile contentprofiles.Profile, baseRoots []string, mod *modli
 	}
 	roots := make([]vfs.GameRoot, 0, len(baseRoots)+1)
 	for i, dir := range baseRoots {
-		root := vfs.GameRoot{Dir: dir}
+		root := baseGameRoot(dir)
 		if i == 0 {
-			root.Archives = func(name string) bool { return !replaced[strings.ToLower(name)] }
+			root.Archives = func(name string) bool {
+				return !replaced[strings.ToLower(name)] && !install.UpstreamEscalationArchive(name)
+			}
 		}
 		roots = append(roots, root)
 	}
