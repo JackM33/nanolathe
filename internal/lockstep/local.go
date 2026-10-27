@@ -46,6 +46,9 @@ type LocalDriver struct {
 	// The resource double-click producer has one pending first-click move.
 	moveSequence, movePosition uint64
 	cancel                     *session.SeatCommand
+	// fastThrough is the tick a resumed or rejoining battle runs through at
+	// full speed (FastForward); zero or reached, play is paced.
+	fastThrough uint32
 }
 
 func NewLocalDriver(s *session.Session, c *relay.LocalClient) (*LocalDriver, error) {
@@ -113,6 +116,29 @@ func (d *LocalDriver) Completed() bool {
 	return d != nil && d.ended
 }
 
+// fastForwardBudget bounds the host time one Pump spends catching up, so the
+// window keeps drawing while a rejoining battle replays its match.
+const fastForwardBudget = 50 * time.Millisecond
+
+// FastForward runs every received grant through tick through as fast as the
+// host allows, a bounded batch per Pump, then returns to paced play with a
+// fresh reserve. A battle that resumed behind the others, or rejoined from
+// tick zero, uses it to catch up; it changes when ticks run, never what they
+// compute (DESIGN_MULTIPLAYER §16.9). The host calls it from its Pump caller.
+func (d *LocalDriver) FastForward(through uint32) {
+	if d != nil && d.playout != nil && through > d.fastThrough {
+		d.fastThrough = through
+	}
+}
+
+// FastForwarding reports the tick a catch-up runs through, while it runs.
+func (d *LocalDriver) FastForwarding() (uint32, bool) {
+	if d == nil || d.fastThrough <= d.sess.Clock.GlobalTick {
+		return 0, false
+	}
+	return d.fastThrough, true
+}
+
 // Pump never advances without a complete grant and never executes a zero-tick
 // pump. Session owns payload decoding, authorization and deterministic effects.
 func (d *LocalDriver) Pump() (bool, error) {
@@ -134,6 +160,9 @@ func (d *LocalDriver) Pump() (bool, error) {
 	// each still runs through its own StepGranted (DESIGN_MULTIPLAYER §16.5.2).
 	if stop, err := d.pacedStop(); stop {
 		return false, err
+	}
+	if d.fastThrough > d.sess.Clock.GlobalTick {
+		return d.catchUp()
 	}
 	advanced := false
 	for i := range d.playout.due(len(d.reads)) {
@@ -172,6 +201,30 @@ func (d *LocalDriver) pacedStop() (bool, error) {
 		return true, nil
 	}
 	return false, nil
+}
+
+// catchUp runs received grants until the fast-forward target, the time
+// budget or the received grants run out. Reaching the target restarts paced
+// play, which keeps its one-tick reserve again before running.
+func (d *LocalDriver) catchUp() (bool, error) {
+	start := d.playout.now()
+	advanced := false
+	for d.sess.Clock.GlobalTick < d.fastThrough && d.playout.now().Sub(start) < fastForwardBudget {
+		if advanced {
+			if stop, err := d.pacedStop(); stop {
+				return advanced, err
+			}
+		}
+		ran, err := d.step()
+		advanced = advanced || ran
+		if err != nil || !ran {
+			return advanced, err
+		}
+	}
+	if d.sess.Clock.GlobalTick >= d.fastThrough {
+		d.playout.running, d.playout.waiting = false, false
+	}
+	return advanced, nil
 }
 
 // step runs at most one received grant.

@@ -170,6 +170,12 @@ func onlineRefusalText(err error) string {
 		return "Could not reach the server: " + onlineCause(text)
 	case has("logical path lobby,"):
 		return "You left the game."
+	case has("logical path player,", "a player left"):
+		return "A player left the game."
+	case has("logical path reconnection,", "every dropped player back"):
+		return "A player lost their connection and did not come back within three minutes."
+	case has("logical path reconnection,"):
+		return "Could not reconnect to the server."
 	}
 	return noticeReason(err)
 }
@@ -237,8 +243,9 @@ func onlineLabel(name, text string, x, y, w, h int32, attribs uint32) gui.Gadget
 // buildOnlineChooser shapes the authored message window's frame into the
 // chooser: the sentence, the two prominent buttons cloned from the message
 // window's OK, a status line, and below them Name and Server, each with what
-// it holds beside it, and Cancel.
-func buildOnlineChooser(window *gui.Window) {
+// it holds beside it, and Cancel. With a kept rejoin ticket it also offers
+// Rejoin above Cancel (online_rejoin.go).
+func buildOnlineChooser(window *gui.Window, rejoin bool) {
 	ok := gui.Gadget{Kind: gui.KindButton, Active: 1, ColorF: 15, Attribs: 2}
 	if i := window.GadgetIndex("OK"); i >= 0 {
 		ok = window.Gadgets[i]
@@ -262,6 +269,9 @@ func buildOnlineChooser(window *gui.Window) {
 		button("SERVER", "Server", 20, 202, 96, 20),
 		onlineLabel("SERVERNAME", "", 124, 205, 172, 16, 1),
 		button("PREVMENU", "Cancel", 304, 202, 96, 20),
+	}
+	if rejoin {
+		window.Gadgets = append(window.Gadgets, button("REJOIN", "Rejoin", 304, 174, 96, 20))
 	}
 }
 
@@ -321,7 +331,11 @@ func (g *gameShell) showOnlineView(view onlineView) error {
 	}
 	switch view {
 	case onlineChooser:
-		buildOnlineChooser(window)
+		_, rejoin := keptOnlineRejoin()
+		buildOnlineChooser(window, rejoin)
+		if record, ok := keptOnlineRejoin(); ok && s.status == "" {
+			s.status = "Your game " + record.Code + " may still be running. Choose Rejoin to go back to it."
+		}
 	case onlineCodeEntry:
 		buildOnlineAddressWindow(window, onlineCodePrompt, "Join", onlineCodeMax)
 	case onlineNameEntry:
@@ -411,6 +425,7 @@ func (g *gameShell) refreshOnlinePanel() {
 		retailGreyGadget(p.Window, "JOIN", busy)
 		retailGreyGadget(p.Window, "NAME", busy)
 		retailGreyGadget(p.Window, "SERVER", busy)
+		retailGreyGadget(p.Window, "REJOIN", busy)
 	default:
 		status := s.status
 		switch {
@@ -568,6 +583,8 @@ func (g *gameShell) activateOnlineScreenGadget(name string) bool {
 		switch name {
 		case "CREATE":
 			g.startOnlineCreate()
+		case "REJOIN":
+			g.startOnlineRejoin()
 		case "JOIN":
 			s.status = ""
 			g.showOnlineViewReporting(onlineCodeEntry)

@@ -130,7 +130,11 @@ from the end-condition sweeps while the perspective its computers borrow
 keeps updating, and that a Strict resignation deletes the leaver's units
 silently as retail's menu quit does on the other machines.
 These policies and their tests are owned by DESIGN_MULTIPLAYER §6.6–§6.7,
-§11.1, Q22–Q29 and §19 O23; they do not change single-player. Nothing a relay, a lobby or a
+§11.1, Q22–Q29 and §19 O23; they do not change single-player. On 2026-10-27
+this fork's owner approved reconnection ahead of M6–M7 (relay protocol 9,
+§16.9): a version-9 seat whose connection drops is held while the match
+waits, for up to three minutes, and resumes, or rejoins after a restart by
+replaying the match from tick zero; leaving on purpose still ends the match. Nothing a relay, a lobby or a
 host supplies may change what a tick
 computes, and a single-seat battle is untouched: every fingerprint lock runs
 single-player. It is owned by

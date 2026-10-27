@@ -120,6 +120,9 @@ type onlineRoom struct {
 	options relay.HostedDialOptions
 	code    string
 	config  []byte
+	// rejoin is set when the room is a started match this seat rejoins
+	// (online_rejoin.go).
+	rejoin *onlineRejoin
 }
 
 type onlineJobResult struct {
@@ -140,6 +143,10 @@ type onlineJobResult struct {
 	modEntry *modfetch.Entry
 	refusal  string
 	err      error
+	// A rejoin composed and resumed; rejoinGone marks err as the relay's
+	// answer to a kept ticket (online_rejoin.go).
+	rejoined   *onlineRejoined
+	rejoinGone bool
 }
 
 func (s *onlineScreen) run(work func(context.Context) onlineJobResult) {
@@ -449,6 +456,11 @@ func (g *gameShell) resumeOnlineJoin(room onlineRoom) {
 	if g.cs.mod != nil {
 		mod = g.cs.mod.Name + " " + g.cs.mod.Version
 	}
+	if room.rejoin != nil {
+		s.status = "Switched to " + mod + " for this game. Rejoining..."
+		g.adoptOnlineRejoin(room, true)
+		return
+	}
 	s.status = "Switched to " + mod + " for this game. Joining..."
 	g.adoptOnlineRoom(room, true)
 }
@@ -488,8 +500,19 @@ func (g *gameShell) pollOnline() {
 
 func (g *gameShell) finishOnlineJob(r onlineJobResult) {
 	switch {
+	case r.err != nil && r.rejoinGone:
+		fmt.Fprintf(os.Stderr, "nanolathe: online rejoin: %v\n", r.err)
+		g.onlineIdleStatus(onlineRejoinRefusal(r.err))
+		if _, kept := keptOnlineRejoin(); !kept && g.online != nil && g.online.view == onlineChooser {
+			// The ticket is gone: rebuild the chooser without Rejoin.
+			g.showOnlineViewReporting(onlineChooser)
+		}
 	case r.err != nil:
 		g.onlineFail(r.err)
+	case r.rejoined != nil:
+		g.enterOnlineRejoin(r.rejoined)
+	case r.described != nil && r.described.rejoin != nil:
+		g.adoptOnlineRejoin(*r.described, false)
 	case r.refusal != "":
 		g.onlineIdleStatus(r.refusal)
 	case r.modEntry != nil && r.described != nil:
@@ -711,7 +734,7 @@ func (g *gameShell) startOnlineBattle(state relay.HostedLobbyState) {
 	// attacker are rows every client runs, not seats.
 	humans := onlineHumanCount(p.config.Request())
 	code := r.lobby.Code()
-	if err := g.enterOnlineBattle(p, conn, code, humans); err != nil {
+	if err := g.enterOnlineBattle(p, conn, code, humans, r.address); err != nil {
 		fmt.Fprintf(os.Stderr, "nanolathe: online: %v\n", err)
 		g.leaveOnlineLobby("The game could not start: " + noticeReason(err))
 		return
@@ -728,13 +751,16 @@ func (g *gameShell) startOnlineBattle(state relay.HostedLobbyState) {
 // as the command-line path does after its dial (startHostedMultiplayer). The
 // relay waits for every seat's opening readiness before granting tick one
 // (§16.6.1). The driver is made before the presentation
-// so a failure closes the connection with nothing adopted.
-func (g *gameShell) enterOnlineBattle(p *onlinePrepared, conn lockstep.Client, code string, humans int) error {
+// so a failure closes the connection with nothing adopted. A seat the relay
+// gave a rejoin ticket keeps it beside the settings while the battle runs
+// (online_rejoin.go).
+func (g *gameShell) enterOnlineBattle(p *onlinePrepared, conn lockstep.Client, code string, humans int, server string) error {
 	if p == nil || p.sess == nil {
 		_ = conn.Close()
 		return localMultiplayerError("battle", "a prepared online battle")
 	}
 	sess := p.sess
+	hosted, _ := conn.(*relay.LocalClient)
 	// Every online seat records the stream it executes (DESIGN_MULTIPLAYER
 	// §10); a battle that cannot be recorded keeps conn as it is.
 	conn = g.recordOnlineReplay(p, conn)
@@ -763,8 +789,9 @@ func (g *gameShell) enterOnlineBattle(p *onlinePrepared, conn lockstep.Client, c
 	g.importedRetailBattle, g.lastBattleSurvival = false, false
 	g.pendingDetail = p.detail
 	g.commitBattleCandidate(battle)
-	battle.multiplayer = &battleMultiplayer{driver: driver, completed: driver.Completed, net: stats, openingReady: openingReady, roomContent: p.roomFS}
+	battle.multiplayer = &battleMultiplayer{driver: driver, completed: driver.Completed, net: stats, openingReady: openingReady, roomContent: p.roomFS, hosted: hosted}
 	p.roomFS = nil
+	keepOnlineRejoin(server, hosted)
 	battle.returnToMenu = g.returnFromOnlineBattle
 	battle.returnToSkirmish = g.returnFromOnlineBattle
 	if clPtr != nil {
@@ -792,6 +819,8 @@ func onlineEntryNotice(code string, r session.MatchConfigRequest, slot uint8, hu
 // online screen, saying how the game ended. A seat whose result is final may
 // leave while the others play on (§16.6).
 func (g *gameShell) returnFromOnlineBattle(cl *client.Client) {
+	// The battle is over for this seat, however it ended: nothing to rejoin.
+	forgetOnlineRejoin()
 	message := "You left the game."
 	if b := g.battle; b != nil {
 		switch {

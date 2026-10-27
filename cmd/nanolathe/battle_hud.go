@@ -1034,6 +1034,7 @@ func (h *retailBattleHUD) draw(c *client.Client, b *battleSession, presented cli
 	h.drawCommunityIncome(c, b, cur)
 	h.drawCommunityWeather(c, b, cur)
 	h.drawQuickButtons(c, b, cur)
+	h.drawOnlineConnectionBanner(c, b)
 	c.EndChromeRegion()
 	if b != nil {
 		b.developer.probes.Font = h.primaryFont

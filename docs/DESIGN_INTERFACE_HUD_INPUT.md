@@ -4836,6 +4836,14 @@ Any build can create and join. Online games need the base game or an
 installed mod: a `--root` stack or `--mod-config` content is refused, and so
 is a mod installed from a folder, which has no archive identity to send.
 
+When this game stopped during an online battle on a version-9 relay, the
+chooser also offers **Rejoin** above Cancel, and its status line names the
+game: Rejoin composes the battle again and catches up with the match
+([DESIGN_MULTIPLAYER §16.9](DESIGN_MULTIPLAYER.md#169-reconnect-version-9)).
+In battle, a banner below the quick buttons says when the connection is
+being restored, the battle is catching up, or another player is being
+waited for.
+
 **Create** opens a ten-seat room at once with the host's defaults: a skirmish
 on its current skirmish map with its four skirmish options, its mounted mod,
 mutators and unit restrictions, and a fresh seed pair. **Join** asks the relay

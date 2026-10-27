@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/netip"
@@ -48,6 +49,16 @@ type battleMultiplayer struct {
 	// (DESIGN_MULTIPLAYER §16.8), closed with the battle; nil when it
 	// composed from the seat's own content.
 	roomContent io.Closer
+	// hosted is the relay connection itself, beneath the recorder and the
+	// network statistics, when it is a hosted relay's: its reconnection
+	// state drives the connection banner and the catch-up after a resume
+	// (DESIGN_MULTIPLAYER §16.9). It never touches a tick.
+	hosted       *relay.LocalClient
+	resumes      int  // the connection's resumes already caught up
+	reconnecting bool // a lost connection already announced
+	catchingUp   bool // a catch-up already announced
+	awaySince    [relay.HostedMaxSeats]time.Time
+	waitingNoted [relay.HostedMaxSeats]bool
 }
 
 func (o Options) localMultiplayer() bool    { return o.LocalMPListen != "" || o.LocalMPJoin != "" }
@@ -272,8 +283,16 @@ func (b *battleSession) pumpMultiplayerTicks(cl *client.Client) {
 		}
 		m.openingSent = true
 	}
+	b.followOnlineConnection()
 	advanced, err := b.multiplayer.driver.Pump()
 	b.multiplayer.net.observe(b.sess, time.Now())
+	if _, fast := b.multiplayer.fastForwarding(); fast && b.sess.Snapshot != nil {
+		// Ticks replayed to catch up are not presented: their cues and
+		// notices would arrive all at once (as pumpBackground drops them).
+		m := b.multiplayer
+		m.dropped = b.sess.Snapshot.DrainCommittedEvents(m.dropped)
+		clear(m.dropped)
+	}
 	for _, receipt := range b.sess.DrainCommandReceipts() {
 		if receipt.Stamp.Seat == b.sess.LocalOwner && receipt.Outcome == session.CommandRejected {
 			b.onlineNotice(receipt.Diagnostic)
@@ -302,8 +321,22 @@ func (b *battleSession) submitLocalMultiplayer(c session.HumanCommand) (uint64, 
 	if b.multiplayer == nil || b.multiplayer.driver == nil {
 		return 0, localMultiplayerError("command", "a connected, running local relay")
 	}
+	// While the connection is lost, or the battle catches up, an order would
+	// only queue behind ticks the player cannot see: refuse it here, never
+	// in the driver, whose failures end the battle (§16.9).
+	if m := b.multiplayer; m.hosted != nil && m.hosted.Connection().Reconnecting {
+		return 0, errOnlineReconnecting
+	}
+	if _, fast := b.multiplayer.fastForwarding(); fast {
+		return 0, errOnlineCatchingUp
+	}
 	return b.multiplayer.driver.Submit(c)
 }
+
+var (
+	errOnlineReconnecting = errors.New("Not connected to the server: the order was not sent.")
+	errOnlineCatchingUp   = errors.New("Catching up with the game: the order was not sent.")
+)
 
 // ---------------------------------------------------------------------------
 // Online play while a browser page is hidden (DESIGN_BROWSER_HOST §4

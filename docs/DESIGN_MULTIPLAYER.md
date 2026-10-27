@@ -1853,10 +1853,15 @@ and configuration fields are also tested through actual playback.
 
 ## 11. Seats over time
 
-**Today** a lost connection, a closed window or a client failure ends the
-room for both seats without a result and removes no seat (§16.5). In the
-lobby, a joiner who leaves frees seat 2 and the host leaving closes the
-room (§16.6). The rest of this section is the approved design for M6–M7.
+**Today** a version-9 seat whose connection is lost, or whose game stops
+running, is held for a resume: the match waits for it, it comes back by
+itself or after a restart with its seat credential, and only staying away
+past a three-minute grace ends the room without a result (§16.9, a bounded
+increment of this fork that holds the match rather than playing on). A seat
+that leaves on purpose, or speaks version 7 or 8, ends the room for every
+seat without a result and removes no seat (§16.5). In the lobby, a joiner
+who leaves frees seat 2 and the host leaving closes the room (§16.6). The
+rest of this section is the approved design for M6–M7.
 
 ### 11.1 Leaving
 
@@ -2049,14 +2054,18 @@ acknowledgements and checksums.
 
 ### 12.2 Messages
 
-The hosted protocol is **version 8**; §16.5.1–§16.5.2 and §16.6.1 hold its
-rules. Messages are bounded, length-prefixed binary frames in `netproto`
+The hosted protocol is **version 9**; §16.5.1–§16.5.2, §16.6.1 and §16.9
+hold its rules. Messages are bounded, length-prefixed binary frames in `netproto`
 primitives, carried over TLS or WebSocket (§12.3).
 
-**Versions.** The relay serves versions 7 and 8 in the same rooms, one
-version back. It records each seat’s Hello version and answers its Welcome
-in that version; a Description is the same in both. Version 8 adds display
-names and chat. A version-7 seat retains command schema 1 and receives no
+**Versions.** The relay serves versions 7, 8 and 9 in the same rooms. It
+records each seat’s Hello version and answers its Welcome in that version; a
+Description is the same in every version, and a client asks for one in
+version 8. Version 8 adds display names and chat; version 9 adds seat
+credentials, the connected bit in progress reports, resume, rejoin
+description and Leave (§16.9). A client offers version 9 and, when an older
+relay refuses it naming the version sent, speaks version 8 without
+reconnection. A version-7 seat retains command schema 1 and receives no
 names or chat. A version-8 hello carries any nonzero `u16` command schema
 (§7.4.1): the relay forwards commands without interpreting them, so its
 own build's command version cannot limit the clients. Every join must name
@@ -2110,8 +2119,8 @@ rather than queued behind grants once its recipient's queue is long. A
 line never enters the stream, a replay or a checksum, and no tick depends
 on it.
 
-**Later messages:** a resume with seat credential and connection epoch
-(§11.2), digest reports with the agreed summary (§9.2), pacing
+**Later messages:** a connection epoch for resume (§11.2; version 9's resume
+replaces the seat's connection instead, §16.9), digest reports with the agreed summary (§9.2), pacing
 requests (refused while Q5 stands), seat requests and removal calls and
 ballots (§11.1), ping, desync and seat-status notices, and a
 two-stage start in which the relay freezes the configuration, draws the
@@ -2157,7 +2166,8 @@ configuration `[08 R-SKIR-01 §12]`; a room has its own defaults
 ### 12.5 Operations
 
 One always-running relay instance, with no cross-instance room lookup,
-database, autoscaling or reconnect. On SIGTERM the server drains
+database or autoscaling. Reconnection (§16.9) lives in the instance's memory:
+a relay restart still ends its rooms. On SIGTERM the server drains
 (`HostedServer.Drain`): it refuses new rooms and closes lobbies, lets
 running matches play on, and exits when none remain, after
 `--drain-timeout` (100 seconds by default, below the platform's grace) or
@@ -5860,17 +5870,18 @@ nanolathe --root ~/TotalAnnihilation --mod none --map 'ashap plateau' --fullscre
 The hosted relay serves the online battles of §16.6 — 2–10 human seats,
 with §16.4's unit checksum, command vocabulary and per-seat simulation
 under the room's rules — over the Internet, with no artificial order delay. A lost
-connection of a seat still playing ends the room without a result or any
-gameplay removal; a seat whose result is final may leave (§16.6.1). Room
-lists, reconnect and removal votes are later work.
+connection of a version-7 or version-8 seat still playing ends the room
+without a result or any gameplay removal; a version-9 seat is held for a
+resume (§16.9); a seat whose result is final may leave (§16.6.1). Room lists
+and removal votes are later work.
 
 #### 16.5.1 Transport and admission contract
 
 `internal/relay` reuses the loopback relay's grant, command and
 acknowledgement payloads and identity comparison, and adds the hosted
-handshake, lobby and chat (§16.6.1). The hosted protocol is version 8, and
-the relay also serves version-7 seats (§12.2); a hello of another version
-is refused naming the served versions and the client's.
+handshake, lobby and chat (§16.6.1). The hosted protocol is version 9, and
+the relay also serves version-7 and version-8 seats (§12.2); a hello of
+another version is refused naming the served versions and the client's.
 
 ```go
 type HostedConfig struct {
@@ -6254,8 +6265,9 @@ is ready the host starts the match. The lobby's rules:
   5-second WebSocket pings.
 - **Leaving.** Before Start, a joiner who leaves frees its seat; the host
   leaving closes the room. After Start, a player whose result is final
-  (defeated) may leave and the match continues; any other disconnect ends
-  the match for everyone, since there is no reconnect yet (§11.2).
+  (defeated) may leave and the match continues; a player who leaves on
+  purpose ends the match for everyone; a version-9 player whose connection
+  drops is held for a resume (§16.9).
 - **Survival online** keeps the single-player rules: the survivors share
   sight, radar and income, the waves hunt the survivor team, there is no
   victory, each seat gets the Survival result line, and the battle cannot
@@ -6609,6 +6621,99 @@ rehearsal digest to its log at Ready, so two logs show which part differs.
 The relay is unchanged throughout: field 16 travels in the opaque
 configuration bytes, and the whole configuration must still fit the relay's
 64 KiB (§16.6.1); an ordinary install lists a few dozen entries.
+
+### 16.9 Reconnect (version 9)
+
+**Purpose and scope.** A bounded increment of this fork, requested by its
+owner on 2026-10-27, ahead of M6–M7: a player whose connection drops, whose
+phone suspends the app, or whose game stops can come back to the match.
+It is a session-membership feature, not a rule: nothing it does reaches a
+tick, every seat runs the same grants in the same order, and the relay's
+30-tick checksum comparison guards it as it guards every match. It departs
+from §11.1 in one approved-for-this-fork way: while a seat is away **the
+match waits** for it, as retail's time-out dialog stalls the game, instead of
+playing on with the seat's units idle; removal votes, watchers and snapshot
+rejoin stay later work. It works only on a relay that runs this release —
+`relay.nanolathe.gg` runs version 8 until its operator upgrades it — so
+players who want it run their own relay (`cmd/nanolathe-server`, §16.5.4).
+
+**Credential.** At Start the relay draws 32 random bytes for each version-9
+seat with `crypto/rand` and sends them in that seat's Started message after
+its slot. Code, seat and credential form the seat's rejoin ticket; the
+relay compares credentials in constant time and never logs them.
+
+**Holding a seat.** When a version-9 seat still playing loses its connection
+— a read or write error, its output queue overflowing, or no execution
+progress within the 10-second bound while it owes a tick — the relay closes
+that connection and marks the seat **away**: still active, compared and
+waited for, but sent nothing. Because the room seals at most 30 ticks past
+its slowest acknowledgement, the others play on for at most a second and
+then wait. The progress bound applies only to connected seats that owe a
+sealed tick, and a seat that has run every earlier tick owes a new one from
+the moment it is sealed, so the waiting seats are never failed for having
+nothing to do. A seat away for longer than **3 minutes** (`hostedRejoinGrace`,
+host policy) ends the room without a result, attributed to that seat. Each
+version-9 progress report carries a connected bit per slot; older seats read
+the bytes they always have.
+
+**Kept grants.** The relay keeps every grant body it sealed. Past 32 MiB it
+keeps the newer half, never fewer than 3,600 ticks (two minutes), so a seat
+that kept its battle can always resume; a restart can then no longer replay
+from tick zero, and the relay says so.
+
+**Resume.** A client's first frame may be **Resume**: version, room code,
+seat, credential and the last tick it holds. The relay admits it only for a
+started room whose seat that credential proves, and the room accepts it only
+while the seat is still playing and every tick after the one named is kept.
+Accepting replaces the seat's connection — a seat the relay thought
+connected included, so a half-open route cannot lock a player out — and
+answers **Resumed**: the slot, the last tick the relay holds the seat's
+acknowledgement for, the last client sequence it accepted and the newest
+tick it sealed. The kept grants after the named tick follow, streamed from
+the history by the seat's writer at the pace it reads them, then live ones.
+The client resends its acknowledgements after the relay's last from a
+64-entry ring, its orders after the last accepted sequence (it keeps up to
+256 until a grant seals them), and its opening marker if it sent one. The
+seat's acknowledgements of ticks the relay already holds, which a restarted
+seat sends while it replays, count only as progress. A grant reader resumes
+by itself when its connection fails, retrying at 0.5–5-second intervals for
+the grace plus 30 seconds; a refusal stops it.
+
+**Rejoin after a restart.** While a battle runs, the client keeps its ticket
+beside the settings file (`online-rejoin.json`, readable by its user alone)
+and removes it when the battle ends or the player leaves. A ticket younger
+than 12 hours makes the MULTI chooser offer **Rejoin**: it asks the relay for
+a **rejoin description** — the base configuration and the lobby as it stood
+at Start, with the seat's slot — mounts the room's mod as a join does,
+resolves the room content (§16.8) without fetching, composes the final
+configuration exactly as Ready did and prepares the battle at tick zero,
+then resumes from tick zero. The battle runs the kept grants at full speed
+(`LocalDriver.FastForward`, at most 50 ms of host time a step, presenting no
+cue or notice of the replayed ticks) while the others wait, then plays
+paced. Answers that the match is gone forget the ticket.
+
+**Leaving on purpose.** Closing a version-9 client while its match runs first
+sends **Leave**: a seat whose result is final leaves as before; any other
+ends the match for every seat at once, as a lost connection did before
+version 9.
+
+**In battle.** A banner over the world view, in the interface face and scaled
+with the touch interface, says "Connection lost. Reconnecting... m:ss",
+"Catching up with the game: n%" or "Waiting for *name* to reconnect... m:ss
+of 3:00", and the message column records each change. While the connection
+is lost or the battle catches up, the game refuses new orders with a
+message rather than queueing them behind ticks the player cannot see.
+
+**Tests.** `hosted_resume_test.go` locks drops and resumes with kept orders
+and acknowledgements, restarts from tick zero, ticket refusals and the grace,
+Leave, a stalled seat held rather than failed, the fallback to a version-8
+relay and the history bound; the version-8 contract tests pin version 8.
+`TestOnlineBattleSurvivesADropAndARestart` plays two real sessions through a
+real relay and a route the test cuts, resumes, restarts and rejoins one
+seat, and relies on the relay's checksum comparison to prove both seats
+computed the same match; `TestPacedDriverFastForwardRunsTheBacklog` locks the
+catch-up; `online_rejoin_test.go` the kept ticket, the chooser's Rejoin and
+the plain words.
 
 ## 17. Verification
 

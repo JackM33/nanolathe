@@ -612,6 +612,71 @@ func TestOnlineRecorderUnderThePacedDriver(t *testing.T) {
 	}
 }
 
+// A battle that resumed behind the others, or rejoined from tick zero, runs
+// the grants it is owed at full speed rather than at the paced 33 Hz
+// catch-up, acknowledging every tick in order, and then plays paced again
+// (DESIGN_MULTIPLAYER §16.9).
+func TestPacedDriverFastForwardRunsTheBacklog(t *testing.T) {
+	fs := portableFS(t)
+	config := onlineConfig(t)
+	inputs, err := session.FreezeMatchInputs(fs, nil, config, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s, err := session.NewPlaytestSkirmish(inputs, config, 0, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.PrepareGrantedBattle(); err != nil {
+		t.Fatal(err)
+	}
+	const owed = 300
+	fake := &pacedRelay{limit: owed + 30, closed: make(chan struct{})}
+	driver, err := lockstep.NewPacedDriver(s, fake)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer driver.Close()
+	driver.FastForward(owed)
+	pumps := 0
+	deadline := time.Now().Add(20 * time.Second)
+	for s.Clock.GlobalTick < owed {
+		if time.Now().After(deadline) {
+			t.Fatalf("fast-forward stalled at tick %d", s.Clock.GlobalTick)
+		}
+		if _, err := driver.Pump(); err != nil {
+			t.Fatal(err)
+		}
+		pumps++
+		time.Sleep(5 * time.Millisecond) // a frame, while the reader fills its queue
+	}
+	// Paced play runs at most three ticks a Pump, so needs 100 or more.
+	if pumps > owed/6 {
+		t.Fatalf("fast-forward took %d pumps for %d ticks", pumps, owed)
+	}
+	if through, active := driver.FastForwarding(); active || s.Clock.GlobalTick != owed {
+		t.Fatalf("fast-forward ran past its target: tick %d, still through %d", s.Clock.GlobalTick, through)
+	}
+	fake.mu.Lock()
+	acks := append([]uint32(nil), fake.acks...)
+	fake.mu.Unlock()
+	if len(acks) != owed {
+		t.Fatalf("acknowledged %d of %d ticks", len(acks), owed)
+	}
+	for i, tick := range acks {
+		if tick != uint32(i+1) {
+			t.Fatalf("acknowledgement %d named tick %d", i, tick)
+		}
+	}
+	// Paced again: the next Pump keeps its reserve rather than running on.
+	if _, err := driver.Pump(); err != nil {
+		t.Fatal(err)
+	}
+	if s.Clock.GlobalTick > owed+3 {
+		t.Fatalf("play stayed fast after the target: tick %d", s.Clock.GlobalTick)
+	}
+}
+
 // A recording made under an older command schema still plays: the newer
 // schema decodes every older payload to the same command (DESIGN_MULTIPLAYER
 // §7.4.1). A newer schema than this build speaks is refused.

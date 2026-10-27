@@ -43,7 +43,7 @@ const (
 	hostedBacklogWriteTimeout = 30 * time.Second
 	// A dropped client keeps the orders and acknowledgements it could not
 	// send, to resend after resuming (§11.2).
-	hostedMaxUnconfirmed = 64
+	hostedMaxUnconfirmed = 256
 	hostedAckRing        = 64
 	hostedCredentialSize = 32
 )
