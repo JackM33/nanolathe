@@ -375,7 +375,7 @@ func TestMapRemoveRowsClipAndCapture(t *testing.T) {
 	p.FillTextListAt(1, []string{"retail", "downloaded", "downloaded too", "last"}, nil, 8)
 	g := &gameShell{cs: &contentSet{}, frontend: ui.NewFrontend(modeMenuMap)}
 	target := &modlibrary.Mod{}
-	g.mapRemovals = mapRemovalRows{panel: p, content: g.cs, targets: []*modlibrary.Mod{nil, target, target, target}}
+	g.mapRemovals = mapRemovalRows{panel: p, content: g.cs, logical: make([]string, 4), targets: []*modlibrary.Mod{nil, target, target, target}, rows: []int{0, 1, 2, 3}}
 	if _, ok := g.mapRemoveRowRect(p, 1, 0); ok {
 		t.Fatal("retail row has an X")
 	}

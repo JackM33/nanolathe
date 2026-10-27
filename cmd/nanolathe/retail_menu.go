@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -478,16 +479,24 @@ func (g *gameShell) refreshMapPanel() {
 	// order the retail implementation sorted them. Retail opens no map file to build the
 	// list — only the selected map's data is read, by the retail implementation — so this
 	// must not touch mapDataFor per row.
-	items := make([]string, len(g.maps))
-	copy(items, g.mapLabels)
-	for i := range items {
-		if items[i] == "" {
-			items[i] = g.maps[i]
-		}
+	//
+	// The search box keeps only the rows its query matches, in the same
+	// order, so a row is not the map's index: rows maps one to the other.
+	// The highlighted map stays highlighted while it still shows; otherwise
+	// the first match takes its place, and a search that matches nothing
+	// leaves no map highlighted (map_search.go).
+	rows := g.mapPickerRows(p)
+	selected := slices.Index(rows, g.mapIdx)
+	if selected < 0 && len(rows) != 0 {
+		selected, g.mapIdx = 0, rows[0]
 	}
-	g.setListItems("MAPNAMES", items, g.mapIdx)
-	g.refreshMapRemovalRows(p)
-	if len(g.maps) == 0 {
+	items := make([]string, len(rows))
+	for row, i := range rows {
+		items[row] = g.mapListLabel(i)
+	}
+	g.setListItems("MAPNAMES", items, selected)
+	g.refreshMapRemovalRows(p, rows)
+	if selected < 0 {
 		p.SetText("DESCRIPTION", "")
 		p.SetText("SIZE", "")
 		return

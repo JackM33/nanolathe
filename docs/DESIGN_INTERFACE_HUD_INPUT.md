@@ -4773,6 +4773,43 @@ title gate and the retail default. `TestCommunityHUDEverySwitchCommits` locks
 the switch: each HUD row writes only its own preference, and the click plays
 only the `Options` cue.
 
+### Map search
+
+The map picker (`SELMAP`, reached from the skirmish and Survival screens and
+from the online lobby's map button) has a one-line search box over its map
+list, a host presentation control the user asked for (2026-10-27) that
+reaches nothing in the simulation and applies in every gameplay mode
+(`map_search.go`). `installMapPickerSearch` takes the box's line from the
+top of the authored `MAPNAMES` rectangle, so it covers no window art or other
+control; the list and its scrollbar shrink by that line, and the box spans
+both, framed with the sunken bevel of a pressed button. It shows "Search
+maps" until clicked, as the community catalogue's box does. Typing filters
+the list live. A map matches when every typed word occurs in its list label
+or its file stem after both are reduced to their letters and digits,
+lowercased (`mapSearchRows`), so `Map Name`, `mapname` and `name map` all
+find `[V] Map name`, `[Jack's Maps] Map name` and `Map Name`, and `jack`
+finds only the second. The list keeps its sorted order. Because a row is no
+longer the map's index, every path that turns a row into a map — a click,
+the arrow keys, a double click, Load and each downloaded map's X — goes
+through the filtered rows. The highlighted map stays highlighted while it
+still shows; otherwise the first match is highlighted, and a search that
+matches nothing leaves the list, description and preview empty and Load
+inert. The battle's map changes only on Load or a double click, as before.
+While the box is being typed in, Up and Down move the highlight through the
+matches, Escape clears the search (with the box already empty it goes back,
+as Escape did before), and Enter only leaves the box, so closing an
+on-screen keyboard with its Enter key never picks a map. Choosing a map in
+the community catalogue clears the search so the chosen map shows; the
+catalogue keeps its own search box, and its rows' X now follows its filtered
+list in the same way. The box exists only in this picker: the Mods &
+Mutators windows load their own copy of `SELMAP`, never get it, and their
+lists are untouched.
+`TestMapSearchMatchesTaggedNames`, `TestMapPickerSearchFiltersAndChooses` and
+`TestMapRemoveRowsFollowSearchedRows` lock the matching, the row-to-map
+mapping and the keys; `TestRetailMapPickerSearch` opens the real picker,
+checks the box overlaps no authored control, and with
+`NANOLATHE_MAP_SEARCH_SHOT` set writes it as a PNG.
+
 ### Community map downloads
 
 The map selection screen offers **More maps** above its minimap, a user-authorized

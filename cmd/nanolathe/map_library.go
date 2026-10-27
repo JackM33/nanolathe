@@ -681,6 +681,9 @@ func (g *gameShell) selectLibraryMap(entry modfetch.Entry) error {
 		return &missingProductError{what: "installed map is unavailable", logical: entry.Map, providers: g.cs.roots, expected: "a selectable Network map"}
 	}
 	g.mapIdx = i
+	// The chosen map must show in the picker beneath, whatever its search
+	// box holds (map_search.go).
+	clearMapPickerSearch(g.frontend.Panels.Under())
 	g.closeMapsFetch()
 	// Selection returns to the ordinary map preview; Load keeps its existing
 	// explicit commit to the Skirmish or Survival setup.
@@ -702,7 +705,12 @@ func (g *gameShell) refreshMapsFetch() {
 	}
 	job := mapDownload.view()
 	state.mu.Lock()
-	defer func() { state.mu.Unlock(); g.refreshMapRemovalRows(p) }()
+	defer func() {
+		// The X of each row follows the filtered list, not the catalogue's order.
+		rows := slices.Clone(state.listRows)
+		state.mu.Unlock()
+		g.refreshMapRemovalRows(p, rows)
+	}()
 	// Filter and selection first: listRows maps the visible list to entry
 	// indices; the preview and details follow the selection, so a filter
 	// change that moves the selection restarts the preview too

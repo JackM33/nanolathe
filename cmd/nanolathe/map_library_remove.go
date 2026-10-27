@@ -124,16 +124,34 @@ func pathInsideMapPackage(root, filename string) bool {
 // Eligibility belongs to the mounted content and list identity. Selection,
 // scrolling and painting reuse it without scanning the filesystem. Confirmation
 // and deletion still revalidate the winning providers (DESIGN_MODS_MUTATORS §5.6).
+// Eligibility is kept for every map or catalogue entry, so a search that
+// changes which rows show only replaces rows, the list's row-to-entry map.
 type mapRemovalRows struct {
 	panel   *ui.Panel
 	content *contentSet
 	keys    []string
 	logical []string
 	targets []*modlibrary.Mod
+	rows    []int
 	pressed int // row + 1; zero is idle, -1 cancels until release
 }
 
-func (g *gameShell) refreshMapRemovalRows(p *ui.Panel) {
+// at is the map behind list row: its logical path and its removable package,
+// or a nil package when it has none.
+func (cache *mapRemovalRows) at(row int) (string, *modlibrary.Mod) {
+	if row < 0 || row >= len(cache.rows) {
+		return "", nil
+	}
+	i := cache.rows[row]
+	if i < 0 || i >= len(cache.targets) || i >= len(cache.logical) {
+		return "", nil
+	}
+	return cache.logical[i], cache.targets[i]
+}
+
+// refreshMapRemovalRows follows the list p shows: rows holds, for each list
+// row, its index among the picker's maps or the catalogue's entries.
+func (g *gameShell) refreshMapRemovalRows(p *ui.Panel, rows []int) {
 	if p == nil || p.Index("MAPNAMES") < 0 || g.cs == nil {
 		return
 	}
@@ -157,9 +175,14 @@ func (g *gameShell) refreshMapRemovalRows(p *ui.Panel) {
 	}
 	cache := &g.mapRemovals
 	if cache.panel == p && cache.content == g.cs && slices.Equal(cache.keys, keys) {
+		// A press on an X that a new search moved to another row is dropped.
+		if cache.pressed != 0 && !slices.Equal(cache.rows, rows) {
+			cache.pressed = -1
+		}
+		cache.rows = rows
 		return
 	}
-	*cache = mapRemovalRows{panel: p, content: g.cs, keys: keys, logical: logical, targets: make([]*modlibrary.Mod, len(logical))}
+	*cache = mapRemovalRows{panel: p, content: g.cs, keys: keys, logical: logical, targets: make([]*modlibrary.Mod, len(logical)), rows: rows}
 	if g.cs.manualRoots {
 		return
 	}
@@ -192,7 +215,7 @@ func (g *gameShell) refreshMapRemovalRows(p *ui.Panel) {
 // inside the list interior. The same rectangle controls drawing and clicks.
 func (g *gameShell) mapRemoveRowRect(p *ui.Panel, index, row int) (gui.Rect, bool) {
 	cache := &g.mapRemovals
-	if p == nil || cache.panel != p || cache.content != g.cs || index != p.Index("MAPNAMES") || row < 0 || row >= len(cache.targets) || cache.targets[row] == nil || !g.mapRemovalAllowed() {
+	if _, target := cache.at(row); p == nil || cache.panel != p || cache.content != g.cs || index != p.Index("MAPNAMES") || target == nil || !g.mapRemovalAllowed() {
 		return gui.Rect{}, false
 	}
 	_, _, top, ok := p.ListValuesAt(index)
@@ -237,7 +260,7 @@ func (g *gameShell) serviceMapRemovePointer(p *ui.Panel, frame ui.WidgetFrame) b
 	}
 	hit := func(x, y int32) int {
 		index := p.Index("MAPNAMES")
-		for row := range cache.targets {
+		for row := range cache.rows {
 			if r, ok := g.mapRemoveRowRect(p, index, row); ok && pointInRect(x, y, r) {
 				return row + 1
 			}
@@ -258,7 +281,7 @@ func (g *gameShell) serviceMapRemovePointer(p *ui.Panel, frame ui.WidgetFrame) b
 				cache.pressed = 0
 				consumed = true
 				if row > 0 && hit(event.X, event.Y) == row {
-					g.confirmMapRemoval(cache.logical[row-1], cache.targets[row-1])
+					g.confirmMapRemoval(cache.at(row - 1))
 				}
 			}
 		}

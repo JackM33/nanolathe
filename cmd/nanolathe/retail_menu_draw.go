@@ -168,6 +168,7 @@ func (g *gameShell) drawRetailWindow(c *client.Client, mode shellMode, p *ui.Pan
 		g.menuSparks.draw(c, p, int(r.X), int(r.Y))
 	}
 	g.drawOnlineExtras(c, p)
+	g.drawMapPickerSearchFrame(c, p)
 }
 
 // drawRetailModal draws the authored MSGBOX.GUI panel. Message text is bound
@@ -735,6 +736,10 @@ func (g *gameShell) drawRetailSurface(c *client.Client, p *ui.Panel, index int, 
 		return
 	}
 	if p != nil && p.Window != nil && p.Window.GadgetIndex("MAPPIC") == index && len(g.maps) != 0 && g.mapIdx >= 0 && g.mapIdx < len(g.maps) {
+		// A search that matches nothing leaves no map to picture.
+		if !mapPickerShowsSelection(p) {
+			return
+		}
 		if d := g.mapDataFor(g.maps[g.mapIdx]); d != nil && d.tnt != nil {
 			// Crop the authored padding, then map the usable terrain into a
 			// cleared and centred canvas [07 R-FE-01 §5].
