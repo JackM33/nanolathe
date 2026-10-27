@@ -170,6 +170,8 @@ func onlineRefusalText(err error) string {
 		return "Could not reach the server: " + onlineCause(text)
 	case has("logical path lobby,"):
 		return "You left the game."
+	case has("logical path room,", "a game that is still running"):
+		return "The game ended while you were away."
 	case has("logical path player,", "a player left"):
 		return "A player left the game."
 	case has("logical path reconnection,", "every dropped player back"):

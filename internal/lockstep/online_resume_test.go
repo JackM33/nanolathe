@@ -1,4 +1,4 @@
-package replay_test
+package lockstep_test
 
 import (
 	"context"

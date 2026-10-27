@@ -6708,8 +6708,9 @@ message rather than queueing them behind ticks the player cannot see.
 and acknowledgements, restarts from tick zero, ticket refusals and the grace,
 Leave, a stalled seat held rather than failed, the fallback to a version-8
 relay and the history bound; the version-8 contract tests pin version 8.
-`TestOnlineBattleSurvivesADropAndARestart` plays two real sessions through a
-real relay and a route the test cuts, resumes, restarts and rejoins one
+`TestOnlineBattleSurvivesADropAndARestart` (in `internal/lockstep`, the
+package that may open sockets) plays two real sessions through a real relay
+and a route the test cuts, resumes, restarts and rejoins one
 seat, and relies on the relay's checksum comparison to prove both seats
 computed the same match; `TestPacedDriverFastForwardRunsTheBacklog` locks the
 catch-up; `online_rejoin_test.go` the kept ticket, the chooser's Rejoin and

@@ -103,6 +103,7 @@ func TestOnlineReconnectWordsArePlain(t *testing.T) {
 		want string
 	}{
 		{relayRefusal("player", "every player to stay until the game ends; a player left"), "A player left the game"},
+		{relayRefusal("room", "a game that is still running"), "ended while you were away"},
 		{relayRefusal("reconnection", "every dropped player back within three minutes"), "did not come back within three minutes"},
 		{relayRefusal("reconnection", "the relay back within the rejoin window"), "Could not reconnect"},
 	} {
