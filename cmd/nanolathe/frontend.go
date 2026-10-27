@@ -942,6 +942,9 @@ func (g *gameShell) openMenuWithTokenFlush(mode shellMode, flushTokens bool) {
 			}
 			if mode == modeMenuMap {
 				installGetMapsButton(window)
+				// Only this picker gets the search box; the Mods & Mutators
+				// windows load their own SELMAP (map_search.go).
+				installMapPickerSearch(window)
 			}
 			if mode == modeMenuSingle {
 				addSurvivalButton(window)

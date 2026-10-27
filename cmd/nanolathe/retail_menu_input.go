@@ -76,6 +76,11 @@ func (g *gameShell) serviceMenuWidgets(p *ui.Panel, in *input.State) bool {
 			g.mapRemovals.pressed = -1
 		}
 	}
+	// The map picker's search box keeps Escape, Up and Down while it is
+	// typed in; its query before the pass tells the sync below whether the
+	// list must be rebuilt (map_search.go).
+	g.serviceMapPickerSearchKeys(p, in)
+	searchQuery := mapPickerQuery(p)
 	editorIndex := p.EditorIndex()
 	frame := pointerFrame(in, widgetTokens(in), g.widgetTimerAdvanced(p))
 	if g.serviceMapRemovePointer(p, frame) {
@@ -130,6 +135,7 @@ func (g *gameShell) serviceMenuWidgets(p *ui.Panel, in *input.State) bool {
 	if g.mapsFetchActive() {
 		g.syncMapsSearch(p)
 	}
+	g.syncMapPickerSearch(p, searchQuery)
 	if g.frontend.Mode == modeMenuSkirmish && editorIndex < 0 && !result.Fired && result.ConsumedTokens != 0 && len(frame.Tokens) != 0 && !g.survivalMenu && !g.onlineLobbyActive() {
 		g.skirmishPlayerCountToken(frame.Tokens[0])
 	}
@@ -284,7 +290,8 @@ func (g *gameShell) commitListSelection(name string, index int) {
 	}
 	switch {
 	case g.frontend.Mode == modeMenuMap && name == "MAPNAMES":
-		g.mapIdx = index
+		// A searched list's row is not the map's index (map_search.go).
+		g.mapIdx = g.mapPickerMap(g.activePanel(), index)
 		g.refreshRetailPanel()
 	case g.frontend.Mode == modeMenuMission && name == "Campaign":
 		g.campaignIdx = index
@@ -439,7 +446,8 @@ func (g *gameShell) activateGadget(name string) {
 		case "PREVMENU":
 			g.leaveMapPicker()
 		case "LOAD", "MAPNAMES":
-			if len(g.maps) != 0 && g.mapIdx >= 0 && g.mapIdx < len(g.maps) {
+			// A search that matches nothing leaves no map to load.
+			if len(g.maps) != 0 && g.mapIdx >= 0 && g.mapIdx < len(g.maps) && mapPickerShowsSelection(g.activePanel()) {
 				g.setSetupMap(g.maps[g.mapIdx])
 				g.saveSettings()
 				g.leaveMapPicker()
