@@ -125,6 +125,9 @@ func run(ctx context.Context, args []string, out io.Writer) error {
 			}
 			fmt.Fprintf(out, "Players nearby choose MULTI, then Server, and type: %s\n", server)
 		}
+		if len(ips) == 0 {
+			fmt.Fprintln(out, "No home network address was found. Connect this computer to the network, or look up its address (ipconfig on Windows, hostname -I on Linux) and type that in MULTI, then Server.")
+		}
 		if port == "39032" {
 			fmt.Fprintln(out, "On this computer you can also type: 127.0.0.1")
 		}
